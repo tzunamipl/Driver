@@ -147,17 +147,47 @@ function updateGauges() {
 const cameraOffset = new THREE.Vector3(0, 30, -20);
 const cameraLookOffset = new THREE.Vector3(0, 10.5, 10);
 const tmpVec = new THREE.Vector3();
+const tmpForward = new THREE.Vector3();
+const yawQuat = new THREE.Quaternion();
+const upVec = new THREE.Vector3(0, 1, 0);
+const smoothedLookAt = new THREE.Vector3();
+let smoothedLookAtInit = false;
 
-function updateCamera() {
+// Lower = smoother/slower camera pan, so crashes don't whip the camera around.
+const CAMERA_POSITION_SPEED = 2.5;
+const CAMERA_LOOKAT_SPEED = 3;
+
+function updateCamera(delta) {
   if (!chassisMesh) return;
   const carPos = chassisMesh.position;
   const carQuat = chassisMesh.quaternion;
 
-  tmpVec.copy(cameraOffset).applyQuaternion(carQuat).add(carPos);
-  camera.position.lerp(tmpVec, 0.1);
+  // Use only the car's yaw (heading) for the camera so pitch/roll from
+  // bumps or rolling doesn't tilt the camera off the horizontal plane.
+  tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
+  tmpForward.y = 0;
+  if (tmpForward.lengthSq() < 1e-8) tmpForward.set(0, 0, 1);
+  tmpForward.normalize();
+  const yaw = Math.atan2(tmpForward.x, tmpForward.z);
+  yawQuat.setFromAxisAngle(upVec, yaw);
 
-  const lookAt = cameraLookOffset.clone().applyQuaternion(carQuat).add(carPos);
-  camera.lookAt(lookAt);
+  // Frame-rate independent exponential smoothing, so panning speed stays
+  // consistent regardless of delta time (e.g. during rapid crash motion).
+  const posFactor = 1 - Math.exp(-CAMERA_POSITION_SPEED * delta);
+  const lookFactor = 1 - Math.exp(-CAMERA_LOOKAT_SPEED * delta);
+
+  tmpVec.copy(cameraOffset).applyQuaternion(yawQuat).add(carPos);
+  camera.position.lerp(tmpVec, posFactor);
+
+  const lookAt = cameraLookOffset.clone().applyQuaternion(yawQuat).add(carPos);
+  if (!smoothedLookAtInit) {
+    smoothedLookAt.copy(lookAt);
+    smoothedLookAtInit = true;
+  } else {
+    smoothedLookAt.lerp(lookAt, lookFactor);
+  }
+  camera.lookAt(smoothedLookAt);
+  camera.up.set(0, 1, 0);
 }
 
 // ---------- Resize ----------
@@ -215,7 +245,7 @@ function animate() {
   world.step(FIXED_STEP, delta, 5);
   preventGroundTunneling();
   syncMeshes();
-  updateCamera();
+  updateCamera(delta);
   updateGauges();
 
   if (chassisMesh) {
