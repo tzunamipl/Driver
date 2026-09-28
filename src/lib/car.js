@@ -73,11 +73,15 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
   THREE_scene.add(chassisMesh);
 
   const wheelMeshes = wheelPositions.map(() => {
+    const wheelGeometry = new THREE.CylinderGeometry(wheelOptions.radius, wheelOptions.radius, 0.3, 20);
+    // bake the axle rotation into the geometry: syncMeshes() overwrites the
+    // mesh quaternion every frame from vehicle physics, so a mesh.rotation
+    // set here would otherwise be discarded immediately.
+    wheelGeometry.rotateZ(Math.PI / 2);
     const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(wheelOptions.radius, wheelOptions.radius, 0.3, 20),
+      wheelGeometry,
       new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })
     );
-    mesh.rotation.x = Math.PI / 2;
     mesh.castShadow = true;
     THREE_scene.add(mesh);
     return mesh;
