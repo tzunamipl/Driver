@@ -23,6 +23,87 @@
         pointer-events: none;
         z-index: 10;
       }
+
+      #gauges {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        display: flex;
+        gap: 16px;
+        z-index: 10;
+        pointer-events: none;
+        font-family: monospace;
+        color: #fff;
+      }
+      .gauge {
+        position: relative;
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.55);
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        box-sizing: border-box;
+      }
+      .gauge-face {
+        position: absolute;
+        inset: 0;
+      }
+      .gauge-value {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 20px;
+        font-weight: bold;
+        text-shadow: 0 0 4px #000;
+      }
+      .gauge-label {
+        position: absolute;
+        top: 66%;
+        left: 50%;
+        transform: translate(-50%, 0);
+        font-size: 10px;
+        opacity: 0.8;
+      }
+      /* Speedometer needle: pivots from the gauge center, pointing up at 0. */
+      .gauge-needle {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 3px;
+        height: 48px;
+        background: #ff3b3b;
+        border-radius: 2px;
+        transform-origin: 50% 100%;
+        transform: translate(-50%, -100%) rotate(-90deg);
+        transition: transform 0.08s linear;
+      }
+      /* Compass dial rotates under a fixed pointer at top. */
+      .compass-face {
+        transition: transform 0.08s linear;
+      }
+      .compass-face .dir {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        font-size: 13px;
+        font-weight: bold;
+      }
+      .compass-face .dir.n { transform: translate(-50%, -50px); color: #ff5b5b; }
+      .compass-face .dir.e { transform: translate(-3px, -50%) rotate(90deg); transform-origin: left center; }
+      .compass-face .dir.s { transform: translate(-50%, 40px); }
+      .compass-face .dir.w { transform: translate(-50%, -50%) translateX(-52px); }
+      .compass-pointer {
+        position: absolute;
+        top: 4px;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 10px solid #fff;
+        transform: translateX(-50%);
+      }
     </style>
   </head>
   <body>
@@ -33,6 +114,26 @@
       A D / &larr; &rarr; &mdash; steer<br />
       Space &mdash; handbrake<br />
       R &mdash; reset car
+    </div>
+    <div id="gauges">
+      <div class="gauge" id="speedo">
+        <div class="gauge-face"></div>
+        <div class="gauge-needle" id="speedo-needle"></div>
+        <div class="gauge-value" id="speedo-value">0</div>
+        <div class="gauge-label">km/h</div>
+      </div>
+      <div class="gauge" id="compass">
+        <div class="gauge-face compass-face" id="compass-dial">
+          <span class="dir n">N</span>
+          <span class="dir e">E</span>
+          <span class="dir s">S</span>
+          <span class="dir w">W</span>
+        </div>
+        <div class="compass-pointer"></div>
+        <div class="gauge-value" id="compass-value" style="top: auto; bottom: 6px; transform: translateX(-50%); font-size: 12px;">
+          N &mdash; 0&deg;
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createPlaceholderMapTexture } from './lib/mapTexture.js';
 import { createCar } from './lib/car.js';
+import { TerrainManager } from './lib/terrain.js';
+
+// Real-world spawn location (Wroclaw city center). The terrain streams in
+// real aerial imagery + elevation around wherever the car currently is, so
+// you can drive anywhere on Earth from here - it's just the starting point.
+const ORIGIN_LAT = 51.1079;
+const ORIGIN_LON = 17.0385;
 
 // ---------- Renderer / Scene / Camera ----------
 const app = document.getElementById('app');
@@ -14,13 +20,13 @@ app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 60, 220);
+scene.fog = new THREE.Fog(0x87ceeb, 150, 900);
 
 const camera = new THREE.PerspectiveCamera(
   70,
   window.innerWidth / window.innerHeight,
   0.1,
-  500
+  1500
 );
 camera.position.set(0, 5, -8);
 
@@ -36,78 +42,50 @@ sun.shadow.camera.top = 100;
 sun.shadow.camera.bottom = -100;
 scene.add(sun);
 
-// ---------- Ground ("map" photo) ----------
-const mapTexture = createPlaceholderMapTexture();
-mapTexture.repeat.set(1, 1);
-
-const groundSize = 200;
-const groundMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(groundSize, groundSize),
-  new THREE.MeshStandardMaterial({ map: mapTexture })
-);
-groundMesh.rotation.x = -Math.PI / 2;
-groundMesh.receiveShadow = true;
-scene.add(groundMesh);
-
-// ---------- 3D detail props (solid placeholders) ----------
-const propMaterial = new THREE.MeshStandardMaterial({ color: 0x888888 });
-const props = [];
-const propLayout = [
-  [15, 1, 15],
-  [-20, 1.5, 25],
-  [30, 1, -18],
-  [-15, 2, -30],
-  [40, 1, 10],
-];
-propLayout.forEach(([x, h, z]) => {
-  const size = 2 + Math.random() * 2;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, h * 2, size), propMaterial);
-  mesh.position.set(x, h, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  props.push(mesh);
-});
-
 // ---------- Physics world ----------
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.defaultContactMaterial.friction = 0.05;
 
-const groundBody = new CANNON.Body({
-  mass: 0,
-  shape: new CANNON.Plane(),
-});
-groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-world.addBody(groundBody);
+// ---------- Real-world terrain (aerial imagery + elevation, streamed) ----------
+const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 
-// static physics boxes matching the visual props
-propLayout.forEach(([x, h, z], i) => {
-  const size = props[i].geometry.parameters.width;
-  const body = new CANNON.Body({ mass: 0 });
-  body.addShape(new CANNON.Box(new CANNON.Vec3(size / 2, h, size / 2)));
-  body.position.set(x, h, z);
-  world.addBody(body);
+const loadingEl = document.createElement('div');
+loadingEl.textContent = 'Loading real-world terrain\u2026';
+Object.assign(loadingEl.style, {
+  position: 'fixed',
+  inset: '0',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: '#87ceeb',
+  color: '#1a1a1a',
+  font: '600 20px system-ui, sans-serif',
+  zIndex: '10',
 });
+document.body.appendChild(loadingEl);
 
 // ---------- Car ----------
 // Start a few meters back along -Z (opposite of the car's forward +Z),
-// and rotate 180° so it faces the opposite direction on spawn.
-const START_POS = new CANNON.Vec3(0, 1, -5);
+// and rotate 180° so it faces the opposite direction on spawn. Y is a small
+// drop height above the (roughly zeroed) terrain at the origin; gravity
+// settles it onto the real ground once the chunk physics bodies are loaded.
+const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 START_QUAT.setFromEuler(0, Math.PI, 0);
-const { vehicle, chassisMesh, syncMeshes, reset } = createCar(world, scene, START_POS, START_QUAT);
+let vehicle, chassisMesh, syncMeshes, reset;
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
 window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
-const MAX_FORCE = 650;
+const MAX_FORCE = 300;
 const MAX_STEER = 0.5;
 const BRAKE_FORCE = 40;
 
 function updateControls() {
+  if (!vehicle) return;
   const forward = keys.has('KeyW') || keys.has('ArrowUp');
   const backward = keys.has('KeyS') || keys.has('ArrowDown');
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
@@ -131,12 +109,47 @@ function updateControls() {
   }
 }
 
+// ---------- Gauges (speedometer + compass) ----------
+const speedoNeedle = document.getElementById('speedo-needle');
+const speedoValue = document.getElementById('speedo-value');
+const compassDial = document.getElementById('compass-dial');
+const compassValue = document.getElementById('compass-value');
+
+const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const forwardVec = new THREE.Vector3();
+
+function updateGauges() {
+  if (!chassisMesh || !vehicle) return;
+
+  // Speed: physics velocity magnitude (m/s) -> km/h.
+  const v = vehicle.chassisBody.velocity;
+  const speedKmh = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6;
+  const clamped = Math.min(speedKmh, MAX_GAUGE_SPEED);
+  // Needle sweeps -90deg (0 km/h) to +90deg (MAX_GAUGE_SPEED).
+  const needleDeg = -90 + (clamped / MAX_GAUGE_SPEED) * 180;
+  speedoNeedle.style.transform = `translate(-50%, -100%) rotate(${needleDeg}deg)`;
+  speedoValue.textContent = Math.round(speedKmh);
+
+  // Heading: project the chassis' local forward axis onto the world XZ plane.
+  forwardVec.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
+  let headingDeg = THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, forwardVec.z));
+  headingDeg = (headingDeg + 360) % 360;
+
+  // Rotate the dial opposite the heading so the fixed top pointer always
+  // shows the direction the car is currently facing.
+  compassDial.style.transform = `rotate(${-headingDeg}deg)`;
+  const pointIndex = Math.round(headingDeg / 45) % 8;
+  compassValue.innerHTML = `${COMPASS_POINTS[pointIndex]} &mdash; ${Math.round(headingDeg)}&deg;`;
+}
+
 // ---------- Camera follow ----------
-const cameraOffset = new THREE.Vector3(0, 4, -8);
-const cameraLookOffset = new THREE.Vector3(0, 1, 3);
+const cameraOffset = new THREE.Vector3(0, 30, -20);
+const cameraLookOffset = new THREE.Vector3(0, 10.5, 10);
 const tmpVec = new THREE.Vector3();
 
 function updateCamera() {
+  if (!chassisMesh) return;
   const carPos = chassisMesh.position;
   const carQuat = chassisMesh.quaternion;
 
@@ -169,8 +182,21 @@ function animate() {
   world.step(FIXED_STEP, delta, 5);
   syncMeshes();
   updateCamera();
+  updateGauges();
+
+  if (chassisMesh) {
+    // Stream terrain chunks in/out as the car moves (cheap no-op if the
+    // player is still inside the currently-loaded tile).
+    terrain.update(chassisMesh.position.x, chassisMesh.position.z);
+  }
 
   renderer.render(scene, camera);
 }
 
-animate();
+// Load the initial terrain around the spawn point before starting the sim,
+// so the car never falls through an unloaded world.
+terrain.init().then(() => {
+  loadingEl.remove();
+  ({ vehicle, chassisMesh, syncMeshes, reset } = createCar(world, scene, START_POS, START_QUAT));
+  animate();
+});
