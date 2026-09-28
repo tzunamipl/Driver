@@ -6,7 +6,12 @@ import * as CANNON from 'cannon-es';
  * (suspension, wheel friction, acceleration) and a matching solid-box
  * Three.js mesh (no car model yet - solid placeholder as requested).
  */
-export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0, 1, 0)) {
+export function createCar(
+  world,
+  THREE_scene,
+  startPosition = new CANNON.Vec3(0, 1, 0),
+  startQuaternion = new CANNON.Quaternion(0, 0, 0, 1)
+) {
   // --- Chassis physics body ---
   const chassisWidth = 1.8;
   const chassisHeight = 0.6;
@@ -18,6 +23,7 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
   const chassisBody = new CANNON.Body({ mass: 150 });
   chassisBody.addShape(chassisShape);
   chassisBody.position.copy(startPosition);
+  chassisBody.quaternion.copy(startQuaternion);
   chassisBody.angularVelocity.set(0, 0, 0);
 
   // --- Vehicle ---
@@ -31,16 +37,16 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
   const wheelOptions = {
     radius: 0.4,
     directionLocal: new CANNON.Vec3(0, -1, 0),
-    suspensionStiffness: 55,
-    suspensionRestLength: 0.3,
+    suspensionStiffness: 30,
+    suspensionRestLength: 0.45,
     frictionSlip: 5,
-    dampingRelaxation: 2.3,
-    dampingCompression: 4.4,
+    dampingRelaxation: 2.8,
+    dampingCompression: 4.6,
     maxSuspensionForce: 100000,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
-    maxSuspensionTravel: 0.2,
+    maxSuspensionTravel: 0.45,
     customSlidingRotationalSpeed: -30,
     useCustomSlidingRotationalSpeed: true,
   };
@@ -99,11 +105,11 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
     });
   }
 
-  function reset(position = startPosition) {
+  function reset(position = startPosition, quaternion = startQuaternion) {
     chassisBody.position.copy(position);
     chassisBody.velocity.set(0, 0, 0);
     chassisBody.angularVelocity.set(0, 0, 0);
-    chassisBody.quaternion.set(0, 0, 0, 1);
+    chassisBody.quaternion.copy(quaternion);
   }
 
   return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, reset };

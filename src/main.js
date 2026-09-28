@@ -91,15 +91,19 @@ propLayout.forEach(([x, h, z], i) => {
 });
 
 // ---------- Car ----------
-const START_POS = new CANNON.Vec3(0, 1, 0);
-const { vehicle, chassisMesh, syncMeshes, reset } = createCar(world, scene, START_POS);
+// Start a few meters back along -Z (opposite of the car's forward +Z),
+// and rotate 180° so it faces the opposite direction on spawn.
+const START_POS = new CANNON.Vec3(0, 1, -5);
+const START_QUAT = new CANNON.Quaternion();
+START_QUAT.setFromEuler(0, Math.PI, 0);
+const { vehicle, chassisMesh, syncMeshes, reset } = createCar(world, scene, START_POS, START_QUAT);
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
 window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
-const MAX_FORCE = 1000;
+const MAX_FORCE = 650;
 const MAX_STEER = 0.5;
 const BRAKE_FORCE = 40;
 
@@ -123,7 +127,7 @@ function updateControls() {
   for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
   if (keys.has('KeyR')) {
-    reset(START_POS);
+    reset(START_POS, START_QUAT);
   }
 }
 
