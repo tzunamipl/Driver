@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Driver POC</title>
+    <style>
+      html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }
+      #app { width: 100vw; height: 100vh; }
+      canvas { display: block; }
+      #hud {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        color: #fff;
+        font-family: monospace;
+        font-size: 13px;
+        background: rgba(0,0,0,0.5);
+        padding: 8px 12px;
+        border-radius: 6px;
+        line-height: 1.5;
+        pointer-events: none;
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      W / &uarr; &mdash; throttle<br />
+      S / &darr; &mdash; brake / reverse<br />
+      A D / &larr; &rarr; &mdash; steer<br />
+      Space &mdash; handbrake<br />
+      R &mdash; reset car
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
