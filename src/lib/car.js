@@ -105,11 +105,29 @@ export function createCar(
     });
   }
 
-  function reset(position = startPosition, quaternion = startQuaternion) {
-    chassisBody.position.copy(position);
+  // With no arguments, rights the car where it currently is: keeps its
+  // current x/z position (and lifts it a bit above its current spot in case
+  // it landed on its roof/side) instead of teleporting back to the spawn
+  // point. Pass explicit position/quaternion to override that behavior.
+  function reset(position, quaternion) {
+    const targetPosition = position ?? chassisBody.position.clone();
+    if (!position) targetPosition.y += chassisHeight + 0.5;
+    const targetQuaternion = quaternion ?? uprightQuaternionPreservingHeading();
+
+    chassisBody.position.copy(targetPosition);
     chassisBody.velocity.set(0, 0, 0);
     chassisBody.angularVelocity.set(0, 0, 0);
-    chassisBody.quaternion.copy(quaternion);
+    chassisBody.quaternion.copy(targetQuaternion);
+  }
+
+  // Keeps the car's current heading (yaw) but zeroes out any roll/pitch,
+  // so an in-place reset rights a flipped car facing the same direction.
+  function uprightQuaternionPreservingHeading() {
+    const euler = new CANNON.Vec3();
+    chassisBody.quaternion.toEuler(euler);
+    const upright = new CANNON.Quaternion();
+    upright.setFromEuler(0, euler.y, 0);
+    return upright;
   }
 
   return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, reset };

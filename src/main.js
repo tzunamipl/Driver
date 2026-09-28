@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCar } from './lib/car.js';
-import { TerrainManager } from './lib/terrain.js';
+import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
 
 // Real-world spawn location (Wroclaw city center). The terrain streams in
 // real aerial imagery + elevation around wherever the car currently is, so
@@ -20,13 +20,13 @@ app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 150, 900);
+scene.fog = new THREE.Fog(0x87ceeb, 300, 2200);
 
 const camera = new THREE.PerspectiveCamera(
   70,
   window.innerWidth / window.innerHeight,
   0.1,
-  1500
+  3000
 );
 camera.position.set(0, 5, -8);
 
@@ -105,7 +105,7 @@ function updateControls() {
   for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
   if (keys.has('KeyR')) {
-    reset(START_POS, START_QUAT);
+    reset();
   }
 }
 
@@ -171,6 +171,39 @@ window.addEventListener('resize', () => {
 const FIXED_STEP = 1 / 60;
 let lastTime = performance.now();
 
+// Fast tumbling during a flip can move the chassis box far enough in a single
+// physics step that narrowphase collision with the terrain trimesh misses
+// entirely (classic tunneling), letting the car fall through the ground.
+// As a safety net, cast a ray straight down through the chassis every frame
+// and clamp it back above the terrain surface if it ever ends up embedded.
+const GROUND_RAY_FROM = new CANNON.Vec3();
+const GROUND_RAY_TO = new CANNON.Vec3();
+const groundRayResult = new CANNON.RaycastResult();
+const GROUND_RAY_HEIGHT = 50;
+const MIN_GROUND_CLEARANCE = 0.05;
+
+function preventGroundTunneling() {
+  if (!vehicle) return;
+  const pos = vehicle.chassisBody.position;
+  GROUND_RAY_FROM.set(pos.x, pos.y + GROUND_RAY_HEIGHT, pos.z);
+  GROUND_RAY_TO.set(pos.x, pos.y - GROUND_RAY_HEIGHT, pos.z);
+  groundRayResult.reset();
+  world.raycastClosest(
+    GROUND_RAY_FROM,
+    GROUND_RAY_TO,
+    { collisionFilterMask: GROUND_COLLISION_GROUP },
+    groundRayResult
+  );
+
+  if (groundRayResult.hasHit) {
+    const minY = groundRayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
+    if (pos.y < minY) {
+      pos.y = minY;
+      if (vehicle.chassisBody.velocity.y < 0) vehicle.chassisBody.velocity.y = 0;
+    }
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -180,6 +213,7 @@ function animate() {
 
   updateControls();
   world.step(FIXED_STEP, delta, 5);
+  preventGroundTunneling();
   syncMeshes();
   updateCamera();
   updateGauges();
