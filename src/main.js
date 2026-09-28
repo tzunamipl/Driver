@@ -72,7 +72,7 @@ propLayout.forEach(([x, h, z]) => {
 // ---------- Physics world ----------
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
-world.defaultContactMaterial.friction = 0.3;
+world.defaultContactMaterial.friction = 0.05;
 
 const groundBody = new CANNON.Body({
   mass: 0,
@@ -99,7 +99,7 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
-const MAX_FORCE = 900;
+const MAX_FORCE = 1000;
 const MAX_STEER = 0.5;
 const BRAKE_FORCE = 40;
 

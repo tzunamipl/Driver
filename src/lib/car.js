@@ -31,16 +31,16 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
   const wheelOptions = {
     radius: 0.4,
     directionLocal: new CANNON.Vec3(0, -1, 0),
-    suspensionStiffness: 30,
-    suspensionRestLength: 0.4,
-    frictionSlip: 1.4,
+    suspensionStiffness: 55,
+    suspensionRestLength: 0.3,
+    frictionSlip: 5,
     dampingRelaxation: 2.3,
     dampingCompression: 4.4,
     maxSuspensionForce: 100000,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
-    maxSuspensionTravel: 0.3,
+    maxSuspensionTravel: 0.2,
     customSlidingRotationalSpeed: -30,
     useCustomSlidingRotationalSpeed: true,
   };
@@ -48,12 +48,14 @@ export function createCar(world, THREE_scene, startPosition = new CANNON.Vec3(0,
   const axleWidth = chassisWidth / 2 - 0.1;
   const wheelFront = 1.3;
   const wheelBack = -1.3;
+  // attach wheels at the chassis underside (not the center) for pitch/roll stability
+  const wheelAttachY = -chassisHeight / 2;
 
   const wheelPositions = [
-    new CANNON.Vec3(-axleWidth, 0, wheelFront), // front-left
-    new CANNON.Vec3(axleWidth, 0, wheelFront), // front-right
-    new CANNON.Vec3(-axleWidth, 0, wheelBack), // rear-left
-    new CANNON.Vec3(axleWidth, 0, wheelBack), // rear-right
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelFront), // front-left
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelFront), // front-right
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelBack), // rear-left
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelBack), // rear-right
   ];
 
   wheelPositions.forEach((pos) => {
