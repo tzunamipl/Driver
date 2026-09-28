@@ -33,14 +33,18 @@ camera.position.set(0, 5, -8);
 // ---------- Lighting ----------
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-sun.position.set(50, 80, 30);
+const SUN_OFFSET = new THREE.Vector3(50, 80, 30);
+sun.position.copy(SUN_OFFSET);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -100;
 sun.shadow.camera.right = 100;
 sun.shadow.camera.top = 100;
 sun.shadow.camera.bottom = -100;
+sun.shadow.camera.near = 10;
+sun.shadow.camera.far = 300;
 scene.add(sun);
+scene.add(sun.target);
 
 // ---------- Physics world ----------
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
@@ -249,6 +253,12 @@ function animate() {
   updateGauges();
 
   if (chassisMesh) {
+    // Keep the sun (and its shadow frustum) centered on the car so shadows
+    // keep rendering as it drives away from the spawn point.
+    sun.position.copy(SUN_OFFSET).add(chassisMesh.position);
+    sun.target.position.copy(chassisMesh.position);
+    sun.target.updateMatrixWorld();
+
     // Stream terrain chunks in/out as the car moves (cheap no-op if the
     // player is still inside the currently-loaded tile).
     terrain.update(chassisMesh.position.x, chassisMesh.position.z);
