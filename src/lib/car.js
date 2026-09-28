@@ -17,11 +17,31 @@ export function createCar(
   const chassisHeight = 0.6;
   const chassisLength = 4;
 
-  const chassisShape = new CANNON.Box(
-    new CANNON.Vec3(chassisWidth / 2, chassisHeight / 2, chassisLength / 2)
-  );
+  // cannon-es's narrowphase only implements Sphere<->Trimesh collision, not
+  // Box<->Trimesh (ConvexPolyhedron<->Trimesh is unimplemented/commented out
+  // in the library). A single CANNON.Box shape therefore never actually
+  // collides with the real-world terrain (a Trimesh) - the car would only
+  // stay up via the wheels' raycasts, and a hard crash/rollover would fall
+  // straight through the ground. As a simplified hitbox, approximate the
+  // chassis box with a sphere at each of its 8 corners instead: spheres do
+  // collide with Trimesh, so the body can now physically hit the ground and
+  // tumble/roll when it flips, while still roughly matching the visible box.
+  const hitboxRadius = Math.min(chassisWidth, chassisHeight) / 2 - 0.05;
   const chassisBody = new CANNON.Body({ mass: 150 });
-  chassisBody.addShape(chassisShape);
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        chassisBody.addShape(
+          new CANNON.Sphere(hitboxRadius),
+          new CANNON.Vec3(
+            sx * (chassisWidth / 2 - hitboxRadius),
+            sy * (chassisHeight / 2 - hitboxRadius),
+            sz * (chassisLength / 2 - hitboxRadius)
+          )
+        );
+      }
+    }
+  }
   chassisBody.position.copy(startPosition);
   chassisBody.quaternion.copy(startQuaternion);
   chassisBody.angularVelocity.set(0, 0, 0);

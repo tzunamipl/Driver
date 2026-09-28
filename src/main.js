@@ -152,27 +152,44 @@ const cameraOffset = new THREE.Vector3(0, 30, -20);
 const cameraLookOffset = new THREE.Vector3(0, 10.5, 10);
 const tmpVec = new THREE.Vector3();
 const tmpForward = new THREE.Vector3();
+const tmpCarUp = new THREE.Vector3();
 const yawQuat = new THREE.Quaternion();
 const upVec = new THREE.Vector3(0, 1, 0);
 const smoothedLookAt = new THREE.Vector3();
 let smoothedLookAtInit = false;
+let lastYaw = 0;
 
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
 const CAMERA_POSITION_SPEED = 2.5;
 const CAMERA_LOOKAT_SPEED = 3;
+
+// Below this dot(carUp, worldUp) the car is considered "flipped" (on its
+// roof/side, tumbling mid-crash, etc.) - roughly more than ~60 degrees of
+// tilt. Projecting the forward vector to get a yaw becomes unstable/
+// meaningless once the car is that far from upright (it can spin the
+// camera rapidly during a barrel roll), so we just freeze the last good
+// yaw and hold the camera steady until the car is upright again.
+const FLIP_UP_DOT_THRESHOLD = 0.5;
 
 function updateCamera(delta) {
   if (!chassisMesh) return;
   const carPos = chassisMesh.position;
   const carQuat = chassisMesh.quaternion;
 
-  // Use only the car's yaw (heading) for the camera so pitch/roll from
-  // bumps or rolling doesn't tilt the camera off the horizontal plane.
-  tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
-  tmpForward.y = 0;
-  if (tmpForward.lengthSq() < 1e-8) tmpForward.set(0, 0, 1);
-  tmpForward.normalize();
-  const yaw = Math.atan2(tmpForward.x, tmpForward.z);
+  tmpCarUp.set(0, 1, 0).applyQuaternion(carQuat);
+  const isFlipped = tmpCarUp.dot(upVec) < FLIP_UP_DOT_THRESHOLD;
+
+  let yaw = lastYaw;
+  if (!isFlipped) {
+    // Use only the car's yaw (heading) for the camera so pitch/roll from
+    // bumps or rolling doesn't tilt the camera off the horizontal plane.
+    tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
+    tmpForward.y = 0;
+    if (tmpForward.lengthSq() < 1e-8) tmpForward.set(0, 0, 1);
+    tmpForward.normalize();
+    yaw = Math.atan2(tmpForward.x, tmpForward.z);
+    lastYaw = yaw;
+  }
   yawQuat.setFromAxisAngle(upVec, yaw);
 
   // Frame-rate independent exponential smoothing, so panning speed stays
