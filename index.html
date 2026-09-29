@@ -35,6 +35,83 @@
         font-family: monospace;
         color: #fff;
       }
+      #terrain-stats {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        color: #fff;
+        font-family: monospace;
+        font-size: 11px;
+        background: rgba(0,0,0,0.5);
+        padding: 8px 12px;
+        border-radius: 6px;
+        line-height: 1.4;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #terrain-stats .ts-text {
+        white-space: pre;
+        margin-bottom: 6px;
+      }
+      #terrain-stats .ts-compass-wrap {
+        display: grid;
+        grid-template-columns: 12px max-content 12px;
+        grid-template-rows: 12px max-content 12px;
+        gap: 3px;
+        align-items: center;
+        justify-items: center;
+      }
+      #terrain-stats .ts-dir {
+        opacity: 0.6;
+        font-size: 10px;
+      }
+      #terrain-stats .ts-dir.n { grid-column: 2; grid-row: 1; }
+      #terrain-stats .ts-dir.s { grid-column: 2; grid-row: 3; }
+      #terrain-stats .ts-dir.w { grid-column: 1; grid-row: 2; }
+      #terrain-stats .ts-dir.e { grid-column: 3; grid-row: 2; }
+      #terrain-stats .ts-grid {
+        grid-column: 2;
+        grid-row: 2;
+        display: grid;
+        gap: 1px;
+      }
+      #terrain-stats .ts-cell {
+        width: 14px;
+        height: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        border-radius: 2px;
+        box-sizing: border-box;
+      }
+      #terrain-stats .ts-cell.loaded { background: rgba(76, 175, 80, 0.55); }
+      #terrain-stats .ts-cell.pending { background: rgba(255, 193, 7, 0.6); color: #3a2a00; }
+      #terrain-stats .ts-cell.removing { background: rgba(244, 67, 54, 0.45); }
+      #terrain-stats .ts-cell.empty { background: rgba(255, 255, 255, 0.06); }
+      #terrain-stats .ts-cell.player {
+        background: #fff;
+        color: #111;
+        font-weight: bold;
+        box-shadow: 0 0 4px #fff;
+      }
+      #terrain-stats .ts-cell.ahead { outline: 2px solid #4fc3ff; outline-offset: -1px; }
+      #terrain-stats .ts-legend {
+        margin-top: 6px;
+        opacity: 0.85;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 10px;
+      }
+      #terrain-stats .ts-legend span.swatch {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        margin-right: 3px;
+        vertical-align: middle;
+      }
       .gauge {
         position: relative;
         width: 120px;
@@ -113,8 +190,10 @@
       S / &darr; &mdash; brake / reverse<br />
       A D / &larr; &rarr; &mdash; steer<br />
       Space &mdash; handbrake<br />
-      R &mdash; reset car
+      R &mdash; reset car<br />
+      M &mdash; toggle debug view
     </div>
+    <div id="terrain-stats"></div>
     <div id="gauges">
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>

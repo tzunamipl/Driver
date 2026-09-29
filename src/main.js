@@ -70,13 +70,11 @@ Object.assign(loadingEl.style, {
 document.body.appendChild(loadingEl);
 
 // ---------- Car ----------
-// Start a few meters back along -Z (opposite of the car's forward +Z),
-// and rotate 180° so it faces the opposite direction on spawn. Y is a small
-// drop height above the (roughly zeroed) terrain at the origin; gravity
+// Start a few meters back along -Z (opposite of the car's forward +Z). Y is a
+// small drop height above the (roughly zeroed) terrain at the origin; gravity
 // settles it onto the real ground once the chunk physics bodies are loaded.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
-START_QUAT.setFromEuler(0, Math.PI, 0);
 let vehicle, chassisMesh, syncMeshes, reset;
 
 // ---------- Keyboard controls ----------
@@ -118,6 +116,24 @@ const speedoNeedle = document.getElementById('speedo-needle');
 const speedoValue = document.getElementById('speedo-value');
 const compassDial = document.getElementById('compass-dial');
 const compassValue = document.getElementById('compass-value');
+const terrainStatsEl = document.getElementById('terrain-stats');
+
+// ---------- Debug visuals toggle (tile stats HUD + 3D tile borders) ----------
+// On by default; press M to hide/show both together while driving.
+let debugVisualsEnabled = true;
+
+function setDebugVisualsEnabled(enabled) {
+  debugVisualsEnabled = enabled;
+  terrainStatsEl.style.display = enabled ? '' : 'none';
+  terrain.setBordersVisible(enabled);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM' && !e.repeat) setDebugVisualsEnabled(!debugVisualsEnabled);
+});
+
+setDebugVisualsEnabled(debugVisualsEnabled);
+
 
 const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -146,6 +162,92 @@ function updateGauges() {
   const pointIndex = Math.round(headingDeg / 45) % 8;
   compassValue.innerHTML = `${COMPASS_POINTS[pointIndex]} &mdash; ${Math.round(headingDeg)}&deg;`;
 }
+
+// ---------- Terrain stats HUD (memory usage + tile streaming map) ----------
+// 8-direction lookup, ordered to match on-screen layout: grid columns are
+// tile-x (world +x/east, left->right) and grid rows are tile-y (world
+// +z/south, top->bottom) - see geo.js. So a direction's (dx, dy) here maps
+// 1:1 onto how many cells to step right/down in the rendered grid, and the
+// arrow glyphs point the same way on screen as the car is actually heading.
+const DIRECTIONS = [
+  { dx: 0, dy: -1, arrow: '\u2191' }, // N (up)
+  { dx: 1, dy: -1, arrow: '\u2197' }, // NE
+  { dx: 1, dy: 0, arrow: '\u2192' }, // E (right)
+  { dx: 1, dy: 1, arrow: '\u2198' }, // SE
+  { dx: 0, dy: 1, arrow: '\u2193' }, // S (down)
+  { dx: -1, dy: 1, arrow: '\u2199' }, // SW
+  { dx: -1, dy: 0, arrow: '\u2190' }, // W (left)
+  { dx: -1, dy: -1, arrow: '\u2196' }, // NW
+];
+
+let statsAccum = 0;
+const STATS_UPDATE_INTERVAL = 0.25; // seconds; DOM updates don't need to happen every frame
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Snaps the car's current world-space forward vector to one of 8 compass directions. */
+function headingDirection() {
+  const angleDeg =
+    (THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, -forwardVec.z)) + 360) % 360;
+  const index = Math.round(angleDeg / 45) % 8;
+  return DIRECTIONS[index];
+}
+
+function updateTerrainStats(delta) {
+  if (!debugVisualsEnabled) return;
+  statsAccum += delta;
+  if (statsAccum < STATS_UPDATE_INTERVAL) return;
+  statsAccum = 0;
+
+  const s = terrain.getStats();
+  const dir = headingDirection();
+  const aheadTx = s.center.tx + dir.dx;
+  const aheadTy = s.center.ty + dir.dy;
+
+  const textLines = [
+    'TERRAIN',
+    `loaded: ${s.loaded}  loading: ${s.pending}  removing: ${s.pendingRemoval}`,
+    `created: ${s.created}  removed: ${s.removed}`,
+    `~memory: ${formatBytes(s.memoryBytes)}`,
+    `ahead: ${aheadTx},${aheadTy}`,
+  ];
+
+  const cols = s.grid[0].length;
+  terrainStatsEl.innerHTML =
+    `<div class="ts-text">${textLines.join('\n')}</div>` +
+    `<div class="ts-compass-wrap">` +
+    `<span class="ts-dir n">N</span><span class="ts-dir s">S</span>` +
+    `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
+    `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 14px)">` +
+    s.grid
+      .map((row, ry) =>
+        row
+          .map((state, rx) => {
+            const isPlayer = state === 'player';
+            const cellState = isPlayer ? 'loaded' : state;
+            const isAhead = ry - s.radius === dir.dy && rx - s.radius === dir.dx;
+            const classes = ['ts-cell', cellState];
+            if (isPlayer) classes.push('player');
+            if (isAhead) classes.push('ahead');
+            const glyph = isPlayer ? dir.arrow : '';
+            return `<span class="${classes.join(' ')}">${glyph}</span>`;
+          })
+          .join('')
+      )
+      .join('') +
+    `</div></div>` +
+    `<div class="ts-legend">` +
+    `<span><span class="swatch" style="background:rgba(76,175,80,0.7)"></span>loaded</span>` +
+    `<span><span class="swatch" style="background:rgba(255,193,7,0.7)"></span>planned</span>` +
+    `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>removing</span>` +
+    `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
+    `<span>${dir.arrow} you / ahead highlighted</span>` +
+    `</div>`;
+}
+
 
 // ---------- Camera follow ----------
 const cameraOffset = new THREE.Vector3(0, 30, -20);
@@ -268,6 +370,7 @@ function animate() {
   syncMeshes();
   updateCamera(delta);
   updateGauges();
+  updateTerrainStats(delta);
 
   if (chassisMesh) {
     // Keep the sun (and its shadow frustum) centered on the car so shadows
