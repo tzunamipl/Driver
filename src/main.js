@@ -269,7 +269,7 @@ function updateTerrainStats(delta) {
   if (b.usingCachedData) {
     textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
   } else if (b.regionFailed) {
-    textLines.push(`buildings: OSM/Overpass unreachable (network blocked?), retrying\u2026`);
+    textLines.push(`buildings: tile service unreachable (network blocked?), retrying\u2026`);
     if (b.lastError) textLines.push(`  ${b.lastError.slice(0, 60)}`);
   }
 
@@ -627,8 +627,8 @@ function animate() {
 // Load the initial terrain around the spawn point before starting the sim,
 // so the car never falls through an unloaded world. Buildings stream in
 // via the same per-frame animate() call once the car exists (see the
-// buildings.update() call above) - not awaited here, since Overpass is
-// slower/less reliable than the aerial/elevation tile sources and
+// buildings.update() call above) - not awaited here, since building tiles
+// are slower/less critical than the aerial/elevation tile sources and
 // terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
