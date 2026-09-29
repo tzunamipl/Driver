@@ -5,9 +5,10 @@ Setup:
 npm install
 ```
 
-No API keys or accounts needed — both data sources are free and keyless:
-aerial imagery from Esri World Imagery, and elevation from AWS Terrarium
-tiles (Mapzen's open elevation dataset, mirrored as a public S3 bucket).
+No API keys or accounts needed — all data sources are free and keyless:
+aerial imagery from Esri World Imagery, elevation from AWS Terrarium tiles
+(Mapzen's open elevation dataset, mirrored as a public S3 bucket), and
+3D building footprints from OpenStreetMap via the public Overpass API.
 
 Elevation fetch failures (network hiccups, a tile genuinely missing, etc.)
 don't remove terrain from view: `TerrainManager` falls back to a flat (y=0)
@@ -90,6 +91,60 @@ detail- and far-tier loaded/loading/removing counts and estimated memory
 separately; the on-screen tile map only visualizes the detail tier, since
 the far tier's footprint (100+ tiles) is too large to usefully render as a
 grid.
+
+## 3D buildings
+
+`BuildingsManager` (`src/lib/buildings.js`) extrudes real building
+footprints on top of the terrain, using free, keyless OpenStreetMap data via
+the public **Overpass API** (`https://overpass-api.de/api/interpreter`, with
+`overpass.kumi.systems`/`overpass.openstreetmap.ru` as fallback mirrors) - no
+account/token needed. The query itself must be sent as a `data=`-encoded
+POST form field (matching Overpass's own documented usage), not a raw body -
+the latter can be silently mis-parsed by the server, which looks
+indistinguishable from "no buildings here". It asks for every `building=*`
+way (`out geom;`, so OSM returns each way's footprint ring as inline lat/lon
+points - no separate node-resolution pass needed), then extrudes each
+footprint up to its height:
+
+- Explicit OSM `height` tag (meters) if present.
+- Otherwise `building:levels` × 3m/level.
+- Otherwise a flat 6m (~2 storeys) default.
+
+**One region query, not one per tile.** An earlier version fired a separate
+Overpass request per terrain tile (~13 at once around the player) - public
+Overpass instances rate-/slot-limit by source IP, and that many
+near-simultaneous requests reliably tripped it after the first batch (looked
+like "buildings worked once, then silently stopped"). Instead, a single
+query covers a whole neighborhood of tiles at once (the detail tier's keep
+radius plus a buffer, `REGION_MARGIN_TILES`); returned buildings are
+bucketed locally by which tile their centroid falls in. Moving around
+inside an already-fetched region costs zero extra requests - a new region
+is only fetched once the player nears its edge, and a failed fetch retries
+automatically after a cooldown (`REGION_RETRY_COOLDOWN_MS`) rather than
+requiring the player to cross into a new tile to retry.
+
+Per-tile chunks (mesh + physics) are still built/torn down on **the same
+tile grid, circular radius, and staged-unload delay** as the terrain detail
+tier (`DETAIL_ZOOM` / `DETAIL_RADIUS` / `UNLOAD_MARGIN` /
+`UNLOAD_DELAY_TICKS`, all imported from `terrain.js` rather than
+duplicated) - it's just the network fetch that's decoupled from that grid.
+All buildings in a tile are merged into one `THREE.BufferGeometry` for
+rendering, but get individual `CANNON.Box` physics bodies (sized to each
+footprint's axis-aligned bounding box) on a dedicated collision group, so
+the car can crash into them without being confused for "ground" by the
+anti-tunneling raycast. Each building's base height is sampled by
+raycasting straight down through the already-loaded terrain physics, so it
+sits flush with the (possibly sloped) ground under it rather than floating
+or sinking.
+
+A single malformed building element (bad/missing geometry, a triangulation
+failure on a weird self-intersecting footprint) is skipped and logged
+(check the browser console for `Buildings region ...` / `Skipping one
+malformed ...` lines when debugging) rather than aborting the whole region.
+Known POC limitations: only simple ways are queried (multipolygon-relation
+buildings with holes/complex shapes are skipped), every roof is flat, and a
+single region query is capped at `MAX_ELEMENTS_PROCESSED` elements so an
+extremely dense city center doesn't stall the main thread.
 
 ## Debug visuals (press M to toggle)
 

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCar } from './lib/car.js';
-import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
+import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
+import { BuildingsManager } from './lib/buildings.js';
+import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
 
 // Real-world spawn location (Wroclaw city center). The terrain streams in
 // real aerial imagery + elevation around wherever the car currently is, so
@@ -66,6 +68,15 @@ world.defaultContactMaterial.friction = 0.05;
 
 // ---------- Real-world terrain (aerial imagery + elevation, streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+// ---------- 3D buildings (OpenStreetMap footprints, streamed) ----------
+const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+// Tracks whichever lat/lon the local (0,0) origin currently represents -
+// starts at ORIGIN_LAT/LON but is repointed by the address search flow
+// (terrain.recenter / buildings.recenter) whenever the car respawns
+// elsewhere. Needed to convert the car's local position back to lat/lon
+// for building-tile streaming (see animate()) after a respawn.
+let currentOriginLat = ORIGIN_LAT;
+let currentOriginLon = ORIGIN_LON;
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -245,6 +256,7 @@ function updateTerrainStats(delta) {
   const aheadTx = s.center.tx + dir.dx;
   const aheadTy = s.center.ty + dir.dy;
 
+  const b = buildings.getStats();
   const textLines = [
     'TERRAIN',
     `detail: ${s.loaded} loaded  ${s.pending} loading  ${s.pendingRemoval} removing`,
@@ -252,7 +264,14 @@ function updateTerrainStats(delta) {
     `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
     `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
     `ahead: ${aheadTx},${aheadTy}`,
+    `buildings: ${b.buildings} in ${b.loaded} tiles${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
   ];
+  if (b.usingCachedData) {
+    textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
+  } else if (b.regionFailed) {
+    textLines.push(`buildings: OSM/Overpass unreachable (network blocked?), retrying\u2026`);
+    if (b.lastError) textLines.push(`  ${b.lastError.slice(0, 60)}`);
+  }
 
   const cols = s.grid[0].length;
   terrainStatsEl.innerHTML =
@@ -361,8 +380,13 @@ const CAMERA_YAW_SPEED = 6;
 // yaw and hold the camera steady until the car is upright again.
 const FLIP_UP_DOT_THRESHOLD = 0.5;
 
+// Below this horizontal speed (m/s) the velocity direction is too noisy/
+// undefined (e.g. standing still, or barely rolling) to aim the camera at,
+// so we fall back to the chassis heading instead.
+const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
+
 function updateCamera(delta) {
-  if (!chassisMesh) return;
+  if (!chassisMesh || !vehicle) return;
   const carPos = chassisMesh.position;
   const carQuat = chassisMesh.quaternion;
 
@@ -371,10 +395,20 @@ function updateCamera(delta) {
 
   let yaw = lastYaw;
   if (!isFlipped) {
-    // Use only the car's yaw (heading) for the camera so pitch/roll from
-    // bumps or rolling doesn't tilt the camera off the horizontal plane.
-    tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
-    tmpForward.y = 0;
+    // Point the camera where the car is actually moving (its velocity
+    // direction) rather than where it's heading (its forward axis), so
+    // e.g. sliding/drifting sideways or reversing looks correct. Only the
+    // horizontal (XZ) component is used - pitch/roll from bumps or rolling
+    // must never tilt the camera off the horizontal plane (no-roll rule).
+    const vel = vehicle.chassisBody.velocity;
+    tmpForward.set(vel.x, 0, vel.z);
+    if (tmpForward.lengthSq() < CAMERA_MIN_SPEED_FOR_VELOCITY_YAW * CAMERA_MIN_SPEED_FOR_VELOCITY_YAW) {
+      // Too slow for velocity direction to be meaningful - use the car's
+      // facing direction instead so the camera doesn't spin/jitter at
+      // near-zero speed.
+      tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
+      tmpForward.y = 0;
+    }
     if (tmpForward.lengthSq() < 1e-8) tmpForward.set(0, 0, 1);
     tmpForward.normalize();
     yaw = Math.atan2(tmpForward.x, tmpForward.z);
@@ -466,6 +500,14 @@ addressForm.addEventListener('submit', async (e) => {
     const { lat, lon } = await geocodeAddress(query);
     setAddressStatus('Loading terrain at new location\u2026');
     await terrain.recenter(lat, lon);
+    buildings.recenter(lat, lon);
+    currentOriginLat = lat;
+    currentOriginLon = lon;
+    await buildings.update(
+      Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+      Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+      true
+    );
     if (reset) reset(START_POS, START_QUAT);
     setAddressStatus(`Respawned at "${query}"`);
     setTimeout(() => setAddressStatus(''), 3000);
@@ -563,13 +605,31 @@ function animate() {
     // Stream terrain chunks in/out as the car moves (cheap no-op if the
     // player is still inside the currently-loaded tile).
     terrain.update(chassisMesh.position.x, chassisMesh.position.z);
+
+    // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
+    // detail tier; compute the current tile center the same way
+    // TerrainManager.update() does internally so the two stay aligned.
+    const { lat: carLat, lon: carLon } = localToLatLon(
+      chassisMesh.position.x,
+      chassisMesh.position.z,
+      currentOriginLat,
+      currentOriginLon
+    );
+    buildings.update(
+      Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
+      Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
+    );
   }
 
   renderer.render(scene, camera);
 }
 
 // Load the initial terrain around the spawn point before starting the sim,
-// so the car never falls through an unloaded world.
+// so the car never falls through an unloaded world. Buildings stream in
+// via the same per-frame animate() call once the car exists (see the
+// buildings.update() call above) - not awaited here, since Overpass is
+// slower/less reliable than the aerial/elevation tile sources and
+// terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
   ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(world, scene, START_POS, START_QUAT));
