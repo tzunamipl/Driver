@@ -88,7 +88,7 @@ document.body.appendChild(loadingEl);
 // settles it onto the real ground once the chunk physics bodies are loaded.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
-let vehicle, chassisMesh, syncMeshes, reset;
+let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset;
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
@@ -337,10 +337,18 @@ const upVec = new THREE.Vector3(0, 1, 0);
 const smoothedLookAt = new THREE.Vector3();
 let smoothedLookAtInit = false;
 let lastYaw = 0;
+let smoothedYaw = 0;
+let smoothedYawInit = false;
 
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
 const CAMERA_POSITION_SPEED = 2.5;
 const CAMERA_LOOKAT_SPEED = 3;
+// Raw yaw (from the chassis quaternion) carries small high-frequency noise
+// from suspension/wheel-contact vibration, which gets amplified a lot by
+// the long camera offset (~36 units) into visible high-speed jitter. Smooth
+// the yaw angle itself (not just the final position) to filter that noise
+// out while still turning briskly with real heading changes.
+const CAMERA_YAW_SPEED = 6;
 
 // Below this dot(carUp, worldUp) the car is considered "flipped" (on its
 // roof/side, tumbling mid-crash, etc.) - roughly more than ~60 degrees of
@@ -369,7 +377,20 @@ function updateCamera(delta) {
     yaw = Math.atan2(tmpForward.x, tmpForward.z);
     lastYaw = yaw;
   }
-  yawQuat.setFromAxisAngle(upVec, yaw);
+
+  // Smooth the yaw angle itself (shortest-path, wrap-safe) instead of using
+  // the raw per-frame value directly - this is what actually decouples the
+  // camera from small heading vibrations instead of just smoothing the
+  // already-noisy rotated offset.
+  if (!smoothedYawInit) {
+    smoothedYaw = yaw;
+    smoothedYawInit = true;
+  } else {
+    const yawDiff = Math.atan2(Math.sin(yaw - smoothedYaw), Math.cos(yaw - smoothedYaw));
+    const yawFactor = 1 - Math.exp(-CAMERA_YAW_SPEED * delta);
+    smoothedYaw += yawDiff * yawFactor;
+  }
+  yawQuat.setFromAxisAngle(upVec, smoothedYaw);
 
   // Frame-rate independent exponential smoothing, so panning speed stays
   // consistent regardless of delta time (e.g. during rapid crash motion).
@@ -456,7 +477,9 @@ addressForm.addEventListener('submit', async (e) => {
 
 // ---------- Main loop ----------
 const FIXED_STEP = 1 / 60;
+const MAX_SUBSTEPS = 5;
 let lastTime = performance.now();
+let accumulator = 0;
 
 // Fast tumbling during a flip can move the chassis box far enough in a single
 // physics step that narrowphase collision with the terrain trimesh misses
@@ -495,16 +518,36 @@ function animate() {
   requestAnimationFrame(animate);
 
   const now = performance.now();
-  const delta = Math.min((now - lastTime) / 1000, 0.1);
+  const frameDelta = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
   updateControls();
-  world.step(FIXED_STEP, delta, 5);
-  preventGroundTunneling();
-  syncMeshes();
-  updateCamera(delta);
+
+  // Advance physics in fixed-size steps (accumulator pattern) instead of a
+  // single variable-size world.step() call. requestAnimationFrame deltas
+  // rarely divide evenly into FIXED_STEP, so letting cannon-es pick its own
+  // substep count each frame makes that count flicker (e.g. 1, 1, 2, 1...),
+  // which reads as jitter/stutter at high speed even though the underlying
+  // motion is smooth. Stepping fixed-size chunks ourselves and interpolating
+  // the render transform (see snapshotPhysics/syncMeshes) removes that.
+  accumulator += frameDelta;
+  let substeps = 0;
+  while (accumulator >= FIXED_STEP && substeps < MAX_SUBSTEPS) {
+    world.step(FIXED_STEP);
+    preventGroundTunneling();
+    if (snapshotPhysics) snapshotPhysics();
+    accumulator -= FIXED_STEP;
+    substeps++;
+  }
+  // If we're badly lagging (hit MAX_SUBSTEPS), drop the remainder instead of
+  // letting it snowball into a "spiral of death" of ever-growing catch-up.
+  if (accumulator > FIXED_STEP) accumulator = accumulator % FIXED_STEP;
+
+  const alpha = accumulator / FIXED_STEP;
+  if (syncMeshes) syncMeshes(alpha);
+  updateCamera(frameDelta);
   updateGauges();
-  updateTerrainStats(delta);
+  updateTerrainStats(frameDelta);
   updateSuspensionHud();
 
   if (chassisMesh) {
@@ -526,6 +569,6 @@ function animate() {
 // so the car never falls through an unloaded world.
 terrain.init().then(() => {
   loadingEl.remove();
-  ({ vehicle, chassisMesh, syncMeshes, reset } = createCar(world, scene, START_POS, START_QUAT));
+  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(world, scene, START_POS, START_QUAT));
   animate();
 });
