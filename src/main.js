@@ -12,7 +12,11 @@ const ORIGIN_LON = 17.0385;
 // ---------- Renderer / Scene / Camera ----------
 const app = document.getElementById('app');
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// Logarithmic depth buffer: needed because the view now spans from ~0.1m
+// (car interior/wheels) out to the far-LOD terrain tier tens of km away
+// (see terrain.js FAR_RADIUS_METERS) - a standard depth buffer doesn't have
+// enough precision across that range and would z-fight badly at distance.
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -20,15 +24,24 @@ app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 300, 2200);
+// Exponential-squared fog: unlike a linear Fog with a hard far cutoff, this
+// fades gradually and asymptotically - near the car it's barely noticeable
+// (so nearby detail stays crisp), while it naturally swallows the far-LOD
+// terrain into the sky color by tens of km out, mimicking real atmospheric
+// haze instead of hard-clipping distant terrain out of view entirely.
+scene.fog = new THREE.FogExp2(0x87ceeb, 0.00005);
 
 const camera = new THREE.PerspectiveCamera(
   70,
   window.innerWidth / window.innerHeight,
   0.1,
-  3000
+  // Far plane must reach past the far-LOD terrain tier's radius (see
+  // terrain.js FAR_RADIUS_METERS = 150km) or that whole tier gets
+  // frustum-culled and is never rendered no matter how the fog is tuned.
+  160_000
 );
 camera.position.set(0, 5, -8);
+
 
 // ---------- Lighting ----------
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -117,6 +130,15 @@ const speedoValue = document.getElementById('speedo-value');
 const compassDial = document.getElementById('compass-dial');
 const compassValue = document.getElementById('compass-value');
 const terrainStatsEl = document.getElementById('terrain-stats');
+const suspensionHudEl = document.getElementById('suspension-hud');
+
+// Wheel order matches vehicle.wheelInfos indices (see car.js: front-left,
+// front-right, rear-left, rear-right).
+const SUSPENSION_WHEELS = ['fl', 'fr', 'rl', 'rr'].map((key) => ({
+  key,
+  fill: document.getElementById(`susp-${key}-fill`),
+  val: document.getElementById(`susp-${key}-val`),
+}));
 
 // ---------- Debug visuals toggle (tile stats HUD + 3D tile borders) ----------
 // On by default; press M to hide/show both together while driving.
@@ -125,6 +147,7 @@ let debugVisualsEnabled = true;
 function setDebugVisualsEnabled(enabled) {
   debugVisualsEnabled = enabled;
   terrainStatsEl.style.display = enabled ? '' : 'none';
+  suspensionHudEl.style.display = enabled ? '' : 'none';
   terrain.setBordersVisible(enabled);
 }
 
@@ -209,9 +232,10 @@ function updateTerrainStats(delta) {
 
   const textLines = [
     'TERRAIN',
-    `loaded: ${s.loaded}  loading: ${s.pending}  removing: ${s.pendingRemoval}`,
-    `created: ${s.created}  removed: ${s.removed}`,
-    `~memory: ${formatBytes(s.memoryBytes)}`,
+    `detail: ${s.loaded} loaded  ${s.pending} loading  ${s.pendingRemoval} removing`,
+    `far:    ${s.far.loaded} loaded  ${s.far.pending} loading  ${s.far.pendingRemoval} removing`,
+    `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
+    `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
     `ahead: ${aheadTx},${aheadTy}`,
   ];
 
@@ -246,6 +270,47 @@ function updateTerrainStats(delta) {
     `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
     `<span>${dir.arrow} you / ahead highlighted</span>` +
     `</div>`;
+}
+
+/**
+ * Colors a suspension bar by how hard the spring is working: blue for
+ * normal travel, yellow as it approaches full compression, red once it's
+ * essentially bottomed out (spring at/near its max travel limit).
+ */
+function suspensionColor(compressionFrac) {
+  if (compressionFrac > 0.85) return '#ff5b5b';
+  if (compressionFrac > 0.6) return '#ffce4f';
+  return '#4fc3ff';
+}
+
+/**
+ * Updates the bottom-left suspension HUD: one vertical bar per wheel
+ * showing live spring travel, read straight from each wheel's Cannon-es
+ * WheelInfo. A bar's fill height is 0% at full droop (fully extended) and
+ * 100% at full compression (bottomed out), with a rest-length marker line
+ * fixed at 50% - so the fill visibly moves up as a wheel loads/compresses
+ * (cornering, braking, bumps) and down as it unloads/droops (cresting a
+ * bump, airborne). Wheels not currently touching the ground are dimmed and
+ * shown resting at the midpoint, since cannon-es reports their suspension
+ * as fully extended (no ground to push back against) while airborne.
+ */
+function updateSuspensionHud() {
+  if (!debugVisualsEnabled || !vehicle) return;
+
+  vehicle.wheelInfos.forEach((wheel, i) => {
+    const { fill, val } = SUSPENSION_WHEELS[i];
+    const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;
+    const maxLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel;
+    const span = maxLength - minLength || 1;
+    const clampedLength = Math.min(maxLength, Math.max(minLength, wheel.suspensionLength));
+    const compressionFrac = (maxLength - clampedLength) / span;
+
+    fill.style.height = `${Math.round(compressionFrac * 100)}%`;
+    fill.style.background = wheel.isInContact
+      ? suspensionColor(compressionFrac)
+      : 'rgba(255, 255, 255, 0.25)';
+    val.textContent = wheel.isInContact ? `${Math.round(compressionFrac * 100)}%` : 'air';
+  });
 }
 
 
@@ -371,6 +436,7 @@ function animate() {
   updateCamera(delta);
   updateGauges();
   updateTerrainStats(delta);
+  updateSuspensionHud();
 
   if (chassisMesh) {
     // Keep the sun (and its shadow frustum) centered on the car so shadows

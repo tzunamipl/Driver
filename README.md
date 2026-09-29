@@ -5,13 +5,17 @@ Setup:
 npm install
 ```
 
-You need a free Mapbox access token for real-world elevation data (aerial
-imagery uses the free, keyless Esri World Imagery tiles, so no token is
-needed for that part). Create one at https://mapbox.com (no credit card
-required for the free tier), then put it in a `.env.local` file (gitignored):
-```
-VITE_MAPBOX_TOKEN=pk.your_token_here
-```
+No API keys or accounts needed — both data sources are free and keyless:
+aerial imagery from Esri World Imagery, and elevation from AWS Terrarium
+tiles (Mapzen's open elevation dataset, mirrored as a public S3 bucket).
+
+Elevation fetch failures (network hiccups, a tile genuinely missing, etc.)
+don't remove terrain from view: `TerrainManager` falls back to a flat (y=0)
+patch for any chunk whose elevation tile fails to load, for both the detail
+and far tiers, and the origin elevation lookup in `init()` falls back to a
+zero height baseline rather than blocking app startup. So terrain (flat
+where data was unavailable) always renders; check the browser console for
+`elevation fetch failed` warnings to see which specific tiles fell back.
 
 Run:
 ```
@@ -25,14 +29,67 @@ Controls: W/↑ throttle, S/↓ brake-reverse, A/D or ←/→ steer, Space handb
 
 The car spawns in Wrocław, Poland by default (`ORIGIN_LAT`/`ORIGIN_LON` in
 `src/main.js`), but the map is not limited to that location: `TerrainManager`
-(`src/lib/terrain.js`) streams a grid of real aerial-imagery + elevation
-chunks around the car as it drives, loading new chunks ahead and unloading
-ones left behind — so you can in principle drive anywhere on Earth, starting
-from wherever you set as the origin.
+(`src/lib/terrain.js`) streams real aerial-imagery + elevation chunks around
+the car as it drives, loading new chunks ahead and unloading ones left
+behind — so you can in principle drive anywhere on Earth, starting from
+wherever you set as the origin.
 
-Each chunk is a displaced-plane Three.js mesh (Esri satellite photo + Mapbox
-Terrain-RGB elevation) with a matching Cannon-es physics collider built from
-the exact same vertices, so what you see always matches what you drive on.
+Chunks are streamed in a **circle** around the car (not a square) — for each
+tile offset `(dx, dy)` from the player's current tile, it's only loaded if
+`dx² + dy² <= radius²` (with a little slack so the circle isn't overly
+sparse). This avoids wastefully loading/rendering the far corners of a
+square footprint that are actually farther from the player than tiles
+already excluded on the circle's flat sides.
+
+Terrain streams at **two levels of detail**:
+
+- **Detail tier** (`DETAIL_ZOOM = 15`, ~2 tile radius around the player):
+  full-resolution aerial photo texture (stitched from higher-zoom Esri
+  tiles) + a 32×32 displaced-plane mesh, each with a matching Cannon-es
+  Trimesh physics collider built from the exact same vertices, so what you
+  see always matches what you drive on.
+- **Far tier** (`FAR_ZOOM = 9`, out to `FAR_RADIUS_METERS = 150_000`, i.e.
+  150km): a much coarser 12×12 mesh built from elevation data only — no
+  aerial imagery fetch (it would be blurry at this scale and multiplies
+  request count) and no physics body (the player is always within the
+  detail tier's footprint, so far chunks are never actually driven on).
+  Colored with a simple elevation → color ramp (green lowland → brown
+  hills → grey rock → white snow cap) standing in for real imagery, purely
+  so the horizon isn't blank past the detailed area.
+
+Both tiers load/unload independently, each on its own tile grid, driven from
+the same `TerrainManager.update()` call every frame. Both stage removals a
+few ticks before actually unloading a chunk (`UNLOAD_DELAY_TICKS` /
+`FAR_UNLOAD_DELAY_TICKS`) to avoid load/unload thrashing right at the radius
+boundary.
+
+Rendering the far tier requires the camera/scene to actually reach that far:
+`camera.far` is set well past `FAR_RADIUS_METERS` (otherwise the far mesh is
+silently frustum-culled), the renderer uses a logarithmic depth buffer
+(needed once the view spans ~0.1m up to tens of km, or depth precision
+z-fights at distance), and `scene.fog` is an exponential (`FogExp2`) falloff
+rather than a hard linear cutoff, so it stays subtle near the car but still
+naturally fades the far tier into the sky color at longer range instead of
+hard-clipping it out of view.
+
+The debug terrain-stats HUD (toggle with the debug-visuals control) reports
+detail- and far-tier loaded/loading/removing counts and estimated memory
+separately; the on-screen tile map only visualizes the detail tier, since
+the far tier's footprint (100+ tiles) is too large to usefully render as a
+grid.
+
+## Debug visuals (press M to toggle)
+
+Pressing `M` toggles a set of debug-only overlays together: the terrain
+tile-stats HUD (top-right), the 3D tile perimeter borders, and a
+**suspension HUD** (bottom-left) showing each wheel's live spring travel as
+a vertical bar - 0% at full droop (fully extended), 100% at full compression
+(bottomed out), with a fixed marker line at 50% for the spring's rest
+length. Bars turn yellow then red as a wheel approaches its compression
+limit, and grey out (showing "air") when the wheel has left the ground.
+Values are read directly off each wheel's Cannon-es `WheelInfo`
+(`suspensionLength` / `suspensionRestLength` / `maxSuspensionTravel` /
+`isInContact`) in `updateSuspensionHud()` in `src/main.js`.
 
 ## Physics notes / gotchas
 

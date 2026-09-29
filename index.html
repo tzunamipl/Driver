@@ -112,6 +112,65 @@
         margin-right: 3px;
         vertical-align: middle;
       }
+      #suspension-hud {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        color: #fff;
+        font-family: monospace;
+        font-size: 10px;
+        background: rgba(0,0,0,0.5);
+        padding: 8px 10px;
+        border-radius: 6px;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #suspension-hud .susp-title {
+        margin-bottom: 6px;
+        opacity: 0.8;
+        letter-spacing: 0.5px;
+      }
+      #suspension-hud .susp-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 34px);
+        gap: 6px 16px;
+      }
+      #suspension-hud .susp-wheel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      #suspension-hud .susp-bar {
+        width: 14px;
+        height: 60px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+        position: relative;
+        overflow: hidden;
+      }
+      #suspension-hud .susp-fill {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 50%;
+        background: #4fc3ff;
+      }
+      #suspension-hud .susp-rest-line {
+        position: absolute;
+        left: -1px;
+        right: -1px;
+        top: 50%;
+        height: 1px;
+        background: rgba(255, 255, 255, 0.7);
+        z-index: 1;
+      }
+      #suspension-hud .susp-label {
+        opacity: 0.85;
+        text-align: center;
+      }
       .gauge {
         position: relative;
         width: 120px;
@@ -194,6 +253,27 @@
       M &mdash; toggle debug view
     </div>
     <div id="terrain-stats"></div>
+    <div id="suspension-hud">
+      <div class="susp-title">SUSPENSION</div>
+      <div class="susp-grid">
+        <div class="susp-wheel">
+          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fl-fill"></div></div>
+          <div class="susp-label">FL <span id="susp-fl-val">&mdash;</span></div>
+        </div>
+        <div class="susp-wheel">
+          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fr-fill"></div></div>
+          <div class="susp-label">FR <span id="susp-fr-val">&mdash;</span></div>
+        </div>
+        <div class="susp-wheel">
+          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rl-fill"></div></div>
+          <div class="susp-label">RL <span id="susp-rl-val">&mdash;</span></div>
+        </div>
+        <div class="susp-wheel">
+          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rr-fill"></div></div>
+          <div class="susp-label">RR <span id="susp-rr-val">&mdash;</span></div>
+        </div>
+      </div>
+    </div>
     <div id="gauges">
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>
