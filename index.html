@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Vite content-hashes every built JS/CSS filename (e.g. index-<hash>.js),
+         so those are safe to cache forever - a new build always gets new
+         filenames. This unhashed HTML document is the only thing that can
+         go stale: without these, browsers/GitHub's CDN may keep serving an
+         old cached index.html that references already-replaced asset
+         filenames after a new deploy. Forcing revalidation here guarantees
+         each visit picks up the latest build's asset references. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Driver POC</title>
     <style>
       html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }

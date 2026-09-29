@@ -9,6 +9,32 @@ import { createBalls } from './lib/ball.js';
 import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
 import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
 
+// ---------- App mode ----------
+// Two run modes, driven by Vite's built-in DEV flag (true for `npm run dev`,
+// false for `npm run build`/the deployed GitHub Pages build - see
+// vite.config.js), so no extra env setup is needed to get the right mode:
+//  - "dev": local development. Debug visuals (tile HUD, hitbox wireframes)
+//    default on, and the address search bar can respawn/recenter anywhere
+//    (handy for jumping around the map while testing).
+//  - "prod": the shared remote build. Debug visuals default off, and the
+//    player's location is fixed - the address search UI is hidden and any
+//    origin-change broadcast from a peer is ignored, so nobody can be
+//    teleported elsewhere. Networking (the shared MQTT room) is a prod-only
+//    feature - dev mode never opens that connection, so you always drive
+//    solo/offline against localhost without depending on (or spamming) the
+//    public broker.
+// Can still be forced either way (e.g. to test the prod build's behavior
+// from `vite dev`) via ?mode=prod / ?mode=dev in the URL.
+const FORCED_MODE = new URLSearchParams(location.search).get('mode');
+const APP_MODE = FORCED_MODE === 'dev' || FORCED_MODE === 'prod' ? FORCED_MODE : (import.meta.env.DEV ? 'dev' : 'prod');
+const IS_DEV_MODE = APP_MODE === 'dev';
+// Whether the player is allowed to change their real-world location at all
+// (via the address search bar, or by receiving a peer's origin broadcast).
+const CAN_CHANGE_LOCATION = IS_DEV_MODE;
+// Whether to connect to the shared MQTT room at all (see net.js). Off in
+// dev so local development never touches the public broker.
+const CAN_USE_NETWORK = !IS_DEV_MODE;
+
 // Real-world spawn location (Wroclaw city center). The terrain streams in
 // real aerial imagery + elevation around wherever the car currently is, so
 // you can drive anywhere on Earth from here - it's just the starting point.
@@ -250,8 +276,9 @@ const SUSPENSION_WHEELS = ['fl', 'fr', 'rl', 'rr'].map((key) => ({
 
 // ---------- Debug visuals toggle (tile stats HUD, 3D tile borders, and
 // collision hitbox wireframes for buildings + the car chassis) ----------
-// On by default; press M to hide/show all of these together while driving.
-let debugVisualsEnabled = true;
+// On by default in dev mode, off by default in prod (see APP_MODE above);
+// press M to hide/show all of these together while driving in either mode.
+let debugVisualsEnabled = IS_DEV_MODE;
 
 function setDebugVisualsEnabled(enabled) {
   debugVisualsEnabled = enabled;
@@ -576,6 +603,9 @@ async function geocodeAddress(query) {
 const addressForm = document.getElementById('address-search');
 const addressInput = document.getElementById('address-input');
 const addressSubmit = document.getElementById('address-submit');
+// Prod players' location is fixed - hide the respawn-elsewhere UI entirely
+// instead of merely disabling it (see CAN_CHANGE_LOCATION above).
+if (!CAN_CHANGE_LOCATION) addressForm.style.display = 'none';
 const addressStatusEl = document.getElementById('address-search-status');
 
 function setAddressStatus(text, isError = false) {
@@ -616,7 +646,7 @@ async function goToOrigin(lat, lon, { resetCar, announce }) {
       setAddressStatus('');
     } finally {
       respawning = false;
-      addressSubmit.disabled = !joined;
+      addressSubmit.disabled = !joined || !CAN_CHANGE_LOCATION;
     }
   }
   if (reset && resetCar && (!same || announce)) reset(playerSpawnPos(), START_QUAT);
@@ -633,11 +663,16 @@ function enqueueOrigin(lat, lon, options) {
 }
 
 net.onOrigin(({ lat, lon }) => {
+  // Prod players' location is fixed even if a dev-mode peer in the same
+  // shared room broadcasts an origin change - ignore it rather than
+  // teleporting along with them.
+  if (!CAN_CHANGE_LOCATION) return;
   enqueueOrigin(lat, lon, { resetCar: true, announce: false });
 });
 
 addressForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!CAN_CHANGE_LOCATION) return;
   const query = addressInput.value.trim();
   if (!query || respawning || !joined) return;
 
@@ -673,6 +708,10 @@ addressForm.addEventListener('submit', async (e) => {
 
 // ---------- Shared room lobby ----------
 const lobbyEl = document.getElementById('lobby');
+// Dev mode skips the name/color prompt entirely (see joinRoom() call in the
+// terrain.init().then() below) and drives as "dev_mode" in the default
+// blue - hide the prompt so it never flashes on screen.
+if (IS_DEV_MODE) lobbyEl.style.display = 'none';
 const lobbyForm = document.getElementById('lobby-form');
 const lobbyName = document.getElementById('lobby-name');
 const lobbyJoin = document.getElementById('lobby-join');
@@ -800,34 +839,40 @@ spawnBallBtn.addEventListener('click', () => {
   net.publishProps({ type: 'ball-spawn', ...spawned });
 });
 
-lobbyForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const name = lobbyName.value.trim();
-  if (!name || joined || lobbyJoin.disabled) return;
-
+async function joinRoom(name, color) {
+  if (joined) return;
   lobbyJoin.disabled = true;
-  setLobbyStatus('Łączenie…');
-  try {
-    await net.connect({ name, color: selectedColor });
-    await originChain;
-  } catch (err) {
-    console.warn('Room connect failed', err);
+  if (CAN_USE_NETWORK) {
+    setLobbyStatus('Łączenie…');
+    try {
+      await net.connect({ name, color });
+      await originChain;
+    } catch (err) {
+      console.warn('Room connect failed', err);
+    }
   }
 
   localName = name.slice(0, 16);
-  spawnLocalCar(selectedColor);
+  spawnLocalCar(color);
   joined = true;
-  addressInput.disabled = false;
-  addressSubmit.disabled = false;
+  addressInput.disabled = !CAN_CHANGE_LOCATION;
+  addressSubmit.disabled = !CAN_CHANGE_LOCATION;
   spawnPedsBtn.disabled = false;
   spawnBallBtn.disabled = false;
   lobbyEl.style.display = 'none';
   netStatusEl.hidden = false;
-  setNetStatus(net.isOnline() ? 'online' : 'offline');
+  setNetStatus(CAN_USE_NETWORK && net.isOnline() ? 'online' : 'offline');
   if (!loopStarted) {
     loopStarted = true;
     animate();
   }
+}
+
+lobbyForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = lobbyName.value.trim();
+  if (!name || joined || lobbyJoin.disabled) return;
+  joinRoom(name, selectedColor);
 });
 
 window.addEventListener('pagehide', () => {
@@ -973,6 +1018,12 @@ function animate() {
 // terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
+  if (IS_DEV_MODE) {
+    // Skip the name/color prompt and preview car entirely in dev - joinRoom()
+    // spawns the (only) car and starts the loop itself.
+    joinRoom('dev_mode', BODY_COLORS[0]);
+    return;
+  }
   lobbyJoin.disabled = false;
   setLobbyStatus('Wpisz imię i wybierz kolor.');
   ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
