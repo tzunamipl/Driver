@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
+import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { createCar, CHASSIS_MATERIAL, createRemoteCar } from './lib/car.js';
 import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
 import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
@@ -65,6 +66,7 @@ scene.add(sun.target);
 // ---------- Physics world ----------
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
+const remoteCollisions = createRemoteCollisions(world);
 world.defaultContactMaterial.friction = 0.05;
 // Small amount of bounce on any collision (ground, buildings, etc.) instead
 // of the default perfectly inelastic (restitution 0) impact - keeps hard
@@ -811,6 +813,10 @@ function animate() {
   lastTime = now;
 
   updateControls();
+
+  // Remote cars are kinematic obstacles. Place them before the step so the
+  // local chassis actually contacts them this frame (see remoteCollisions.js).
+  if (joined) remoteCollisions.sync(net.remotePoses(now));
 
   // Advance physics in fixed-size steps (accumulator pattern) instead of a
   // single variable-size world.step() call. requestAnimationFrame deltas
