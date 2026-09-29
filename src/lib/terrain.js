@@ -84,6 +84,9 @@ const AERIAL_TILE_SIZE = 256;
 // anti-tunneling ground raycast in main.js) can raycast against only the
 // ground, ignoring the car's own chassis/wheel shapes.
 export const GROUND_COLLISION_GROUP = 2;
+// Shared so the ball can register a bouncy contact without changing how
+// the chassis meets the ground (that pair still uses the world default).
+export const GROUND_MATERIAL = new CANNON.Material('ground');
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -424,7 +427,7 @@ export class TerrainManager {
       const vertices = Array.from(position.array);
       const indices = Array.from(geometry.index.array);
       const shape = new CANNON.Trimesh(vertices, indices);
-      const body = new CANNON.Body({ mass: 0 });
+      const body = new CANNON.Body({ mass: 0, material: GROUND_MATERIAL });
       body.collisionFilterGroup = GROUND_COLLISION_GROUP;
       body.addShape(shape);
       this.world.addBody(body);

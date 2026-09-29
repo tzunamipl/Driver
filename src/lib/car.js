@@ -133,28 +133,48 @@ function buildRallyWheel(radius, parent) {
   return group;
 }
 
-function makeNameSprite(name) {
+function makeNameSprite(name, score = 0) {
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 128;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(16, 8, 224, 48);
+  ctx.fillRect(16, 16, 480, 96);
   ctx.fillStyle = '#ffffff';
-  ctx.font = '600 28px system-ui, sans-serif';
+  ctx.font = '600 48px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(name, 128, 32);
+  ctx.fillText(`${name}  ${score}`, 256, 64);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(material);
-  sprite.position.set(0, 1.7, 0);
-  sprite.scale.set(2.4, 0.6, 1);
+  sprite.position.set(0, 2.4, 0);
+  sprite.scale.set(5.2, 1.3, 1);
   sprite.renderOrder = 1;
   return sprite;
+}
+
+/** Name + score plate parented by the caller (local chassis or a remote car). */
+export function createNameTag(name, score = 0) {
+  const sprite = makeNameSprite(name, score);
+  let currentName = name;
+  let currentScore = score;
+
+  function set(nextName, nextScore = 0) {
+    const safeScore = Number.isFinite(nextScore) ? nextScore : 0;
+    if (nextName === currentName && safeScore === currentScore) return;
+    currentName = nextName;
+    currentScore = safeScore;
+    const previous = sprite.material;
+    sprite.material = makeNameSprite(nextName, safeScore).material;
+    previous.map?.dispose();
+    previous.dispose();
+  }
+
+  return { sprite, set };
 }
 
 /**
@@ -389,10 +409,10 @@ export function createCar(
  * Visual-only copy of the local car (no physics) for other players.
  * Wheels are parented to the chassis and spun from the replicated speed.
  */
-export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '') {
+export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '', score = 0) {
   const { group, bodyMat } = buildImprezaBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
-  const nameSprite = makeNameSprite(name);
-  group.add(nameSprite);
+  const nameTag = createNameTag(name, score);
+  group.add(nameTag.sprite);
 
   const axleWidth = CHASSIS_WIDTH / 2 - 0.1;
   const wheelAttachY = -CHASSIS_HEIGHT / 2;
@@ -413,7 +433,6 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
 
   let spin = 0;
   let currentColor = color;
-  let currentName = name;
 
   function setPose(pose, dt) {
     group.position.set(pose.x, pose.y, pose.z);
@@ -425,18 +444,12 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     });
   }
 
-  function setAppearance(nextColor, nextName) {
+  function setAppearance(nextColor, nextName, nextScore = 0) {
     if (nextColor !== currentColor) {
       currentColor = nextColor;
       bodyMat.color.set(nextColor);
     }
-    if (nextName !== currentName) {
-      currentName = nextName;
-      const previous = nameSprite.material;
-      nameSprite.material = makeNameSprite(nextName).material;
-      previous.map.dispose();
-      previous.dispose();
-    }
+    nameTag.set(nextName, nextScore);
   }
 
   function dispose() {

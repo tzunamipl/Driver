@@ -8,6 +8,7 @@ import mqtt from 'mqtt';
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const POSE_TOPIC = 'tzunamipl/driver/v1/pose';
 const WORLD_TOPIC = 'tzunamipl/driver/v1/world';
+const PROPS_TOPIC = 'tzunamipl/driver/v1/props';
 
 const PUBLISH_INTERVAL_MS = 100;
 const PEER_TIMEOUT_MS = 2000;
@@ -23,6 +24,7 @@ export function createNet() {
   const peers = new Map();
   const statusListeners = new Set();
   const originListeners = new Set();
+  const propListeners = new Set();
 
   let client = null;
   let connected = false;
@@ -43,6 +45,11 @@ export function createNet() {
   function onOrigin(fn) {
     originListeners.add(fn);
     return () => originListeners.delete(fn);
+  }
+
+  function onProps(fn) {
+    propListeners.add(fn);
+    return () => propListeners.delete(fn);
   }
 
   function spawnOffset() {
@@ -74,7 +81,12 @@ export function createNet() {
       qw: pose.qw,
       speed: pose.speed,
       steer: pose.steer,
+      score: sanitizeScore(pose.score),
     }, false);
+  }
+
+  function publishProps(payload) {
+    publish(PROPS_TOPIC, { id: clientId, ...payload }, false);
   }
 
   function publishOrigin(lat, lon) {
@@ -108,11 +120,12 @@ export function createNet() {
 
     let peer = peers.get(msg.id);
     if (!peer) {
-      peer = { name: '', color: 0x1c3f94, lastSeen: 0, samples: [] };
+      peer = { name: '', color: 0x1c3f94, score: 0, lastSeen: 0, samples: [] };
       peers.set(msg.id, peer);
     }
     peer.name = sanitizeName(msg.name);
     peer.color = sanitizeColor(msg.color);
+    peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
 
     const sample = {
@@ -154,6 +167,12 @@ export function createNet() {
       return;
     }
     if (topic === POSE_TOPIC) handlePose(msg);
+    if (topic === PROPS_TOPIC) handleProps(msg);
+  }
+
+  function handleProps(msg) {
+    if (!msg || msg.id === clientId) return;
+    for (const fn of propListeners) fn(msg);
   }
 
   function connect({ name, color }) {
@@ -172,7 +191,7 @@ export function createNet() {
     client.on('connect', () => {
       connected = true;
       emitStatus('online');
-      client.subscribe([POSE_TOPIC, WORLD_TOPIC]);
+      client.subscribe([POSE_TOPIC, WORLD_TOPIC, PROPS_TOPIC]);
     });
     client.on('close', () => {
       connected = false;
@@ -213,7 +232,7 @@ export function createNet() {
       }
       const pose = interpolate(peer.samples, renderT);
       if (!pose) continue;
-      poses.push({ id, name: peer.name, color: peer.color, ...pose });
+      poses.push({ id, name: peer.name, color: peer.color, score: peer.score, ...pose });
     }
     return poses;
   }
@@ -223,12 +242,14 @@ export function createNet() {
     spawnOffset,
     connect,
     publishPose,
+    publishProps,
     publishOrigin,
     publishLeave,
     isOnline,
     remotePoses,
     onStatus,
     onOrigin,
+    onProps,
   };
 }
 
@@ -289,6 +310,12 @@ function slerpQuat(a, b, t) {
     z: a.qz * w1 + bz * w2,
     w: a.qw * w1 + bw * w2,
   };
+}
+
+function sanitizeScore(score) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(999999, Math.floor(n));
 }
 
 function sanitizeName(name) {
