@@ -72,6 +72,12 @@ const BUILDING_TILE_ZOOM = 14;
 // into a building, not get treated as standing on it.
 export const BUILDING_COLLISION_GROUP = 4;
 
+// Shared CANNON.Material tagging every building body, paired in main.js
+// with car.js's CHASSIS_MATERIAL via a dedicated low-friction/bouncy
+// ContactMaterial - so grazing a wall at a shallow angle slides the car
+// along it (and off) rather than snagging to a dead stop.
+export const BUILDING_MATERIAL = new CANNON.Material('building');
+
 const DEFAULT_HEIGHT_METERS = 6; // ~2 stories, used on the rare feature missing render_height entirely
 const MIN_HEIGHT_METERS = 2;
 
