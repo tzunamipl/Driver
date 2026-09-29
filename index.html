@@ -112,6 +112,55 @@
         margin-right: 3px;
         vertical-align: middle;
       }
+      #address-search {
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 11;
+        display: flex;
+        gap: 6px;
+        font-family: system-ui, sans-serif;
+        font-size: 13px;
+      }
+      #address-search input {
+        width: 260px;
+        padding: 7px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+      }
+      #address-search input::placeholder {
+        color: rgba(255, 255, 255, 0.6);
+      }
+      #address-search button {
+        padding: 7px 14px;
+        border-radius: 6px;
+        border: none;
+        background: #4fc3ff;
+        color: #06222f;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #address-search button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #address-search-status {
+        position: fixed;
+        top: 48px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 11;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 4px 10px;
+        border-radius: 5px;
+        display: none;
+      }
       #suspension-hud {
         position: fixed;
         bottom: 20px;
@@ -226,7 +275,7 @@
         font-weight: bold;
       }
       .compass-face .dir.n { transform: translate(-50%, -50px); color: #ff5b5b; }
-      .compass-face .dir.e { transform: translate(-3px, -50%) rotate(90deg); transform-origin: left center; }
+      .compass-face .dir.e { transform: translate(-50%, -50%) translateX(52px); }
       .compass-face .dir.s { transform: translate(-50%, 40px); }
       .compass-face .dir.w { transform: translate(-50%, -50%) translateX(-52px); }
       .compass-pointer {
@@ -244,6 +293,11 @@
   </head>
   <body>
     <div id="app"></div>
+    <form id="address-search" autocomplete="off">
+      <input id="address-input" type="text" placeholder="Search an address to respawn there\u2026" />
+      <button id="address-submit" type="submit">Go</button>
+    </form>
+    <div id="address-search-status"></div>
     <div id="hud">
       W / &uarr; &mdash; throttle<br />
       S / &darr; &mdash; brake / reverse<br />
@@ -290,7 +344,7 @@
         </div>
         <div class="compass-pointer"></div>
         <div class="gauge-value" id="compass-value" style="top: auto; bottom: 6px; transform: translateX(-50%); font-size: 12px;">
-          N &mdash; 0&deg;
+          N
         </div>
       </div>
     </div>

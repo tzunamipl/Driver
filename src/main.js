@@ -162,6 +162,11 @@ const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const forwardVec = new THREE.Vector3();
 
+// Tracks the dial's continuous (unwrapped) rotation so the CSS transition
+// always nudges across the shortest arc instead of snapping the long way
+// around whenever the heading crosses the 0/360 boundary.
+let compassDialRotation = 0;
+
 function updateGauges() {
   if (!chassisMesh || !vehicle) return;
 
@@ -175,15 +180,22 @@ function updateGauges() {
   speedoValue.textContent = Math.round(speedKmh);
 
   // Heading: project the chassis' local forward axis onto the world XZ plane.
+  // World +z is south (see DIRECTIONS below), so north is -z; negate z here
+  // to match that convention and keep the dial's N/S/E/W labels correct.
   forwardVec.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
-  let headingDeg = THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, forwardVec.z));
+  let headingDeg = THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, -forwardVec.z));
   headingDeg = (headingDeg + 360) % 360;
 
   // Rotate the dial opposite the heading so the fixed top pointer always
-  // shows the direction the car is currently facing.
-  compassDial.style.transform = `rotate(${-headingDeg}deg)`;
+  // shows the direction the car is currently facing. Unwrap against the
+  // previous rotation so the dial always takes the shortest turn, rather
+  // than jumping a full lap when headingDeg wraps past 0/360.
+  const targetRotation = -headingDeg;
+  let delta = ((targetRotation - compassDialRotation + 180) % 360 + 360) % 360 - 180;
+  compassDialRotation += delta;
+  compassDial.style.transform = `rotate(${compassDialRotation}deg)`;
   const pointIndex = Math.round(headingDeg / 45) % 8;
-  compassValue.innerHTML = `${COMPASS_POINTS[pointIndex]} &mdash; ${Math.round(headingDeg)}&deg;`;
+  compassValue.textContent = COMPASS_POINTS[pointIndex];
 }
 
 // ---------- Terrain stats HUD (memory usage + tile streaming map) ----------
@@ -383,6 +395,63 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- Address search / respawn ----------
+// Free, keyless geocoding via OpenStreetMap's Nominatim, matching the
+// project's "no API keys" philosophy (see README). Given a free-text
+// address, resolves it to lat/lon, re-centers the whole terrain streaming
+// system on that point (see TerrainManager.recenter), and teleports the
+// car back to the local origin once the new area's initial chunks load.
+const NOMINATIM_URL = (q) =>
+  `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+
+async function geocodeAddress(query) {
+  const res = await fetch(NOMINATIM_URL(query), {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`geocoding request failed (${res.status})`);
+  const results = await res.json();
+  if (!results.length) throw new Error('address not found');
+  return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) };
+}
+
+const addressForm = document.getElementById('address-search');
+const addressInput = document.getElementById('address-input');
+const addressSubmit = document.getElementById('address-submit');
+const addressStatusEl = document.getElementById('address-search-status');
+
+function setAddressStatus(text, isError = false) {
+  addressStatusEl.textContent = text;
+  addressStatusEl.style.display = text ? 'block' : 'none';
+  addressStatusEl.style.color = isError ? '#ff8080' : '#fff';
+}
+
+let respawning = false;
+
+addressForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const query = addressInput.value.trim();
+  if (!query || respawning) return;
+
+  respawning = true;
+  addressSubmit.disabled = true;
+  setAddressStatus(`Searching for "${query}"\u2026`);
+
+  try {
+    const { lat, lon } = await geocodeAddress(query);
+    setAddressStatus('Loading terrain at new location\u2026');
+    await terrain.recenter(lat, lon);
+    if (reset) reset(START_POS, START_QUAT);
+    setAddressStatus(`Respawned at "${query}"`);
+    setTimeout(() => setAddressStatus(''), 3000);
+  } catch (err) {
+    console.warn('Address respawn failed', err);
+    setAddressStatus(`Couldn't respawn: ${err.message}`, true);
+  } finally {
+    respawning = false;
+    addressSubmit.disabled = false;
+  }
 });
 
 // ---------- Main loop ----------

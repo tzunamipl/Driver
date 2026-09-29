@@ -63,6 +63,19 @@ few ticks before actually unloading a chunk (`UNLOAD_DELAY_TICKS` /
 `FAR_UNLOAD_DELAY_TICKS`) to avoid load/unload thrashing right at the radius
 boundary.
 
+Far-tier tiles are tens of km across at `FAR_ZOOM = 9` — far coarser than
+the detail tier's ~1-3km real-world footprint — so simply excluding whole
+far tiles near the player isn't precise enough: the single huge far tile the
+player is standing in would still render right through/around the detailed
+mesh. Instead, the far tier's shader cuts a circular **hole** centered on the
+player's current position (updated every frame, so it tracks smoothly, not
+just in tile-sized jumps) sized just past the detail tier's real-world keep
+radius, discarding any far-mesh fragment inside it regardless of which huge
+far tile it belongs to. This is done via `material.onBeforeCompile` on the
+far tier's `MeshStandardMaterial`, injecting a `discard` in the fragment
+shader based on distance from a shared uniform (`TerrainManager.holeUniforms`)
+- so the two tiers never visibly overlap near the car.
+
 Rendering the far tier requires the camera/scene to actually reach that far:
 `camera.far` is set well past `FAR_RADIUS_METERS` (otherwise the far mesh is
 silently frustum-culled), the renderer uses a logarithmic depth buffer
