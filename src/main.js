@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createCar } from './lib/car.js';
+import { createCar, CHASSIS_MATERIAL } from './lib/car.js';
 import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
-import { BuildingsManager } from './lib/buildings.js';
+import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
 import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
 
 // Real-world spawn location (Wroclaw city center). The terrain streams in
@@ -65,6 +65,22 @@ scene.add(sun.target);
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.defaultContactMaterial.friction = 0.05;
+// Small amount of bounce on any collision (ground, buildings, etc.) instead
+// of the default perfectly inelastic (restitution 0) impact - keeps hard
+// hits from feeling like the car just instantly stops/sticks.
+world.defaultContactMaterial.restitution = 0.15;
+
+// Chassis-vs-building contact tuned separately from the world default:
+// near-zero friction and a stronger bounce, so scraping a wall at a
+// shallow/grazing angle slides the car along the surface (and rebounds
+// off it) instead of the low-but-nonzero default friction "catching" the
+// contact and killing the car's tangential speed on impact.
+world.addContactMaterial(
+  new CANNON.ContactMaterial(CHASSIS_MATERIAL, BUILDING_MATERIAL, {
+    friction: 0.01,
+    restitution: 0.35,
+  })
+);
 
 // ---------- Real-world terrain (aerial imagery + elevation, streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
@@ -100,6 +116,55 @@ document.body.appendChild(loadingEl);
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
+
+// Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
+// against a wall) - only impacts above this relative speed (m/s along the
+// contact normal) trigger the arcade flip/roll response below.
+const IMPACT_ROLL_MIN_SPEED = 2.5;
+// Tuning knob for how dramatic a qualifying hit's induced spin is; scales
+// linearly with impact speed, so a glancing tap barely rocks the car while
+// a hard head-on/corner hit can flip it.
+const IMPACT_ROLL_TORQUE_SCALE = 0.22;
+const _impactNormal = new CANNON.Vec3();
+const _impactImpulse = new CANNON.Vec3();
+const _impactTorque = new CANNON.Vec3();
+const _impactAngularDelta = new CANNON.Vec3();
+
+/**
+ * Arcade-style collision response layered on top of cannon-es's own contact
+ * resolution: turns "where on the car" (contact.ri/rj, relative to the
+ * chassis' center of mass) and "how hard" (impact speed along the contact
+ * normal) into an extra angular-velocity kick, so hitting a building corner
+ * off-center or at speed visibly rolls/flips the car toward the side that
+ * got hit, rather than the impact just stopping/deflecting it in a straight
+ * line. Needed because building contacts use near-zero friction (see the
+ * chassis/building ContactMaterial below) to let grazing hits slide - that
+ * removes the tangential friction impulse that would otherwise supply most
+ * of the spin, so it's added back in explicitly here instead.
+ */
+function applyImpactRoll(chassisBody, contact) {
+  const impactSpeed = Math.abs(contact.getImpactVelocityAlongNormal());
+  if (impactSpeed < IMPACT_ROLL_MIN_SPEED) return;
+
+  const isBi = contact.bi === chassisBody;
+  // Vector from the chassis' center of mass to the actual contact point,
+  // in world space - this is the "hit direction" lever arm.
+  const r = isBi ? contact.ri : contact.rj;
+  // The normal impulse cannon-es applies pushes bi along -ni and bj along
+  // +ni (ni always points from bi to bj) - pick whichever direction
+  // actually shoves the chassis, regardless of which side of the pair it
+  // ended up on.
+  if (isBi) contact.ni.negate(_impactNormal);
+  else _impactNormal.copy(contact.ni);
+
+  // torque = r x impulse: an off-center (large |r| perpendicular to the
+  // normal) or fast hit produces a proportionally bigger torque.
+  _impactNormal.scale(impactSpeed * chassisBody.mass * IMPACT_ROLL_TORQUE_SCALE, _impactImpulse);
+  r.cross(_impactImpulse, _impactTorque);
+
+  chassisBody.invInertiaWorld.vmult(_impactTorque, _impactAngularDelta);
+  chassisBody.angularVelocity.vadd(_impactAngularDelta, chassisBody.angularVelocity);
+}
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
@@ -642,5 +707,9 @@ terrain.init().then(() => {
     START_QUAT
   ));
   setCarHitboxVisible(debugVisualsEnabled);
+  vehicle.chassisBody.addEventListener('collide', (event) => {
+    if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
+    applyImpactRoll(vehicle.chassisBody, event.contact);
+  });
   animate();
 });

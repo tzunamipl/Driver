@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
+// Shared CANNON.Material tagging the chassis' collision shapes, so main.js
+// can pair it with BUILDING_MATERIAL (see buildings.js) in a dedicated
+// ContactMaterial - lower friction than the world default so a glancing
+// hit against a wall slides/bounces off instead of grabbing and stopping
+// the car dead.
+export const CHASSIS_MATERIAL = new CANNON.Material('chassis');
+
 /**
  * Slants the top-front and top-back vertices of a BoxGeometry inward along Z
  * to create a tapered "greenhouse" shape (windshield/rear-window rake),
@@ -145,7 +152,7 @@ export function createCar(
   // collide with Trimesh, so the body can now physically hit the ground and
   // tumble/roll when it flips, while still roughly matching the visible box.
   const hitboxRadius = Math.min(chassisWidth, chassisHeight) / 2 - 0.05;
-  const chassisBody = new CANNON.Body({ mass: 150 });
+  const chassisBody = new CANNON.Body({ mass: 150, material: CHASSIS_MATERIAL });
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       for (const sz of [-1, 1]) {
