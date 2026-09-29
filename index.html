@@ -385,7 +385,18 @@
         border-left: 6px solid transparent;
         border-right: 6px solid transparent;
         border-top: 10px solid #fff;
-        transform: translateX(-50%);
+      #attribution {
+        position: fixed;
+        bottom: 4px;
+        left: 8px;
+        z-index: 10;
+        color: rgba(255, 255, 255, 0.6);
+        font-family: system-ui, sans-serif;
+        font-size: 10px;
+        pointer-events: none;
+      }
+      #attribution a {
+        color: inherit;
       }
     </style>
   </head>
@@ -403,6 +414,10 @@
       </form>
     </div>
     <div id="net-status" hidden></div>
+    <div id="attribution">
+      Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot;
+      Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
+    </div>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to respawn there\u2026" />
       <button id="address-submit" type="submit">Go</button>
@@ -414,7 +429,7 @@
       A D / &larr; &rarr; &mdash; steer<br />
       Space &mdash; handbrake<br />
       R &mdash; reset car<br />
-      M &mdash; toggle debug view
+      M &mdash; toggle debug view (tile borders + collision hitboxes)
     </div>
     <div id="terrain-stats"></div>
     <div id="suspension-hud">

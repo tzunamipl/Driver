@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createCar, createRemoteCar } from './lib/car.js';
 import { createNet } from './lib/net.js';
+import { createCar, CHASSIS_MATERIAL, createRemoteCar } from './lib/car.js';
 import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
-import { BuildingsManager } from './lib/buildings.js';
+import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
 import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
 
 // Real-world spawn location (Wroclaw city center). The terrain streams in
@@ -66,6 +66,22 @@ scene.add(sun.target);
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.defaultContactMaterial.friction = 0.05;
+// Small amount of bounce on any collision (ground, buildings, etc.) instead
+// of the default perfectly inelastic (restitution 0) impact - keeps hard
+// hits from feeling like the car just instantly stops/sticks.
+world.defaultContactMaterial.restitution = 0.15;
+
+// Chassis-vs-building contact tuned separately from the world default:
+// near-zero friction and a stronger bounce, so scraping a wall at a
+// shallow/grazing angle slides the car along the surface (and rebounds
+// off it) instead of the low-but-nonzero default friction "catching" the
+// contact and killing the car's tangential speed on impact.
+world.addContactMaterial(
+  new CANNON.ContactMaterial(CHASSIS_MATERIAL, BUILDING_MATERIAL, {
+    friction: 0.01,
+    restitution: 0.35,
+  })
+);
 
 // ---------- Real-world terrain (aerial imagery + elevation, streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
@@ -109,6 +125,56 @@ const poseForward = new THREE.Vector3();
 
 const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
 let selectedColor = BODY_COLORS[0];
+let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
+
+// Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
+// against a wall) - only impacts above this relative speed (m/s along the
+// contact normal) trigger the arcade flip/roll response below.
+const IMPACT_ROLL_MIN_SPEED = 2.5;
+// Tuning knob for how dramatic a qualifying hit's induced spin is; scales
+// linearly with impact speed, so a glancing tap barely rocks the car while
+// a hard head-on/corner hit can flip it.
+const IMPACT_ROLL_TORQUE_SCALE = 0.22;
+const _impactNormal = new CANNON.Vec3();
+const _impactImpulse = new CANNON.Vec3();
+const _impactTorque = new CANNON.Vec3();
+const _impactAngularDelta = new CANNON.Vec3();
+
+/**
+ * Arcade-style collision response layered on top of cannon-es's own contact
+ * resolution: turns "where on the car" (contact.ri/rj, relative to the
+ * chassis' center of mass) and "how hard" (impact speed along the contact
+ * normal) into an extra angular-velocity kick, so hitting a building corner
+ * off-center or at speed visibly rolls/flips the car toward the side that
+ * got hit, rather than the impact just stopping/deflecting it in a straight
+ * line. Needed because building contacts use near-zero friction (see the
+ * chassis/building ContactMaterial below) to let grazing hits slide - that
+ * removes the tangential friction impulse that would otherwise supply most
+ * of the spin, so it's added back in explicitly here instead.
+ */
+function applyImpactRoll(chassisBody, contact) {
+  const impactSpeed = Math.abs(contact.getImpactVelocityAlongNormal());
+  if (impactSpeed < IMPACT_ROLL_MIN_SPEED) return;
+
+  const isBi = contact.bi === chassisBody;
+  // Vector from the chassis' center of mass to the actual contact point,
+  // in world space - this is the "hit direction" lever arm.
+  const r = isBi ? contact.ri : contact.rj;
+  // The normal impulse cannon-es applies pushes bi along -ni and bj along
+  // +ni (ni always points from bi to bj) - pick whichever direction
+  // actually shoves the chassis, regardless of which side of the pair it
+  // ended up on.
+  if (isBi) contact.ni.negate(_impactNormal);
+  else _impactNormal.copy(contact.ni);
+
+  // torque = r x impulse: an off-center (large |r| perpendicular to the
+  // normal) or fast hit produces a proportionally bigger torque.
+  _impactNormal.scale(impactSpeed * chassisBody.mass * IMPACT_ROLL_TORQUE_SCALE, _impactImpulse);
+  r.cross(_impactImpulse, _impactTorque);
+
+  chassisBody.invInertiaWorld.vmult(_impactTorque, _impactAngularDelta);
+  chassisBody.angularVelocity.vadd(_impactAngularDelta, chassisBody.angularVelocity);
+}
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
@@ -171,8 +237,9 @@ const SUSPENSION_WHEELS = ['fl', 'fr', 'rl', 'rr'].map((key) => ({
   val: document.getElementById(`susp-${key}-val`),
 }));
 
-// ---------- Debug visuals toggle (tile stats HUD + 3D tile borders) ----------
-// On by default; press M to hide/show both together while driving.
+// ---------- Debug visuals toggle (tile stats HUD, 3D tile borders, and
+// collision hitbox wireframes for buildings + the car chassis) ----------
+// On by default; press M to hide/show all of these together while driving.
 let debugVisualsEnabled = true;
 
 function setDebugVisualsEnabled(enabled) {
@@ -180,6 +247,8 @@ function setDebugVisualsEnabled(enabled) {
   terrainStatsEl.style.display = enabled ? '' : 'none';
   suspensionHudEl.style.display = enabled ? '' : 'none';
   terrain.setBordersVisible(enabled);
+  buildings.setHitboxesVisible(enabled);
+  if (setCarHitboxVisible) setCarHitboxVisible(enabled);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -286,7 +355,7 @@ function updateTerrainStats(delta) {
   if (b.usingCachedData) {
     textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
   } else if (b.regionFailed) {
-    textLines.push(`buildings: OSM/Overpass unreachable (network blocked?), retrying\u2026`);
+    textLines.push(`buildings: tile service unreachable (network blocked?), retrying\u2026`);
     if (b.lastError) textLines.push(`  ${b.lastError.slice(0, 60)}`);
   }
 
@@ -567,6 +636,20 @@ addressForm.addEventListener('submit', async (e) => {
   try {
     const { lat, lon } = await geocodeAddress(query);
     await enqueueOrigin(lat, lon, { resetCar: true, announce: true });
+    setAddressStatus('Loading terrain at new location\u2026');
+    await terrain.recenter(lat, lon);
+    buildings.recenter(lat, lon);
+    currentOriginLat = lat;
+    currentOriginLon = lon;
+    await buildings.update(
+      Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+      Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+      true
+    );
+    // Only override position (new spawn location) - omit the quaternion so
+    // reset() keeps the car's current heading instead of snapping it back
+    // to the default facing direction.
+    if (reset) reset(START_POS);
     setAddressStatus(`Respawned at "${query}"`);
     setTimeout(() => setAddressStatus(''), 3000);
   } catch (err) {
@@ -805,11 +888,23 @@ function animate() {
 // Load the initial terrain around the spawn point before starting the sim,
 // so the car never falls through an unloaded world. Buildings stream in
 // via the same per-frame animate() call once the car exists (see the
-// buildings.update() call above) - not awaited here, since Overpass is
-// slower/less reliable than the aerial/elevation tile sources and
+// buildings.update() call above) - not awaited here, since building tiles
+// are slower/less critical than the aerial/elevation tile sources and
 // terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
   lobbyJoin.disabled = false;
   setLobbyStatus('Wpisz imię i wybierz kolor.');
+  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
+    world,
+    scene,
+    START_POS,
+    START_QUAT
+  ));
+  setCarHitboxVisible(debugVisualsEnabled);
+  vehicle.chassisBody.addEventListener('collide', (event) => {
+    if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
+    applyImpactRoll(vehicle.chassisBody, event.contact);
+  });
+  animate();
 });
