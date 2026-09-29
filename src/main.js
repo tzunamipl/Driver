@@ -97,7 +97,10 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const MAX_FORCE = 300;
 const MAX_STEER = 0.5;
-const BRAKE_FORCE = 40;
+// Brakes should be able to stop the car at least as decisively as the engine
+// can accelerate it, so scale brake force off the engine's max power instead
+// of using an unrelated fixed constant.
+const BRAKE_FORCE = MAX_FORCE * 10;
 
 function updateControls() {
   if (!vehicle) return;
