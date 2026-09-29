@@ -116,7 +116,6 @@ document.body.appendChild(loadingEl);
 // settles it onto the real ground once the chunk physics bodies are loaded.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
-let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset;
 const net = createNet();
 const remotes = new Map();
 let joined = false;
