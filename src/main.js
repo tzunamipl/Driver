@@ -576,7 +576,10 @@ addressForm.addEventListener('submit', async (e) => {
       Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
       true
     );
-    if (reset) reset(START_POS, START_QUAT);
+    // Only override position (new spawn location) - omit the quaternion so
+    // reset() keeps the car's current heading instead of snapping it back
+    // to the default facing direction.
+    if (reset) reset(START_POS);
     setAddressStatus(`Respawned at "${query}"`);
     setTimeout(() => setAddressStatus(''), 3000);
   } catch (err) {
