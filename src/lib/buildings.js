@@ -298,7 +298,7 @@ export class BuildingsManager {
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
-    this.chunks = new Map(); // key -> { mesh, bodies[], tx, ty, bytes }
+    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
     this.material = new THREE.MeshStandardMaterial({
@@ -309,6 +309,12 @@ export class BuildingsManager {
       // building's walls/roof don't vanish via backface culling.
       side: THREE.DoubleSide,
     });
+    // Debug-only wireframe boxes marking each building body's actual
+    // physics hitbox (its CANNON.Box shape) - created alongside every body
+    // so toggling never has to walk/rebuild chunks, just flip .visible.
+    // See setHitboxesVisible().
+    this._hitboxMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, depthTest: false });
+    this._hitboxesVisible = false;
 
     // Region cache: the last fetched tile-range and the buildings within it
     // (raw lat/lon rings + tags, bucketed by which tile their centroid
@@ -526,6 +532,7 @@ export class BuildingsManager {
     const list = this._buildingsByTile.get(key) || [];
     const geometries = [];
     const bodies = [];
+    const hitboxMeshes = [];
     let skipped = 0;
     for (const entry of list) {
       try {
@@ -541,6 +548,16 @@ export class BuildingsManager {
         body.position.set(built.aabb.centerX, groundY + halfHeight, built.aabb.centerZ);
         this.world.addBody(body);
         bodies.push(body);
+
+        const hitboxMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(built.aabb.halfX * 2, halfHeight * 2, built.aabb.halfZ * 2),
+          this._hitboxMaterial
+        );
+        hitboxMesh.position.copy(body.position);
+        hitboxMesh.visible = this._hitboxesVisible;
+        hitboxMesh.renderOrder = 999;
+        this.scene.add(hitboxMesh);
+        hitboxMeshes.push(hitboxMesh);
 
         // The extrusion geometry itself runs from y=0 to y=height in local
         // space; translate it up to the sampled ground height so the
@@ -565,7 +582,7 @@ export class BuildingsManager {
     if (skipped) console.warn(`Buildings tile ${tx},${ty}: ${skipped} malformed footprints skipped`);
 
     const bytes = estimateTileBytes(mesh?.geometry, bodies.length);
-    this.chunks.set(key, { mesh, bodies, tx, ty, bytes });
+    this.chunks.set(key, { mesh, bodies, hitboxMeshes, tx, ty, bytes });
     this.stats.created++;
     this.stats.buildings += bodies.length;
   }
@@ -578,10 +595,22 @@ export class BuildingsManager {
       chunk.mesh.geometry.dispose();
     }
     for (const body of chunk.bodies) this.world.removeBody(body);
+    for (const hitboxMesh of chunk.hitboxMeshes) {
+      this.scene.remove(hitboxMesh);
+      hitboxMesh.geometry.dispose();
+    }
     this.stats.buildings -= chunk.bodies.length;
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
     this.stats.removed++;
+  }
+
+  /** Toggles visibility of every building's debug collision-hitbox wireframe (see main.js's M-key debug toggle). */
+  setHitboxesVisible(visible) {
+    this._hitboxesVisible = visible;
+    for (const chunk of this.chunks.values()) {
+      for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = visible;
+    }
   }
 
   /**
