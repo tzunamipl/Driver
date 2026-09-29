@@ -215,6 +215,32 @@ export function createCar(
   const chassisMesh = buildImprezaBody(chassisWidth, chassisLength);
   THREE_scene.add(chassisMesh);
 
+  // Debug-only wireframe spheres marking the chassis' actual physics
+  // hitbox (the 8 corner spheres added above) - parented directly to
+  // chassisMesh, whose transform tracks chassisBody 1:1 (see syncMeshes
+  // below), so these move/rotate with the car for free.
+  const hitboxMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, depthTest: false });
+  const hitboxMeshes = [];
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const sphereMesh = new THREE.Mesh(new THREE.SphereGeometry(hitboxRadius, 8, 6), hitboxMaterial);
+        sphereMesh.position.set(
+          sx * (chassisWidth / 2 - hitboxRadius),
+          sy * (chassisHeight / 2 - hitboxRadius),
+          sz * (chassisLength / 2 - hitboxRadius)
+        );
+        sphereMesh.visible = false;
+        sphereMesh.renderOrder = 999;
+        chassisMesh.add(sphereMesh);
+        hitboxMeshes.push(sphereMesh);
+      }
+    }
+  }
+  function setHitboxVisible(visible) {
+    for (const m of hitboxMeshes) m.visible = visible;
+  }
+
   const wheelMeshes = wheelPositions.map(() => buildRallyWheel(wheelOptions.radius, THREE_scene));
 
   // --- Fixed-step physics / variable-rate render decoupling ---
@@ -317,5 +343,5 @@ export function createCar(
     return upright;
   }
 
-  return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset };
+  return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible };
 }

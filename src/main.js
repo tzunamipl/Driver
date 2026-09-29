@@ -99,7 +99,7 @@ document.body.appendChild(loadingEl);
 // settles it onto the real ground once the chunk physics bodies are loaded.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
-let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset;
+let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
@@ -154,8 +154,9 @@ const SUSPENSION_WHEELS = ['fl', 'fr', 'rl', 'rr'].map((key) => ({
   val: document.getElementById(`susp-${key}-val`),
 }));
 
-// ---------- Debug visuals toggle (tile stats HUD + 3D tile borders) ----------
-// On by default; press M to hide/show both together while driving.
+// ---------- Debug visuals toggle (tile stats HUD, 3D tile borders, and
+// collision hitbox wireframes for buildings + the car chassis) ----------
+// On by default; press M to hide/show all of these together while driving.
 let debugVisualsEnabled = true;
 
 function setDebugVisualsEnabled(enabled) {
@@ -163,6 +164,8 @@ function setDebugVisualsEnabled(enabled) {
   terrainStatsEl.style.display = enabled ? '' : 'none';
   suspensionHudEl.style.display = enabled ? '' : 'none';
   terrain.setBordersVisible(enabled);
+  buildings.setHitboxesVisible(enabled);
+  if (setCarHitboxVisible) setCarHitboxVisible(enabled);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -632,6 +635,12 @@ function animate() {
 // terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
-  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(world, scene, START_POS, START_QUAT));
+  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
+    world,
+    scene,
+    START_POS,
+    START_QUAT
+  ));
+  setCarHitboxVisible(debugVisualsEnabled);
   animate();
 });
