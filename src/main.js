@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createCar } from './lib/car.js';
+import { createCar, createRemoteCar } from './lib/car.js';
+import { createNet } from './lib/net.js';
 import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
@@ -100,6 +101,14 @@ document.body.appendChild(loadingEl);
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset;
+const net = createNet();
+const remotes = new Map();
+let joined = false;
+let loopStarted = false;
+const poseForward = new THREE.Vector3();
+
+const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
+let selectedColor = BODY_COLORS[0];
 
 // ---------- Keyboard controls ----------
 const keys = new Set();
@@ -115,6 +124,14 @@ const BRAKE_FORCE = MAX_FORCE * 10;
 
 function updateControls() {
   if (!vehicle) return;
+  const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  if (typing) {
+    vehicle.applyEngineForce(0, 2);
+    vehicle.applyEngineForce(0, 3);
+    vehicle.setSteeringValue(0, 0);
+    vehicle.setSteeringValue(0, 1);
+    return;
+  }
   const forward = keys.has('KeyW') || keys.has('ArrowUp');
   const backward = keys.has('KeyS') || keys.has('ArrowDown');
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
@@ -461,6 +478,8 @@ window.addEventListener('resize', () => {
 // address, resolves it to lat/lon, re-centers the whole terrain streaming
 // system on that point (see TerrainManager.recenter), and teleports the
 // car back to the local origin once the new area's initial chunks load.
+// In the shared room the new origin is published (retained) so everyone
+// else recenters and respawns on the same map.
 const NOMINATIM_URL = (q) =>
   `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
 
@@ -486,38 +505,181 @@ function setAddressStatus(text, isError = false) {
 }
 
 let respawning = false;
+addressInput.disabled = true;
+addressSubmit.disabled = true;
+
+function playerSpawnPos() {
+  const offset = net.spawnOffset();
+  return new CANNON.Vec3(START_POS.x + offset.x, START_POS.y, START_POS.z + offset.z);
+}
+
+let originChain = Promise.resolve();
+
+async function goToOrigin(lat, lon, { resetCar, announce }) {
+  const same =
+    Math.abs(lat - currentOriginLat) < 1e-7 &&
+    Math.abs(lon - currentOriginLon) < 1e-7;
+  if (!same) {
+    respawning = true;
+    addressSubmit.disabled = true;
+    setAddressStatus('Loading terrain at new location\u2026');
+    try {
+      await terrain.recenter(lat, lon);
+      buildings.recenter(lat, lon);
+      currentOriginLat = lat;
+      currentOriginLon = lon;
+      await buildings.update(
+        Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+        Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+        true
+      );
+      setAddressStatus('');
+    } finally {
+      respawning = false;
+      addressSubmit.disabled = !joined;
+    }
+  }
+  if (reset && resetCar && (!same || announce)) reset(playerSpawnPos(), START_QUAT);
+  if (announce && !same) net.publishOrigin(lat, lon);
+}
+
+function enqueueOrigin(lat, lon, options) {
+  const run = originChain.then(() => goToOrigin(lat, lon, options));
+  originChain = run.catch((err) => {
+    console.warn('Shared origin failed', err);
+    setAddressStatus(`Couldn't respawn: ${err.message}`, true);
+  });
+  return run;
+}
+
+net.onOrigin(({ lat, lon }) => {
+  enqueueOrigin(lat, lon, { resetCar: true, announce: false });
+});
 
 addressForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const query = addressInput.value.trim();
-  if (!query || respawning) return;
+  if (!query || respawning || !joined) return;
 
-  respawning = true;
   addressSubmit.disabled = true;
   setAddressStatus(`Searching for "${query}"\u2026`);
 
   try {
     const { lat, lon } = await geocodeAddress(query);
-    setAddressStatus('Loading terrain at new location\u2026');
-    await terrain.recenter(lat, lon);
-    buildings.recenter(lat, lon);
-    currentOriginLat = lat;
-    currentOriginLon = lon;
-    await buildings.update(
-      Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-      Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-      true
-    );
-    if (reset) reset(START_POS, START_QUAT);
+    await enqueueOrigin(lat, lon, { resetCar: true, announce: true });
     setAddressStatus(`Respawned at "${query}"`);
     setTimeout(() => setAddressStatus(''), 3000);
   } catch (err) {
     console.warn('Address respawn failed', err);
     setAddressStatus(`Couldn't respawn: ${err.message}`, true);
   } finally {
-    respawning = false;
     addressSubmit.disabled = false;
   }
+});
+
+// ---------- Shared room lobby ----------
+const lobbyEl = document.getElementById('lobby');
+const lobbyForm = document.getElementById('lobby-form');
+const lobbyName = document.getElementById('lobby-name');
+const lobbyJoin = document.getElementById('lobby-join');
+const lobbyStatus = document.getElementById('lobby-status');
+const lobbyColors = document.getElementById('lobby-colors');
+const netStatusEl = document.getElementById('net-status');
+
+const NET_STATUS_TEXT = {
+  connecting: 'Łączenie…',
+  online: 'W pokoju',
+  offline: 'Offline — jedziesz sam',
+};
+
+function setLobbyStatus(text) {
+  lobbyStatus.textContent = text;
+}
+
+function setNetStatus(status) {
+  netStatusEl.textContent = NET_STATUS_TEXT[status] ?? status;
+  netStatusEl.dataset.status = status;
+}
+
+net.onStatus((status) => {
+  setNetStatus(status);
+  if (lobbyEl.style.display !== 'none') setLobbyStatus(NET_STATUS_TEXT[status] ?? status);
+});
+
+for (const color of BODY_COLORS) {
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.dataset.color = String(color);
+  swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
+  swatch.setAttribute('aria-label', swatch.style.background);
+  if (color === selectedColor) swatch.classList.add('selected');
+  swatch.addEventListener('click', () => {
+    selectedColor = color;
+    for (const button of lobbyColors.children) button.classList.toggle('selected', button === swatch);
+  });
+  lobbyColors.appendChild(swatch);
+}
+
+function spawnLocalCar(color) {
+  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(
+    world,
+    scene,
+    playerSpawnPos(),
+    START_QUAT,
+    color
+  ));
+}
+
+function updateRemotes(dt) {
+  const poses = net.remotePoses(performance.now());
+  const seen = new Set();
+  for (const pose of poses) {
+    seen.add(pose.id);
+    let remote = remotes.get(pose.id);
+    if (!remote) {
+      remote = createRemoteCar(scene, pose.color, pose.name);
+      remotes.set(pose.id, remote);
+    } else {
+      remote.setAppearance(pose.color, pose.name);
+    }
+    remote.setPose(pose, dt);
+  }
+  for (const [id, remote] of remotes) {
+    if (seen.has(id)) continue;
+    remote.dispose();
+    remotes.delete(id);
+  }
+}
+
+lobbyForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = lobbyName.value.trim();
+  if (!name || joined || lobbyJoin.disabled) return;
+
+  lobbyJoin.disabled = true;
+  setLobbyStatus('Łączenie…');
+  try {
+    await net.connect({ name, color: selectedColor });
+    await originChain;
+  } catch (err) {
+    console.warn('Room connect failed', err);
+  }
+
+  spawnLocalCar(selectedColor);
+  joined = true;
+  addressInput.disabled = false;
+  addressSubmit.disabled = false;
+  lobbyEl.style.display = 'none';
+  netStatusEl.hidden = false;
+  setNetStatus(net.isOnline() ? 'online' : 'offline');
+  if (!loopStarted) {
+    loopStarted = true;
+    animate();
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  if (joined) net.publishLeave();
 });
 
 // ---------- Main loop ----------
@@ -590,6 +752,22 @@ function animate() {
 
   const alpha = accumulator / FIXED_STEP;
   if (syncMeshes) syncMeshes(alpha);
+  if (joined && chassisMesh && vehicle) {
+    poseForward.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
+    const velocity = vehicle.chassisBody.velocity;
+    net.publishPose({
+      x: chassisMesh.position.x,
+      y: chassisMesh.position.y,
+      z: chassisMesh.position.z,
+      qx: chassisMesh.quaternion.x,
+      qy: chassisMesh.quaternion.y,
+      qz: chassisMesh.quaternion.z,
+      qw: chassisMesh.quaternion.w,
+      speed: velocity.x * poseForward.x + velocity.y * poseForward.y + velocity.z * poseForward.z,
+      steer: vehicle.wheelInfos[0].steering,
+    });
+    updateRemotes(frameDelta);
+  }
   updateCamera(frameDelta);
   updateGauges();
   updateTerrainStats(frameDelta);
@@ -632,6 +810,6 @@ function animate() {
 // terrain-only is enough to safely start driving.
 terrain.init().then(() => {
   loadingEl.remove();
-  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(world, scene, START_POS, START_QUAT));
-  animate();
+  lobbyJoin.disabled = false;
+  setLobbyStatus('Wpisz imię i wybierz kolor.');
 });

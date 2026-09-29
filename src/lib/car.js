@@ -21,17 +21,24 @@ function taperCabinTop(geometry, frontInset, backInset) {
   return geometry;
 }
 
+const DEFAULT_BODY_COLOR = 0x1c3f94; // WRC blue
+const CHASSIS_WIDTH = 1.8;
+const CHASSIS_HEIGHT = 0.6;
+const CHASSIS_LENGTH = 4;
+const WHEEL_RADIUS = 0.4;
+
 /**
  * Builds a low-poly Subaru Impreza GC (90s WRX/STI rally-styled) body out of
  * primitive boxes/cylinders: boxy sedan shell, raked cabin greenhouse, hood
  * scoop, round rally fog lights + rectangular headlights, and the iconic
- * STI rear wing on struts. Returned as a THREE.Group standing in for the
- * chassis mesh, sized to roughly match the physics chassis footprint.
+ * STI rear wing on struts. The group stands in for the chassis mesh, sized
+ * to roughly match the physics chassis footprint. `bodyMat` is the painted
+ * shell so a remote car can recolor without rebuilding geometry.
  */
-function buildImprezaBody(chassisWidth, chassisLength) {
+function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
   const group = new THREE.Group();
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1c3f94, metalness: 0.4, roughness: 0.45 }); // WRC blue
+  const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.45 });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x161616, metalness: 0.2, roughness: 0.8 });
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0x554417, roughness: 0.3 });
@@ -93,14 +100,14 @@ function buildImprezaBody(chassisWidth, chassisLength) {
   add(new THREE.BoxGeometry(chassisWidth * 0.9, 0.05, 0.35), trimMat, 0, 0.38, -chassisLength * 0.46);
 
   parts.forEach((mesh) => group.add(mesh));
-  return group;
+  return { group, bodyMat };
 }
 
 /**
  * Builds a two-tone low-poly rally wheel: a black tire cylinder plus a
  * smaller gold octagonal "rim" cylinder for a BBS-style mesh-wheel look.
  */
-function buildRallyWheel(radius, THREE_scene) {
+function buildRallyWheel(radius, parent) {
   const group = new THREE.Group();
 
   const tireGeo = new THREE.CylinderGeometry(radius, radius, 0.3, 20);
@@ -115,8 +122,32 @@ function buildRallyWheel(radius, THREE_scene) {
   rim.castShadow = true;
   group.add(rim);
 
-  THREE_scene.add(group);
+  parent.add(group);
   return group;
+}
+
+function makeNameSprite(name) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(16, 8, 224, 48);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '600 28px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, 128, 32);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.position.set(0, 1.7, 0);
+  sprite.scale.set(2.4, 0.6, 1);
+  sprite.renderOrder = 1;
+  return sprite;
 }
 
 /**
@@ -128,12 +159,13 @@ export function createCar(
   world,
   THREE_scene,
   startPosition = new CANNON.Vec3(0, 1, 0),
-  startQuaternion = new CANNON.Quaternion(0, 0, 0, 1)
+  startQuaternion = new CANNON.Quaternion(0, 0, 0, 1),
+  color = DEFAULT_BODY_COLOR
 ) {
   // --- Chassis physics body ---
-  const chassisWidth = 1.8;
-  const chassisHeight = 0.6;
-  const chassisLength = 4;
+  const chassisWidth = CHASSIS_WIDTH;
+  const chassisHeight = CHASSIS_HEIGHT;
+  const chassisLength = CHASSIS_LENGTH;
 
   // cannon-es's narrowphase only implements Sphere<->Trimesh collision, not
   // Box<->Trimesh (ConvexPolyhedron<->Trimesh is unimplemented/commented out
@@ -173,7 +205,7 @@ export function createCar(
   });
 
   const wheelOptions = {
-    radius: 0.4,
+    radius: WHEEL_RADIUS,
     directionLocal: new CANNON.Vec3(0, -1, 0),
     suspensionStiffness: 18,
     suspensionRestLength: 0.55,
@@ -212,7 +244,7 @@ export function createCar(
   // Built entirely from primitive boxes/cylinders to keep it low-poly, sized
   // to roughly match the chassis hitbox (chassisWidth x chassisLength) so it
   // still lines up with the wheels and physics body.
-  const chassisMesh = buildImprezaBody(chassisWidth, chassisLength);
+  const { group: chassisMesh } = buildImprezaBody(chassisWidth, chassisLength, color);
   THREE_scene.add(chassisMesh);
 
   const wheelMeshes = wheelPositions.map(() => buildRallyWheel(wheelOptions.radius, THREE_scene));
@@ -318,4 +350,76 @@ export function createCar(
   }
 
   return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset };
+}
+
+/**
+ * Visual-only copy of the local car (no physics) for other players.
+ * Wheels are parented to the chassis and spun from the replicated speed.
+ */
+export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '') {
+  const { group, bodyMat } = buildImprezaBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
+  const nameSprite = makeNameSprite(name);
+  group.add(nameSprite);
+
+  const axleWidth = CHASSIS_WIDTH / 2 - 0.1;
+  const wheelAttachY = -CHASSIS_HEIGHT / 2;
+  const wheelLocals = [
+    [-axleWidth, wheelAttachY, 1.3],
+    [axleWidth, wheelAttachY, 1.3],
+    [-axleWidth, wheelAttachY, -1.3],
+    [axleWidth, wheelAttachY, -1.3],
+  ];
+  const wheelMeshes = wheelLocals.map(([x, y, z]) => {
+    const wheel = buildRallyWheel(WHEEL_RADIUS, group);
+    wheel.position.set(x, y, z);
+    wheel.rotation.order = 'YXZ';
+    return wheel;
+  });
+
+  THREE_scene.add(group);
+
+  let spin = 0;
+  let currentColor = color;
+  let currentName = name;
+
+  function setPose(pose, dt) {
+    group.position.set(pose.x, pose.y, pose.z);
+    group.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw).normalize();
+    spin = (spin + (pose.speed / WHEEL_RADIUS) * dt) % (Math.PI * 2);
+    wheelMeshes.forEach((wheel, i) => {
+      wheel.rotation.y = i < 2 ? pose.steer : 0;
+      wheel.rotation.x = spin;
+    });
+  }
+
+  function setAppearance(nextColor, nextName) {
+    if (nextColor !== currentColor) {
+      currentColor = nextColor;
+      bodyMat.color.set(nextColor);
+    }
+    if (nextName !== currentName) {
+      currentName = nextName;
+      const previous = nameSprite.material;
+      nameSprite.material = makeNameSprite(nextName).material;
+      previous.map.dispose();
+      previous.dispose();
+    }
+  }
+
+  function dispose() {
+    THREE_scene.remove(group);
+    const materials = new Set();
+    const geometries = new Set();
+    group.traverse((obj) => {
+      if (obj.geometry) geometries.add(obj.geometry);
+      if (obj.material) {
+        materials.add(obj.material);
+        if (obj.material.map) obj.material.map.dispose();
+      }
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  }
+
+  return { setPose, setAppearance, dispose };
 }

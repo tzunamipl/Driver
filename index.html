@@ -161,6 +161,104 @@
         border-radius: 5px;
         display: none;
       }
+      #lobby {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 16, 28, 0.72);
+        font-family: system-ui, sans-serif;
+        color: #fff;
+      }
+      #lobby form {
+        width: min(420px, calc(100vw - 32px));
+        box-sizing: border-box;
+        background: rgba(0, 0, 0, 0.78);
+        padding: 22px 22px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      #lobby h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+      #lobby .hint {
+        margin: 0 0 16px;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      #lobby label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      #lobby input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.45);
+        color: #fff;
+        font: inherit;
+      }
+      #lobby-colors {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 14px 0 16px;
+      }
+      #lobby-colors button {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        padding: 0;
+        cursor: pointer;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+      }
+      #lobby-colors button.selected {
+        border-color: #fff;
+        box-shadow: 0 0 0 2px #4fc3ff;
+      }
+      #lobby-join {
+        width: 100%;
+        padding: 8px 14px;
+        border: none;
+        border-radius: 6px;
+        background: #4fc3ff;
+        color: #06222f;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #lobby-join:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #lobby-status {
+        min-height: 1.2em;
+        margin: 10px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.8);
+      }
+      #net-status {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 12;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 4px 10px;
+        border-radius: 999px;
+      }
+      #net-status[data-status="offline"] { color: #ffb0b0; }
+      #net-status[data-status="online"] { color: #b6f5c3; }
       #suspension-hud {
         position: fixed;
         bottom: 20px;
@@ -293,6 +391,18 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="lobby">
+      <form id="lobby-form" autocomplete="off">
+        <h1>Wspólny pokój</h1>
+        <p class="hint">Wpisz imię i wybierz kolor. Wszyscy na tej stronie jeżdżą po tej samej mapie.</p>
+        <label for="lobby-name">Imię</label>
+        <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Twoje imię" />
+        <div id="lobby-colors" role="radiogroup" aria-label="Kolor auta"></div>
+        <button id="lobby-join" type="submit" disabled>Wjedź</button>
+        <p id="lobby-status">Ładowanie terenu…</p>
+      </form>
+    </div>
+    <div id="net-status" hidden></div>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to respawn there\u2026" />
       <button id="address-submit" type="submit">Go</button>
