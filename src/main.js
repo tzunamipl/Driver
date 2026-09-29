@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
-import { createCar, CHASSIS_MATERIAL, createRemoteCar } from './lib/car.js';
+import { createCar, CHASSIS_MATERIAL, createRemoteCar, createNameTag } from './lib/car.js';
 import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
+import { createPedestrians } from './lib/pedestrians.js';
+import { createBalls } from './lib/ball.js';
 import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
 import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
 
@@ -67,6 +69,8 @@ scene.add(sun.target);
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
 const remoteCollisions = createRemoteCollisions(world);
+const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
+const balls = createBalls(scene, world);
 world.defaultContactMaterial.friction = 0.05;
 // Small amount of bounce on any collision (ground, buildings, etc.) instead
 // of the default perfectly inelastic (restitution 0) impact - keeps hard
@@ -126,7 +130,10 @@ const poseForward = new THREE.Vector3();
 
 const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
 let selectedColor = BODY_COLORS[0];
-let vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
+let vehicle, chassisMesh, wheelMeshes = [], syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
+let localName = '';
+let score = 0;
+let nameTag = null;
 
 // Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
 // against a wall) - only impacts above this relative speed (m/s along the
@@ -188,6 +195,7 @@ const MAX_STEER = 0.5;
 // can accelerate it, so scale brake force off the engine's max power instead
 // of using an unrelated fixed constant.
 const BRAKE_FORCE = MAX_FORCE * 10;
+const TURBO_MULT = 4;
 
 function updateControls() {
   if (!vehicle) return;
@@ -204,8 +212,10 @@ function updateControls() {
   const left = keys.has('KeyA') || keys.has('ArrowLeft');
   const right = keys.has('KeyD') || keys.has('ArrowRight');
   const handbrake = keys.has('Space');
+  const turbo = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const forceScale = turbo ? TURBO_MULT : 1;
 
-  const engineForce = forward ? -MAX_FORCE : backward ? MAX_FORCE : 0;
+  const engineForce = (forward ? -MAX_FORCE : backward ? MAX_FORCE : 0) * forceScale;
   // rear-wheel drive (indices 2, 3)
   vehicle.applyEngineForce(engineForce, 2);
   vehicle.applyEngineForce(engineForce, 3);
@@ -214,7 +224,7 @@ function updateControls() {
   vehicle.setSteeringValue(steerValue, 0);
   vehicle.setSteeringValue(steerValue, 1);
 
-  const brakeForce = handbrake ? BRAKE_FORCE : 0;
+  const brakeForce = handbrake ? BRAKE_FORCE * forceScale : 0;
   for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
   if (keys.has('KeyR')) {
@@ -704,14 +714,37 @@ for (const color of BODY_COLORS) {
   lobbyColors.appendChild(swatch);
 }
 
+function hookCar(nextVehicle, mesh) {
+  nextVehicle.chassisBody.addEventListener('collide', (event) => {
+    if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
+    applyImpactRoll(nextVehicle.chassisBody, event.contact);
+  });
+  pedestrians.bindChassis(nextVehicle.chassisBody);
+  if (nameTag?.sprite.parent) nameTag.sprite.parent.remove(nameTag.sprite);
+  nameTag = createNameTag(localName, score);
+  mesh.add(nameTag.sprite);
+}
+
+function removeCurrentCar() {
+  if (!vehicle) return;
+  world.removeEventListener('preStep', vehicle.preStepCallback);
+  world.removeBody(vehicle.chassisBody);
+  scene.remove(chassisMesh);
+  for (const mesh of wheelMeshes) scene.remove(mesh);
+  vehicle = null;
+}
+
 function spawnLocalCar(color) {
-  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset } = createCar(
+  removeCurrentCar();
+  ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
     world,
     scene,
     playerSpawnPos(),
     START_QUAT,
     color
   ));
+  setCarHitboxVisible(debugVisualsEnabled);
+  hookCar(vehicle, chassisMesh);
 }
 
 function updateRemotes(dt) {
@@ -721,10 +754,10 @@ function updateRemotes(dt) {
     seen.add(pose.id);
     let remote = remotes.get(pose.id);
     if (!remote) {
-      remote = createRemoteCar(scene, pose.color, pose.name);
+      remote = createRemoteCar(scene, pose.color, pose.name, pose.score ?? 0);
       remotes.set(pose.id, remote);
     } else {
-      remote.setAppearance(pose.color, pose.name);
+      remote.setAppearance(pose.color, pose.name, pose.score ?? 0);
     }
     remote.setPose(pose, dt);
   }
@@ -734,6 +767,38 @@ function updateRemotes(dt) {
     remotes.delete(id);
   }
 }
+
+const spawnPedsBtn = document.getElementById('spawn-peds');
+const spawnBallBtn = document.getElementById('spawn-ball');
+let nextBallSend = 0;
+
+pedestrians.setOnHit((pedId) => {
+  score += 1;
+  nameTag?.set(localName, score);
+  net.publishProps({ type: 'ped-hit', pedId });
+});
+
+net.onProps((msg) => {
+  if (msg.type === 'peds' && Array.isArray(msg.peds)) {
+    for (const ped of msg.peds) pedestrians.addPed(ped.id, ped.x, ped.y, ped.z);
+  } else if (msg.type === 'ped-hit') {
+    pedestrians.removePed(msg.pedId);
+  } else if (msg.type === 'ball' || msg.type === 'ball-spawn') {
+    balls.ensureRemote(msg.ballId, msg);
+  }
+});
+
+spawnPedsBtn.addEventListener('click', () => {
+  if (!joined || !vehicle) return;
+  const batch = pedestrians.spawnLocal(vehicle.chassisBody, net.clientId);
+  net.publishProps({ type: 'peds', peds: batch });
+});
+
+spawnBallBtn.addEventListener('click', () => {
+  if (!joined || !vehicle) return;
+  const spawned = balls.spawnOwned(vehicle.chassisBody, net.clientId);
+  net.publishProps({ type: 'ball-spawn', ...spawned });
+});
 
 lobbyForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -749,10 +814,13 @@ lobbyForm.addEventListener('submit', async (e) => {
     console.warn('Room connect failed', err);
   }
 
+  localName = name.slice(0, 16);
   spawnLocalCar(selectedColor);
   joined = true;
   addressInput.disabled = false;
   addressSubmit.disabled = false;
+  spawnPedsBtn.disabled = false;
+  spawnBallBtn.disabled = false;
   lobbyEl.style.display = 'none';
   netStatusEl.hidden = false;
   setNetStatus(net.isOnline() ? 'online' : 'offline');
@@ -831,6 +899,7 @@ function animate() {
     world.step(FIXED_STEP);
     preventGroundTunneling();
     if (snapshotPhysics) snapshotPhysics();
+    pedestrians.flushHits();
     accumulator -= FIXED_STEP;
     substeps++;
   }
@@ -840,6 +909,7 @@ function animate() {
 
   const alpha = accumulator / FIXED_STEP;
   if (syncMeshes) syncMeshes(alpha);
+  balls.syncMeshes();
   if (joined && chassisMesh && vehicle) {
     poseForward.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
     const velocity = vehicle.chassisBody.velocity;
@@ -853,7 +923,12 @@ function animate() {
       qw: chassisMesh.quaternion.w,
       speed: velocity.x * poseForward.x + velocity.y * poseForward.y + velocity.z * poseForward.z,
       steer: vehicle.wheelInfos[0].steering,
+      score,
     });
+    if (now >= nextBallSend) {
+      nextBallSend = now + 100;
+      for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
+    }
     updateRemotes(frameDelta);
   }
   updateCamera(frameDelta);
@@ -900,16 +975,14 @@ terrain.init().then(() => {
   loadingEl.remove();
   lobbyJoin.disabled = false;
   setLobbyStatus('Wpisz imię i wybierz kolor.');
-  ({ vehicle, chassisMesh, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
+  ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
     world,
     scene,
     START_POS,
     START_QUAT
   ));
   setCarHitboxVisible(debugVisualsEnabled);
-  vehicle.chassisBody.addEventListener('collide', (event) => {
-    if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
-    applyImpactRoll(vehicle.chassisBody, event.contact);
-  });
+  hookCar(vehicle, chassisMesh);
+  loopStarted = true;
   animate();
 });
