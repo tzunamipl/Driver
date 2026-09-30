@@ -33,6 +33,9 @@ const CHASSIS_WIDTH = 1.8;
 const CHASSIS_HEIGHT = 0.6;
 const CHASSIS_LENGTH = 4;
 const WHEEL_RADIUS = 0.4;
+// How long a reset's lift-back-upright takes to ease into place, instead of
+// snapping there in a single instantaneous teleport.
+const RESET_LIFT_DURATION_S = 0.6;
 
 /**
  * Builds a low-poly Subaru Impreza GC (90s WRX/STI rally-styled) body out of
@@ -234,16 +237,16 @@ export function createCar(
   const wheelOptions = {
     radius: WHEEL_RADIUS,
     directionLocal: new CANNON.Vec3(0, -1, 0),
-    suspensionStiffness: 18,
+    suspensionStiffness: 10,
     suspensionRestLength: 0.55,
     frictionSlip: 5,
-    dampingRelaxation: 2.1,
-    dampingCompression: 3.2,
+    dampingRelaxation: 1.4,
+    dampingCompression: 2.0,
     maxSuspensionForce: 100000,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
-    maxSuspensionTravel: 0.7,
+    maxSuspensionTravel: 0.95,
     customSlidingRotationalSpeed: -30,
     useCustomSlidingRotationalSpeed: true,
   };
@@ -379,17 +382,50 @@ export function createCar(
   // current x/z position (and lifts it a bit above its current spot in case
   // it landed on its roof/side) instead of teleporting back to the spawn
   // point. Pass explicit position/quaternion to override that behavior.
+  // The actual lift is eased in over RESET_LIFT_DURATION_S by updateReset()
+  // rather than snapped to instantly, so the car visibly (and slowly) rises
+  // upright instead of popping there in a single frame.
+  let liftAnim = null;
+
   function reset(position, quaternion) {
     const targetPosition = position ?? chassisBody.position.clone();
     if (!position) targetPosition.y += chassisHeight + 0.5;
     const targetQuaternion = quaternion ?? uprightQuaternionPreservingHeading();
 
-    chassisBody.position.copy(targetPosition);
+    liftAnim = {
+      startPos: chassisBody.position.clone(),
+      startQuat: chassisBody.quaternion.clone(),
+      targetPos: targetPosition,
+      targetQuat: targetQuaternion,
+      elapsed: 0,
+    };
+    // Kinematic for the duration of the lift: immune to gravity/collisions
+    // so nothing fights the eased motion, then handed back to normal
+    // dynamics once it reaches the target pose.
+    chassisBody.type = CANNON.Body.KINEMATIC;
     chassisBody.velocity.set(0, 0, 0);
     chassisBody.angularVelocity.set(0, 0, 0);
-    chassisBody.quaternion.copy(targetQuaternion);
 
     resetInterpolation();
+  }
+
+  // Call every render frame (not just on fixed physics steps) so the lift's
+  // duration is real wall-clock time regardless of physics substep count.
+  function updateReset(dt) {
+    if (!liftAnim) return;
+    liftAnim.elapsed += dt;
+    const t = Math.min(liftAnim.elapsed / RESET_LIFT_DURATION_S, 1);
+    // Ease-out: brisk start, gentle settle into the final pose.
+    const eased = 1 - (1 - t) * (1 - t);
+    liftAnim.startPos.lerp(liftAnim.targetPos, eased, chassisBody.position);
+    liftAnim.startQuat.slerp(liftAnim.targetQuat, eased, chassisBody.quaternion);
+
+    if (t >= 1) {
+      chassisBody.type = CANNON.Body.DYNAMIC;
+      chassisBody.velocity.set(0, 0, 0);
+      chassisBody.angularVelocity.set(0, 0, 0);
+      liftAnim = null;
+    }
   }
 
   // Keeps the car's current heading (yaw) but zeroes out any roll/pitch,
@@ -402,7 +438,8 @@ export function createCar(
     return upright;
   }
 
-  return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible };
+
+  return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible };
 }
 
 /**

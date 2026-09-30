@@ -79,6 +79,10 @@ export const FLIGHT_MIN_CLEARANCE_M = 2.4;
 // of pitch/roll either way) still allows a stunt jump's natural rotation
 // while excluding an actual barrel-roll/flip from paying out.
 export const AIRTIME_MIN_UPRIGHT_DOT = 0.5;
+// A jump must be airborne at least this long before it pays out at all -
+// filters out curbs, bumps, and other trivial hops that briefly lift a
+// wheel but aren't a real jump.
+export const AIRTIME_MIN_DURATION_S = 0.5;
 export const SCORE_PER_PEDESTRIAN = 5;
 
 // ---------- Camera follow ----------

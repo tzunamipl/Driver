@@ -52,6 +52,7 @@ export function createMainLoop({
     const chassisMesh = carManager.getChassisMesh();
     const reset = carManager.getReset();
 
+    carManager.getUpdateReset()?.(frameDelta);
     input.updateControls(vehicle, reset);
 
     // Remote cars are kinematic obstacles. Place them before the step so

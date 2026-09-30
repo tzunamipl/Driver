@@ -7,6 +7,7 @@ import {
   SCORE_PER_AIR_SECOND,
   FLIGHT_MIN_CLEARANCE_M,
   AIRTIME_MIN_UPRIGHT_DOT,
+  AIRTIME_MIN_DURATION_S,
   GROUND_RAY_HEIGHT,
 } from '../config.js';
 
@@ -14,11 +15,13 @@ import {
 // are scored separately (whoever runs one over). Kilometres pay out whole,
 // the leftover fraction carrying to the next award. Airtime accrues
 // fractional points every frame (so the live HUD ticks up smoothly) but is
-// only credited to the score once, as a whole number, when the jump ends.
-// Airtime also requires the chassis to stay roughly right-side-up - a
-// barrel-rolled/upside-down flip stops the count. A reset or address
-// recenter is a position jump, not distance, and the drop onto the new
-// ground does not count as flight until the wheels touch once.
+// only credited to the score once, as a whole number, when the jump ends,
+// and only if the whole flight lasted at least AIRTIME_MIN_DURATION_S -
+// short hops off a curb/bump don't pay out. Airtime also requires the
+// chassis to stay roughly right-side-up - a barrel-rolled/upside-down flip
+// stops the count. A reset or address recenter is a position jump, not
+// distance, and the drop onto the new ground does not count as flight
+// until the wheels touch once.
 
 export function createScoring({
   world,
@@ -40,6 +43,7 @@ export function createScoring({
   let kmRemainder = 0;
   let hasLanded = false;
   let wasAirborne = false;
+  let airborneDuration = 0;
   let jumpPointsRaw = 0;
 
   function groundClearance(chassisBody) {
@@ -82,6 +86,7 @@ export function createScoring({
       onAirtimeEnd?.();
     }
     wasAirborne = false;
+    airborneDuration = 0;
     jumpPointsRaw = 0;
   }
 
@@ -124,8 +129,11 @@ export function createScoring({
       return;
     }
     wasAirborne = true;
-    jumpPointsRaw += scorePerAirSecond * dt;
-    onAirtimeUpdate?.(Math.floor(jumpPointsRaw));
+    airborneDuration += dt;
+    if (airborneDuration >= AIRTIME_MIN_DURATION_S) {
+      jumpPointsRaw = scorePerAirSecond * airborneDuration;
+      onAirtimeUpdate?.(Math.floor(jumpPointsRaw));
+    }
   }
 
   return { update, isLanded: () => hasLanded };

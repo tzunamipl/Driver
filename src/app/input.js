@@ -9,6 +9,9 @@ export function createInputController() {
   const keys = new Set();
   window.addEventListener('keydown', (e) => keys.add(e.code));
   window.addEventListener('keyup', (e) => keys.delete(e.code));
+  // Edge-triggered: reset() now animates the lift over time, so holding R
+  // down must fire it once, not restart the animation every frame.
+  let resetWasPressed = false;
 
   /**
    * Applies current key state to the vehicle's engine/steering/brake, and
@@ -46,7 +49,9 @@ export function createInputController() {
     const brakeForce = handbrake ? BRAKE_FORCE * forceScale : 0;
     for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
-    if (keys.has('KeyR') && reset) reset();
+    const resetPressed = keys.has('KeyR');
+    if (resetPressed && !resetWasPressed && reset) reset();
+    resetWasPressed = resetPressed;
   }
 
   return { keys, updateControls };
