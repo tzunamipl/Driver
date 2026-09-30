@@ -16,13 +16,25 @@
     <meta http-equiv="Expires" content="0" />
     <title>Driver POC</title>
     <style>
+      /* Shared timing for every HUD fold/hide animation (help panel
+         collapse-to-pill, its full dismiss, and the players panel
+         collapse) so they all read as the same kind of motion. */
+      :root { --hud-fold-ms: 250ms; }
       html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }
       #app { width: 100vw; height: 100vh; }
       canvas { display: block; }
-      #hud {
+      #top-left-stack {
         position: fixed;
         top: 10px;
         left: 10px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        pointer-events: none;
+      }
+      #hud {
         color: #fff;
         font-family: monospace;
         font-size: 13px;
@@ -32,12 +44,37 @@
         line-height: 1.5;
         pointer-events: none;
         z-index: 10;
+        opacity: 1;
+        transform: none;
+        transition: opacity var(--hud-fold-ms) ease, transform var(--hud-fold-ms) ease, padding var(--hud-fold-ms) ease;
+      }
+      /* Applied the instant "x" is clicked - fades/slides the panel out,
+         then collapsible.js swaps in .hidden (display: none) once the
+         transition finishes, so the panel is actually removed from layout
+         rather than just left invisible-but-still-there. Same duration/
+         easing (--hud-fold-ms) as the roll-to-pill collapse below and the
+         players panel's own collapse, so every "hide" in the HUD reads as
+         the same kind of motion. */
+      #hud.hiding {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.97);
+        pointer-events: none;
+      }
+      #hud.hidden {
+        display: none;
+      }
+      #hud-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        pointer-events: auto;
+        transition: margin-bottom var(--hud-fold-ms) ease;
       }
       #hud-toggle {
-        pointer-events: auto;
         display: block;
-        width: 100%;
-        margin: 0 0 6px;
+        flex: 1;
+        margin: 0;
         padding: 0;
         border: none;
         background: transparent;
@@ -50,14 +87,46 @@
       #hud-toggle::before {
         content: '▾ ';
       }
-      #hud.collapsed #hud-toggle {
+      #hud-hide {
+        flex: 0 0 auto;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 14px;
+        line-height: 1;
+        opacity: 0.7;
+        cursor: pointer;
+        padding: 0 2px;
+      }
+      #hud-hide:hover {
+        opacity: 1;
+      }
+      #hud.collapsed {
+        padding: 6px 10px;
+      }
+      #hud.collapsed #hud-header {
+        gap: 6px;
         margin-bottom: 0;
+      }
+      #hud.collapsed #hud-toggle {
+        flex: 0 0 auto;
       }
       #hud.collapsed #hud-toggle::before {
         content: '▸ ';
       }
+      /* Rolled up to the small "Help" pill: the body folds away via
+         max-height/opacity (rather than snapping with display: none) so
+         collapsing/expanding is animated the same way hiding is. */
+      #hud-body {
+        max-height: 400px;
+        opacity: 1;
+        overflow: hidden;
+        transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
+      }
       #hud.collapsed #hud-body {
-        display: none;
+        max-height: 0;
+        opacity: 0;
       }
       #hud.collapsed #hud-discord {
         margin-top: 8px;
@@ -199,6 +268,7 @@
           flex-direction: row;
         }
         #hud-toggle,
+        #hud-hide,
         #hud-body,
         #players-panel { display: none; }
       }
@@ -263,8 +333,17 @@
       #players-panel.collapsed #players-toggle::before {
         content: '▸ ';
       }
+      /* Same fold animation as #hud-body: max-height/opacity instead of
+         an instant display: none. */
+      #players-list {
+        max-height: 600px;
+        opacity: 1;
+        overflow: hidden;
+        transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
+      }
       #players-panel.collapsed #players-list {
-        display: none;
+        max-height: 0;
+        opacity: 0;
       }
       #players-panel .players-row {
         display: flex;
@@ -524,12 +603,11 @@
       #net-status[data-status="offline"] { color: #ffb0b0; }
       #net-status[data-status="online"] { color: #b6f5c3; }
       #suspension-hud {
-        position: fixed;
-        /* Stacked above the always-on minimap (bottom-left, 260px circle +
-           20px margin + the place-name/coordinates readout above it) so
-           the two never overlap when debug visuals are toggled on. */
-        bottom: 340px;
-        left: 20px;
+        /* Stacked below the help/controls HUD inside #top-left-stack
+           (same flex-column approach #terrain-stats uses under
+           #players-panel in #top-right-stack), so it automatically moves
+           up/down as the help HUD collapses to its pill or is hidden,
+           instead of relying on a fixed pixel offset. */
         color: #fff;
         font-family: monospace;
         font-size: 10px;
@@ -598,8 +676,13 @@
         position: fixed;
         bottom: 20px;
         left: 20px;
-        width: 260px;
-        height: 260px;
+        width: 150px;
+        /* Extra height below the circle reserves room for the scale
+           bar/label so they no longer sit under the map dial; the canvas
+           itself stays pinned to the top of this box (see #minimap-canvas'
+           aspect-ratio) while the box's own bottom edge - and therefore
+           the scale, anchored to it - stays exactly where it always was. */
+        height: 176px;
         z-index: 10;
         font-family: system-ui, sans-serif;
       }
@@ -632,7 +715,7 @@
       #minimap-canvas {
         display: block;
         width: 100%;
-        height: 100%;
+        aspect-ratio: 1 / 1;
         border-radius: 50%;
         background: #e9e6df;
         box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.5);
@@ -874,8 +957,8 @@
           top: 10px;
           bottom: auto;
           left: 10px;
-          width: 168px;
-          height: 168px;
+          width: 97px;
+          height: 97px;
         }
         #minimap-info {
           bottom: 8px;
@@ -951,28 +1034,55 @@
       <button id="address-submit" type="submit">Go</button>
     </form>
     <div id="address-search-status"></div>
-    <div id="hud">
-      <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Controls</button>
-      <div id="hud-body">
-        W / &uarr; &mdash; throttle<br />
-        S / &darr; &mdash; brake / reverse<br />
-        A D / &larr; &rarr; &mdash; steer<br />
-        Space &mdash; handbrake<br />
-        Shift &mdash; turbo<br />
-        F &mdash; shoot<br />
-        H &mdash; horn<br />
-        R &mdash; reset car<br />
-        M &mdash; toggle debug view (tile borders + collision hitboxes)
-        <div class="hud-points">
-          Points<br />
-          1 &mdash; kilometre<br />
-          10 &mdash; second airborne<br />
-          5 &mdash; pedestrian<br />
-          3 &mdash; car hit
+    <div id="top-left-stack">
+      <div id="hud">
+        <div id="hud-header">
+          <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
+          <button type="button" id="hud-hide" aria-label="Hide help">&times;</button>
+        </div>
+        <div id="hud-body">
+          W / &uarr; &mdash; throttle<br />
+          S / &darr; &mdash; brake / reverse<br />
+          A D / &larr; &rarr; &mdash; steer<br />
+          Space &mdash; handbrake<br />
+          Shift &mdash; turbo<br />
+          F &mdash; shoot<br />
+          H &mdash; horn<br />
+          R &mdash; reset car<br />
+          M &mdash; toggle debug view
+          <div class="hud-points">
+            Points<br />
+            1 &mdash; kilometre<br />
+            10 &mdash; second airborne<br />
+            5 &mdash; pedestrian<br />
+            3 &mdash; car hit
+          </div>
+        </div>
+        <div id="hud-discord">
+          <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
         </div>
       </div>
-      <div id="hud-discord">
-        <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+      <div id="suspension-hud">
+        <div class="susp-title">SUSPENSION</div>
+        <div class="susp-grid">
+          <div class="susp-wheel">
+            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fl-fill"></div></div>
+            <div class="susp-label">FL <span id="susp-fl-val">&mdash;</span></div>
+          </div>
+          <div class="susp-wheel">
+            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fr-fill"></div></div>
+            <div class="susp-label">FR <span id="susp-fr-val">&mdash;</span></div>
+          </div>
+          <div class="susp-wheel">
+            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rl-fill"></div></div>
+            <div class="susp-label">RL <span id="susp-rl-val">&mdash;</span></div>
+          </div>
+          <div class="susp-wheel">
+            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rr-fill"></div></div>
+            <div class="susp-label">RR <span id="susp-rr-val">&mdash;</span></div>
+          </div>
+        </div>
+        <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
       </div>
     </div>
     <div id="score-toasts"></div>
@@ -998,28 +1108,6 @@
         <div id="minimap-scale-bar"></div>
         <span id="minimap-scale-label"></span>
       </div>
-    </div>
-    <div id="suspension-hud">
-      <div class="susp-title">SUSPENSION</div>
-      <div class="susp-grid">
-        <div class="susp-wheel">
-          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fl-fill"></div></div>
-          <div class="susp-label">FL <span id="susp-fl-val">&mdash;</span></div>
-        </div>
-        <div class="susp-wheel">
-          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fr-fill"></div></div>
-          <div class="susp-label">FR <span id="susp-fr-val">&mdash;</span></div>
-        </div>
-        <div class="susp-wheel">
-          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rl-fill"></div></div>
-          <div class="susp-label">RL <span id="susp-rl-val">&mdash;</span></div>
-        </div>
-        <div class="susp-wheel">
-          <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rr-fill"></div></div>
-          <div class="susp-label">RR <span id="susp-rr-val">&mdash;</span></div>
-        </div>
-      </div>
-      <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">
