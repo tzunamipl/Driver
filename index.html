@@ -38,6 +38,27 @@
         padding-top: 6px;
         border-top: 1px solid rgba(255, 255, 255, 0.2);
       }
+      #hud-discord {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        pointer-events: auto;
+      }
+      #hud-discord a {
+        display: inline-block;
+        color: #fff;
+        background: #5865f2;
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 6px;
+        box-shadow: 0 0 8px rgba(88, 101, 242, 0.7);
+      }
+      #hud-discord a:hover {
+        background: #6c75f5;
+        box-shadow: 0 0 12px rgba(88, 101, 242, 0.9);
+      }
       #score-toasts {
         position: fixed;
         left: 50%;
@@ -646,6 +667,9 @@
         1 &mdash; kilometre<br />
         10 &mdash; second airborne<br />
         5 &mdash; pedestrian
+      </div>
+      <div id="hud-discord">
+        <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
       </div>
     </div>
     <div id="score-toasts"></div>
