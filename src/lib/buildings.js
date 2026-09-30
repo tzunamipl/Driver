@@ -94,10 +94,16 @@ const BUILDING_COLOR = 0xb8b0a4;
 // cost of holding more buildings in memory).
 const REGION_MARGIN_TILES = 2;
 
-// After a tile fetch fails (network error, timeout, CDN hiccup), wait this
-// long before automatically trying that same tile again, so a persistent
-// outage doesn't turn into a tight retry loop.
-const TILE_RETRY_COOLDOWN_MS = 8000;
+// After a region fetch fails outright (network error, timeout, CDN hiccup
+// affecting every tile in it), wait this long before automatically
+// retrying, so a persistent outage doesn't turn into a tight retry loop.
+const REGION_RETRY_COOLDOWN_MS = 8000;
+
+// Ratio between DETAIL_ZOOM (the tile grid buildings are streamed/cached
+// on, matching terrain.js) and BUILDING_TILE_ZOOM (the coarser zoom
+// OpenFreeMap's building layer is actually served at) - i.e. how many
+// DETAIL_ZOOM tiles per side one fetched vector tile covers.
+const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - BUILDING_TILE_ZOOM);
 
 // Vector tile response feature cap per tile: a dense city-center tile can
 // contain thousands of building features. Processing (let alone
@@ -363,8 +369,8 @@ function buildFootprintGeometry(points, height) {
 /**
  * Streams OSM building footprints, extruded to (estimated) real-world
  * height, as chunks aligned 1:1 with the terrain detail tier's tile grid,
- * fetched via single wide-area Overpass region queries (see module doc
- * comment above) rather than one request per tile.
+ * fetched as OpenFreeMap vector tiles (see module doc comment above and
+ * fetchBuildingTile) covering a buffered region around the player.
  */
 export class BuildingsManager {
   constructor(scene, world, originLat, originLon) {
@@ -476,72 +482,60 @@ export class BuildingsManager {
   }
 
   async _fetchRegion(region, generation) {
-    const south = tileY2lat(region.maxTy + 1, DETAIL_ZOOM);
-    const north = tileY2lat(region.minTy, DETAIL_ZOOM);
-    const west = tileX2lon(region.minTx, DETAIL_ZOOM);
-    const east = tileX2lon(region.maxTx + 1, DETAIL_ZOOM);
+    // Convert the DETAIL_ZOOM tile range into the (coarser) BUILDING_TILE_ZOOM
+    // tiles that cover it, and fetch each one from OpenFreeMap - see
+    // fetchBuildingTile and the module doc comment above.
+    const minTx14 = Math.floor(region.minTx / TILE_ZOOM_RATIO);
+    const maxTx14 = Math.floor(region.maxTx / TILE_ZOOM_RATIO);
+    const minTy14 = Math.floor(region.minTy / TILE_ZOOM_RATIO);
+    const maxTy14 = Math.floor(region.maxTy / TILE_ZOOM_RATIO);
 
-    const json = await queuedFetch(overpassQuery(south, west, north, east));
+    const tileCoords = [];
+    for (let tx14 = minTx14; tx14 <= maxTx14; tx14++) {
+      for (let ty14 = minTy14; ty14 <= maxTy14; ty14++) {
+        tileCoords.push([tx14, ty14]);
+      }
+    }
+
+    const results = await Promise.allSettled(tileCoords.map(([tx14, ty14]) => fetchBuildingTile(tx14, ty14)));
     if (generation !== this._generation) return; // stale - a recenter() happened while this was in flight
 
-    const elements = json?.elements || [];
     const byTile = new Map();
     let total = 0;
-    let skipped = 0;
-    for (const el of elements.slice(0, MAX_ELEMENTS_PROCESSED)) {
-      try {
-        if (el.type !== 'way' || !Array.isArray(el.geometry)) continue;
-        const raw = el.geometry;
-        if (raw.some((p) => !p || typeof p.lat !== 'number' || typeof p.lon !== 'number')) {
-          skipped++;
-          continue;
-        }
-        if (raw.length < MIN_FOOTPRINT_POINTS + 1) continue; // closed ring needs >= 4 raw points
-
-        // Closed ways repeat their first node as the last point; drop the
-        // duplicate so buildFootprintGeometry gets an open ring.
-        const closed =
-          raw.length > 1 &&
-          Math.abs(raw[0].lat - raw[raw.length - 1].lat) < 1e-9 &&
-          Math.abs(raw[0].lon - raw[raw.length - 1].lon) < 1e-9;
-        const ring = closed ? raw.slice(0, -1) : raw;
-        if (ring.length < MIN_FOOTPRINT_POINTS) continue;
-
-        let sumLat = 0;
-        let sumLon = 0;
-        for (const p of ring) {
-          sumLat += p.lat;
-          sumLon += p.lon;
-        }
-        const centroidLat = sumLat / ring.length;
-        const centroidLon = sumLon / ring.length;
-        const tx = Math.floor(lon2tileX(centroidLon, DETAIL_ZOOM));
-        const ty = Math.floor(lat2tileY(centroidLat, DETAIL_ZOOM));
-        const key = this._key(tx, ty);
-
-        let list = byTile.get(key);
-        if (!list) {
-          list = [];
-          byTile.set(key, list);
-        }
-        list.push({ ring, height: parseHeightMeters(el.tags) });
-        total++;
-      } catch (err) {
-        skipped++;
-        console.warn('Skipping one malformed building element', err);
+    let failed = 0;
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        failed++;
+        continue;
       }
+      for (const [key, list] of result.value) {
+        let existing = byTile.get(key);
+        if (!existing) {
+          existing = [];
+          byTile.set(key, existing);
+        }
+        existing.push(...list);
+        total += list.length;
+      }
+    }
+
+    // Only treat this as a hard failure (triggering the cache fallback) if
+    // every single tile request failed - a handful of CDN hiccups amid an
+    // otherwise-successful region shouldn't blank out the whole area.
+    if (tileCoords.length > 0 && failed === tileCoords.length) {
+      throw new Error(`All ${failed} building tile request(s) failed`);
     }
 
     this._region = region;
     this._buildingsByTile = byTile;
     console.info(
       `Buildings region tx[${region.minTx}..${region.maxTx}] ty[${region.minTy}..${region.maxTy}]: ` +
-        `${total} buildings bucketed into ${byTile.size} tiles${skipped ? `, ${skipped} skipped` : ''} ` +
-        `(${elements.length} raw elements)`
+        `${total} buildings bucketed into ${byTile.size} tiles from ${tileCoords.length - failed}/${tileCoords.length} ` +
+        `tile request(s)${failed ? `, ${failed} failed` : ''}`
     );
 
     // Write-through to the local IndexedDB cache so this data is still
-    // available next time (this session or a future one) even if Overpass
+    // available next time (this session or a future one) even if the CDN
     // is unreachable then - see buildingsCache.js. Fire-and-forget: a
     // cache-write failure must never block/break live rendering.
     cacheTiles(DETAIL_ZOOM, byTile).catch(() => {});
