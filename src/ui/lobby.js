@@ -61,7 +61,7 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
     if (joined) return;
     lobbyJoin.disabled = true;
     if (CAN_USE_NETWORK) {
-      setLobbyStatus('Łączenie…');
+      setLobbyStatus('Connecting…');
       try {
         await net.connect({ name, color });
         await originChain();

@@ -200,7 +200,7 @@ terrain.init().then(() => {
     return;
   }
   lobby.enableJoinButton();
-  lobby.setStatus('Wpisz imię i wybierz kolor.');
+  lobby.setStatus('Enter your name and pick a color.');
   carManager.spawnPreviewCar(START_POS);
   startLoopOnce();
 });

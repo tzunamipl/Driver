@@ -634,13 +634,13 @@
     <div id="app"></div>
     <div id="lobby">
       <form id="lobby-form" autocomplete="off">
-        <h1>Wspólny pokój</h1>
-        <p class="hint">Wpisz imię i wybierz kolor. Wszyscy na tej stronie jeżdżą po tej samej mapie.</p>
-        <label for="lobby-name">Imię</label>
-        <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Twoje imię" />
-        <div id="lobby-colors" role="radiogroup" aria-label="Kolor auta"></div>
-        <button id="lobby-join" type="submit" disabled>Wjedź</button>
-        <p id="lobby-status">Ładowanie terenu…</p>
+        <h1>Shared Room</h1>
+        <p class="hint">Enter your name and pick a color. Everyone on this page drives on the same map.</p>
+        <label for="lobby-name">Name</label>
+        <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
+        <div id="lobby-colors" role="radiogroup" aria-label="Car color"></div>
+        <button id="lobby-join" type="submit" disabled>Drive in</button>
+        <p id="lobby-status">Loading terrain…</p>
       </form>
     </div>
     <div id="net-status" hidden></div>

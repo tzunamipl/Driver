@@ -133,9 +133,9 @@ export const STATS_UPDATE_INTERVAL = 0.25; // seconds; DOM updates don't need to
 
 // ---------- Networking / lobby ----------
 export const NET_STATUS_TEXT = {
-  connecting: 'Łączenie…',
-  online: 'W pokoju',
-  offline: 'Offline — jedziesz sam',
+  connecting: 'Connecting…',
+  online: 'In the room',
+  offline: 'Offline — driving solo',
 };
 
 // ---------- Players panel HUD ----------
