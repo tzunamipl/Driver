@@ -233,10 +233,80 @@ function estimateTileBytes(mergedGeometry, bodyCount) {
 }
 
 /**
+ * Computes the convex hull of a set of 2D {x, z} points via Andrew's
+ * monotone chain, returning hull vertices in counter-clockwise order (in
+ * the x-z plane, matching the winding CANNON.ConvexPolyhedron expects for
+ * outward-facing normals - see buildFootprintPrism below). Used because
+ * most OSM building footprints are already convex (simple rectangles/
+ * L-shapes' bounding hull is close enough), and a real physics hitbox
+ * needs a convex shape - unlike the render mesh, which can use the exact
+ * (possibly concave) footprint outline since it's not used for collision.
+ */
+function convexHull2D(points) {
+  const pts = points
+    .slice()
+    .sort((a, b) => a.x - b.x || a.z - b.z)
+    // Drop consecutive duplicates (degenerate footprints occasionally
+    // repeat a point), which would otherwise produce zero-length hull
+    // edges/cross products.
+    .filter((p, i, arr) => i === 0 || p.x !== arr[i - 1].x || p.z !== arr[i - 1].z);
+  if (pts.length < 3) return pts;
+
+  const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/**
+ * Builds a CANNON.ConvexPolyhedron prism (vertical walls + flat top/
+ * bottom) from a convex hull footprint, centered on `center` and spanning
+ * `-halfHeight..+halfHeight` in Y - i.e. a physics shape tracing the
+ * building's real (convex) footprint instead of its bounding-box AABB, so
+ * rotated/non-rectangular buildings' hitboxes actually line up with what's
+ * rendered. Vertex/face layout mirrors cannon-es's own built-in Cylinder
+ * shape (interleaved bottom/top rings, side quads, top ring reversed) -
+ * a pattern already verified to produce correctly-wound (outward-normal)
+ * faces.
+ */
+function buildFootprintPrism(hull, center, halfHeight) {
+  const n = hull.length;
+  const vertices = [];
+  const sideFaces = [];
+  const bottomFace = [];
+  const topFace = [];
+  for (let i = 0; i < n; i++) {
+    const p = hull[i];
+    vertices.push(new CANNON.Vec3(p.x - center.x, -halfHeight, p.z - center.z));
+    bottomFace.push(2 * i);
+    vertices.push(new CANNON.Vec3(p.x - center.x, halfHeight, p.z - center.z));
+    topFace.push(2 * i + 1);
+    const j = (i + 1) % n;
+    sideFaces.push([2 * i, 2 * i + 1, 2 * j + 1, 2 * j]);
+  }
+  const faces = [...sideFaces, bottomFace, topFace.slice().reverse()];
+  return new CANNON.ConvexPolyhedron({ vertices, faces });
+}
+
+/**
  * Builds one extruded, flat-roofed mesh geometry for a building footprint
  * given as an array of {x, z} local-meter points (already deduplicated,
- * open ring), plus a matching CANNON.Box approximating its footprint AABB
- * for physics. Returns null if the footprint is degenerate.
+ * open ring), plus a matching convex-hull footprint (for a physics shape
+ * that actually matches the building, see buildFootprintPrism) and its
+ * AABB (used only to sample ground height / as a byte-size estimate).
+ * Returns null if the footprint is degenerate.
  *
  * Extrusion technique: THREE.ExtrudeGeometry extrudes a 2D shape (in its
  * own X/Y plane) along +Z by `depth`. We feed it (x, -z) as the shape's
@@ -275,8 +345,12 @@ function buildFootprintGeometry(points, height) {
   geometry.rotateX(-Math.PI / 2);
   geometry.computeVertexNormals();
 
+  const hull = convexHull2D(points);
+  if (hull.length < 3) return null;
+
   return {
     geometry,
+    hull,
     aabb: {
       centerX: (minX + maxX) / 2,
       centerZ: (minZ + maxZ) / 2,
@@ -310,7 +384,7 @@ export class BuildingsManager {
       side: THREE.DoubleSide,
     });
     // Debug-only wireframe boxes marking each building body's actual
-    // physics hitbox (its CANNON.Box shape) - created alongside every body
+    // physics hitbox (its convex-hull prism shape) - created alongside every body
     // so toggling never has to walk/rebuild chunks, just flip .visible.
     // See setHitboxesVisible().
     this._hitboxMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, depthTest: false });
@@ -542,17 +616,43 @@ export class BuildingsManager {
 
         const groundY = this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ);
         const halfHeight = entry.height / 2;
-        const body = new CANNON.Body({ mass: 0 });
+        const center = { x: built.aabb.centerX, z: built.aabb.centerZ };
+        // Physics: a convex-hull prism tracing the building's actual
+        // (rotated/non-rectangular) footprint, previously an axis-aligned
+        // CANNON.Box approximating just its AABB - which visibly didn't
+        // match rotated buildings' rendered walls. Tagged with
+        // BUILDING_MATERIAL so the dedicated low-friction/bouncy
+        // chassis<->building ContactMaterial (see physicsSetup.js) actually
+        // applies - it previously never did, since these bodies were never
+        // given a `material` at all and silently fell back to the world
+        // default contact tuning.
+        const body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL });
         body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
-        body.addShape(new CANNON.Box(new CANNON.Vec3(built.aabb.halfX, halfHeight, built.aabb.halfZ)));
-        body.position.set(built.aabb.centerX, groundY + halfHeight, built.aabb.centerZ);
+        body.addShape(buildFootprintPrism(built.hull, center, halfHeight));
+        body.position.set(center.x, groundY + halfHeight, center.z);
         this.world.addBody(body);
         bodies.push(body);
 
-        const hitboxMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(built.aabb.halfX * 2, halfHeight * 2, built.aabb.halfZ * 2),
-          this._hitboxMaterial
-        );
+        // Debug hitbox wireframe: the same convex-hull prism as the
+        // physics shape above (built via the same extrusion technique as
+        // the visible mesh, just from the hull instead of the full
+        // footprint outline), so toggling it (M key) shows exactly what
+        // the car actually collides with.
+        const hullShape = new THREE.Shape();
+        built.hull.forEach((p, i) => {
+          const lx = p.x - center.x;
+          const lz = p.z - center.z;
+          if (i === 0) hullShape.moveTo(lx, -lz);
+          else hullShape.lineTo(lx, -lz);
+        });
+        const hitboxGeometry = new THREE.ExtrudeGeometry(hullShape, {
+          depth: halfHeight * 2,
+          bevelEnabled: false,
+          curveSegments: 1,
+        });
+        hitboxGeometry.rotateX(-Math.PI / 2);
+        hitboxGeometry.translate(0, -halfHeight, 0);
+        const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
         hitboxMesh.position.copy(body.position);
         hitboxMesh.visible = this._hitboxesVisible;
         hitboxMesh.renderOrder = 999;
