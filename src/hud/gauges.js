@@ -1,10 +1,8 @@
-import { MAX_GAUGE_SPEED, COMPASS_POINTS } from '../config.js';
-import { computeHeadingDeg } from '../lib/heading.js';
+import { MAX_GAUGE_SPEED } from '../config.js';
 
-// Speedometer + compass HUD, driven straight off the vehicle's physics
-// state each frame. Self-contained (owns its own DOM refs + smoothing
-// state) so it can be wired in/out of the main loop independently of the
-// other HUD widgets.
+// Speedometer HUD, driven straight off the vehicle's physics state each
+// frame. Self-contained (owns its own DOM refs + smoothing state) so it can
+// be wired in/out of the main loop independently of the other HUD widgets.
 
 // Six whole kilometres plus a tenths drum. Index 0 is the tenths place.
 const ODO_PLACES = 7;
@@ -16,14 +14,7 @@ const ODO_TELEPORT_M = 20;
 export function createGaugesHud() {
   const speedoNeedle = document.getElementById('speedo-needle');
   const speedoValue = document.getElementById('speedo-value');
-  const compassDial = document.getElementById('compass-dial');
-  const compassValue = document.getElementById('compass-value');
   const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'));
-
-  // Tracks the dial's continuous (unwrapped) rotation so the CSS
-  // transition always nudges across the shortest arc instead of snapping
-  // the long way around whenever the heading crosses the 0/360 boundary.
-  let compassDialRotation = 0;
 
   function updateGauges(chassisMesh, vehicle) {
     if (!chassisMesh || !vehicle) {
@@ -40,19 +31,6 @@ export function createGaugesHud() {
     const needleDeg = -90 + (clamped / MAX_GAUGE_SPEED) * 180;
     speedoNeedle.style.transform = `translate(-50%, -100%) rotate(${needleDeg}deg)`;
     speedoValue.textContent = Math.round(speedKmh);
-
-    const headingDeg = computeHeadingDeg(chassisMesh);
-
-    // Rotate the dial opposite the heading so the fixed top pointer always
-    // shows the direction the car is currently facing. Unwrap against the
-    // previous rotation so the dial always takes the shortest turn, rather
-    // than jumping a full lap when headingDeg wraps past 0/360.
-    const targetRotation = -headingDeg;
-    let delta = ((targetRotation - compassDialRotation + 180) % 360 + 360) % 360 - 180;
-    compassDialRotation += delta;
-    compassDial.style.transform = `rotate(${compassDialRotation}deg)`;
-    const pointIndex = Math.round(headingDeg / 45) % 8;
-    compassValue.textContent = COMPASS_POINTS[pointIndex];
   }
 
   return { updateGauges };

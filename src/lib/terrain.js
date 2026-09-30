@@ -13,8 +13,10 @@ import {
   tileSizeMeters,
 } from './geo.js';
 
-// Free, no-API-key worldwide aerial imagery.
-const AERIAL_URL = (z, x, y) =>
+// Free, no-API-key worldwide aerial imagery. Exported so other consumers
+// (e.g. the minimap HUD) can pull the same tile source without duplicating
+// the URL scheme.
+export const AERIAL_URL = (z, x, y) =>
   `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
 
 // Elevation: AWS Terrarium tiles (Mapzen's open elevation dataset, mirrored

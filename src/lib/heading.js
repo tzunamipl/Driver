@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
-// Shared heading-angle helper used by both the compass gauge and the
-// terrain-stats HUD, so the two stay in sync and the direction math lives
-// in exactly one place.
+// Shared heading-angle helper used by the minimap's rotating car marker and
+// the terrain-stats HUD, so the two stay in sync and the direction math
+// lives in exactly one place.
 
 const _forward = new THREE.Vector3();
 

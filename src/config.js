@@ -126,7 +126,6 @@ export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
-export const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
 // ---------- Terrain stats HUD ----------
 // 8-direction lookup, ordered to match on-screen layout: grid columns are
@@ -168,3 +167,16 @@ export const PLAYERS_ACTIVE_THRESHOLD_MS = 60_000;
 // ---------- Main loop ----------
 export const FIXED_STEP = 1 / 60;
 export const MAX_SUBSTEPS = 5;
+
+// ---------- Minimap HUD ----------
+// Slippy-map tile zoom levels (same convention as the terrain streamer).
+// 3 is whole-continent scale; 19 is close to individual-building scale.
+export const MINIMAP_MIN_ZOOM = 3;
+export const MINIMAP_MAX_ZOOM = 19;
+export const MINIMAP_DEFAULT_ZOOM = 17;
+// Diameter of the round minimap widget, in CSS pixels. Documents the
+// actual size set on #minimap in index.html (the widget reads its real
+// size off the DOM each frame, so this constant isn't consumed directly -
+// keep it in sync if you resize the CSS).
+export const MINIMAP_SIZE_PX = 260;
+export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
