@@ -55,11 +55,21 @@ export function createAddressSearch({ terrain, buildings, carManager, origin, is
   let currentOriginLon = origin.lon;
 
   const addressForm = document.getElementById('address-search');
+  const addressToggle = document.getElementById('address-search-toggle');
   const addressInput = document.getElementById('address-input');
   const addressSubmit = document.getElementById('address-submit');
   // Hide the teleport UI entirely (rather than merely disabling it) when
   // location changes are disallowed altogether.
-  if (!CAN_CHANGE_LOCATION) addressForm.style.display = 'none';
+  if (!CAN_CHANGE_LOCATION) {
+    addressForm.style.display = 'none';
+    if (addressToggle) addressToggle.style.display = 'none';
+  }
+  // On a phone the search field stays folded under this button until tapped.
+  addressToggle?.addEventListener('click', () => {
+    const open = addressForm.classList.toggle('is-open');
+    addressToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) addressInput.focus();
+  });
   const addressStatusEl = document.getElementById('address-search-status');
 
   function setAddressStatus(text, isError = false) {
