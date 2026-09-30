@@ -20,7 +20,7 @@ const IDLE_HOURS_THRESHOLD_MS = 30 * 60_000;
 function statusLabel(idleMs) {
   if (idleMs < PLAYERS_ACTIVE_THRESHOLD_MS) return { text: 'Active', className: 'active' };
   if (idleMs >= IDLE_HOURS_THRESHOLD_MS) {
-    const hours = Math.round((idleMs / 3_600_000) * 10) / 10;
+    const hours = Math.max(1, Math.round(idleMs / 3_600_000));
     return { text: `Idle ${hours}h`, className: 'idle' };
   }
   const minutes = Math.max(1, Math.round(idleMs / 60_000));
