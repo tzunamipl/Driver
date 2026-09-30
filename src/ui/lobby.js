@@ -1,4 +1,4 @@
-import { BODY_COLORS, NET_STATUS_TEXT, IS_DEV_MODE, CAN_USE_NETWORK } from '../config.js';
+import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, IS_DEV_MODE, CAN_USE_NETWORK } from '../config.js';
 
 // Lobby UI: name/color picker form, join flow (connects to the shared room
 // if enabled, then spawns the local car), and the small network-status
@@ -23,11 +23,16 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
   const lobbyName = document.getElementById('lobby-name');
   const lobbyJoin = document.getElementById('lobby-join');
   const lobbyStatus = document.getElementById('lobby-status');
-  const lobbyColors = document.getElementById('lobby-colors');
+  const lobbyColor = document.getElementById('lobby-color');
   const netStatusEl = document.getElementById('net-status');
 
-  let selectedColor = BODY_COLORS[0];
   let joined = false;
+
+  function selectedColor() {
+    const hex = String(lobbyColor.value || '').replace('#', '');
+    const n = Number.parseInt(hex, 16);
+    return Number.isInteger(n) && n >= 0 && n <= 0xffffff ? n : DEFAULT_BODY_COLOR;
+  }
 
   function setLobbyStatus(text) {
     lobbyStatus.textContent = text;
@@ -42,20 +47,6 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
     setNetStatus(status);
     if (lobbyEl.style.display !== 'none') setLobbyStatus(NET_STATUS_TEXT[status] ?? status);
   });
-
-  for (const color of BODY_COLORS) {
-    const swatch = document.createElement('button');
-    swatch.type = 'button';
-    swatch.dataset.color = String(color);
-    swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
-    swatch.setAttribute('aria-label', swatch.style.background);
-    if (color === selectedColor) swatch.classList.add('selected');
-    swatch.addEventListener('click', () => {
-      selectedColor = color;
-      for (const button of lobbyColors.children) button.classList.toggle('selected', button === swatch);
-    });
-    lobbyColors.appendChild(swatch);
-  }
 
   async function joinRoom(name, color) {
     if (joined) return;
@@ -82,7 +73,7 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
     e.preventDefault();
     const name = lobbyName.value.trim();
     if (!name || joined || lobbyJoin.disabled) return;
-    joinRoom(name, selectedColor);
+    joinRoom(name, selectedColor());
   });
 
   window.addEventListener('pagehide', () => {

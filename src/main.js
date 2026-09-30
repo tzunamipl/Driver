@@ -8,7 +8,7 @@ import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/horn.js';
 import { BuildingsManager } from './lib/buildings.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, BODY_COLORS, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard } from './app/collisions.js';
@@ -210,7 +210,7 @@ terrain.init().then(() => {
   if (IS_DEV_MODE) {
     // Skip the name/color prompt and preview car entirely in dev -
     // joinRoom() spawns the (only) car and starts the loop itself.
-    lobby.joinRoom('dev_mode', BODY_COLORS[0]);
+    lobby.joinRoom('dev_mode', DEFAULT_BODY_COLOR);
     return;
   }
   lobby.enableJoinButton();

@@ -340,6 +340,9 @@
         font-size: 13px;
         margin-bottom: 6px;
       }
+      #lobby label[for="lobby-color"] {
+        margin-top: 14px;
+      }
       #lobby input[type="text"] {
         width: 100%;
         box-sizing: border-box;
@@ -350,24 +353,26 @@
         color: #fff;
         font: inherit;
       }
-      #lobby-colors {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 14px 0 16px;
-      }
-      #lobby-colors button {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        border: 2px solid transparent;
+      #lobby-color {
+        display: block;
+        width: 100%;
+        height: 42px;
+        box-sizing: border-box;
+        margin: 0 0 16px;
         padding: 0;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        border-radius: 8px;
+        background: transparent;
         cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
       }
-      #lobby-colors button.selected {
-        border-color: #fff;
-        box-shadow: 0 0 0 2px #4fc3ff;
+      #lobby-color::-webkit-color-swatch-wrapper { padding: 0; }
+      #lobby-color::-webkit-color-swatch {
+        border: none;
+        border-radius: 6px;
+      }
+      #lobby-color::-moz-color-swatch {
+        border: none;
+        border-radius: 6px;
       }
       #lobby-join {
         width: 100%;
@@ -638,7 +643,8 @@
         <p class="hint">Enter your name and pick a color. Everyone on this page drives on the same map.</p>
         <label for="lobby-name">Name</label>
         <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
-        <div id="lobby-colors" role="radiogroup" aria-label="Car color"></div>
+        <label for="lobby-color">Color</label>
+        <input id="lobby-color" name="color" type="color" value="#1c3f94" />
         <button id="lobby-join" type="submit" disabled>Drive in</button>
         <p id="lobby-status">Loading terrain…</p>
       </form>

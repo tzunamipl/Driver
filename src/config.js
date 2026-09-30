@@ -35,8 +35,9 @@ export const CAN_USE_NETWORK = !IS_DEV_MODE;
 export const ORIGIN_LAT = 51.1079;
 export const ORIGIN_LON = 17.0385;
 
-// ---------- Car palette ----------
-export const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
+// Starting body color when the lobby is skipped (dev mode). The lobby
+// itself uses a color picker; this is only the fallback blue.
+export const DEFAULT_BODY_COLOR = 0x1c3f94;
 
 // ---------- Controls ----------
 export const MAX_FORCE = 300;
