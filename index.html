@@ -48,21 +48,6 @@
         transform: none;
         transition: opacity var(--hud-fold-ms) ease, transform var(--hud-fold-ms) ease, padding var(--hud-fold-ms) ease;
       }
-      /* Applied the instant "x" is clicked - fades/slides the panel out,
-         then collapsible.js swaps in .hidden (display: none) once the
-         transition finishes, so the panel is actually removed from layout
-         rather than just left invisible-but-still-there. Same duration/
-         easing (--hud-fold-ms) as the roll-to-pill collapse below and the
-         players panel's own collapse, so every "hide" in the HUD reads as
-         the same kind of motion. */
-      #hud.hiding {
-        opacity: 0;
-        transform: translateY(-8px) scale(0.97);
-        pointer-events: none;
-      }
-      #hud.hidden {
-        display: none;
-      }
       #hud-header {
         display: flex;
         align-items: center;
@@ -86,21 +71,6 @@
       }
       #hud-toggle::before {
         content: '▾ ';
-      }
-      #hud-hide {
-        flex: 0 0 auto;
-        border: none;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        font-size: 14px;
-        line-height: 1;
-        opacity: 0.7;
-        cursor: pointer;
-        padding: 0 2px;
-      }
-      #hud-hide:hover {
-        opacity: 1;
       }
       #hud.collapsed {
         padding: 6px 10px;
@@ -158,6 +128,27 @@
       #hud-discord a:hover {
         background: #6c75f5;
         box-shadow: 0 0 12px rgba(88, 101, 242, 0.9);
+      }
+      #hud-reset {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        pointer-events: auto;
+      }
+      #hud-reset-choices {
+        display: inline-block;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      #hud-reset-choices:hover {
+        background: rgba(255, 255, 255, 0.22);
       }
       #score-toasts {
         position: fixed;
@@ -268,7 +259,6 @@
           flex-direction: row;
         }
         #hud-toggle,
-        #hud-hide,
         #hud-body,
         #players-panel { display: none; }
       }
@@ -344,6 +334,15 @@
       #players-panel.collapsed #players-list {
         max-height: 0;
         opacity: 0;
+      }
+      /* Medium stage: only the top 5 rows stay visible (roster is
+         pre-sorted by activeness/score - see playersPanel.js), everything
+         past that is hidden without touching the DOM. */
+      #players-panel.medium #players-list {
+        max-height: 220px;
+      }
+      #players-panel.medium #players-list .players-row:nth-child(n+6) {
+        display: none;
       }
       #players-panel .players-row {
         display: flex;
@@ -1038,7 +1037,6 @@
       <div id="hud">
         <div id="hud-header">
           <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
-          <button type="button" id="hud-hide" aria-label="Hide help">&times;</button>
         </div>
         <div id="hud-body">
           W / &uarr; &mdash; throttle<br />
@@ -1056,6 +1054,9 @@
             10 &mdash; second airborne<br />
             5 &mdash; pedestrian<br />
             3 &mdash; car hit
+          </div>
+          <div id="hud-reset">
+            <button type="button" id="hud-reset-choices">Reset saved name/color</button>
           </div>
         </div>
         <div id="hud-discord">

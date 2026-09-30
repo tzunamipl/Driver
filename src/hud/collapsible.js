@@ -4,19 +4,25 @@
 //
 // The help/instructions panel (#hud) additionally: starts open on load,
 // then auto-collapses itself down to the small "Help" pill after
-// AUTO_COLLAPSE_MS if the player hasn't already toggled it manually, and
-// has its own "x" button (#hud-hide) to dismiss it entirely (beyond just
-// collapsing) for players who don't want it back at all this session.
+// AUTO_COLLAPSE_MS if the player hasn't already toggled it manually.
+//
+// The players panel (#players-panel) has three stages, cycled by clicking
+// its toggle: full list -> top 5 only ("medium") -> collapsed pill -> back
+// to full. It also starts full and auto-folds itself down to the
+// "medium" stage after PLAYERS_AUTO_FOLD_MS, mirroring the help panel's
+// auto-collapse, unless the player has already interacted with it.
 
 const NARROW = '(max-width: 800px)';
-const AUTO_COLLAPSE_MS = 10_000;
+const AUTO_COLLAPSE_MS = 15_000;
+const PLAYERS_AUTO_FOLD_MS = 15_000;
+const PLAYERS_STAGES = ['full', 'medium', 'collapsed'];
 
 export function setupCollapsibleHud() {
   const startCollapsed = window.matchMedia(NARROW).matches;
   const hud = document.getElementById('hud');
   const hudToggle = document.getElementById('hud-toggle');
   wire(hud, hudToggle, startCollapsed);
-  wire(document.getElementById('players-panel'), document.getElementById('players-toggle'), startCollapsed);
+  wirePlayersPanel(document.getElementById('players-panel'), document.getElementById('players-toggle'), startCollapsed);
 
   if (hud && hudToggle && !startCollapsed) {
     // Cancelled the moment the player interacts with the toggle themselves
@@ -30,21 +36,6 @@ export function setupCollapsibleHud() {
     }, AUTO_COLLAPSE_MS);
     hudToggle.addEventListener('click', () => clearTimeout(timer), { once: true });
   }
-
-  document.getElementById('hud-hide')?.addEventListener('click', () => {
-    if (!hud) return;
-    // Play the fade/slide-out transition (see #hud.hiding in index.html)
-    // before actually removing the panel from layout, rather than
-    // snapping straight to display: none.
-    hud.classList.add('hiding');
-    hud.addEventListener(
-      'transitionend',
-      () => {
-        hud.classList.add('hidden');
-      },
-      { once: true }
-    );
-  });
 }
 
 function wire(panel, button, startCollapsed) {
@@ -57,4 +48,39 @@ function wire(panel, button, startCollapsed) {
     const collapsed = panel.classList.toggle('collapsed');
     button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   });
+}
+
+function playersStage(panel) {
+  if (panel.classList.contains('collapsed')) return 'collapsed';
+  if (panel.classList.contains('medium')) return 'medium';
+  return 'full';
+}
+
+function wirePlayersPanel(panel, button, startCollapsed) {
+  if (!panel || !button) return;
+
+  const setStage = (stage) => {
+    panel.classList.remove('medium', 'collapsed');
+    if (stage !== 'full') panel.classList.add(stage);
+    button.setAttribute('aria-expanded', stage === 'collapsed' ? 'false' : 'true');
+  };
+
+  if (startCollapsed) {
+    setStage('collapsed');
+    return;
+  }
+
+  setStage('full');
+  button.addEventListener('click', () => {
+    const next = PLAYERS_STAGES[(PLAYERS_STAGES.indexOf(playersStage(panel)) + 1) % PLAYERS_STAGES.length];
+    setStage(next);
+  });
+
+  // Same cancel-on-manual-interaction pattern as the help panel's
+  // auto-collapse: only auto-fold if the player hasn't already touched
+  // the toggle themselves.
+  const timer = setTimeout(() => {
+    if (playersStage(panel) === 'full') setStage('medium');
+  }, PLAYERS_AUTO_FOLD_MS);
+  button.addEventListener('click', () => clearTimeout(timer), { once: true });
 }

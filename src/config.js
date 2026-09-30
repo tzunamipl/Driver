@@ -185,3 +185,5 @@ export const MINIMAP_DEFAULT_ZOOM = 17;
 // keep it in sync if you resize the CSS).
 export const MINIMAP_SIZE_PX = 260;
 export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
+// Persists the lobby name/color choice across reloads (see src/ui/lobby.js).
+export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';

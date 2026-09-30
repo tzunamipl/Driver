@@ -216,6 +216,9 @@ terrain.init().then(() => {
     lobby.joinRoom('dev_mode', DEFAULT_BODY_COLOR);
     return;
   }
+  // If the player already picked a name/color on a previous visit, skip
+  // the prompt entirely and join straight away with those saved choices.
+  if (lobby.tryAutoJoin()) return;
   lobby.enableJoinButton();
   lobby.setStatus('Enter your name and pick a color.');
   carManager.spawnPreviewCar(START_POS);
