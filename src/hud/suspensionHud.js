@@ -1,17 +1,16 @@
 // Suspension travel HUD: one vertical bar per wheel showing live spring
 // travel, read straight from each wheel's Cannon-es WheelInfo. Self-
 // contained widget, independent of the other HUDs and of physics tuning.
+import { isWheelGrounded } from '../lib/wheelContact.js';
 
-/**
- * Colors a suspension bar by how hard the spring is working: blue for
- * normal travel, yellow as it approaches full compression, red once it's
- * essentially bottomed out (spring at/near its max travel limit).
- */
-function suspensionColor(compressionFrac) {
-  if (compressionFrac > 0.85) return '#ff5b5b';
-  if (compressionFrac > 0.6) return '#ffce4f';
-  return '#4fc3ff';
-}
+// Debug-mode wheel colouring: green while a wheel is touching the ground,
+// blue while it's off the ground (matching the "hasLanded" readout below,
+// which reflects the scoring module's own touched-ground gate rather than
+// any single wheel). Ground contact here is verified with its own
+// world-down raycast (see wheelContact.js) rather than trusting cannon-es's
+// own `wheel.isInContact`, which under-reports contact on real terrain.
+const WHEEL_ON_GROUND_COLOR = '#4caf50';
+const WHEEL_OFF_GROUND_COLOR = '#4fc3ff';
 
 export function createSuspensionHud() {
   // Wheel order matches vehicle.wheelInfos indices (see car.js: front-left,
@@ -21,18 +20,17 @@ export function createSuspensionHud() {
     fill: document.getElementById(`susp-${key}-fill`),
     val: document.getElementById(`susp-${key}-val`),
   }));
+  const landedVal = document.getElementById('susp-landed-val');
 
   /**
    * A bar's fill height is 0% at full droop (fully extended) and 100% at
    * full compression (bottomed out), with a rest-length marker line fixed
    * at 50% - so the fill visibly moves up as a wheel loads/compresses
    * (cornering, braking, bumps) and down as it unloads/droops (cresting a
-   * bump, airborne). Wheels not currently touching the ground are dimmed
-   * and shown resting at the midpoint, since cannon-es reports their
-   * suspension as fully extended (no ground to push back against) while
-   * airborne.
+   * bump, airborne). The fill colour flags ground contact directly: green
+   * while the wheel is touching, blue while it's off the ground.
    */
-  function updateSuspensionHud(vehicle, debugVisualsEnabled) {
+  function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world) {
     if (!debugVisualsEnabled || !vehicle) return;
 
     vehicle.wheelInfos.forEach((wheel, i) => {
@@ -42,14 +40,17 @@ export function createSuspensionHud() {
       const span = maxLength - minLength || 1;
       const clampedLength = Math.min(maxLength, Math.max(minLength, wheel.suspensionLength));
       const compressionFrac = (maxLength - clampedLength) / span;
+      const grounded = isWheelGrounded(world, wheel);
 
       fill.style.height = `${Math.round(compressionFrac * 100)}%`;
-      fill.style.background = wheel.isInContact
-        ? suspensionColor(compressionFrac)
-        : 'rgba(255, 255, 255, 0.25)';
-      val.textContent = wheel.isInContact ? `${Math.round(compressionFrac * 100)}%` : 'air';
+      fill.style.background = grounded ? WHEEL_ON_GROUND_COLOR : WHEEL_OFF_GROUND_COLOR;
+      val.textContent = grounded ? `${Math.round(compressionFrac * 100)}%` : 'air';
     });
+
+    if (landedVal) landedVal.textContent = hasLanded ? 'true' : 'false';
   }
 
   return { updateSuspensionHud, el: document.getElementById('suspension-hud') };
 }
+
+

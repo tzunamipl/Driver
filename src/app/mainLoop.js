@@ -122,7 +122,7 @@ export function createMainLoop({
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle);
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, { terrain, buildings, chassisMesh: currentChassisMesh, debugVisualsEnabled });
-    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled);
+    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {

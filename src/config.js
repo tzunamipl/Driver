@@ -73,6 +73,12 @@ export const SCORE_TELEPORT_M = 20;
 // crest, a curb, or the car sitting on its roof.
 export const SCORE_PER_AIR_SECOND = 10;
 export const FLIGHT_MIN_CLEARANCE_M = 2.4;
+// How upright the chassis must be, mid-air, for airtime to keep counting:
+// the dot product of the chassis' local up axis (world-transformed) against
+// world up. 1 is dead level, 0 is on its side, -1 is upside down. 0.5 (~60°
+// of pitch/roll either way) still allows a stunt jump's natural rotation
+// while excluding an actual barrel-roll/flip from paying out.
+export const AIRTIME_MIN_UPRIGHT_DOT = 0.5;
 export const SCORE_PER_PEDESTRIAN = 5;
 
 // ---------- Camera follow ----------

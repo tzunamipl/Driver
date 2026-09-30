@@ -1,32 +1,46 @@
 import * as CANNON from 'cannon-es';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
+import { isWheelGrounded } from '../lib/wheelContact.js';
 import {
   SCORE_PER_KM,
   SCORE_TELEPORT_M,
   SCORE_PER_AIR_SECOND,
   FLIGHT_MIN_CLEARANCE_M,
+  AIRTIME_MIN_UPRIGHT_DOT,
   GROUND_RAY_HEIGHT,
 } from '../config.js';
 
 // Awards the local driver's score from travel and airtime. Pedestrian hits
-// are scored separately (whoever runs one over). Whole kilometres and whole
-// seconds pay out; the leftover fraction carries to the next award. A reset
-// or address recenter is a position jump, not distance, and the drop onto
-// the new ground does not count as flight until the wheels touch once.
+// are scored separately (whoever runs one over). Kilometres pay out whole,
+// the leftover fraction carrying to the next award. Airtime accrues
+// fractional points every frame (so the live HUD ticks up smoothly) but is
+// only credited to the score once, as a whole number, when the jump ends.
+// Airtime also requires the chassis to stay roughly right-side-up - a
+// barrel-rolled/upside-down flip stops the count. A reset or address
+// recenter is a position jump, not distance, and the drop onto the new
+// ground does not count as flight until the wheels touch once.
 
-export function createScoring({ world, carManager, onJumpScore }) {
+export function createScoring({
+  world,
+  carManager,
+  onJumpScore,
+  onAirtimeUpdate,
+  onAirtimeEnd,
+  scorePerAirSecond = SCORE_PER_AIR_SECOND,
+}) {
   const rayFrom = new CANNON.Vec3();
   const rayTo = new CANNON.Vec3();
   const rayResult = new CANNON.RaycastResult();
+  const localUp = new CANNON.Vec3(0, 1, 0);
+  const worldUp = new CANNON.Vec3();
 
   let prevMesh = null;
   let prevX = 0;
   let prevZ = 0;
   let kmRemainder = 0;
-  let airRemainder = 0;
   let hasLanded = false;
   let wasAirborne = false;
-  let jumpAward = 0;
+  let jumpPointsRaw = 0;
 
   function groundClearance(chassisBody) {
     const pos = chassisBody.position;
@@ -38,6 +52,14 @@ export function createScoring({ world, carManager, onJumpScore }) {
     return pos.y - rayResult.hitPointWorld.y;
   }
 
+  // A barrel-rolled/upside-down flip doesn't pay out: only a chassis still
+  // roughly right-side-up (within AIRTIME_MIN_UPRIGHT_DOT) counts as valid
+  // airtime.
+  function isUpright(chassisBody) {
+    chassisBody.quaternion.vmult(localUp, worldUp);
+    return worldUp.y >= AIRTIME_MIN_UPRIGHT_DOT;
+  }
+
   function payout(remainder, unitPoints) {
     const whole = Math.floor(remainder);
     if (whole <= 0) return { remainder, points: 0 };
@@ -46,12 +68,21 @@ export function createScoring({ world, carManager, onJumpScore }) {
     return { remainder: remainder - whole, points };
   }
 
-  // A jump's points are announced once, when the wheels are back on the
-  // ground, so a two-second flight reads as one "+20" rather than a stream.
+  // A jump's points accrue by the fraction of a second every frame (so the
+  // live HUD counts up smoothly), but are only credited to the score once,
+  // as a whole number, when the wheels are back on the ground - a
+  // two-second flight reads as one "+20" rather than a stream.
   function finishJump() {
-    if (wasAirborne && jumpAward > 0) onJumpScore?.(jumpAward);
+    if (wasAirborne) {
+      const whole = Math.floor(jumpPointsRaw);
+      if (whole > 0) {
+        carManager.addScore(whole);
+        onJumpScore?.(whole);
+      }
+      onAirtimeEnd?.();
+    }
     wasAirborne = false;
-    jumpAward = 0;
+    jumpPointsRaw = 0;
   }
 
   function update(dt, chassisMesh, vehicle) {
@@ -81,21 +112,22 @@ export function createScoring({ world, carManager, onJumpScore }) {
     }
 
     const wheels = vehicle.wheelInfos;
-    if (wheels.some((wheel) => wheel.isInContact)) hasLanded = true;
+    if (wheels.some((wheel) => isWheelGrounded(world, wheel))) hasLanded = true;
     if (!hasLanded || wheels.length === 0) return;
 
     const airborne =
-      wheels.every((wheel) => !wheel.isInContact) &&
-      groundClearance(vehicle.chassisBody) >= FLIGHT_MIN_CLEARANCE_M;
+      wheels.every((wheel) => !isWheelGrounded(world, wheel)) &&
+      groundClearance(vehicle.chassisBody) >= FLIGHT_MIN_CLEARANCE_M &&
+      isUpright(vehicle.chassisBody);
     if (!airborne) {
       finishJump();
       return;
     }
     wasAirborne = true;
-    const paid = payout(airRemainder + dt, SCORE_PER_AIR_SECOND);
-    airRemainder = paid.remainder;
-    jumpAward += paid.points;
+    jumpPointsRaw += scorePerAirSecond * dt;
+    onAirtimeUpdate?.(Math.floor(jumpPointsRaw));
   }
 
-  return { update };
+  return { update, isLanded: () => hasLanded };
 }
+
