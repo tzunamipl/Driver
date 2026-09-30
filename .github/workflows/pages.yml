@@ -3,6 +3,10 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+  # Lets you manually trigger a deploy from any branch via the Actions tab
+  # ("Run workflow" lets you pick the branch/ref to run from), without
+  # changing the automatic on-push trigger above (still main-only).
+  workflow_dispatch:
 
 permissions:
   contents: read
