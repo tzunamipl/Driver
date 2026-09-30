@@ -1,16 +1,19 @@
-// Yellow low-poly figures you can drive through for a point. The body is a
-// trigger (collisionResponse off) so the car is not bounced, but cannon-es
-// still emits collide. Whoever runs one over scores locally and tells the
-// room to delete that same id; everyone else's nameplate just shows the
-// score from the pose stream.
-//
-// Figures are scattered on a fixed grid around the driver, not placed by a
-// button. The cell hash is the same for every client, so a friend driving
-// the same streets meets the same figures. A hit id is remembered and is
-// not placed again.
+// Yellow low-poly figures scattered on a fixed grid around the driver. The
+// cell hash is the same for every client, so a friend on the same street
+// meets the same figure. While standing, the body is a trigger: the car
+// drives through it and cannon-es still emits collide. The first driver to
+// hit one scores. The figure then becomes a dynamic body and is thrown
+// along the car's velocity so it tumbles and bounces instead of vanishing.
+// It does not collide with the chassis after that — a body spawned inside
+// the car's corner spheres gets launched by the penetration solver. Ground
+// and walls are what it bounces off. A hit id is remembered and is not
+// placed again. Other clients play the same throw from the hit message and
+// do not score.
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { GROUND_MATERIAL } from './terrain.js';
+import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from './buildings.js';
 
 const PED_GROUP = 16;
 const LOCAL_CHASSIS_GROUP = 1;
@@ -20,16 +23,30 @@ const CELL_M = 90;
 const SPAWN_RADIUS_M = 320;
 const DESPAWN_RADIUS_M = 480;
 const SCAN_INTERVAL_MS = 500;
+// Body origin sits at the chest. The mesh is built with its origin at the
+// feet, so rendering shifts down by this much in the body's local frame.
+const COM_Y = 0.75;
+const RAGDOLL_SECONDS = 8;
 
 const YELLOW = new THREE.MeshStandardMaterial({ color: 0xf1c40f, roughness: 0.55 });
 const INK = new THREE.MeshStandardMaterial({ color: 0x2a2114, roughness: 0.8 });
+const PED_MATERIAL = new CANNON.Material('ped');
 
 const HEAD_GEO = new THREE.SphereGeometry(0.28, 10, 8);
 const BODY_GEO = new THREE.BoxGeometry(0.42, 0.42, 0.26);
 const ARM_GEO = new THREE.BoxGeometry(0.14, 0.28, 0.14);
 const LEG_GEO = new THREE.BoxGeometry(0.14, 0.3, 0.14);
 
+const feetOffset = new THREE.Vector3();
+
 export function createPedestrians(scene, world, groundGroup) {
+  world.addContactMaterial(
+    new CANNON.ContactMaterial(PED_MATERIAL, GROUND_MATERIAL, { friction: 0.85, restitution: 0.22 })
+  );
+  world.addContactMaterial(
+    new CANNON.ContactMaterial(PED_MATERIAL, BUILDING_MATERIAL, { friction: 0.45, restitution: 0.35 })
+  );
+
   const peds = new Map();
   const killed = new Set();
   const pendingHits = [];
@@ -50,7 +67,7 @@ export function createPedestrians(scene, world, groundGroup) {
   }
 
   function addPed(id, x, y, z) {
-    if (!id || peds.has(id)) return;
+    if (!id || peds.has(id) || killed.has(id)) return;
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
     const mesh = buildPed();
     mesh.position.set(x, y, z);
@@ -68,7 +85,7 @@ export function createPedestrians(scene, world, groundGroup) {
     body.position.set(x, y, z);
     body.pedId = id;
     world.addBody(body);
-    peds.set(id, { mesh, body });
+    peds.set(id, { mesh, body, knocked: false, age: 0, homeY: y });
   }
 
   function removePed(id) {
@@ -86,23 +103,74 @@ export function createPedestrians(scene, world, groundGroup) {
   function bindChassis(chassisBody) {
     chassisBody.addEventListener('collide', (event) => {
       const id = event.body?.pedId;
-      if (!id || !peds.has(id) || pendingHits.includes(id)) return;
-      pendingHits.push(id);
+      const ped = id && peds.get(id);
+      if (!ped || ped.knocked || killed.has(id)) return;
+      if (pendingHits.some((hit) => hit.id === id)) return;
+      const velocity = chassisBody.velocity;
+      pendingHits.push({ id, vx: velocity.x, vy: velocity.y, vz: velocity.z });
     });
   }
 
-  function forget(id) {
-    if (!id) return false;
-    killed.add(id);
-    return removePed(id);
+  // Swap the trigger for a body the ground can actually hit. Spheres,
+  // because cannon-es does not collide a box with the terrain trimesh.
+  function knock(ped, vel) {
+    const mesh = ped.mesh;
+    world.removeBody(ped.body);
+    const body = new CANNON.Body({
+      mass: 55,
+      material: PED_MATERIAL,
+      linearDamping: 0.08,
+      angularDamping: 0.28,
+      collisionFilterGroup: PED_GROUP,
+      collisionFilterMask: groundGroup | BUILDING_COLLISION_GROUP,
+    });
+    body.addShape(new CANNON.Sphere(0.22), new CANNON.Vec3(0, -0.5, 0));
+    body.addShape(new CANNON.Sphere(0.28), new CANNON.Vec3(0, 0, 0));
+    body.addShape(new CANNON.Sphere(0.2), new CANNON.Vec3(0, 0.42, 0));
+    body.position.set(mesh.position.x, mesh.position.y + COM_Y, mesh.position.z);
+    body.quaternion.set(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
+    applyLaunch(body, vel);
+    world.addBody(body);
+    ped.body = body;
+    ped.knocked = true;
+    ped.age = 0;
+    ped.homeY = body.position.y;
   }
 
   function flushHits() {
     if (!pendingHits.length) return;
     const hits = pendingHits.splice(0);
-    for (const id of hits) {
-      if (forget(id)) onHit(id);
+    for (const hit of hits) {
+      const ped = peds.get(hit.id);
+      if (!ped || ped.knocked || killed.has(hit.id)) continue;
+      knock(ped, hit);
+      killed.add(hit.id);
+      onHit(hit.id, hit);
     }
+  }
+
+  // Another driver already scored this one. Topple the local copy if it is
+  // loaded, and never spawn it standing again.
+  function knockFromRemote(id, vel) {
+    if (!id) return;
+    killed.add(id);
+    const ped = peds.get(id);
+    if (!ped || ped.knocked) return;
+    knock(ped, vel);
+  }
+
+  function syncMeshes(dt) {
+    const doomed = [];
+    for (const [id, ped] of peds) {
+      if (!ped.knocked) continue;
+      ped.age += dt;
+      const body = ped.body;
+      ped.mesh.quaternion.copy(body.quaternion);
+      feetOffset.set(0, -COM_Y, 0).applyQuaternion(ped.mesh.quaternion);
+      ped.mesh.position.copy(body.position).add(feetOffset);
+      if (ped.age > RAGDOLL_SECONDS || body.position.y < ped.homeY - 25) doomed.push(id);
+    }
+    for (const id of doomed) removePed(id);
   }
 
   // Fill the streets around the car. Far figures are dropped locally so the
@@ -143,14 +211,32 @@ export function createPedestrians(scene, world, groundGroup) {
   return {
     addPed,
     removePed,
-    forget,
+    knockFromRemote,
     bindChassis,
     flushHits,
+    syncMeshes,
     updatePopulation,
     setOnHit(fn) {
       onHit = fn;
     },
   };
+}
+
+function applyLaunch(body, vel) {
+  const vx = Number.isFinite(vel?.vx) ? vel.vx : 0;
+  const vz = Number.isFinite(vel?.vz) ? vel.vz : 0;
+  const horiz = Math.hypot(vx, vz);
+  let dirX = 1;
+  let dirZ = 0;
+  if (horiz > 0.4) {
+    dirX = vx / horiz;
+    dirZ = vz / horiz;
+  }
+  const kick = Math.min(5 + horiz * 0.85, 26);
+  const up = Math.min(1.8 + horiz * 0.08, 4.5);
+  body.velocity.set(dirX * kick, up, dirZ * kick);
+  const spin = Math.min(3.5 + horiz * 0.12, 8);
+  body.angularVelocity.set(-dirZ * spin, 0, dirX * spin);
 }
 
 function cellHash(ix, iz) {
