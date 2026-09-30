@@ -94,7 +94,7 @@ const debugVisuals = createDebugVisualsToggle(
 );
 
 // ---------- Car + remote players ----------
-const carManager = createCarManager({ world, scene, net, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT });
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT });
 
 // ---------- Input ----------
 const input = createInputController();
@@ -109,17 +109,13 @@ const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
 const minimapHud = createMinimapHud();
 
-// ---------- Address search / respawn ----------
+// ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({
   terrain,
   buildings,
-  net,
   carManager,
   origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
-  startPos: START_POS,
-  startQuat: START_QUAT,
   isJoined: () => lobby.isJoined(),
-  playerSpawnPos,
 });
 
 // ---------- Gameplay props (pedestrians + balls) ----------

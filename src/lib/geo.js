@@ -51,6 +51,23 @@ export function localToLatLon(x, z, originLat, originLon) {
 }
 
 /**
+ * Re-expresses a local (x, z) point defined relative to one origin as the
+ * equivalent local (x, z) point relative to a different origin, by
+ * round-tripping through lat/lon. Used to keep multiplayer pose sync
+ * correct when a single player's own "view" origin (what their terrain is
+ * streamed/centered around) has personally diverged from the shared
+ * network origin everyone's poses are encoded against - e.g. after that
+ * player teleports elsewhere via the address search without moving anyone
+ * else's world (see ui/addressSearch.js). A no-op (returns x, z unchanged)
+ * when the two origins are identical, which is the common case.
+ */
+export function remapLocalOrigin(x, z, fromOriginLat, fromOriginLon, toOriginLat, toOriginLon) {
+  if (fromOriginLat === toOriginLat && fromOriginLon === toOriginLon) return { x, z };
+  const { lat, lon } = localToLatLon(x, z, fromOriginLat, fromOriginLon);
+  return latLonToLocal(lat, lon, toOriginLat, toOriginLon);
+}
+
+/**
  * Approximate ground size (meters, per edge) of a Web Mercator slippy-map
  * tile at a given zoom and latitude. Web Mercator tiles are square in
  * projected space but shrink in real-world ground size away from the
