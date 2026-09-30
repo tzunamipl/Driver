@@ -1,0 +1,119 @@
+// Central app configuration: run mode, spawn origin, and tuning constants
+// shared across modules. Keeping these here (rather than scattered through
+// main.js) lets other files (input, camera, HUD, physics...) import just
+// the constants they need without depending on the composition root.
+
+// ---------- App mode ----------
+// Two run modes, driven by Vite's built-in DEV flag (true for `npm run dev`,
+// false for `npm run build`/the deployed GitHub Pages build - see
+// vite.config.js), so no extra env setup is needed to get the right mode:
+//  - "dev": local development. Debug visuals (tile HUD, hitbox wireframes)
+//    default on, and the address search bar can respawn/recenter anywhere
+//    (handy for jumping around the map while testing).
+//  - "prod": the shared remote build. Debug visuals default off, and the
+//    player's location is fixed - the address search UI is hidden and any
+//    origin-change broadcast from a peer is ignored, so nobody can be
+//    teleported elsewhere. Networking (the shared MQTT room) is a prod-only
+//    feature - dev mode never opens that connection, so you always drive
+//    solo/offline against localhost without depending on (or spamming) the
+//    public broker.
+// Can still be forced either way (e.g. to test the prod build's behavior
+// from `vite dev`) via ?mode=prod / ?mode=dev in the URL.
+const FORCED_MODE = new URLSearchParams(location.search).get('mode');
+export const APP_MODE = FORCED_MODE === 'dev' || FORCED_MODE === 'prod' ? FORCED_MODE : (import.meta.env.DEV ? 'dev' : 'prod');
+export const IS_DEV_MODE = APP_MODE === 'dev';
+// Whether the player is allowed to change their real-world location at all
+// (via the address search bar, or by receiving a peer's origin broadcast).
+export const CAN_CHANGE_LOCATION = IS_DEV_MODE;
+// Whether to connect to the shared MQTT room at all (see net.js). Off in
+// dev so local development never touches the public broker.
+export const CAN_USE_NETWORK = !IS_DEV_MODE;
+
+// Real-world spawn location (Wroclaw city center). The terrain streams in
+// real aerial imagery + elevation around wherever the car currently is, so
+// you can drive anywhere on Earth from here - it's just the starting point.
+export const ORIGIN_LAT = 51.1079;
+export const ORIGIN_LON = 17.0385;
+
+// ---------- Car palette ----------
+export const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
+
+// ---------- Controls ----------
+export const MAX_FORCE = 300;
+export const MAX_STEER = 0.5;
+// Brakes should be able to stop the car at least as decisively as the engine
+// can accelerate it, so scale brake force off the engine's max power instead
+// of using an unrelated fixed constant.
+export const BRAKE_FORCE = MAX_FORCE * 10;
+export const TURBO_MULT = 4;
+
+// ---------- Collision response (arcade impact roll) ----------
+// Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
+// against a wall) - only impacts above this relative speed (m/s along the
+// contact normal) trigger the arcade flip/roll response.
+export const IMPACT_ROLL_MIN_SPEED = 2.5;
+// Tuning knob for how dramatic a qualifying hit's induced spin is; scales
+// linearly with impact speed, so a glancing tap barely rocks the car while
+// a hard head-on/corner hit can flip it.
+export const IMPACT_ROLL_TORQUE_SCALE = 0.22;
+
+// ---------- Ground-tunneling guard ----------
+export const GROUND_RAY_HEIGHT = 50;
+export const MIN_GROUND_CLEARANCE = 0.05;
+
+// ---------- Camera follow ----------
+export const CAMERA_OFFSET = [0, 30, -20];
+export const CAMERA_LOOKAT_OFFSET = [0, 10.5, 10];
+// Lower = smoother/slower camera pan, so crashes don't whip the camera around.
+export const CAMERA_POSITION_SPEED = 2.5;
+export const CAMERA_LOOKAT_SPEED = 3;
+// Raw yaw (from the chassis quaternion) carries small high-frequency noise
+// from suspension/wheel-contact vibration, which gets amplified a lot by
+// the long camera offset (~36 units) into visible high-speed jitter. Smooth
+// the yaw angle itself (not just the final position) to filter that noise
+// out while still turning briskly with real heading changes.
+export const CAMERA_YAW_SPEED = 6;
+// Below this dot(carUp, worldUp) the car is considered "flipped" (on its
+// roof/side, tumbling mid-crash, etc.) - roughly more than ~60 degrees of
+// tilt. Projecting the forward vector to get a yaw becomes unstable/
+// meaningless once the car is that far from upright (it can spin the
+// camera rapidly during a barrel roll), so we just freeze the last good
+// yaw and hold the camera steady until the car is upright again.
+export const FLIP_UP_DOT_THRESHOLD = 0.5;
+// Below this horizontal speed (m/s) the velocity direction is too noisy/
+// undefined (e.g. standing still, or barely rolling) to aim the camera at,
+// so we fall back to the chassis heading instead.
+export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
+
+// ---------- Gauges HUD ----------
+export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
+export const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// ---------- Terrain stats HUD ----------
+// 8-direction lookup, ordered to match on-screen layout: grid columns are
+// tile-x (world +x/east, left->right) and grid rows are tile-y (world
+// +z/south, top->bottom) - see geo.js. So a direction's (dx, dy) here maps
+// 1:1 onto how many cells to step right/down in the rendered grid, and the
+// arrow glyphs point the same way on screen as the car is actually heading.
+export const DIRECTIONS = [
+  { dx: 0, dy: -1, arrow: '\u2191' }, // N (up)
+  { dx: 1, dy: -1, arrow: '\u2197' }, // NE
+  { dx: 1, dy: 0, arrow: '\u2192' }, // E (right)
+  { dx: 1, dy: 1, arrow: '\u2198' }, // SE
+  { dx: 0, dy: 1, arrow: '\u2193' }, // S (down)
+  { dx: -1, dy: 1, arrow: '\u2199' }, // SW
+  { dx: -1, dy: 0, arrow: '\u2190' }, // W (left)
+  { dx: -1, dy: -1, arrow: '\u2196' }, // NW
+];
+export const STATS_UPDATE_INTERVAL = 0.25; // seconds; DOM updates don't need to happen every frame
+
+// ---------- Networking / lobby ----------
+export const NET_STATUS_TEXT = {
+  connecting: 'Łączenie…',
+  online: 'W pokoju',
+  offline: 'Offline — jedziesz sam',
+};
+
+// ---------- Main loop ----------
+export const FIXED_STEP = 1 / 60;
+export const MAX_SUBSTEPS = 5;

@@ -1,131 +1,47 @@
-import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
-import { createCar, CHASSIS_MATERIAL, createRemoteCar, createNameTag } from './lib/car.js';
-import { TerrainManager, GROUND_COLLISION_GROUP, DETAIL_ZOOM } from './lib/terrain.js';
+import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
-import { BuildingsManager, BUILDING_MATERIAL, BUILDING_COLLISION_GROUP } from './lib/buildings.js';
-import { lon2tileX, lat2tileY, localToLatLon } from './lib/geo.js';
+import { BuildingsManager } from './lib/buildings.js';
 
-// ---------- App mode ----------
-// Two run modes, driven by Vite's built-in DEV flag (true for `npm run dev`,
-// false for `npm run build`/the deployed GitHub Pages build - see
-// vite.config.js), so no extra env setup is needed to get the right mode:
-//  - "dev": local development. Debug visuals (tile HUD, hitbox wireframes)
-//    default on, and the address search bar can respawn/recenter anywhere
-//    (handy for jumping around the map while testing).
-//  - "prod": the shared remote build. Debug visuals default off, and the
-//    player's location is fixed - the address search UI is hidden and any
-//    origin-change broadcast from a peer is ignored, so nobody can be
-//    teleported elsewhere. Networking (the shared MQTT room) is a prod-only
-//    feature - dev mode never opens that connection, so you always drive
-//    solo/offline against localhost without depending on (or spamming) the
-//    public broker.
-// Can still be forced either way (e.g. to test the prod build's behavior
-// from `vite dev`) via ?mode=prod / ?mode=dev in the URL.
-const FORCED_MODE = new URLSearchParams(location.search).get('mode');
-const APP_MODE = FORCED_MODE === 'dev' || FORCED_MODE === 'prod' ? FORCED_MODE : (import.meta.env.DEV ? 'dev' : 'prod');
-const IS_DEV_MODE = APP_MODE === 'dev';
-// Whether the player is allowed to change their real-world location at all
-// (via the address search bar, or by receiving a peer's origin broadcast).
-const CAN_CHANGE_LOCATION = IS_DEV_MODE;
-// Whether to connect to the shared MQTT room at all (see net.js). Off in
-// dev so local development never touches the public broker.
-const CAN_USE_NETWORK = !IS_DEV_MODE;
+import { ORIGIN_LAT, ORIGIN_LON, BODY_COLORS, IS_DEV_MODE } from './config.js';
+import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
+import { createPhysicsWorld } from './app/physicsSetup.js';
+import { createGroundTunnelGuard } from './app/collisions.js';
+import { createCameraFollow } from './app/cameraFollow.js';
+import { createInputController } from './app/input.js';
+import { createCarManager } from './app/carManager.js';
+import { setupGameplayProps } from './app/gameplayProps.js';
+import { createMainLoop } from './app/mainLoop.js';
+import { createGaugesHud } from './hud/gauges.js';
+import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
+import { createSuspensionHud } from './hud/suspensionHud.js';
+import { createDebugVisualsToggle } from './hud/debugVisuals.js';
+import { createAddressSearch } from './ui/addressSearch.js';
+import { createLobby } from './ui/lobby.js';
 
-// Real-world spawn location (Wroclaw city center). The terrain streams in
-// real aerial imagery + elevation around wherever the car currently is, so
-// you can drive anywhere on Earth from here - it's just the starting point.
-const ORIGIN_LAT = 51.1079;
-const ORIGIN_LON = 17.0385;
+// ---------- Composition root ----------
+// This file only wires modules together in the right order; all actual
+// logic (physics, terrain/buildings streaming, camera, HUD, input,
+// networking UI, gameplay) lives in ./app, ./hud, ./ui, and ./lib - see
+// those folders to work on a specific concern without touching this file.
 
-// ---------- Renderer / Scene / Camera ----------
-const app = document.getElementById('app');
-
-// Logarithmic depth buffer: needed because the view now spans from ~0.1m
-// (car interior/wheels) out to the far-LOD terrain tier tens of km away
-// (see terrain.js FAR_RADIUS_METERS) - a standard depth buffer doesn't have
-// enough precision across that range and would z-fight badly at distance.
-const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-app.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-// Exponential-squared fog: unlike a linear Fog with a hard far cutoff, this
-// fades gradually and asymptotically - near the car it's barely noticeable
-// (so nearby detail stays crisp), while it naturally swallows the far-LOD
-// terrain into the sky color by tens of km out, mimicking real atmospheric
-// haze instead of hard-clipping distant terrain out of view entirely.
-scene.fog = new THREE.FogExp2(0x87ceeb, 0.00005);
-
-const camera = new THREE.PerspectiveCamera(
-  70,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  // Far plane must reach past the far-LOD terrain tier's radius (see
-  // terrain.js FAR_RADIUS_METERS = 150km) or that whole tier gets
-  // frustum-culled and is never rendered no matter how the fog is tuned.
-  160_000
-);
-camera.position.set(0, 5, -8);
-
-
-// ---------- Lighting ----------
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-const SUN_OFFSET = new THREE.Vector3(50, 80, 30);
-sun.position.copy(SUN_OFFSET);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -100;
-sun.shadow.camera.right = 100;
-sun.shadow.camera.top = 100;
-sun.shadow.camera.bottom = -100;
-sun.shadow.camera.near = 10;
-sun.shadow.camera.far = 300;
-scene.add(sun);
-scene.add(sun.target);
+// ---------- Rendering environment ----------
+const { renderer, scene, camera } = createSceneEnvironment();
+const { sun, SUN_OFFSET } = createLighting(scene);
 
 // ---------- Physics world ----------
-const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-world.broadphase = new CANNON.SAPBroadphase(world);
+const world = createPhysicsWorld();
 const remoteCollisions = createRemoteCollisions(world);
 const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
 const balls = createBalls(scene, world);
-world.defaultContactMaterial.friction = 0.05;
-// Small amount of bounce on any collision (ground, buildings, etc.) instead
-// of the default perfectly inelastic (restitution 0) impact - keeps hard
-// hits from feeling like the car just instantly stops/sticks.
-world.defaultContactMaterial.restitution = 0.15;
+const preventGroundTunneling = createGroundTunnelGuard(world);
 
-// Chassis-vs-building contact tuned separately from the world default:
-// near-zero friction and a stronger bounce, so scraping a wall at a
-// shallow/grazing angle slides the car along the surface (and rebounds
-// off it) instead of the low-but-nonzero default friction "catching" the
-// contact and killing the car's tangential speed on impact.
-world.addContactMaterial(
-  new CANNON.ContactMaterial(CHASSIS_MATERIAL, BUILDING_MATERIAL, {
-    friction: 0.01,
-    restitution: 0.35,
-  })
-);
-
-// ---------- Real-world terrain (aerial imagery + elevation, streamed) ----------
+// ---------- Real-world terrain + 3D buildings (streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-// ---------- 3D buildings (OpenStreetMap footprints, streamed) ----------
 const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-// Tracks whichever lat/lon the local (0,0) origin currently represents -
-// starts at ORIGIN_LAT/LON but is repointed by the address search flow
-// (terrain.recenter / buildings.recenter) whenever the car respawns
-// elsewhere. Needed to convert the car's local position back to lat/lon
-// for building-tile streaming (see animate()) after a respawn.
-let currentOriginLat = ORIGIN_LAT;
-let currentOriginLon = ORIGIN_LON;
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -142,898 +58,126 @@ Object.assign(loadingEl.style, {
 });
 document.body.appendChild(loadingEl);
 
-// ---------- Car ----------
-// Start a few meters back along -Z (opposite of the car's forward +Z). Y is a
-// small drop height above the (roughly zeroed) terrain at the origin; gravity
-// settles it onto the real ground once the chunk physics bodies are loaded.
+// ---------- Networking ----------
+const net = createNet();
+
+// ---------- Car spawn point ----------
+// Start a few meters back along -Z (opposite of the car's forward +Z). Y is
+// a small drop height above the (roughly zeroed) terrain at the origin;
+// gravity settles it onto the real ground once the chunk physics bodies
+// are loaded.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
-const net = createNet();
-const remotes = new Map();
-let joined = false;
-let loopStarted = false;
-const poseForward = new THREE.Vector3();
-
-const BODY_COLORS = [0x1c3f94, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0xecf0f1, 0x1a1a1a];
-let selectedColor = BODY_COLORS[0];
-let vehicle, chassisMesh, wheelMeshes = [], syncMeshes, snapshotPhysics, reset, setCarHitboxVisible;
-let localName = '';
-let score = 0;
-let nameTag = null;
-
-// Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
-// against a wall) - only impacts above this relative speed (m/s along the
-// contact normal) trigger the arcade flip/roll response below.
-const IMPACT_ROLL_MIN_SPEED = 2.5;
-// Tuning knob for how dramatic a qualifying hit's induced spin is; scales
-// linearly with impact speed, so a glancing tap barely rocks the car while
-// a hard head-on/corner hit can flip it.
-const IMPACT_ROLL_TORQUE_SCALE = 0.22;
-const _impactNormal = new CANNON.Vec3();
-const _impactImpulse = new CANNON.Vec3();
-const _impactTorque = new CANNON.Vec3();
-const _impactAngularDelta = new CANNON.Vec3();
-
-/**
- * Arcade-style collision response layered on top of cannon-es's own contact
- * resolution: turns "where on the car" (contact.ri/rj, relative to the
- * chassis' center of mass) and "how hard" (impact speed along the contact
- * normal) into an extra angular-velocity kick, so hitting a building corner
- * off-center or at speed visibly rolls/flips the car toward the side that
- * got hit, rather than the impact just stopping/deflecting it in a straight
- * line. Needed because building contacts use near-zero friction (see the
- * chassis/building ContactMaterial below) to let grazing hits slide - that
- * removes the tangential friction impulse that would otherwise supply most
- * of the spin, so it's added back in explicitly here instead.
- */
-function applyImpactRoll(chassisBody, contact) {
-  const impactSpeed = Math.abs(contact.getImpactVelocityAlongNormal());
-  if (impactSpeed < IMPACT_ROLL_MIN_SPEED) return;
-
-  const isBi = contact.bi === chassisBody;
-  // Vector from the chassis' center of mass to the actual contact point,
-  // in world space - this is the "hit direction" lever arm.
-  const r = isBi ? contact.ri : contact.rj;
-  // The normal impulse cannon-es applies pushes bi along -ni and bj along
-  // +ni (ni always points from bi to bj) - pick whichever direction
-  // actually shoves the chassis, regardless of which side of the pair it
-  // ended up on.
-  if (isBi) contact.ni.negate(_impactNormal);
-  else _impactNormal.copy(contact.ni);
-
-  // torque = r x impulse: an off-center (large |r| perpendicular to the
-  // normal) or fast hit produces a proportionally bigger torque.
-  _impactNormal.scale(impactSpeed * chassisBody.mass * IMPACT_ROLL_TORQUE_SCALE, _impactImpulse);
-  r.cross(_impactImpulse, _impactTorque);
-
-  chassisBody.invInertiaWorld.vmult(_impactTorque, _impactAngularDelta);
-  chassisBody.angularVelocity.vadd(_impactAngularDelta, chassisBody.angularVelocity);
-}
-
-// ---------- Keyboard controls ----------
-const keys = new Set();
-window.addEventListener('keydown', (e) => keys.add(e.code));
-window.addEventListener('keyup', (e) => keys.delete(e.code));
-
-const MAX_FORCE = 300;
-const MAX_STEER = 0.5;
-// Brakes should be able to stop the car at least as decisively as the engine
-// can accelerate it, so scale brake force off the engine's max power instead
-// of using an unrelated fixed constant.
-const BRAKE_FORCE = MAX_FORCE * 10;
-const TURBO_MULT = 4;
-
-function updateControls() {
-  if (!vehicle) return;
-  const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-  if (typing) {
-    vehicle.applyEngineForce(0, 2);
-    vehicle.applyEngineForce(0, 3);
-    vehicle.setSteeringValue(0, 0);
-    vehicle.setSteeringValue(0, 1);
-    return;
-  }
-  const forward = keys.has('KeyW') || keys.has('ArrowUp');
-  const backward = keys.has('KeyS') || keys.has('ArrowDown');
-  const left = keys.has('KeyA') || keys.has('ArrowLeft');
-  const right = keys.has('KeyD') || keys.has('ArrowRight');
-  const handbrake = keys.has('Space');
-  const turbo = keys.has('ShiftLeft') || keys.has('ShiftRight');
-  const forceScale = turbo ? TURBO_MULT : 1;
-
-  const engineForce = (forward ? -MAX_FORCE : backward ? MAX_FORCE : 0) * forceScale;
-  // rear-wheel drive (indices 2, 3)
-  vehicle.applyEngineForce(engineForce, 2);
-  vehicle.applyEngineForce(engineForce, 3);
-
-  const steerValue = left ? MAX_STEER : right ? -MAX_STEER : 0;
-  vehicle.setSteeringValue(steerValue, 0);
-  vehicle.setSteeringValue(steerValue, 1);
-
-  const brakeForce = handbrake ? BRAKE_FORCE * forceScale : 0;
-  for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
-
-  if (keys.has('KeyR')) {
-    reset();
-  }
-}
-
-// ---------- Gauges (speedometer + compass) ----------
-const speedoNeedle = document.getElementById('speedo-needle');
-const speedoValue = document.getElementById('speedo-value');
-const compassDial = document.getElementById('compass-dial');
-const compassValue = document.getElementById('compass-value');
-const terrainStatsEl = document.getElementById('terrain-stats');
-const suspensionHudEl = document.getElementById('suspension-hud');
-
-// Wheel order matches vehicle.wheelInfos indices (see car.js: front-left,
-// front-right, rear-left, rear-right).
-const SUSPENSION_WHEELS = ['fl', 'fr', 'rl', 'rr'].map((key) => ({
-  key,
-  fill: document.getElementById(`susp-${key}-fill`),
-  val: document.getElementById(`susp-${key}-val`),
-}));
-
-// ---------- Debug visuals toggle (tile stats HUD, 3D tile borders, and
-// collision hitbox wireframes for buildings + the car chassis) ----------
-// On by default in dev mode, off by default in prod (see APP_MODE above);
-// press M to hide/show all of these together while driving in either mode.
-let debugVisualsEnabled = IS_DEV_MODE;
-
-function setDebugVisualsEnabled(enabled) {
-  debugVisualsEnabled = enabled;
-  terrainStatsEl.style.display = enabled ? '' : 'none';
-  suspensionHudEl.style.display = enabled ? '' : 'none';
-  terrain.setBordersVisible(enabled);
-  buildings.setHitboxesVisible(enabled);
-  if (setCarHitboxVisible) setCarHitboxVisible(enabled);
-}
-
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyM' && !e.repeat) setDebugVisualsEnabled(!debugVisualsEnabled);
-});
-
-setDebugVisualsEnabled(debugVisualsEnabled);
-
-
-const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
-const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-const forwardVec = new THREE.Vector3();
-
-// Tracks the dial's continuous (unwrapped) rotation so the CSS transition
-// always nudges across the shortest arc instead of snapping the long way
-// around whenever the heading crosses the 0/360 boundary.
-let compassDialRotation = 0;
-
-function updateGauges() {
-  if (!chassisMesh || !vehicle) return;
-
-  // Speed: physics velocity magnitude (m/s) -> km/h.
-  const v = vehicle.chassisBody.velocity;
-  const speedKmh = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6;
-  const clamped = Math.min(speedKmh, MAX_GAUGE_SPEED);
-  // Needle sweeps -90deg (0 km/h) to +90deg (MAX_GAUGE_SPEED).
-  const needleDeg = -90 + (clamped / MAX_GAUGE_SPEED) * 180;
-  speedoNeedle.style.transform = `translate(-50%, -100%) rotate(${needleDeg}deg)`;
-  speedoValue.textContent = Math.round(speedKmh);
-
-  // Heading: project the chassis' local forward axis onto the world XZ plane.
-  // World +z is south (see DIRECTIONS below), so north is -z; negate z here
-  // to match that convention and keep the dial's N/S/E/W labels correct.
-  forwardVec.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
-  let headingDeg = THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, -forwardVec.z));
-  headingDeg = (headingDeg + 360) % 360;
-
-  // Rotate the dial opposite the heading so the fixed top pointer always
-  // shows the direction the car is currently facing. Unwrap against the
-  // previous rotation so the dial always takes the shortest turn, rather
-  // than jumping a full lap when headingDeg wraps past 0/360.
-  const targetRotation = -headingDeg;
-  let delta = ((targetRotation - compassDialRotation + 180) % 360 + 360) % 360 - 180;
-  compassDialRotation += delta;
-  compassDial.style.transform = `rotate(${compassDialRotation}deg)`;
-  const pointIndex = Math.round(headingDeg / 45) % 8;
-  compassValue.textContent = COMPASS_POINTS[pointIndex];
-}
-
-// ---------- Terrain stats HUD (memory usage + tile streaming map) ----------
-// 8-direction lookup, ordered to match on-screen layout: grid columns are
-// tile-x (world +x/east, left->right) and grid rows are tile-y (world
-// +z/south, top->bottom) - see geo.js. So a direction's (dx, dy) here maps
-// 1:1 onto how many cells to step right/down in the rendered grid, and the
-// arrow glyphs point the same way on screen as the car is actually heading.
-const DIRECTIONS = [
-  { dx: 0, dy: -1, arrow: '\u2191' }, // N (up)
-  { dx: 1, dy: -1, arrow: '\u2197' }, // NE
-  { dx: 1, dy: 0, arrow: '\u2192' }, // E (right)
-  { dx: 1, dy: 1, arrow: '\u2198' }, // SE
-  { dx: 0, dy: 1, arrow: '\u2193' }, // S (down)
-  { dx: -1, dy: 1, arrow: '\u2199' }, // SW
-  { dx: -1, dy: 0, arrow: '\u2190' }, // W (left)
-  { dx: -1, dy: -1, arrow: '\u2196' }, // NW
-];
-
-let statsAccum = 0;
-const STATS_UPDATE_INTERVAL = 0.25; // seconds; DOM updates don't need to happen every frame
-
-function formatBytes(bytes) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Snaps the car's current world-space forward vector to one of 8 compass directions. */
-function headingDirection() {
-  const angleDeg =
-    (THREE.MathUtils.radToDeg(Math.atan2(forwardVec.x, -forwardVec.z)) + 360) % 360;
-  const index = Math.round(angleDeg / 45) % 8;
-  return DIRECTIONS[index];
-}
-
-function updateTerrainStats(delta) {
-  if (!debugVisualsEnabled) return;
-  statsAccum += delta;
-  if (statsAccum < STATS_UPDATE_INTERVAL) return;
-  statsAccum = 0;
-
-  const s = terrain.getStats();
-  const dir = headingDirection();
-  const aheadTx = s.center.tx + dir.dx;
-  const aheadTy = s.center.ty + dir.dy;
-
-  const b = buildings.getStats();
-  const textLines = [
-    'TERRAIN',
-    `detail: ${s.loaded} loaded  ${s.pending} loading  ${s.pendingRemoval} removing`,
-    `far:    ${s.far.loaded} loaded  ${s.far.pending} loading  ${s.far.pendingRemoval} removing`,
-    `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
-    `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
-    `ahead: ${aheadTx},${aheadTy}`,
-    `buildings: ${b.buildings} in ${b.loaded} tiles${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
-  ];
-  if (b.usingCachedData) {
-    textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
-  } else if (b.regionFailed) {
-    textLines.push(`buildings: tile service unreachable (network blocked?), retrying\u2026`);
-    if (b.lastError) textLines.push(`  ${b.lastError.slice(0, 60)}`);
-  }
-
-  const cols = s.grid[0].length;
-  terrainStatsEl.innerHTML =
-    `<div class="ts-text">${textLines.join('\n')}</div>` +
-    `<div class="ts-compass-wrap">` +
-    `<span class="ts-dir n">N</span><span class="ts-dir s">S</span>` +
-    `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
-    `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 14px)">` +
-    s.grid
-      .map((row, ry) =>
-        row
-          .map((state, rx) => {
-            const isPlayer = state === 'player';
-            const cellState = isPlayer ? 'loaded' : state;
-            const isAhead = ry - s.radius === dir.dy && rx - s.radius === dir.dx;
-            const classes = ['ts-cell', cellState];
-            if (isPlayer) classes.push('player');
-            if (isAhead) classes.push('ahead');
-            const glyph = isPlayer ? dir.arrow : '';
-            return `<span class="${classes.join(' ')}">${glyph}</span>`;
-          })
-          .join('')
-      )
-      .join('') +
-    `</div></div>` +
-    `<div class="ts-legend">` +
-    `<span><span class="swatch" style="background:rgba(76,175,80,0.7)"></span>loaded</span>` +
-    `<span><span class="swatch" style="background:rgba(255,193,7,0.7)"></span>planned</span>` +
-    `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>removing</span>` +
-    `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
-    `<span>${dir.arrow} you / ahead highlighted</span>` +
-    `</div>`;
-}
-
-/**
- * Colors a suspension bar by how hard the spring is working: blue for
- * normal travel, yellow as it approaches full compression, red once it's
- * essentially bottomed out (spring at/near its max travel limit).
- */
-function suspensionColor(compressionFrac) {
-  if (compressionFrac > 0.85) return '#ff5b5b';
-  if (compressionFrac > 0.6) return '#ffce4f';
-  return '#4fc3ff';
-}
-
-/**
- * Updates the bottom-left suspension HUD: one vertical bar per wheel
- * showing live spring travel, read straight from each wheel's Cannon-es
- * WheelInfo. A bar's fill height is 0% at full droop (fully extended) and
- * 100% at full compression (bottomed out), with a rest-length marker line
- * fixed at 50% - so the fill visibly moves up as a wheel loads/compresses
- * (cornering, braking, bumps) and down as it unloads/droops (cresting a
- * bump, airborne). Wheels not currently touching the ground are dimmed and
- * shown resting at the midpoint, since cannon-es reports their suspension
- * as fully extended (no ground to push back against) while airborne.
- */
-function updateSuspensionHud() {
-  if (!debugVisualsEnabled || !vehicle) return;
-
-  vehicle.wheelInfos.forEach((wheel, i) => {
-    const { fill, val } = SUSPENSION_WHEELS[i];
-    const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;
-    const maxLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel;
-    const span = maxLength - minLength || 1;
-    const clampedLength = Math.min(maxLength, Math.max(minLength, wheel.suspensionLength));
-    const compressionFrac = (maxLength - clampedLength) / span;
-
-    fill.style.height = `${Math.round(compressionFrac * 100)}%`;
-    fill.style.background = wheel.isInContact
-      ? suspensionColor(compressionFrac)
-      : 'rgba(255, 255, 255, 0.25)';
-    val.textContent = wheel.isInContact ? `${Math.round(compressionFrac * 100)}%` : 'air';
-  });
-}
-
-
-// ---------- Camera follow ----------
-const cameraOffset = new THREE.Vector3(0, 30, -20);
-const cameraLookOffset = new THREE.Vector3(0, 10.5, 10);
-const tmpVec = new THREE.Vector3();
-const tmpForward = new THREE.Vector3();
-const tmpCarUp = new THREE.Vector3();
-const yawQuat = new THREE.Quaternion();
-const upVec = new THREE.Vector3(0, 1, 0);
-const smoothedLookAt = new THREE.Vector3();
-let smoothedLookAtInit = false;
-let lastYaw = 0;
-let smoothedYaw = 0;
-let smoothedYawInit = false;
-
-// Lower = smoother/slower camera pan, so crashes don't whip the camera around.
-const CAMERA_POSITION_SPEED = 2.5;
-const CAMERA_LOOKAT_SPEED = 3;
-// Raw yaw (from the chassis quaternion) carries small high-frequency noise
-// from suspension/wheel-contact vibration, which gets amplified a lot by
-// the long camera offset (~36 units) into visible high-speed jitter. Smooth
-// the yaw angle itself (not just the final position) to filter that noise
-// out while still turning briskly with real heading changes.
-const CAMERA_YAW_SPEED = 6;
-
-// Below this dot(carUp, worldUp) the car is considered "flipped" (on its
-// roof/side, tumbling mid-crash, etc.) - roughly more than ~60 degrees of
-// tilt. Projecting the forward vector to get a yaw becomes unstable/
-// meaningless once the car is that far from upright (it can spin the
-// camera rapidly during a barrel roll), so we just freeze the last good
-// yaw and hold the camera steady until the car is upright again.
-const FLIP_UP_DOT_THRESHOLD = 0.5;
-
-// Below this horizontal speed (m/s) the velocity direction is too noisy/
-// undefined (e.g. standing still, or barely rolling) to aim the camera at,
-// so we fall back to the chassis heading instead.
-const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
-
-function updateCamera(delta) {
-  if (!chassisMesh || !vehicle) return;
-  const carPos = chassisMesh.position;
-  const carQuat = chassisMesh.quaternion;
-
-  tmpCarUp.set(0, 1, 0).applyQuaternion(carQuat);
-  const isFlipped = tmpCarUp.dot(upVec) < FLIP_UP_DOT_THRESHOLD;
-
-  let yaw = lastYaw;
-  if (!isFlipped) {
-    // Point the camera where the car is actually moving (its velocity
-    // direction) rather than where it's heading (its forward axis), so
-    // e.g. sliding/drifting sideways or reversing looks correct. Only the
-    // horizontal (XZ) component is used - pitch/roll from bumps or rolling
-    // must never tilt the camera off the horizontal plane (no-roll rule).
-    const vel = vehicle.chassisBody.velocity;
-    tmpForward.set(vel.x, 0, vel.z);
-    if (tmpForward.lengthSq() < CAMERA_MIN_SPEED_FOR_VELOCITY_YAW * CAMERA_MIN_SPEED_FOR_VELOCITY_YAW) {
-      // Too slow for velocity direction to be meaningful - use the car's
-      // facing direction instead so the camera doesn't spin/jitter at
-      // near-zero speed.
-      tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
-      tmpForward.y = 0;
-    }
-    if (tmpForward.lengthSq() < 1e-8) tmpForward.set(0, 0, 1);
-    tmpForward.normalize();
-    yaw = Math.atan2(tmpForward.x, tmpForward.z);
-    lastYaw = yaw;
-  }
-
-  // Smooth the yaw angle itself (shortest-path, wrap-safe) instead of using
-  // the raw per-frame value directly - this is what actually decouples the
-  // camera from small heading vibrations instead of just smoothing the
-  // already-noisy rotated offset.
-  if (!smoothedYawInit) {
-    smoothedYaw = yaw;
-    smoothedYawInit = true;
-  } else {
-    const yawDiff = Math.atan2(Math.sin(yaw - smoothedYaw), Math.cos(yaw - smoothedYaw));
-    const yawFactor = 1 - Math.exp(-CAMERA_YAW_SPEED * delta);
-    smoothedYaw += yawDiff * yawFactor;
-  }
-  yawQuat.setFromAxisAngle(upVec, smoothedYaw);
-
-  // Frame-rate independent exponential smoothing, so panning speed stays
-  // consistent regardless of delta time (e.g. during rapid crash motion).
-  const posFactor = 1 - Math.exp(-CAMERA_POSITION_SPEED * delta);
-  const lookFactor = 1 - Math.exp(-CAMERA_LOOKAT_SPEED * delta);
-
-  tmpVec.copy(cameraOffset).applyQuaternion(yawQuat).add(carPos);
-  camera.position.lerp(tmpVec, posFactor);
-
-  const lookAt = cameraLookOffset.clone().applyQuaternion(yawQuat).add(carPos);
-  if (!smoothedLookAtInit) {
-    smoothedLookAt.copy(lookAt);
-    smoothedLookAtInit = true;
-  } else {
-    smoothedLookAt.lerp(lookAt, lookFactor);
-  }
-  camera.lookAt(smoothedLookAt);
-  camera.up.set(0, 1, 0);
-}
-
-// ---------- Resize ----------
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// ---------- Address search / respawn ----------
-// Free, keyless geocoding via OpenStreetMap's Nominatim, matching the
-// project's "no API keys" philosophy (see README). Given a free-text
-// address, resolves it to lat/lon, re-centers the whole terrain streaming
-// system on that point (see TerrainManager.recenter), and teleports the
-// car back to the local origin once the new area's initial chunks load.
-// In the shared room the new origin is published (retained) so everyone
-// else recenters and respawns on the same map.
-const NOMINATIM_URL = (q) =>
-  `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
-
-async function geocodeAddress(query) {
-  const res = await fetch(NOMINATIM_URL(query), {
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) throw new Error(`geocoding request failed (${res.status})`);
-  const results = await res.json();
-  if (!results.length) throw new Error('address not found');
-  return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) };
-}
-
-const addressForm = document.getElementById('address-search');
-const addressInput = document.getElementById('address-input');
-const addressSubmit = document.getElementById('address-submit');
-// Prod players' location is fixed - hide the respawn-elsewhere UI entirely
-// instead of merely disabling it (see CAN_CHANGE_LOCATION above).
-if (!CAN_CHANGE_LOCATION) addressForm.style.display = 'none';
-const addressStatusEl = document.getElementById('address-search-status');
-
-function setAddressStatus(text, isError = false) {
-  addressStatusEl.textContent = text;
-  addressStatusEl.style.display = text ? 'block' : 'none';
-  addressStatusEl.style.color = isError ? '#ff8080' : '#fff';
-}
-
-let respawning = false;
-addressInput.disabled = true;
-addressSubmit.disabled = true;
 
 function playerSpawnPos() {
   const offset = net.spawnOffset();
   return new CANNON.Vec3(START_POS.x + offset.x, START_POS.y, START_POS.z + offset.z);
 }
 
-let originChain = Promise.resolve();
+// ---------- Debug visuals (tile HUD, hitboxes) ----------
+const debugVisuals = createDebugVisualsToggle(
+  {
+    terrain,
+    buildings,
+    terrainStatsEl: document.getElementById('terrain-stats'),
+    suspensionHudEl: document.getElementById('suspension-hud'),
+  },
+  IS_DEV_MODE
+);
 
-async function goToOrigin(lat, lon, { resetCar, announce }) {
-  const same =
-    Math.abs(lat - currentOriginLat) < 1e-7 &&
-    Math.abs(lon - currentOriginLon) < 1e-7;
-  if (!same) {
-    respawning = true;
-    addressSubmit.disabled = true;
-    setAddressStatus('Loading terrain at new location\u2026');
-    try {
-      await terrain.recenter(lat, lon);
-      buildings.recenter(lat, lon);
-      currentOriginLat = lat;
-      currentOriginLon = lon;
-      await buildings.update(
-        Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-        Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-        true
-      );
-      setAddressStatus('');
-    } finally {
-      respawning = false;
-      addressSubmit.disabled = !joined || !CAN_CHANGE_LOCATION;
-    }
-  }
-  if (reset && resetCar && (!same || announce)) reset(playerSpawnPos(), START_QUAT);
-  if (announce && !same) net.publishOrigin(lat, lon);
-}
+// ---------- Car + remote players ----------
+const carManager = createCarManager({ world, scene, net, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT });
 
-function enqueueOrigin(lat, lon, options) {
-  const run = originChain.then(() => goToOrigin(lat, lon, options));
-  originChain = run.catch((err) => {
-    console.warn('Shared origin failed', err);
-    setAddressStatus(`Couldn't respawn: ${err.message}`, true);
-  });
-  return run;
-}
+// ---------- Input ----------
+const input = createInputController();
 
-net.onOrigin(({ lat, lon }) => {
-  // Prod players' location is fixed even if a dev-mode peer in the same
-  // shared room broadcasts an origin change - ignore it rather than
-  // teleporting along with them.
-  if (!CAN_CHANGE_LOCATION) return;
-  enqueueOrigin(lat, lon, { resetCar: true, announce: false });
+// ---------- Camera ----------
+const cameraFollow = createCameraFollow(camera);
+
+// ---------- HUD ----------
+const gaugesHud = createGaugesHud();
+const terrainStatsHud = createTerrainStatsHud();
+const suspensionHud = createSuspensionHud();
+
+// ---------- Address search / respawn ----------
+const addressSearch = createAddressSearch({
+  terrain,
+  buildings,
+  net,
+  carManager,
+  origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
+  startPos: START_POS,
+  startQuat: START_QUAT,
+  isJoined: () => lobby.isJoined(),
+  playerSpawnPos,
 });
 
-addressForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (!CAN_CHANGE_LOCATION) return;
-  const query = addressInput.value.trim();
-  if (!query || respawning || !joined) return;
-
-  addressSubmit.disabled = true;
-  setAddressStatus(`Searching for "${query}"\u2026`);
-
-  try {
-    const { lat, lon } = await geocodeAddress(query);
-    await enqueueOrigin(lat, lon, { resetCar: true, announce: true });
-    setAddressStatus('Loading terrain at new location\u2026');
-    await terrain.recenter(lat, lon);
-    buildings.recenter(lat, lon);
-    currentOriginLat = lat;
-    currentOriginLon = lon;
-    await buildings.update(
-      Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-      Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-      true
-    );
-    // Only override position (new spawn location) - omit the quaternion so
-    // reset() keeps the car's current heading instead of snapping it back
-    // to the default facing direction.
-    if (reset) reset(START_POS);
-    setAddressStatus(`Respawned at "${query}"`);
-    setTimeout(() => setAddressStatus(''), 3000);
-  } catch (err) {
-    console.warn('Address respawn failed', err);
-    setAddressStatus(`Couldn't respawn: ${err.message}`, true);
-  } finally {
-    addressSubmit.disabled = false;
-  }
-});
-
-// ---------- Shared room lobby ----------
-const lobbyEl = document.getElementById('lobby');
-// Dev mode skips the name/color prompt entirely (see joinRoom() call in the
-// terrain.init().then() below) and drives as "dev_mode" in the default
-// blue - hide the prompt so it never flashes on screen.
-if (IS_DEV_MODE) lobbyEl.style.display = 'none';
-const lobbyForm = document.getElementById('lobby-form');
-const lobbyName = document.getElementById('lobby-name');
-const lobbyJoin = document.getElementById('lobby-join');
-const lobbyStatus = document.getElementById('lobby-status');
-const lobbyColors = document.getElementById('lobby-colors');
-const netStatusEl = document.getElementById('net-status');
-
-const NET_STATUS_TEXT = {
-  connecting: 'Łączenie…',
-  online: 'W pokoju',
-  offline: 'Offline — jedziesz sam',
-};
-
-function setLobbyStatus(text) {
-  lobbyStatus.textContent = text;
-}
-
-function setNetStatus(status) {
-  netStatusEl.textContent = NET_STATUS_TEXT[status] ?? status;
-  netStatusEl.dataset.status = status;
-}
-
-net.onStatus((status) => {
-  setNetStatus(status);
-  if (lobbyEl.style.display !== 'none') setLobbyStatus(NET_STATUS_TEXT[status] ?? status);
-});
-
-for (const color of BODY_COLORS) {
-  const swatch = document.createElement('button');
-  swatch.type = 'button';
-  swatch.dataset.color = String(color);
-  swatch.style.background = `#${color.toString(16).padStart(6, '0')}`;
-  swatch.setAttribute('aria-label', swatch.style.background);
-  if (color === selectedColor) swatch.classList.add('selected');
-  swatch.addEventListener('click', () => {
-    selectedColor = color;
-    for (const button of lobbyColors.children) button.classList.toggle('selected', button === swatch);
-  });
-  lobbyColors.appendChild(swatch);
-}
-
-function hookCar(nextVehicle, mesh) {
-  nextVehicle.chassisBody.addEventListener('collide', (event) => {
-    if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
-    applyImpactRoll(nextVehicle.chassisBody, event.contact);
-  });
-  pedestrians.bindChassis(nextVehicle.chassisBody);
-  if (nameTag?.sprite.parent) nameTag.sprite.parent.remove(nameTag.sprite);
-  nameTag = createNameTag(localName, score);
-  mesh.add(nameTag.sprite);
-}
-
-function removeCurrentCar() {
-  if (!vehicle) return;
-  world.removeEventListener('preStep', vehicle.preStepCallback);
-  world.removeBody(vehicle.chassisBody);
-  scene.remove(chassisMesh);
-  for (const mesh of wheelMeshes) scene.remove(mesh);
-  vehicle = null;
-}
-
-function spawnLocalCar(color) {
-  removeCurrentCar();
-  ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
-    world,
-    scene,
-    playerSpawnPos(),
-    START_QUAT,
-    color
-  ));
-  setCarHitboxVisible(debugVisualsEnabled);
-  hookCar(vehicle, chassisMesh);
-}
-
-function updateRemotes(dt) {
-  const poses = net.remotePoses(performance.now());
-  const seen = new Set();
-  for (const pose of poses) {
-    seen.add(pose.id);
-    let remote = remotes.get(pose.id);
-    if (!remote) {
-      remote = createRemoteCar(scene, pose.color, pose.name, pose.score ?? 0);
-      remotes.set(pose.id, remote);
-    } else {
-      remote.setAppearance(pose.color, pose.name, pose.score ?? 0);
-    }
-    remote.setPose(pose, dt);
-  }
-  for (const [id, remote] of remotes) {
-    if (seen.has(id)) continue;
-    remote.dispose();
-    remotes.delete(id);
-  }
-}
-
-const spawnPedsBtn = document.getElementById('spawn-peds');
-const spawnBallBtn = document.getElementById('spawn-ball');
-let nextBallSend = 0;
-
-pedestrians.setOnHit((pedId) => {
-  score += 1;
-  nameTag?.set(localName, score);
-  net.publishProps({ type: 'ped-hit', pedId });
-});
-
-net.onProps((msg) => {
-  if (msg.type === 'peds' && Array.isArray(msg.peds)) {
-    for (const ped of msg.peds) pedestrians.addPed(ped.id, ped.x, ped.y, ped.z);
-  } else if (msg.type === 'ped-hit') {
-    pedestrians.removePed(msg.pedId);
-  } else if (msg.type === 'ball' || msg.type === 'ball-spawn') {
-    balls.ensureRemote(msg.ballId, msg);
-  }
-});
-
-spawnPedsBtn.addEventListener('click', () => {
-  if (!joined || !vehicle) return;
-  const batch = pedestrians.spawnLocal(vehicle.chassisBody, net.clientId);
-  net.publishProps({ type: 'peds', peds: batch });
-});
-
-spawnBallBtn.addEventListener('click', () => {
-  if (!joined || !vehicle) return;
-  const spawned = balls.spawnOwned(vehicle.chassisBody, net.clientId);
-  net.publishProps({ type: 'ball-spawn', ...spawned });
-});
-
-async function joinRoom(name, color) {
-  if (joined) return;
-  lobbyJoin.disabled = true;
-  if (CAN_USE_NETWORK) {
-    setLobbyStatus('Łączenie…');
-    try {
-      await net.connect({ name, color });
-      await originChain;
-    } catch (err) {
-      console.warn('Room connect failed', err);
-    }
-  }
-
-  localName = name.slice(0, 16);
-  spawnLocalCar(color);
-  joined = true;
-  addressInput.disabled = !CAN_CHANGE_LOCATION;
-  addressSubmit.disabled = !CAN_CHANGE_LOCATION;
-  spawnPedsBtn.disabled = false;
-  spawnBallBtn.disabled = false;
-  lobbyEl.style.display = 'none';
-  netStatusEl.hidden = false;
-  setNetStatus(CAN_USE_NETWORK && net.isOnline() ? 'online' : 'offline');
-  if (!loopStarted) {
-    loopStarted = true;
-    animate();
-  }
-}
-
-lobbyForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const name = lobbyName.value.trim();
-  if (!name || joined || lobbyJoin.disabled) return;
-  joinRoom(name, selectedColor);
-});
-
-window.addEventListener('pagehide', () => {
-  if (joined) net.publishLeave();
-});
+// ---------- Gameplay props (pedestrians + balls) ----------
+const gameplayProps = setupGameplayProps({ pedestrians, balls, net, carManager, isJoined: () => lobby.isJoined() });
 
 // ---------- Main loop ----------
-const FIXED_STEP = 1 / 60;
-const MAX_SUBSTEPS = 5;
-let lastTime = performance.now();
-let accumulator = 0;
+let loopStarted = false;
+const mainLoop = createMainLoop({
+  world,
+  scene,
+  camera,
+  renderer,
+  sun,
+  SUN_OFFSET,
+  terrain,
+  buildings,
+  balls,
+  pedestrians,
+  remoteCollisions,
+  net,
+  input,
+  carManager,
+  cameraFollow,
+  gaugesHud,
+  terrainStatsHud,
+  suspensionHud,
+  debugVisuals,
+  addressSearch,
+  preventGroundTunneling,
+  isJoined: () => lobby.isJoined(),
+});
 
-// Fast tumbling during a flip can move the chassis box far enough in a single
-// physics step that narrowphase collision with the terrain trimesh misses
-// entirely (classic tunneling), letting the car fall through the ground.
-// As a safety net, cast a ray straight down through the chassis every frame
-// and clamp it back above the terrain surface if it ever ends up embedded.
-const GROUND_RAY_FROM = new CANNON.Vec3();
-const GROUND_RAY_TO = new CANNON.Vec3();
-const groundRayResult = new CANNON.RaycastResult();
-const GROUND_RAY_HEIGHT = 50;
-const MIN_GROUND_CLEARANCE = 0.05;
-
-function preventGroundTunneling() {
-  if (!vehicle) return;
-  const pos = vehicle.chassisBody.position;
-  GROUND_RAY_FROM.set(pos.x, pos.y + GROUND_RAY_HEIGHT, pos.z);
-  GROUND_RAY_TO.set(pos.x, pos.y - GROUND_RAY_HEIGHT, pos.z);
-  groundRayResult.reset();
-  world.raycastClosest(
-    GROUND_RAY_FROM,
-    GROUND_RAY_TO,
-    { collisionFilterMask: GROUND_COLLISION_GROUP },
-    groundRayResult
-  );
-
-  if (groundRayResult.hasHit) {
-    const minY = groundRayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
-    if (pos.y < minY) {
-      pos.y = minY;
-      if (vehicle.chassisBody.velocity.y < 0) vehicle.chassisBody.velocity.y = 0;
-    }
-  }
+function startLoopOnce() {
+  if (loopStarted) return;
+  loopStarted = true;
+  mainLoop.animate();
 }
 
-function animate() {
-  requestAnimationFrame(animate);
+// ---------- Lobby (name/color + join flow) ----------
+const lobby = createLobby({
+  net,
+  carManager,
+  originChain: () => addressSearch.awaitOriginChain(),
+  onJoined(color) {
+    carManager.spawnLocalCar(color);
+    addressSearch.setUiEnabled(true);
+    gameplayProps.setButtonsEnabled(true);
+    startLoopOnce();
+  },
+});
 
-  const now = performance.now();
-  const frameDelta = Math.min((now - lastTime) / 1000, 0.1);
-  lastTime = now;
-
-  updateControls();
-
-  // Remote cars are kinematic obstacles. Place them before the step so the
-  // local chassis actually contacts them this frame (see remoteCollisions.js).
-  if (joined) remoteCollisions.sync(net.remotePoses(now));
-
-  // Advance physics in fixed-size steps (accumulator pattern) instead of a
-  // single variable-size world.step() call. requestAnimationFrame deltas
-  // rarely divide evenly into FIXED_STEP, so letting cannon-es pick its own
-  // substep count each frame makes that count flicker (e.g. 1, 1, 2, 1...),
-  // which reads as jitter/stutter at high speed even though the underlying
-  // motion is smooth. Stepping fixed-size chunks ourselves and interpolating
-  // the render transform (see snapshotPhysics/syncMeshes) removes that.
-  accumulator += frameDelta;
-  let substeps = 0;
-  while (accumulator >= FIXED_STEP && substeps < MAX_SUBSTEPS) {
-    world.step(FIXED_STEP);
-    preventGroundTunneling();
-    if (snapshotPhysics) snapshotPhysics();
-    pedestrians.flushHits();
-    accumulator -= FIXED_STEP;
-    substeps++;
-  }
-  // If we're badly lagging (hit MAX_SUBSTEPS), drop the remainder instead of
-  // letting it snowball into a "spiral of death" of ever-growing catch-up.
-  if (accumulator > FIXED_STEP) accumulator = accumulator % FIXED_STEP;
-
-  const alpha = accumulator / FIXED_STEP;
-  if (syncMeshes) syncMeshes(alpha);
-  balls.syncMeshes();
-  if (joined && chassisMesh && vehicle) {
-    poseForward.set(0, 0, 1).applyQuaternion(chassisMesh.quaternion);
-    const velocity = vehicle.chassisBody.velocity;
-    net.publishPose({
-      x: chassisMesh.position.x,
-      y: chassisMesh.position.y,
-      z: chassisMesh.position.z,
-      qx: chassisMesh.quaternion.x,
-      qy: chassisMesh.quaternion.y,
-      qz: chassisMesh.quaternion.z,
-      qw: chassisMesh.quaternion.w,
-      speed: velocity.x * poseForward.x + velocity.y * poseForward.y + velocity.z * poseForward.z,
-      steer: vehicle.wheelInfos[0].steering,
-      score,
-    });
-    if (now >= nextBallSend) {
-      nextBallSend = now + 100;
-      for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
-    }
-    updateRemotes(frameDelta);
-  }
-  updateCamera(frameDelta);
-  updateGauges();
-  updateTerrainStats(frameDelta);
-  updateSuspensionHud();
-
-  if (chassisMesh) {
-    // Keep the sun (and its shadow frustum) centered on the car so shadows
-    // keep rendering as it drives away from the spawn point.
-    sun.position.copy(SUN_OFFSET).add(chassisMesh.position);
-    sun.target.position.copy(chassisMesh.position);
-    sun.target.updateMatrixWorld();
-
-    // Stream terrain chunks in/out as the car moves (cheap no-op if the
-    // player is still inside the currently-loaded tile).
-    terrain.update(chassisMesh.position.x, chassisMesh.position.z);
-
-    // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
-    // detail tier; compute the current tile center the same way
-    // TerrainManager.update() does internally so the two stay aligned.
-    const { lat: carLat, lon: carLon } = localToLatLon(
-      chassisMesh.position.x,
-      chassisMesh.position.z,
-      currentOriginLat,
-      currentOriginLon
-    );
-    buildings.update(
-      Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
-      Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
-    );
-  }
-
-  renderer.render(scene, camera);
-}
-
+// ---------- Startup ----------
 // Load the initial terrain around the spawn point before starting the sim,
 // so the car never falls through an unloaded world. Buildings stream in
-// via the same per-frame animate() call once the car exists (see the
-// buildings.update() call above) - not awaited here, since building tiles
-// are slower/less critical than the aerial/elevation tile sources and
-// terrain-only is enough to safely start driving.
+// via the same per-frame animate() call once the car exists - not awaited
+// here, since building tiles are slower/less critical than the aerial/
+// elevation tile sources and terrain-only is enough to safely start
+// driving.
 terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
-    // Skip the name/color prompt and preview car entirely in dev - joinRoom()
-    // spawns the (only) car and starts the loop itself.
-    joinRoom('dev_mode', BODY_COLORS[0]);
+    // Skip the name/color prompt and preview car entirely in dev -
+    // joinRoom() spawns the (only) car and starts the loop itself.
+    lobby.joinRoom('dev_mode', BODY_COLORS[0]);
     return;
   }
-  lobbyJoin.disabled = false;
-  setLobbyStatus('Wpisz imię i wybierz kolor.');
-  ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, setHitboxVisible: setCarHitboxVisible } = createCar(
-    world,
-    scene,
-    START_POS,
-    START_QUAT
-  ));
-  setCarHitboxVisible(debugVisualsEnabled);
-  hookCar(vehicle, chassisMesh);
-  loopStarted = true;
-  animate();
+  lobby.enableJoinButton();
+  lobby.setStatus('Wpisz imię i wybierz kolor.');
+  carManager.spawnPreviewCar(START_POS);
+  startLoopOnce();
 });
