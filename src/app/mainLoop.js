@@ -87,6 +87,7 @@ export function createMainLoop({
     const syncMeshes = carManager.getSyncMeshes();
     if (syncMeshes) syncMeshes(alpha);
     balls.syncMeshes();
+    pedestrians.syncMeshes(frameDelta);
 
     const currentChassisMesh = carManager.getChassisMesh();
     const currentVehicle = carManager.getVehicle();

@@ -8,17 +8,17 @@ import { SCORE_PER_PEDESTRIAN } from '../config.js';
 export function setupGameplayProps({ pedestrians, balls, net, carManager, isJoined, scoreToast }) {
   const spawnBallBtn = document.getElementById('spawn-ball');
 
-  pedestrians.setOnHit((pedId) => {
+  pedestrians.setOnHit((pedId, hit) => {
     carManager.addScore(SCORE_PER_PEDESTRIAN);
     scoreToast?.push(SCORE_PER_PEDESTRIAN, 'pedestrian');
-    net.publishProps({ type: 'ped-hit', pedId });
+    net.publishProps({ type: 'ped-hit', pedId, vx: hit.vx, vy: hit.vy, vz: hit.vz });
   });
 
   net.onProps((msg) => {
     if (msg.type === 'peds' && Array.isArray(msg.peds)) {
       for (const ped of msg.peds) pedestrians.addPed(ped.id, ped.x, ped.y, ped.z);
     } else if (msg.type === 'ped-hit') {
-      pedestrians.forget(msg.pedId);
+      pedestrians.knockFromRemote(msg.pedId, msg);
     } else if (msg.type === 'ball' || msg.type === 'ball-spawn') {
       balls.ensureRemote(msg.ballId, msg);
     }
