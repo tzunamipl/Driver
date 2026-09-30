@@ -32,6 +32,7 @@ export function createMainLoop({
   terrainStatsHud,
   suspensionHud,
   playersPanel,
+  minimapHud,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
@@ -170,6 +171,8 @@ export function createMainLoop({
         Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
         Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
       );
+
+      minimapHud.update(currentChassisMesh, { lat: originLat, lon: originLon });
     }
 
     renderer.render(scene, camera);

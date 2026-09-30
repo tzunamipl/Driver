@@ -120,6 +120,7 @@
         bottom: 20px;
         right: 20px;
         display: flex;
+        align-items: flex-end;
         gap: 16px;
         z-index: 10;
         pointer-events: none;
@@ -411,7 +412,10 @@
       #net-status[data-status="online"] { color: #b6f5c3; }
       #suspension-hud {
         position: fixed;
-        bottom: 20px;
+        /* Stacked above the always-on minimap (bottom-left, 260px circle +
+           20px margin + the place-name/coordinates readout above it) so
+           the two never overlap when debug visuals are toggled on. */
+        bottom: 340px;
         left: 20px;
         color: #fff;
         font-family: monospace;
@@ -474,6 +478,100 @@
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         opacity: 0.85;
       }
+      /* Car-navigation-style minimap: round, north-up, with a rotating car
+         marker, zoom controls, a scale bar, and a place-name/coordinates
+         readout above the dial. */
+      #minimap {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        width: 260px;
+        height: 260px;
+        z-index: 10;
+        font-family: system-ui, sans-serif;
+      }
+      #minimap-info {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        white-space: nowrap;
+        pointer-events: none;
+        text-align: center;
+      }
+      #minimap-place {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      #minimap-coords {
+        font-family: monospace;
+        font-size: 11px;
+        opacity: 0.8;
+      }
+      #minimap-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: #e9e6df;
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.5);
+        cursor: ns-resize;
+        touch-action: none;
+      }
+      #minimap-zoom {
+        position: absolute;
+        top: 4px;
+        right: -4px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      #minimap-zoom button {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 16px;
+        line-height: 1;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 0;
+      }
+      #minimap-zoom button:active {
+        background: rgba(79, 195, 255, 0.6);
+      }
+      #minimap-scale {
+        position: absolute;
+        left: 50%;
+        bottom: -6px;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        pointer-events: none;
+      }
+      #minimap-scale-bar {
+        height: 3px;
+        background: #fff;
+        border-radius: 2px;
+        box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+      }
+      #minimap-scale-label {
+        margin-top: 2px;
+        font-size: 10px;
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      }
       .gauge {
         position: relative;
         width: 120px;
@@ -504,9 +602,32 @@
         font-size: 10px;
         opacity: 0.8;
       }
-      /* Mechanical odometer: ivory number drums in a dark dash pod. */
+      /* Speedometer is the "main" gauge, sized up from the base .gauge and
+         carrying the odometer built into its face (bottom third of the
+         dial), like a real car's instrument cluster. */
+      #speedo {
+        width: 190px;
+        height: 190px;
+      }
+      #speedo .gauge-value {
+        top: 38%;
+        font-size: 34px;
+      }
+      #speedo .gauge-label {
+        top: 54%;
+        font-size: 11px;
+      }
+      #speedo .gauge-needle {
+        height: 74px;
+      }
+      /* Mechanical odometer: ivory number drums in a dark dash pod. Now
+         built into the speedo dial's lower face (like a real instrument
+         cluster) instead of sitting beside it as its own gauge. */
       #odometer {
-        align-self: center;
+        position: absolute;
+        left: 50%;
+        top: 74%;
+        transform: translate(-50%, -50%) scale(0.72);
         pointer-events: none;
       }
       .odo-bezel {
@@ -596,30 +717,6 @@
         transform: translate(-50%, -100%) rotate(-90deg);
         transition: transform 0.08s linear;
       }
-      /* Compass dial rotates under a fixed pointer at top. */
-      .compass-face {
-        transition: transform 0.08s linear;
-      }
-      .compass-face .dir {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        font-size: 13px;
-        font-weight: bold;
-      }
-      .compass-face .dir.n { transform: translate(-50%, -50px); color: #ff5b5b; }
-      .compass-face .dir.e { transform: translate(-50%, -50%) translateX(52px); }
-      .compass-face .dir.s { transform: translate(-50%, 40px); }
-      .compass-face .dir.w { transform: translate(-50%, -50%) translateX(-52px); }
-      .compass-pointer {
-        position: absolute;
-        top: 4px;
-        left: 50%;
-        width: 0;
-        height: 0;
-        border-left: 6px solid transparent;
-        border-right: 6px solid transparent;
-        border-top: 10px solid #fff;
       #attribution {
         position: fixed;
         bottom: 4px;
@@ -690,6 +787,21 @@
       </div>
       <div id="terrain-stats"></div>
     </div>
+    <div id="minimap">
+      <div id="minimap-info">
+        <div id="minimap-place">Locating\u2026</div>
+        <div id="minimap-coords">&mdash;</div>
+      </div>
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-zoom">
+        <button id="minimap-zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="minimap-zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+      </div>
+      <div id="minimap-scale">
+        <div id="minimap-scale-bar"></div>
+        <span id="minimap-scale-label"></span>
+      </div>
+    </div>
     <div id="suspension-hud">
       <div class="susp-title">SUSPENSION</div>
       <div class="susp-grid">
@@ -713,28 +825,16 @@
       <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
     </div>
     <div id="gauges">
-      <div id="odometer" aria-label="Licznik 0.0 kilometrów">
-        <div class="odo-bezel">
-          <div class="odo-wheels" id="odo-wheels"></div>
-          <span class="odo-unit">km</span>
-        </div>
-      </div>
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>
         <div class="gauge-needle" id="speedo-needle"></div>
         <div class="gauge-value" id="speedo-value">0</div>
         <div class="gauge-label">km/h</div>
-      </div>
-      <div class="gauge" id="compass">
-        <div class="gauge-face compass-face" id="compass-dial">
-          <span class="dir n">N</span>
-          <span class="dir e">E</span>
-          <span class="dir s">S</span>
-          <span class="dir w">W</span>
-        </div>
-        <div class="compass-pointer"></div>
-        <div class="gauge-value" id="compass-value" style="top: auto; bottom: 6px; transform: translateX(-50%); font-size: 12px;">
-          N
+        <div id="odometer" aria-label="Licznik 0.0 kilometrów">
+          <div class="odo-bezel">
+            <div class="odo-wheels" id="odo-wheels"></div>
+            <span class="odo-unit">km</span>
+          </div>
         </div>
       </div>
     </div>

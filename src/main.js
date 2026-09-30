@@ -23,6 +23,7 @@ import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
+import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createAddressSearch } from './ui/addressSearch.js';
@@ -106,6 +107,7 @@ const gaugesHud = createGaugesHud();
 const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
+const minimapHud = createMinimapHud();
 
 // ---------- Address search / respawn ----------
 const addressSearch = createAddressSearch({
@@ -173,6 +175,7 @@ const mainLoop = createMainLoop({
   terrainStatsHud,
   suspensionHud,
   playersPanel,
+  minimapHud,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,

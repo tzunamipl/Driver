@@ -7,8 +7,10 @@ npm install
 
 No API keys or accounts needed — all data sources are free and keyless:
 aerial imagery from Esri World Imagery, elevation from AWS Terrarium tiles
-(Mapzen's open elevation dataset, mirrored as a public S3 bucket), and
-3D building footprints from OpenStreetMap via the public Overpass API.
+(Mapzen's open elevation dataset, mirrored as a public S3 bucket),
+3D building footprints from OpenStreetMap via the public Overpass API, and
+the minimap's labeled street map from the official OpenStreetMap
+"Standard" raster tile layer.
 
 Elevation fetch failures (network hiccups, a tile genuinely missing, etc.)
 don't remove terrain from view: `TerrainManager` falls back to a flat (y=0)
@@ -27,6 +29,33 @@ Open the printed URL (e.g. http://localhost:5173).
 Controls: W/↑ throttle, S/↓ brake-reverse, A/D or ←/→ steer, Space handbrake, R reset car.
 
 ## Real-world terrain
+
+## Minimap (bottom-left)
+
+A round, car-navigation-style minimap (`src/hud/minimap.js`) is always
+visible bottom-left while driving. Unlike the 3D world's aerial imagery, it
+draws a labeled *street map* (roads, street names, town/city names) from
+the official OpenStreetMap "Standard" raster tile layer
+(`{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png`) — free, no API key/account
+needed, unlike other basemap providers (CARTO, Mapbox, Stadia, …) that now
+gate their raster tiles behind a required (if free-tier) API key. A
+satellite photo is too visually noisy to read at minimap size/scale,
+whereas a drawn map with labels stays legible; usage stays well within
+[OSM's tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+since only a couple dozen tiles are ever in view at once.
+
+It's **track-up** (like a real car GPS): the map itself rotates under a
+fixed, upward-pointing arrow representing the car, so "up" on the widget
+always means "the direction the car is currently facing" — a rotating "N"
+label swings around the rim to show true north. It's **zoomable** via the
++/− buttons or mouse wheel over the widget (tile zoom levels
+`MINIMAP_MIN_ZOOM`–`MINIMAP_MAX_ZOOM` in `config.js`), with the chosen zoom
+persisted in `localStorage`. A **scale bar** underneath is recomputed every
+frame from the current zoom + latitude (`tileSizeMeters()` in `lib/geo.js`)
+and always rounds to a "nice" distance (5 m – 200 km), so the widget stays
+meaningfully scaled in real-world terms at any zoom rather than being a
+fixed-ratio decoration.
+
 
 The car spawns in Wrocław, Poland by default (`ORIGIN_LAT`/`ORIGIN_LON` in
 `src/main.js`), but the map is not limited to that location: `TerrainManager`
