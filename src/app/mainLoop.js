@@ -203,7 +203,7 @@ export function createMainLoop({
         Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
       );
 
-      minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon });
+      minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon }, remotePoses);
     }
 
     renderer.render(scene, camera);

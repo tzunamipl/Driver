@@ -87,6 +87,27 @@ function formatCoords(lat, lon) {
   return `${Math.abs(lat).toFixed(5)}\u00b0${latDir} ${Math.abs(lon).toFixed(5)}\u00b0${lonDir}`;
 }
 
+// Peer colors arrive as 0xRRGGBB integers (see net.js's sanitizeColor).
+function colorToCss(color) {
+  const n = Number.isInteger(color) ? color & 0xffffff : 0x1c3f94;
+  return `#${n.toString(16).padStart(6, '0')}`;
+}
+
+// Distance labels for other players' markers: plain km up to 999km, then
+// "kkkm" (thousands of km) beyond that - teleporting via the address
+// search (see ui/addressSearch.js) means another active player can
+// legitimately be a continent away, so the label needs a unit that stays
+// readable at both city-block and intercontinental scale.
+function formatDistance(meters) {
+  const km = meters / 1000;
+  if (km >= 1000) {
+    const kkm = km / 1000;
+    return `${kkm.toFixed(kkm >= 10 ? 0 : 1)} kkkm`;
+  }
+  if (km >= 10) return `${Math.round(km)} km`;
+  return `${km.toFixed(1)} km`;
+}
+
 export function createMinimapHud() {
   const root = document.getElementById('minimap');
   const canvas = document.getElementById('minimap-canvas');
@@ -223,7 +244,7 @@ export function createMinimapHud() {
     scaleLabelEl.textContent = chosen >= 1000 ? `${chosen / 1000} km` : `${chosen} m`;
   }
 
-  function draw(lat, lon, headingDeg) {
+  function draw(lat, lon, headingDeg, peers) {
     resize();
     const size = sizeCss;
     const center = size / 2;
@@ -272,7 +293,84 @@ export function createMinimapHud() {
       }
     }
 
+    const metersPerPx = tileSizeMeters(zoom, lat) / TILE_SIZE;
+    // Other active players: local (x, z) meters, same flat frame the
+    // physics/rendering already use (see remoteCollisions.js), converted
+    // straight to on-screen pixels rather than round-tripped through
+    // lat/lon - matches every other place this game treats "local meters"
+    // as the ground truth, and stays numerically sane even when a
+    // teleported player is thousands of km away (see formatDistance).
+    // North-up map: +x (east) is screen-right, +z (south) is screen-down,
+    // so no axis flip is needed.
+    const edgeMargin = 16 * s;
+    const visibleRadius = center - edgeMargin;
+    const onScreenPeers = [];
+    const offScreenPeers = [];
+    for (const peer of peers) {
+      const px = peer.dx / metersPerPx;
+      const py = peer.dz / metersPerPx;
+      const pixelDist = Math.hypot(px, py);
+      const entry = { ...peer, px, py, pixelDist };
+      if (pixelDist <= visibleRadius) onScreenPeers.push(entry);
+      else offScreenPeers.push(entry);
+    }
+
+    for (const peer of onScreenPeers) {
+      ctx.beginPath();
+      ctx.arc(peer.px, peer.py, 4 * s, 0, Math.PI * 2);
+      ctx.fillStyle = peer.colorCss;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 * s;
+      ctx.fill();
+      ctx.stroke();
+    }
+
     ctx.restore(); // back to unrotated, unclipped canvas space
+
+    // Distance labels for on-map peers, and clamped edge arrows + labels
+    // for peers currently outside the visible circle - drawn unclipped so
+    // labels near the rim stay fully legible instead of being cut off by
+    // the round bezel.
+    ctx.font = `600 ${Math.round(9 * s)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 2.5 * s;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    for (const peer of onScreenPeers) {
+      const label = formatDistance(peer.distanceMeters);
+      const lx = center + peer.px;
+      const ly = center + peer.py + 12 * s;
+      ctx.textBaseline = 'top';
+      ctx.strokeText(label, lx, ly);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillText(label, lx, ly);
+    }
+    for (const peer of offScreenPeers) {
+      const angle = Math.atan2(peer.py, peer.px);
+      const ex = center + Math.cos(angle) * visibleRadius;
+      const ey = center + Math.sin(angle) * visibleRadius;
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate(angle + Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(0, -6 * s);
+      ctx.lineTo(4 * s, 5 * s);
+      ctx.lineTo(-4 * s, 5 * s);
+      ctx.closePath();
+      ctx.fillStyle = peer.colorCss;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 * s;
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      const label = formatDistance(peer.distanceMeters);
+      ctx.textBaseline = 'middle';
+      const lx = center + Math.cos(angle) * (visibleRadius - 12 * s);
+      const ly = center + Math.sin(angle) * (visibleRadius - 12 * s);
+      ctx.strokeText(label, lx, ly);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillText(label, lx, ly);
+    }
 
     // Static north indicator - the map never rotates, so "N" always sits
     // at the top of the dial. Halo-stroked so it stays legible over both
@@ -314,16 +412,27 @@ export function createMinimapHud() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    const metersPerPx = tileSizeMeters(zoom, lat) / TILE_SIZE;
     updateScaleBar(metersPerPx);
     pruneCache();
   }
 
-  function update(chassisMesh, origin) {
+  function update(chassisMesh, origin, remotePoses = []) {
     if (!chassisMesh || !origin) return;
     const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, origin.lat, origin.lon);
     const headingDeg = computeHeadingDeg(chassisMesh);
-    draw(lat, lon, headingDeg);
+    const carX = chassisMesh.position.x;
+    const carZ = chassisMesh.position.z;
+    const peers = remotePoses.map((pose) => {
+      const dx = pose.x - carX;
+      const dz = pose.z - carZ;
+      return {
+        dx,
+        dz,
+        distanceMeters: Math.hypot(dx, dz),
+        colorCss: colorToCss(pose.color),
+      };
+    });
+    draw(lat, lon, headingDeg, peers);
     if (coordsEl) coordsEl.textContent = formatCoords(lat, lon);
     maybeUpdatePlaceName(lat, lon);
   }
