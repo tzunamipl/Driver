@@ -38,6 +38,58 @@ const WHEEL_RADIUS = 0.4;
 const RESET_LIFT_DURATION_S = 0.6;
 
 /**
+ * Returns the chassis' top-down footprint as an octagon tapered at the
+ * nose and tail (full width at the doors, narrower at the front/rear
+ * corners) - a much closer match to an actual car silhouette than a plain
+ * rectangle, while staying convex (required for CANNON.ConvexPolyhedron).
+ * Points are listed in the winding order buildCarHullPrism needs for
+ * outward-facing face normals (verified against cannon-es's own
+ * computeNormals - reversing this order flips every face inward).
+ */
+function buildCarHullPoints(chassisWidth, chassisLength) {
+  const w = chassisWidth / 2;
+  const l = chassisLength / 2;
+  return [
+    { x: -0.5 * w, z: l },
+    { x: -w, z: 0.55 * l },
+    { x: -w, z: -0.55 * l },
+    { x: -0.5 * w, z: -l },
+    { x: 0.5 * w, z: -l },
+    { x: w, z: -0.55 * l },
+    { x: w, z: 0.55 * l },
+    { x: 0.5 * w, z: l },
+  ];
+}
+
+/**
+ * Builds a CANNON.ConvexPolyhedron prism (vertical walls + flat top/
+ * bottom) from a convex top-down hull (see buildCarHullPoints), spanning
+ * `-halfHeight..+halfHeight` in Y and centered on the shape's local
+ * origin - i.e. the chassis body's own center, so it can be added to
+ * chassisBody with no extra position offset. Vertex/face layout mirrors
+ * buildings.js's buildFootprintPrism (interleaved bottom/top rings, side
+ * quads, reversed top ring).
+ */
+function buildCarHullPrism(hull, halfHeight) {
+  const n = hull.length;
+  const vertices = [];
+  const sideFaces = [];
+  const bottomFace = [];
+  const topFace = [];
+  for (let i = 0; i < n; i++) {
+    const p = hull[i];
+    vertices.push(new CANNON.Vec3(p.x, -halfHeight, p.z));
+    bottomFace.push(2 * i);
+    vertices.push(new CANNON.Vec3(p.x, halfHeight, p.z));
+    topFace.push(2 * i + 1);
+    const j = (i + 1) % n;
+    sideFaces.push([2 * i, 2 * i + 1, 2 * j + 1, 2 * j]);
+  }
+  const faces = [...sideFaces, bottomFace, topFace.slice().reverse()];
+  return new CANNON.ConvexPolyhedron({ vertices, faces });
+}
+
+/**
  * Builds a low-poly Subaru Impreza GC (90s WRX/STI rally-styled) body out of
  * primitive boxes/cylinders: boxy sedan shell, raked cabin greenhouse, hood
  * scoop, round rally fog lights + rectangular headlights, and the iconic
@@ -198,16 +250,28 @@ export function createCar(
   const chassisLength = CHASSIS_LENGTH;
 
   // cannon-es's narrowphase only implements Sphere<->Trimesh collision, not
-  // Box<->Trimesh (ConvexPolyhedron<->Trimesh is unimplemented/commented out
-  // in the library). A single CANNON.Box shape therefore never actually
-  // collides with the real-world terrain (a Trimesh) - the car would only
-  // stay up via the wheels' raycasts, and a hard crash/rollover would fall
-  // straight through the ground. As a simplified hitbox, approximate the
-  // chassis box with a sphere at each of its 8 corners instead: spheres do
-  // collide with Trimesh, so the body can now physically hit the ground and
-  // tumble/roll when it flips, while still roughly matching the visible box.
+  // Box/ConvexPolyhedron<->Trimesh (both unimplemented/commented out in
+  // the library). Since the real-world terrain is a Trimesh, a body made
+  // entirely of a car-shaped ConvexPolyhedron would never actually
+  // collide with the ground - it'd only stay up via the wheels' raycasts,
+  // and a hard crash/rollover would fall straight through. So the chassis
+  // is a compound body with *two* kinds of shape, both on the same body
+  // (cannon-es only filters collisions per-body, not per-shape, but a
+  // body's shapes can freely mix types - narrowphase just runs whichever
+  // pairwise check each shape-type combo supports):
+  //   1. carHullPrism - a proper tapered car-outline prism (see below),
+  //      giving accurate, actually-car-shaped collision against buildings
+  //      and pedestrians (Sphere/ConvexPolyhedron<->ConvexPolyhedron are
+  //      both implemented).
+  //   2. A small sphere at each of the 8 bounding-box corners, purely as a
+  //      ground-contact safety net for tumbles/rollovers - spheres are the
+  //      only shape that actually collides with the terrain Trimesh.
+  const carHullPoints = buildCarHullPoints(chassisWidth, chassisLength);
+  const carHullPrism = buildCarHullPrism(carHullPoints, chassisHeight / 2);
+
   const hitboxRadius = Math.min(chassisWidth, chassisHeight) / 2 - 0.05;
   const chassisBody = new CANNON.Body({ mass: 150, material: CHASSIS_MATERIAL });
+  chassisBody.addShape(carHullPrism);
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       for (const sz of [-1, 1]) {
@@ -277,12 +341,32 @@ export function createCar(
   const { group: chassisMesh } = buildImprezaBody(chassisWidth, chassisLength, color);
   THREE_scene.add(chassisMesh);
 
-  // Debug-only wireframe spheres marking the chassis' actual physics
-  // hitbox (the 8 corner spheres added above) - parented directly to
+  // Debug-only wireframe marking the chassis' actual physics hitbox: the
+  // tapered car-outline prism (carHullPrism above) plus the 8 corner
+  // spheres (the ground-rollover safety net) - parented directly to
   // chassisMesh, whose transform tracks chassisBody 1:1 (see syncMeshes
   // below), so these move/rotate with the car for free.
   const hitboxMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, depthTest: false });
   const hitboxMeshes = [];
+
+  const carHullShape2D = new THREE.Shape();
+  carHullPoints.forEach((p, i) => {
+    if (i === 0) carHullShape2D.moveTo(p.x, -p.z);
+    else carHullShape2D.lineTo(p.x, -p.z);
+  });
+  const carHullGeometry = new THREE.ExtrudeGeometry(carHullShape2D, {
+    depth: chassisHeight,
+    bevelEnabled: false,
+    curveSegments: 1,
+  });
+  carHullGeometry.rotateX(-Math.PI / 2);
+  carHullGeometry.translate(0, -chassisHeight / 2, 0);
+  const carHullMesh = new THREE.Mesh(carHullGeometry, hitboxMaterial);
+  carHullMesh.visible = false;
+  carHullMesh.renderOrder = 999;
+  chassisMesh.add(carHullMesh);
+  hitboxMeshes.push(carHullMesh);
+
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       for (const sz of [-1, 1]) {

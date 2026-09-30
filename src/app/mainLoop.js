@@ -35,6 +35,7 @@ export function createMainLoop({
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
+  buildingTunnelGuard,
   scoring,
   isJoined,
 }) {
@@ -73,8 +74,10 @@ export function createMainLoop({
     accumulator += frameDelta;
     let substeps = 0;
     while (accumulator >= FIXED_STEP && substeps < MAX_SUBSTEPS) {
+      buildingTunnelGuard.beforeStep(carManager.getVehicle());
       world.step(FIXED_STEP);
       preventGroundTunneling(carManager.getVehicle());
+      buildingTunnelGuard.afterStep(carManager.getVehicle());
       const snapshotPhysics = carManager.getSnapshotPhysics();
       if (snapshotPhysics) snapshotPhysics();
       pedestrians.flushHits();

@@ -80,6 +80,11 @@ export const BUILDING_MATERIAL = new CANNON.Material('building');
 
 const DEFAULT_HEIGHT_METERS = 6; // ~2 stories, used on the rare feature missing render_height entirely
 const MIN_HEIGHT_METERS = 2;
+// Extra depth the physics prism extends below the lowest ground sample
+// under its footprint (see _minGroundHeightAt) - a buffer against slopes/
+// tile seams/raycast misses so the solid hitbox always reaches real
+// terrain, with no gap a car could drive or get stuck underneath.
+const BUILDING_SKIRT_DEPTH_M = 4;
 
 // Skip pathological footprints (bad data, or a way that isn't actually a
 // closed polygon) rather than let them produce a degenerate/huge mesh.
@@ -588,6 +593,26 @@ export class BuildingsManager {
   }
 
   /**
+   * Samples ground height at the footprint's center plus every hull
+   * corner and returns the lowest one. A building's physics prism used to
+   * sit flat at just the center sample's height - fine on level ground,
+   * but on any slope (or right at a terrain tile seam) some corners of
+   * the footprint end up with real terrain below the prism's bottom face,
+   * leaving a gap a car can drive/get stuck under. Used only for the
+   * physics shape's bottom (see _loadChunkFromCache) - the visible mesh
+   * still sits at the single center-sampled height, which is the correct
+   * "flat foundation" look for a real building anyway.
+   */
+  _minGroundHeightAt(hull, centerX, centerZ, centerGroundY) {
+    let min = centerGroundY;
+    for (const p of hull) {
+      const y = this._groundHeightAt(p.x, p.z);
+      if (y < min) min = y;
+    }
+    return min;
+  }
+
+  /**
    * Builds one tile's chunk (mesh + physics bodies) synchronously from the
    * already-fetched region cache - no network I/O here, so it's cheap
    * enough to call every frame for every tile currently in view (it early-
@@ -609,8 +634,19 @@ export class BuildingsManager {
         if (!built) continue;
 
         const groundY = this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ);
-        const halfHeight = entry.height / 2;
         const center = { x: built.aabb.centerX, z: built.aabb.centerZ };
+        // Physics prism's bottom sits below the lowest ground sample
+        // under the footprint (not just its center), plus a skirt buffer -
+        // see _minGroundHeightAt/BUILDING_SKIRT_DEPTH_M - so sloped ground
+        // or a terrain tile seam under part of the building never leaves a
+        // gap to drive/get stuck under. Its roof stays at the same height
+        // above the center-sampled ground as before (unrelated to this
+        // fix), so the visible mesh (which uses `groundY` below,
+        // unchanged) still lines up with the physics shape's top.
+        const topY = groundY + entry.height;
+        const bottomY = this._minGroundHeightAt(built.hull, center.x, center.z, groundY) - BUILDING_SKIRT_DEPTH_M;
+        const physicsHalfHeight = (topY - bottomY) / 2;
+        const physicsCenterY = (topY + bottomY) / 2;
         // Physics: a convex-hull prism tracing the building's actual
         // (rotated/non-rectangular) footprint, previously an axis-aligned
         // CANNON.Box approximating just its AABB - which visibly didn't
@@ -622,8 +658,8 @@ export class BuildingsManager {
         // default contact tuning.
         const body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL });
         body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
-        body.addShape(buildFootprintPrism(built.hull, center, halfHeight));
-        body.position.set(center.x, groundY + halfHeight, center.z);
+        body.addShape(buildFootprintPrism(built.hull, center, physicsHalfHeight));
+        body.position.set(center.x, physicsCenterY, center.z);
         this.world.addBody(body);
         bodies.push(body);
 
@@ -640,12 +676,12 @@ export class BuildingsManager {
           else hullShape.lineTo(lx, -lz);
         });
         const hitboxGeometry = new THREE.ExtrudeGeometry(hullShape, {
-          depth: halfHeight * 2,
+          depth: physicsHalfHeight * 2,
           bevelEnabled: false,
           curveSegments: 1,
         });
         hitboxGeometry.rotateX(-Math.PI / 2);
-        hitboxGeometry.translate(0, -halfHeight, 0);
+        hitboxGeometry.translate(0, -physicsHalfHeight, 0);
         const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
         hitboxMesh.position.copy(body.position);
         hitboxMesh.visible = this._hitboxesVisible;
