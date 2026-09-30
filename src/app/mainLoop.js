@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
+import { saveCarState } from '../lib/carState.js';
+
+// How often to persist the local car's position/orientation/odometer (see
+// lib/carState.js) - frequent enough that a crash/refresh rarely loses more
+// than a second of driving, infrequent enough to keep localStorage writes
+// off the per-frame hot path.
+const CAR_STATE_SAVE_INTERVAL_MS = 1000;
 
 // The main animate() loop: fixed-timestep physics stepping (with the
 // ground-tunneling guard and interpolated render transforms), then
@@ -43,6 +50,14 @@ export function createMainLoop({
   let lastTime = performance.now();
   let accumulator = 0;
   let nextBallSend = 0;
+  let nextCarStateSave = 0;
+  // Last-computed save payload, kept fresh every joined frame so the
+  // pagehide flush below can persist it immediately even if the reload
+  // happens between two throttled saves.
+  let pendingCarState = null;
+  window.addEventListener('pagehide', () => {
+    if (pendingCarState) saveCarState(pendingCarState);
+  });
   const poseForward = new THREE.Vector3();
 
   function animate() {
@@ -169,6 +184,23 @@ export function createMainLoop({
         for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
       }
       carManager.updateRemotes(frameDelta, remotePoses);
+
+      // Kept fresh every frame (for the pagehide flush) but only actually
+      // written to localStorage on the throttled interval below.
+      pendingCarState = {
+        x: netX,
+        y: currentChassisMesh.position.y,
+        z: netZ,
+        qx: currentChassisMesh.quaternion.x,
+        qy: currentChassisMesh.quaternion.y,
+        qz: currentChassisMesh.quaternion.z,
+        qw: currentChassisMesh.quaternion.w,
+        odoKm: gaugesHud.getOdometerKm(),
+      };
+      if (now >= nextCarStateSave) {
+        nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;
+        saveCarState(pendingCarState);
+      }
     }
 
     cameraFollow(frameDelta, { chassisMesh: currentChassisMesh, vehicle: currentVehicle });

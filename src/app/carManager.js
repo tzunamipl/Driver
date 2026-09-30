@@ -9,7 +9,7 @@ import { applyImpactRoll } from './collisions.js';
 // touches all of those, but exposes a narrow API so callers (main loop,
 // lobby, address search) don't need to know the wiring details.
 
-export function createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
   let wheelMeshes = [];
@@ -49,7 +49,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
       world,
       scene,
       playerSpawnPos(),
-      startQuat,
+      playerSpawnQuat ? playerSpawnQuat() : startQuat,
       color
     ));
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);

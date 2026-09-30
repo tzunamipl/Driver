@@ -1,4 +1,5 @@
 import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, IS_DEV_MODE, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
+import { clearCarState } from '../lib/carState.js';
 
 // Remembers the player's name/color pick across reloads so they don't have
 // to re-enter it every time. Cleared via the "Reset saved info" help-menu
@@ -121,6 +122,7 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
     } catch {
       // Storage unavailable - nothing to clear.
     }
+    clearCarState();
     lobbyName.value = '';
     lobbyColor.value = `#${DEFAULT_BODY_COLOR.toString(16).padStart(6, '0')}`;
   }

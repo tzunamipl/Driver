@@ -7,6 +7,7 @@ import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/horn.js';
 import { BuildingsManager } from './lib/buildings.js';
+import { loadCarState } from './lib/carState.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
@@ -79,9 +80,21 @@ const net = createNet();
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 
+// If the player was somewhere else when they last reloaded, resume there
+// instead of always restarting at the world origin (see lib/carState.js).
+// Read once at startup - it reflects wherever the *previous* session left
+// off, not anything from this one.
+const savedCarState = loadCarState();
+
 function playerSpawnPos() {
+  if (savedCarState) return new CANNON.Vec3(savedCarState.x, savedCarState.y, savedCarState.z);
   const offset = net.spawnOffset();
   return new CANNON.Vec3(START_POS.x + offset.x, START_POS.y, START_POS.z + offset.z);
+}
+
+function playerSpawnQuat() {
+  if (!savedCarState) return START_QUAT;
+  return new CANNON.Quaternion(savedCarState.qx, savedCarState.qy, savedCarState.qz, savedCarState.qw);
 }
 
 // ---------- Debug visuals (tile HUD, hitboxes) ----------
@@ -96,7 +109,7 @@ const debugVisuals = createDebugVisualsToggle(
 );
 
 // ---------- Car + remote players ----------
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT });
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
 // ---------- Input ----------
 const input = createInputController();
@@ -107,7 +120,7 @@ setupTouchControls(input.keys);
 const cameraFollow = createCameraFollow(camera);
 
 // ---------- HUD ----------
-const gaugesHud = createGaugesHud();
+const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0 });
 const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();

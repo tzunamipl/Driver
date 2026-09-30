@@ -187,3 +187,6 @@ export const MINIMAP_SIZE_PX = 260;
 export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
 // Persists the lobby name/color choice across reloads (see src/ui/lobby.js).
 export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
+// Persists the local car's last known position/orientation/odometer across
+// reloads (see src/lib/carState.js).
+export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';

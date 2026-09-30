@@ -11,10 +11,16 @@ const ODO_DIGIT_H = 24;
 // recenters jump farther and must not wind the odometer.
 const ODO_TELEPORT_M = 20;
 
-export function createGaugesHud() {
+/**
+ * @param {object} [options]
+ * @param {number} [options.initialKm] - odometer reading to resume from
+ *   (e.g. restored from a previous session - see src/lib/carState.js),
+ *   instead of always starting back at zero.
+ */
+export function createGaugesHud({ initialKm = 0 } = {}) {
   const speedoNeedle = document.getElementById('speedo-needle');
   const speedoValue = document.getElementById('speedo-value');
-  const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'));
+  const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), initialKm);
 
   function updateGauges(chassisMesh, vehicle) {
     if (!chassisMesh || !vehicle) {
@@ -33,10 +39,10 @@ export function createGaugesHud() {
     speedoValue.textContent = Math.round(speedKmh);
   }
 
-  return { updateGauges };
+  return { updateGauges, getOdometerKm: () => odometer.getKm() };
 }
 
-function createOdometer(root, wheelsEl) {
+function createOdometer(root, wheelsEl, initialKm = 0) {
   const strips = [];
   if (root && wheelsEl) {
     for (let place = ODO_PLACES - 1; place >= 0; place--) {
@@ -60,7 +66,7 @@ function createOdometer(root, wheelsEl) {
     }
   }
 
-  let km = 0;
+  let km = initialKm;
   let shownTenths = -1;
   let prevMesh = null;
   let prevX = 0;
@@ -101,7 +107,7 @@ function createOdometer(root, wheelsEl) {
   }
 
   paint();
-  return { addTravel, disarm };
+  return { addTravel, disarm, getKm: () => km };
 }
 
 // Position of one drum in digit-heights, 0..10. The tenths drum rolls
