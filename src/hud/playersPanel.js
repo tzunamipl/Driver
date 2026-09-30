@@ -1,12 +1,13 @@
 import { PLAYERS_UPDATE_INTERVAL, PLAYERS_ACTIVE_THRESHOLD_MS } from '../config.js';
 
-// Top-right "who's online" panel: everyone who has sent a pose in the
-// shared room within the last 5 minutes (see net.js's ROSTER_TTL_MS),
-// including the local player, with each one's current score and an
-// activity status - "Active" while their pose stream is fresh, or
-// "Idle Xm" once it goes quiet (backgrounded tab, network hiccup, or
-// about to time out of the roster entirely). Always visible (not gated by
-// the M debug-visuals toggle), independent of the other HUD widgets.
+// Top-right "who's online" panel: everyone this browser has seen publish
+// a pose in the shared room within the last 24h (see net.js's
+// ROSTER_TTL_MS/localStorage persistence), including the local player,
+// capped to the top 50 - sorted by activeness (most recently active
+// first), then by score. Always visible (not gated by the M debug-visuals
+// toggle), independent of the other HUD widgets.
+
+const ROSTER_LIMIT = 50;
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -47,8 +48,7 @@ export function createPlayersPanel() {
     if (accum < PLAYERS_UPDATE_INTERVAL) return;
     accum = 0;
 
-    const now = performance.now();
-    const entries = net.getRoster(now).map((p) => ({ ...p, isLocal: false }));
+    const entries = net.getRoster().map((p) => ({ ...p, isLocal: false }));
     if (isJoined()) {
       entries.push({
         id: net.clientId,
@@ -58,9 +58,12 @@ export function createPlayersPanel() {
         isLocal: true,
       });
     }
-    entries.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    // Activeness first (least idle time wins), then score, so the panel
+    // reads as "who's around right now, best players first" rather than a
+    // pure leaderboard.
+    entries.sort((a, b) => a.idleMs - b.idleMs || b.score - a.score || a.name.localeCompare(b.name));
 
-    render(entries);
+    render(entries.slice(0, ROSTER_LIMIT));
   }
 
   return { updatePlayersPanel };

@@ -22,8 +22,39 @@ const SPAWN_RADIUS = 6;
 // getRoster()) after their last pose update, independent of PEER_TIMEOUT_MS
 // above - that shorter timeout only governs when a peer's *car* despawns
 // from the scene, whereas the roster is meant to show everyone who's been
-// around recently even if their connection is briefly spotty.
-const ROSTER_TTL_MS = 5 * 60 * 1000;
+// around in the last 24h, even if their connection is briefly spotty or
+// their tab has been closed for a while. Persisted to localStorage (see
+// loadRoster/saveRoster below) so it survives page reloads - the roster
+// isn't just "who's connected right now" but "who this browser has seen
+// active in the last day".
+const ROSTER_TTL_MS = 24 * 60 * 60 * 1000;
+const ROSTER_STORAGE_KEY = 'driver.roster.v1';
+
+function loadRoster() {
+  const roster = new Map();
+  try {
+    const raw = localStorage.getItem(ROSTER_STORAGE_KEY);
+    if (!raw) return roster;
+    const entries = JSON.parse(raw);
+    const now = Date.now();
+    for (const [id, entry] of entries) {
+      if (!entry || now - entry.lastSeen > ROSTER_TTL_MS) continue;
+      roster.set(id, entry);
+    }
+  } catch {
+    // Corrupt/missing storage - start with an empty roster.
+  }
+  return roster;
+}
+
+function saveRoster(roster) {
+  try {
+    localStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify([...roster]));
+  } catch {
+    // Storage full/unavailable (private browsing) - roster just won't
+    // persist across reloads, which is fine.
+  }
+}
 
 export function createNet() {
   const clientId = crypto.randomUUID();
@@ -31,7 +62,10 @@ export function createNet() {
   // id -> { name, score, lastSeen } - a separate, longer-lived roster of
   // everyone seen recently, decoupled from `peers` (which is pruned after
   // just PEER_TIMEOUT_MS so a peer's rendered car disappears promptly).
-  const roster = new Map();
+  // `lastSeen` here is a wall-clock (Date.now()) timestamp, not
+  // performance.now(), so it stays meaningful across page reloads once
+  // reloaded from localStorage (see loadRoster/saveRoster).
+  const roster = loadRoster();
   const statusListeners = new Set();
   const originListeners = new Set();
   const propListeners = new Set();
@@ -141,7 +175,8 @@ export function createNet() {
     peer.color = sanitizeColor(msg.color);
     peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
-    roster.set(msg.id, { name: peer.name, score: peer.score, lastSeen: peer.lastSeen });
+    roster.set(msg.id, { name: peer.name, score: peer.score, lastSeen: Date.now() });
+    saveRoster(roster);
 
     const sample = {
       recv: peer.lastSeen,
@@ -253,22 +288,27 @@ export function createNet() {
   }
 
   /**
-   * Returns everyone who has published a pose within the last
-   * ROSTER_TTL_MS (5 minutes), for a "who's online" UI - each entry is
+   * Returns everyone this browser has seen publish a pose within the last
+   * ROSTER_TTL_MS (24h), including across page reloads (persisted to
+   * localStorage) - for a "who's online" UI. Each entry is
    * `{ id, name, score, idleMs }`, where idleMs is how long it's been
    * since their last pose update (0 for someone actively streaming
    * updates). Lazily prunes anyone past the TTL out of the roster.
    */
-  function getRoster(now) {
+  function getRoster() {
+    const now = Date.now();
     const list = [];
+    let pruned = false;
     for (const [id, entry] of roster) {
       const idleMs = now - entry.lastSeen;
       if (idleMs > ROSTER_TTL_MS) {
         roster.delete(id);
+        pruned = true;
         continue;
       }
       list.push({ id, name: entry.name, score: entry.score, idleMs });
     }
+    if (pruned) saveRoster(roster);
     return list;
   }
 

@@ -216,6 +216,7 @@ export function createPedestrians(scene, world, groundGroup) {
     flushHits,
     syncMeshes,
     updatePopulation,
+    getCount: () => peds.size,
     setOnHit(fn) {
       onHit = fn;
     },
