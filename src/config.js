@@ -114,6 +114,18 @@ export const NET_STATUS_TEXT = {
   offline: 'Offline — jedziesz sam',
 };
 
+// ---------- Players panel HUD ----------
+// DOM updates don't need to happen every frame - a peer's roster idle
+// state only changes on the order of seconds.
+export const PLAYERS_UPDATE_INTERVAL = 1; // seconds
+// Below this time since a peer's last pose update, they're shown as
+// "Active" (poses stream every ~100ms while a tab is open/connected, so in
+// practice this only flips to idle once someone's tab is backgrounded,
+// their connection hiccups, or they're about to drop out of the roster
+// entirely - see net.js ROSTER_TTL_MS).
+export const PLAYERS_ACTIVE_THRESHOLD_MS = 60_000;
+
+
 // ---------- Main loop ----------
 export const FIXED_STEP = 1 / 60;
 export const MAX_SUBSTEPS = 5;

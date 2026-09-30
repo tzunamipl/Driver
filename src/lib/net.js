@@ -18,10 +18,20 @@ const TELEPORT_DISTANCE = 40;
 const CONNECT_TIMEOUT_MS = 4000;
 const RETAIN_WAIT_MS = 700;
 const SPAWN_RADIUS = 6;
+// How long a peer stays listed in the "who's online" roster (see
+// getRoster()) after their last pose update, independent of PEER_TIMEOUT_MS
+// above - that shorter timeout only governs when a peer's *car* despawns
+// from the scene, whereas the roster is meant to show everyone who's been
+// around recently even if their connection is briefly spotty.
+const ROSTER_TTL_MS = 5 * 60 * 1000;
 
 export function createNet() {
   const clientId = crypto.randomUUID();
   const peers = new Map();
+  // id -> { name, score, lastSeen } - a separate, longer-lived roster of
+  // everyone seen recently, decoupled from `peers` (which is pruned after
+  // just PEER_TIMEOUT_MS so a peer's rendered car disappears promptly).
+  const roster = new Map();
   const statusListeners = new Set();
   const originListeners = new Set();
   const propListeners = new Set();
@@ -113,6 +123,9 @@ export function createNet() {
     if (!msg || msg.id === clientId) return;
     if (msg.leave) {
       peers.delete(msg.id);
+      // An explicit leave means the roster shouldn't wait out the full
+      // ROSTER_TTL_MS before dropping them either.
+      roster.delete(msg.id);
       return;
     }
     if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y) || !Number.isFinite(msg.z)) return;
@@ -127,6 +140,7 @@ export function createNet() {
     peer.color = sanitizeColor(msg.color);
     peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
+    roster.set(msg.id, { name: peer.name, score: peer.score, lastSeen: peer.lastSeen });
 
     const sample = {
       recv: peer.lastSeen,
@@ -237,6 +251,26 @@ export function createNet() {
     return poses;
   }
 
+  /**
+   * Returns everyone who has published a pose within the last
+   * ROSTER_TTL_MS (5 minutes), for a "who's online" UI - each entry is
+   * `{ id, name, score, idleMs }`, where idleMs is how long it's been
+   * since their last pose update (0 for someone actively streaming
+   * updates). Lazily prunes anyone past the TTL out of the roster.
+   */
+  function getRoster(now) {
+    const list = [];
+    for (const [id, entry] of roster) {
+      const idleMs = now - entry.lastSeen;
+      if (idleMs > ROSTER_TTL_MS) {
+        roster.delete(id);
+        continue;
+      }
+      list.push({ id, name: entry.name, score: entry.score, idleMs });
+    }
+    return list;
+  }
+
   return {
     clientId,
     spawnOffset,
@@ -247,6 +281,7 @@ export function createNet() {
     publishLeave,
     isOnline,
     remotePoses,
+    getRoster,
     onStatus,
     onOrigin,
     onProps,

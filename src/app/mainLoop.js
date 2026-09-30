@@ -29,6 +29,7 @@ export function createMainLoop({
   gaugesHud,
   terrainStatsHud,
   suspensionHud,
+  playersPanel,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
@@ -115,6 +116,7 @@ export function createMainLoop({
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, { terrain, buildings, chassisMesh: currentChassisMesh, debugVisualsEnabled });
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled);
+    playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
       // Keep the sun (and its shadow frustum) centered on the car so

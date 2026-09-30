@@ -18,6 +18,7 @@ import { createMainLoop } from './app/mainLoop.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
+import { createPlayersPanel } from './hud/playersPanel.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
@@ -98,6 +99,7 @@ const cameraFollow = createCameraFollow(camera);
 const gaugesHud = createGaugesHud();
 const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
+const playersPanel = createPlayersPanel();
 
 // ---------- Address search / respawn ----------
 const addressSearch = createAddressSearch({
@@ -136,6 +138,7 @@ const mainLoop = createMainLoop({
   gaugesHud,
   terrainStatsHud,
   suspensionHud,
+  playersPanel,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,

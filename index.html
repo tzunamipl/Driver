@@ -45,10 +45,65 @@
         font-family: monospace;
         color: #fff;
       }
-      #terrain-stats {
+      #top-right-stack {
         position: fixed;
         top: 10px;
         right: 10px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+        pointer-events: none;
+      }
+      #players-panel {
+        color: #fff;
+        font-family: monospace;
+        font-size: 12px;
+        background: rgba(0,0,0,0.5);
+        padding: 8px 12px;
+        border-radius: 6px;
+        line-height: 1.5;
+        min-width: 180px;
+        max-width: 240px;
+        pointer-events: none;
+      }
+      #players-panel .players-title {
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+        opacity: 0.85;
+      }
+      #players-panel .players-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 0;
+      }
+      #players-panel .players-row.me { color: #4fc3ff; }
+      #players-panel .players-name {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #players-panel .players-score {
+        opacity: 0.85;
+        min-width: 2ch;
+        text-align: right;
+      }
+      #players-panel .players-status {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.12);
+        white-space: nowrap;
+      }
+      #players-panel .players-status.active { color: #b6f5c3; background: rgba(76,175,80,0.25); }
+      #players-panel .players-status.idle { color: #ffe08a; background: rgba(255,193,7,0.18); }
+      #players-panel .players-empty { opacity: 0.7; font-style: italic; }
+      #terrain-stats {
         color: #fff;
         font-family: monospace;
         font-size: 11px;
@@ -57,7 +112,6 @@
         border-radius: 6px;
         line-height: 1.4;
         pointer-events: none;
-        z-index: 10;
       }
       #terrain-stats .ts-text {
         white-space: pre;
@@ -444,7 +498,13 @@
       R &mdash; reset car<br />
       M &mdash; toggle debug view (tile borders + collision hitboxes)
     </div>
-    <div id="terrain-stats"></div>
+    <div id="top-right-stack">
+      <div id="players-panel">
+        <div class="players-title">PLAYERS <span id="players-count">0</span></div>
+        <div id="players-list"></div>
+      </div>
+      <div id="terrain-stats"></div>
+    </div>
     <div id="suspension-hud">
       <div class="susp-title">SUSPENSION</div>
       <div class="susp-grid">
