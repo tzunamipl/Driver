@@ -412,6 +412,85 @@
         font-size: 10px;
         opacity: 0.8;
       }
+      /* Mechanical odometer: ivory number drums in a dark dash pod. */
+      #odometer {
+        align-self: center;
+        pointer-events: none;
+      }
+      .odo-bezel {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%),
+          linear-gradient(180deg, #3a3e44, #16181b);
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.2),
+          0 6px 14px rgba(0, 0, 0, 0.45);
+      }
+      .odo-wheels {
+        position: relative;
+        display: flex;
+        align-items: stretch;
+        gap: 1px;
+        padding: 3px;
+        border-radius: 3px;
+        background: #07080a;
+        box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.85);
+      }
+      .odo-wheels::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 40%, transparent 62%, rgba(0, 0, 0, 0.28));
+        pointer-events: none;
+      }
+      .odo-digit {
+        position: relative;
+        width: 15px;
+        height: 24px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #d9d3c4 0%, #f7f4ec 18%, #f7f4ec 82%, #cfc8b8 100%);
+      }
+      .odo-digit.odo-tenth {
+        background: linear-gradient(180deg, #e7d3a4 0%, #fff8e8 18%, #fff8e8 82%, #ddc98a 100%);
+      }
+      .odo-strip div {
+        height: 24px;
+        line-height: 24px;
+        font-family: "Courier New", ui-monospace, monospace;
+        font-size: 16px;
+        font-weight: 700;
+        text-align: center;
+        color: #141414;
+      }
+      .odo-dot {
+        position: relative;
+        width: 5px;
+        background: #f7f4ec;
+      }
+      .odo-dot::before {
+        content: "";
+        position: absolute;
+        left: 1px;
+        bottom: 4px;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: #141414;
+      }
+      .odo-unit {
+        font-family: system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.72);
+        text-transform: lowercase;
+      }
       /* Speedometer needle: pivots from the gauge center, pointing up at 0. */
       .gauge-needle {
         position: absolute;
@@ -527,6 +606,12 @@
       </div>
     </div>
     <div id="gauges">
+      <div id="odometer" aria-label="Licznik 0.0 kilometrów">
+        <div class="odo-bezel">
+          <div class="odo-wheels" id="odo-wheels"></div>
+          <span class="odo-unit">km</span>
+        </div>
+      </div>
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>
         <div class="gauge-needle" id="speedo-needle"></div>
