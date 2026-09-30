@@ -17,6 +17,7 @@ import { setupGameplayProps } from './app/gameplayProps.js';
 import { createMainLoop } from './app/mainLoop.js';
 import { createScoring } from './app/scoring.js';
 import { createScoreToast } from './hud/scoreToast.js';
+import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
@@ -118,6 +119,7 @@ const addressSearch = createAddressSearch({
 
 // ---------- Gameplay props (pedestrians + balls) ----------
 const scoreToast = createScoreToast();
+const airtimeHud = createAirtimeHud();
 const gameplayProps = setupGameplayProps({
   pedestrians,
   balls,
@@ -130,6 +132,8 @@ const scoring = createScoring({
   world,
   carManager,
   onJumpScore: (points) => scoreToast.push(points, 'jump'),
+  onAirtimeUpdate: (points) => airtimeHud.update(points),
+  onAirtimeEnd: () => airtimeHud.hide(),
 });
 
 // ---------- Main loop ----------
