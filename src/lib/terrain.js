@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import {
   lon2tileX,
   lat2tileY,
@@ -175,17 +178,53 @@ function estimateChunkBytes(textureImage, positions, indices) {
   return texBytes + meshBytes + indexBytes;
 }
 
-// Tiny lift applied to the boundary line along each vertex's normal, so the
-// outline sits just above the terrain surface instead of z-fighting with it
-// (a flat Y offset would float off the surface on steep slopes).
+// Tiny lift applied to the boundary/grid lines along each vertex's normal,
+// so the lines sit just above the terrain surface instead of z-fighting
+// with it (a flat Y offset would float off the surface on steep slopes).
+// The grid uses a slightly smaller lift than the border so the (bolder,
+// brighter) perimeter line always renders on top where the two would
+// otherwise coincide (e.g. along a tile's own edge).
 const BORDER_LIFT = 0.15;
+const GRID_LIFT = 0.1;
 const BORDER_COLOR = 0xffe14d;
+const GRID_COLOR = 0xffe14d;
+
+// Regular THREE.Line(Basic)Material's `linewidth` is silently ignored by
+// almost every platform's WebGL backend (ANGLE/ES only exposes 1px lines
+// regardless of what's requested), so both the tile border and the tile
+// geometry (polygon) lines below use the "fat lines" addon instead
+// (LineSegments2/LineSegmentsGeometry/LineMaterial), which fakes width by
+// expanding each segment into a screen-space-aligned quad. That requires a
+// `resolution` uniform tracking the viewport in CSS pixels, kept in sync
+// here via a dedicated resize listener rather than plumbing the renderer
+// size through from main.js/sceneSetup.js.
+const BORDER_LINEWIDTH = 3; // px - bold outline around each tile
+const GRID_LINEWIDTH = 1.25; // px - subtle mesh/polygon lines within a tile
+const borderMaterial = new LineMaterial({
+  color: BORDER_COLOR,
+  linewidth: BORDER_LINEWIDTH,
+  transparent: true,
+  opacity: 0.85,
+});
+const gridMaterial = new LineMaterial({
+  color: GRID_COLOR,
+  linewidth: GRID_LINEWIDTH,
+  transparent: true,
+  opacity: 0.25,
+});
+function updateLineResolution() {
+  borderMaterial.resolution.set(window.innerWidth, window.innerHeight);
+  gridMaterial.resolution.set(window.innerWidth, window.innerHeight);
+}
+updateLineResolution();
+window.addEventListener('resize', updateLineResolution);
 
 /**
- * Builds a closed line loop tracing the outer edge of a tile's displaced
- * plane geometry, so adjacent chunks are visually distinguishable in the
- * 3D view. Walks the perimeter vertices (already elevation-displaced) in
- * order and nudges each one up along its vertex normal.
+ * Builds a closed loop of fat line segments tracing the outer edge of a
+ * tile's displaced plane geometry, so adjacent chunks are visually
+ * distinguishable in the 3D view. Walks the perimeter vertices (already
+ * elevation-displaced) in order and nudges each one up along its vertex
+ * normal.
  */
 function buildTileBorder(geometry, grid) {
   const position = geometry.attributes.position;
@@ -196,22 +235,65 @@ function buildTileBorder(geometry, grid) {
   for (let ix = grid - 1; ix >= 0; ix--) perimeter.push(grid * (grid + 1) + ix); // bottom edge, right -> left
   for (let iy = grid - 1; iy >= 1; iy--) perimeter.push(iy * (grid + 1)); // left edge, bottom -> top
 
-  const points = new Float32Array(perimeter.length * 3);
+  // Fat-line segments are independent (start,end) pairs rather than a
+  // connected strip, so each consecutive perimeter vertex pair (wrapping
+  // back to the first) becomes its own segment.
+  const segments = new Float32Array(perimeter.length * 6);
   for (let i = 0; i < perimeter.length; i++) {
-    const idx = perimeter[i];
-    points[i * 3] = position.getX(idx) + normal.getX(idx) * BORDER_LIFT;
-    points[i * 3 + 1] = position.getY(idx) + normal.getY(idx) * BORDER_LIFT;
-    points[i * 3 + 2] = position.getZ(idx) + normal.getZ(idx) * BORDER_LIFT;
+    const a = perimeter[i];
+    const b = perimeter[(i + 1) % perimeter.length];
+    segments[i * 6] = position.getX(a) + normal.getX(a) * BORDER_LIFT;
+    segments[i * 6 + 1] = position.getY(a) + normal.getY(a) * BORDER_LIFT;
+    segments[i * 6 + 2] = position.getZ(a) + normal.getZ(a) * BORDER_LIFT;
+    segments[i * 6 + 3] = position.getX(b) + normal.getX(b) * BORDER_LIFT;
+    segments[i * 6 + 4] = position.getY(b) + normal.getY(b) * BORDER_LIFT;
+    segments[i * 6 + 5] = position.getZ(b) + normal.getZ(b) * BORDER_LIFT;
   }
 
-  const borderGeometry = new THREE.BufferGeometry();
-  borderGeometry.setAttribute('position', new THREE.BufferAttribute(points, 3));
-  const material = new THREE.LineBasicMaterial({
-    color: BORDER_COLOR,
-    transparent: true,
-    opacity: 0.6,
-  });
-  return new THREE.LineLoop(borderGeometry, material);
+  const borderGeometry = new LineSegmentsGeometry();
+  borderGeometry.setPositions(segments);
+  return new LineSegments2(borderGeometry, borderMaterial);
+}
+
+/**
+ * Builds fat line segments tracing every triangle edge of a tile's
+ * displaced plane geometry (its actual render polygons), so the mesh
+ * density/shape is visible in the 3D view alongside the bolder perimeter
+ * border. Each shared edge between two triangles is only emitted once.
+ */
+function buildTileGrid(geometry) {
+  const position = geometry.attributes.position;
+  const normal = geometry.attributes.normal;
+  const index = geometry.index.array;
+
+  const seen = new Set();
+  const segmentList = [];
+  const pushEdge = (a, b) => {
+    const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    segmentList.push(a, b);
+  };
+  for (let i = 0; i < index.length; i += 3) {
+    const a = index[i];
+    const b = index[i + 1];
+    const c = index[i + 2];
+    pushEdge(a, b);
+    pushEdge(b, c);
+    pushEdge(c, a);
+  }
+
+  const segments = new Float32Array(segmentList.length * 3);
+  for (let i = 0; i < segmentList.length; i++) {
+    const idx = segmentList[i];
+    segments[i * 3] = position.getX(idx) + normal.getX(idx) * GRID_LIFT;
+    segments[i * 3 + 1] = position.getY(idx) + normal.getY(idx) * GRID_LIFT;
+    segments[i * 3 + 2] = position.getZ(idx) + normal.getZ(idx) * GRID_LIFT;
+  }
+
+  const gridGeometry = new LineSegmentsGeometry();
+  gridGeometry.setPositions(segments);
+  return new LineSegments2(gridGeometry, gridMaterial);
 }
 
 /** True if (dx, dy) falls within a circle of the given radius, in tile units. */
@@ -269,7 +351,7 @@ export class TerrainManager {
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
-    this.chunks = new Map(); // key -> { mesh, body, border, tx, ty, bytes }
+    this.chunks = new Map(); // key -> { mesh, body, border, grid, tx, ty, bytes }
     this.pending = new Set(); // keys currently being fetched (planned to be created)
     this.pendingRemoval = new Map(); // key -> ticks remaining before actual unload
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
@@ -414,12 +496,17 @@ export class TerrainManager {
       mesh.receiveShadow = true;
       this.scene.add(mesh);
 
-      // Visual boundary: a line loop traced around the tile's perimeter so
-      // adjacent chunks are distinguishable at a glance in the 3D view.
-      // Part of the debug visuals, so it respects the current toggle state.
+      // Visual boundary: a bold line loop traced around the tile's
+      // perimeter so adjacent chunks are distinguishable at a glance in the
+      // 3D view, plus fainter/thinner lines along every triangle edge of
+      // the tile's actual render geometry (its polygons). Both are part of
+      // the debug visuals, so they respect the current toggle state.
       const border = buildTileBorder(geometry, DETAIL_GRID);
       border.visible = this.bordersVisible;
       this.scene.add(border);
+      const grid = buildTileGrid(geometry);
+      grid.visible = this.bordersVisible;
+      this.scene.add(grid);
 
       // Physics: Trimesh built from the exact same vertices/indices as the
       // visual mesh (both live in world space, body at identity transform),
@@ -434,9 +521,11 @@ export class TerrainManager {
 
       const bytes =
         estimateChunkBytes(colorTex.image, position.array, indices) +
-        border.geometry.attributes.position.array.length * 4;
+        (border.geometry.attributes.instanceStart.data.array.length +
+          grid.geometry.attributes.instanceStart.data.array.length) *
+          4;
 
-      this.chunks.set(key, { mesh, body, border, tx, ty, bytes });
+      this.chunks.set(key, { mesh, body, border, grid, tx, ty, bytes });
       this.stats.created++;
     } catch (err) {
       console.warn('Terrain chunk failed to load', tx, ty, err);
@@ -454,7 +543,10 @@ export class TerrainManager {
     chunk.mesh.material.dispose();
     this.scene.remove(chunk.border);
     chunk.border.geometry.dispose();
-    chunk.border.material.dispose();
+    this.scene.remove(chunk.grid);
+    chunk.grid.geometry.dispose();
+    // Note: border/grid materials are shared LineMaterial instances (see
+    // module scope above) so they're intentionally never disposed here.
     this.world.removeBody(chunk.body);
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
@@ -552,10 +644,16 @@ export class TerrainManager {
     this.farStats.removed++;
   }
 
-  /** Toggles the perimeter border lines on all currently-loaded chunks (and future ones). */
+  /**
+   * Toggles the perimeter border lines and per-polygon geometry lines on
+   * all currently-loaded chunks (and future ones).
+   */
   setBordersVisible(visible) {
     this.bordersVisible = visible;
-    for (const chunk of this.chunks.values()) chunk.border.visible = visible;
+    for (const chunk of this.chunks.values()) {
+      chunk.border.visible = visible;
+      chunk.grid.visible = visible;
+    }
   }
 
   /**
