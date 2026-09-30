@@ -13,8 +13,16 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+// Once someone has been idle longer than this, show their idle time in
+// hours instead of minutes (still 1 decimal place for readability).
+const IDLE_HOURS_THRESHOLD_MS = 30 * 60_000;
+
 function statusLabel(idleMs) {
   if (idleMs < PLAYERS_ACTIVE_THRESHOLD_MS) return { text: 'Active', className: 'active' };
+  if (idleMs >= IDLE_HOURS_THRESHOLD_MS) {
+    const hours = Math.round((idleMs / 3_600_000) * 10) / 10;
+    return { text: `Idle ${hours}h`, className: 'idle' };
+  }
   const minutes = Math.max(1, Math.round(idleMs / 60_000));
   return { text: `Idle ${minutes}m`, className: 'idle' };
 }
