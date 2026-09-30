@@ -8,23 +8,22 @@
 // false for `npm run build`/the deployed GitHub Pages build - see
 // vite.config.js), so no extra env setup is needed to get the right mode:
 //  - "dev": local development. Debug visuals (tile HUD, hitbox wireframes)
-//    default on, and the address search bar can respawn/recenter anywhere
-//    (handy for jumping around the map while testing).
-//  - "prod": the shared remote build. Debug visuals default off, and the
-//    player's location is fixed - the address search UI is hidden and any
-//    origin-change broadcast from a peer is ignored, so nobody can be
-//    teleported elsewhere. Networking (the shared MQTT room) is a prod-only
-//    feature - dev mode never opens that connection, so you always drive
+//    default on. Networking (the shared MQTT room) is a prod-only feature -
+//    dev mode never opens that connection, so you always drive
 //    solo/offline against localhost without depending on (or spamming) the
 //    public broker.
+//  - "prod": the shared remote build. Debug visuals default off.
 // Can still be forced either way (e.g. to test the prod build's behavior
 // from `vite dev`) via ?mode=prod / ?mode=dev in the URL.
 const FORCED_MODE = new URLSearchParams(location.search).get('mode');
 export const APP_MODE = FORCED_MODE === 'dev' || FORCED_MODE === 'prod' ? FORCED_MODE : (import.meta.env.DEV ? 'dev' : 'prod');
 export const IS_DEV_MODE = APP_MODE === 'dev';
-// Whether the player is allowed to change their real-world location at all
-// (via the address search bar, or by receiving a peer's origin broadcast).
-export const CAN_CHANGE_LOCATION = IS_DEV_MODE;
+// Whether the player is allowed to change their real-world location (via
+// the address search bar). Always on: teleporting only ever recenters the
+// requesting player's own terrain/buildings/car and is never broadcast to
+// anyone else, so it can't disturb the shared world's starting point or
+// any other player's session (see ui/addressSearch.js).
+export const CAN_CHANGE_LOCATION = true;
 // Whether to connect to the shared MQTT room at all (see net.js). Off in
 // dev so local development never touches the public broker.
 export const CAN_USE_NETWORK = !IS_DEV_MODE;
@@ -32,6 +31,12 @@ export const CAN_USE_NETWORK = !IS_DEV_MODE;
 // Real-world spawn location (Wroclaw city center). The terrain streams in
 // real aerial imagery + elevation around wherever the car currently is, so
 // you can drive anywhere on Earth from here - it's just the starting point.
+// Also doubles as the fixed "network origin": every player's pose is
+// published/interpreted in local meters relative to this exact point, for
+// everyone, forever, regardless of where any individual player personally
+// teleports their own view to (see ui/addressSearch.js + geo.js's
+// remapLocalOrigin) - that's what keeps a personal teleport from moving
+// the shared starting point or corrupting multiplayer position sync.
 export const ORIGIN_LAT = 51.1079;
 export const ORIGIN_LON = 17.0385;
 

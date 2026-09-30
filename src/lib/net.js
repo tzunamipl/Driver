@@ -7,7 +7,6 @@ import mqtt from 'mqtt';
 
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const POSE_TOPIC = 'tzunamipl/driver/v1/pose';
-const WORLD_TOPIC = 'tzunamipl/driver/v1/world';
 const PROPS_TOPIC = 'tzunamipl/driver/v1/props';
 
 const PUBLISH_INTERVAL_MS = 100;
@@ -16,7 +15,6 @@ const INTERP_DELAY_MS = 150;
 const SAMPLE_KEEP_MS = 1000;
 const TELEPORT_DISTANCE = 40;
 const CONNECT_TIMEOUT_MS = 4000;
-const RETAIN_WAIT_MS = 700;
 const SPAWN_RADIUS = 6;
 // How long a peer stays listed in the "who's online" roster (see
 // getRoster()) after their last pose update, independent of PEER_TIMEOUT_MS
@@ -67,13 +65,11 @@ export function createNet() {
   // reloaded from localStorage (see loadRoster/saveRoster).
   const roster = loadRoster();
   const statusListeners = new Set();
-  const originListeners = new Set();
   const propListeners = new Set();
 
   let client = null;
   let connected = false;
   let lastPublish = 0;
-  let originTime = 0;
   let playerName = '';
   let playerColor = 0x1c3f94;
 
@@ -84,11 +80,6 @@ export function createNet() {
   function onStatus(fn) {
     statusListeners.add(fn);
     return () => statusListeners.delete(fn);
-  }
-
-  function onOrigin(fn) {
-    originListeners.add(fn);
-    return () => originListeners.delete(fn);
   }
 
   function onProps(fn) {
@@ -134,24 +125,8 @@ export function createNet() {
     publish(PROPS_TOPIC, { id: clientId, ...payload }, false);
   }
 
-  function publishOrigin(lat, lon) {
-    const t = Math.max(Date.now(), originTime + 1);
-    originTime = t;
-    publish(WORLD_TOPIC, { id: clientId, lat, lon, t }, true);
-  }
-
   function publishLeave() {
     publish(POSE_TOPIC, { id: clientId, leave: true }, false);
-  }
-
-  function acceptOrigin(msg) {
-    if (!msg || msg.id === clientId) return false;
-    if (!Number.isFinite(msg.t) || !Number.isFinite(msg.lat) || !Number.isFinite(msg.lon)) return false;
-    if (msg.lat < -90 || msg.lat > 90 || msg.lon < -180 || msg.lon > 180) return false;
-    if (msg.t < originTime) return false;
-    if (msg.t === originTime && String(msg.id) <= clientId) return false;
-    originTime = msg.t;
-    return true;
   }
 
   function handlePose(msg) {
@@ -212,12 +187,6 @@ export function createNet() {
     } catch {
       return;
     }
-    if (topic === WORLD_TOPIC) {
-      if (acceptOrigin(msg)) {
-        for (const fn of originListeners) fn({ lat: msg.lat, lon: msg.lon });
-      }
-      return;
-    }
     if (topic === POSE_TOPIC) handlePose(msg);
     if (topic === PROPS_TOPIC) handleProps(msg);
   }
@@ -243,7 +212,7 @@ export function createNet() {
     client.on('connect', () => {
       connected = true;
       emitStatus('online');
-      client.subscribe([POSE_TOPIC, WORLD_TOPIC, PROPS_TOPIC]);
+      client.subscribe([POSE_TOPIC, PROPS_TOPIC]);
     });
     client.on('close', () => {
       connected = false;
@@ -265,7 +234,7 @@ export function createNet() {
       const giveUp = setTimeout(() => finish(false), CONNECT_TIMEOUT_MS);
       client.on('connect', () => {
         clearTimeout(giveUp);
-        setTimeout(() => finish(true), RETAIN_WAIT_MS);
+        finish(true);
       });
     });
   }
@@ -320,13 +289,11 @@ export function createNet() {
     connect,
     publishPose,
     publishProps,
-    publishOrigin,
     publishLeave,
     isOnline,
     remotePoses,
     getRoster,
     onStatus,
-    onOrigin,
     onProps,
   };
 }

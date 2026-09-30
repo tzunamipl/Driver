@@ -64,6 +64,37 @@ the car as it drives, loading new chunks ahead and unloading ones left
 behind — so you can in principle drive anywhere on Earth, starting from
 wherever you set as the origin.
 
+### Personal teleport (address search)
+
+The search bar at the top of the screen (`src/ui/addressSearch.js`) lets any
+player jump straight to a searched address or place name, geocoded for free
+via OpenStreetMap's Nominatim. It's **per-player and entirely local**:
+teleporting recenters only *your own* terrain/buildings streaming and moves
+only *your own* car — it never changes the shared starting point new
+players spawn at, and never moves anyone else's car or world.
+
+To make that safe in the shared multiplayer room, the game distinguishes
+two coordinate frames:
+- the **network origin** (`ORIGIN_LAT`/`ORIGIN_LON` in `config.js`) — fixed
+  forever, and the frame every player's pose is published/interpreted in.
+- each player's own **view origin** — what their local `(0, 0)` currently
+  represents; normally equal to the network origin, but repointed by a
+  personal teleport.
+
+Whenever the two diverge, `geo.js`'s `remapLocalOrigin()` round-trips
+through lat/lon to translate positions between them: your own pose is
+remapped into the network frame right before publishing, and every remote
+player's pose is remapped into your view frame right before it's used for
+rendering, collisions, or the horn's distance/panning — so multiplayer stays
+correct (remote cars simply render very far away, as they really are, rather
+than snapping to your old spot) no matter where you've personally wandered
+off to.
+
+Teleporting also can't drop the car through an unloaded chunk: the
+destination's terrain is fully streamed in and awaited *before* the car is
+moved there, and the move itself is a brief gravity-immune "lift" animation
+(the same one used to right a flipped car) rather than an instant snap.
+
 Chunks are streamed in a **circle** around the car (not a square) — for each
 tile offset `(dx, dy)` from the player's current tile, it's only loaded if
 `dx² + dy² <= radius²` (with a little slack so the circle isn't overly

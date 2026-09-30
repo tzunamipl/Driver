@@ -9,7 +9,7 @@ import { applyImpactRoll } from './collisions.js';
 // touches all of those, but exposes a narrow API so callers (main loop,
 // lobby, address search) don't need to know the wiring details.
 
-export function createCarManager({ world, scene, net, pedestrians, debugVisuals, playerSpawnPos, startQuat }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat }) {
   let vehicle = null;
   let chassisMesh = null;
   let wheelMeshes = [];
@@ -69,8 +69,10 @@ export function createCarManager({ world, scene, net, pedestrians, debugVisuals,
     hookCar(vehicle, chassisMesh);
   }
 
-  function updateRemotes(dt) {
-    const poses = net.remotePoses(performance.now());
+  // `poses` is already fetched (and remapped into this player's own local
+  // view frame - see app/mainLoop.js's toViewFrame) by the caller once per
+  // frame, so this doesn't hit the network layer itself.
+  function updateRemotes(dt, poses) {
     const seen = new Set();
     for (const pose of poses) {
       seen.add(pose.id);

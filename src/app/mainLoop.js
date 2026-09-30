@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { lon2tileX, lat2tileY, localToLatLon } from '../lib/geo.js';
+import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
 
 // The main animate() loop: fixed-timestep physics stepping (with the
 // ground-tunneling guard and interpolated render transforms), then
@@ -59,10 +59,30 @@ export function createMainLoop({
     carManager.getUpdateReset()?.(frameDelta);
     input.updateControls(vehicle, reset);
 
+    // This player's own local (0, 0) origin - equal to the fixed network
+    // origin normally, but can diverge after a personal teleport (see
+    // ui/addressSearch.js). Every remote pose (always encoded relative to
+    // the fixed network origin - see config.js's ORIGIN_LAT/ORIGIN_LON)
+    // needs remapping into *this* frame before it means anything as a
+    // scene position here, and this player's own pose needs the inverse
+    // remap before publishing, so everyone else keeps interpreting it
+    // relative to the one frame they all still share.
+    const { lat: viewOriginLat, lon: viewOriginLon } = addressSearch.getCurrentOrigin();
+    function toViewFrame(pose) {
+      const { x, z } = remapLocalOrigin(pose.x, pose.z, ORIGIN_LAT, ORIGIN_LON, viewOriginLat, viewOriginLon);
+      return { ...pose, x, z };
+    }
+
+    // Computed once per frame (rather than re-fetched/re-mapped at each of
+    // the three call sites below) since net.remotePoses() itself does
+    // interpolation work, and the remap is a no-op fast path when this
+    // player hasn't teleported anyway.
+    const remotePoses = isJoined() ? net.remotePoses(now).map(toViewFrame) : [];
+
     // Remote cars are kinematic obstacles. Place them before the step so
     // the local chassis actually contacts them this frame (see
     // remoteCollisions.js).
-    if (isJoined()) remoteCollisions.sync(net.remotePoses(now));
+    if (isJoined()) remoteCollisions.sync(remotePoses);
 
     // Advance physics in fixed-size steps (accumulator pattern) instead of
     // a single variable-size world.step() call. requestAnimationFrame
@@ -104,7 +124,7 @@ export function createMainLoop({
       frameDelta,
       isJoined() && !!currentVehicle && !input.isTyping() && input.keys.has('KeyH'),
       currentChassisMesh?.position,
-      isJoined() ? net.remotePoses(now) : []
+      remotePoses
     );
     if (isJoined() && currentChassisMesh && currentVehicle) {
       if (!input.isTyping()) {
@@ -119,10 +139,22 @@ export function createMainLoop({
       );
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
+      // Remap this player's own local (view-frame) position back into the
+      // fixed network origin's frame before publishing - see the
+      // toViewFrame() comment above for why (a no-op unless this player
+      // has personally teleported).
+      const { x: netX, z: netZ } = remapLocalOrigin(
+        currentChassisMesh.position.x,
+        currentChassisMesh.position.z,
+        viewOriginLat,
+        viewOriginLon,
+        ORIGIN_LAT,
+        ORIGIN_LON
+      );
       net.publishPose({
-        x: currentChassisMesh.position.x,
+        x: netX,
         y: currentChassisMesh.position.y,
-        z: currentChassisMesh.position.z,
+        z: netZ,
         qx: currentChassisMesh.quaternion.x,
         qy: currentChassisMesh.quaternion.y,
         qz: currentChassisMesh.quaternion.z,
@@ -136,7 +168,7 @@ export function createMainLoop({
         nextBallSend = now + 100;
         for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
       }
-      carManager.updateRemotes(frameDelta);
+      carManager.updateRemotes(frameDelta, remotePoses);
     }
 
     cameraFollow(frameDelta, { chassisMesh: currentChassisMesh, vehicle: currentVehicle });
@@ -160,19 +192,18 @@ export function createMainLoop({
       // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
       // detail tier; compute the current tile center the same way
       // TerrainManager.update() does internally so the two stay aligned.
-      const { lat: originLat, lon: originLon } = addressSearch.getCurrentOrigin();
       const { lat: carLat, lon: carLon } = localToLatLon(
         currentChassisMesh.position.x,
         currentChassisMesh.position.z,
-        originLat,
-        originLon
+        viewOriginLat,
+        viewOriginLon
       );
       buildings.update(
         Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
         Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
       );
 
-      minimapHud.update(currentChassisMesh, { lat: originLat, lon: originLon });
+      minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon });
     }
 
     renderer.render(scene, camera);
