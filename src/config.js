@@ -61,6 +61,17 @@ export const IMPACT_ROLL_TORQUE_SCALE = 0.22;
 export const GROUND_RAY_HEIGHT = 50;
 export const MIN_GROUND_CLEARANCE = 0.05;
 
+// ---------- Building-tunneling guard ----------
+// Below this squared distance moved in a single physics step, don't bother
+// sweeping - normal driving speeds never cover enough ground in 1/60s to
+// tunnel through a building anyway, so this is just cutting out a
+// raycastClosest call on almost every step.
+export const BUILDING_SWEEP_MIN_DIST_M = 0.15;
+// How far back along the step's own movement to land the chassis once a
+// tunneling hit is caught - just enough clearance that next step's normal
+// contact resolution can take over instead of immediately re-tunneling.
+export const BUILDING_SWEEP_BACKOFF_M = 0.1;
+
 // ---------- Score ----------
 // One point per whole kilometre of horizontal travel. A frame that jumps
 // farther than this is a reset or a map recenter, not driving.

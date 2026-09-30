@@ -1,10 +1,13 @@
 import * as CANNON from 'cannon-es';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
+import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import {
   IMPACT_ROLL_MIN_SPEED,
   IMPACT_ROLL_TORQUE_SCALE,
   GROUND_RAY_HEIGHT,
   MIN_GROUND_CLEARANCE,
+  BUILDING_SWEEP_MIN_DIST_M,
+  BUILDING_SWEEP_BACKOFF_M,
 } from '../config.js';
 
 // Arcade-style collision responses layered on top of cannon-es's own
@@ -87,4 +90,72 @@ export function createGroundTunnelGuard(world) {
       }
     }
   };
+}
+
+/**
+ * A fast, glancing hit against a building can move the chassis far enough
+ * within a single physics step to skip clean through a section of the
+ * solid convex-hull prism (or in through a bad corner) - the same class
+ * of bug createGroundTunnelGuard patches for the terrain, applied to
+ * buildings instead. Remember the chassis position right before
+ * world.step() (see beforeStep), then after stepping (afterStep), sweep a
+ * ray along that one step's own movement and pull the chassis back to
+ * just before the wall if it crossed one, killing the velocity component
+ * driving into it so the next step's normal contact resolution can take
+ * over instead of immediately re-tunneling.
+ *
+ * Capturing "before" position immediately before every single fixed
+ * substep (rather than once per render frame) is what keeps this from
+ * misfiring on deliberate teleports (reset, address search): those set
+ * position directly before the next world.step() call, so the only
+ * movement this guard ever sees swept is that one physics step's own
+ * (small, real) motion - never the teleport jump itself.
+ */
+export function createBuildingTunnelGuard(world) {
+  const prevPos = new CANNON.Vec3();
+  const rayResult = new CANNON.RaycastResult();
+  let hasPrev = false;
+
+  function beforeStep(vehicle) {
+    if (!vehicle) {
+      hasPrev = false;
+      return;
+    }
+    prevPos.copy(vehicle.chassisBody.position);
+    hasPrev = true;
+  }
+
+  function afterStep(vehicle) {
+    if (!vehicle || !hasPrev) return;
+    const body = vehicle.chassisBody;
+    const pos = body.position;
+    const dx = pos.x - prevPos.x;
+    const dy = pos.y - prevPos.y;
+    const dz = pos.z - prevPos.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist < BUILDING_SWEEP_MIN_DIST_M) return;
+
+    rayResult.reset();
+    world.raycastClosest(prevPos, pos, { collisionFilterMask: BUILDING_COLLISION_GROUP }, rayResult);
+    if (!rayResult.hasHit) return;
+
+    // Land just short of the hit point, back off along the step's own
+    // movement direction by BUILDING_SWEEP_BACKOFF_M.
+    const back = Math.min(rayResult.distance, Math.max(rayResult.distance - BUILDING_SWEEP_BACKOFF_M, 0));
+    const t = back / dist;
+    pos.set(prevPos.x + dx * t, prevPos.y + dy * t, prevPos.z + dz * t);
+
+    // Zero out the velocity component driving into the wall so the car
+    // doesn't just immediately tunnel again next step.
+    const vn = body.velocity.x * rayResult.hitNormalWorld.x +
+      body.velocity.y * rayResult.hitNormalWorld.y +
+      body.velocity.z * rayResult.hitNormalWorld.z;
+    if (vn < 0) {
+      body.velocity.x -= rayResult.hitNormalWorld.x * vn;
+      body.velocity.y -= rayResult.hitNormalWorld.y * vn;
+      body.velocity.z -= rayResult.hitNormalWorld.z * vn;
+    }
+  }
+
+  return { beforeStep, afterStep };
 }
