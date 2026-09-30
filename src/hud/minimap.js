@@ -111,6 +111,7 @@ function formatDistance(meters) {
 export function createMinimapHud() {
   const root = document.getElementById('minimap');
   const canvas = document.getElementById('minimap-canvas');
+  const arrowsCanvas = document.getElementById('minimap-arrows-canvas');
   const zoomInBtn = document.getElementById('minimap-zoom-in');
   const zoomOutBtn = document.getElementById('minimap-zoom-out');
   const scaleBarEl = document.getElementById('minimap-scale-bar');
@@ -120,9 +121,23 @@ export function createMinimapHud() {
   if (!root || !canvas) return { update() {} };
 
   const ctx = canvas.getContext('2d');
+  // Off-screen peer arrows are drawn on this separate, transparent,
+  // pointer-events:none overlay canvas - stacked on top of the zoom
+  // buttons/scale bar in the DOM (see index.html) purely so an arrow is
+  // never visually hidden behind that chrome, without the overlay ever
+  // stealing clicks/wheel input meant for the buttons or the map below.
+  const arrowsCtx = arrowsCanvas?.getContext('2d') ?? null;
   const tileCache = new Map(); // "z/x/y" -> { img, ready }
   let zoom = loadStoredZoom();
+  // `dialSizeCss` is the puck's own diameter - the #minimap box's CSS
+  // width, unchanged from the original design. `sizeCss` is the actual
+  // (bigger) canvas diameter, padded by `arrowBand` on every side so
+  // off-screen peer arrows have transparent room to be drawn past the
+  // dial's edge without the canvas's own background/clip reaching that
+  // far (see resize()/draw() below).
+  let dialSizeCss = 0;
   let sizeCss = 0;
+  let arrowBand = 0;
   let dpr = 1;
 
   // Reverse-geocoding state: last place we successfully looked up (so we
@@ -170,12 +185,27 @@ export function createMinimapHud() {
 
   function resize() {
     const rect = root.getBoundingClientRect();
-    sizeCss = rect.width || root.clientWidth;
+    dialSizeCss = rect.width || root.clientWidth;
+    // Scale factor the decorations (marker, "N", rings, arrows) were
+    // originally tuned at 190px for - see draw() below.
+    const s = dialSizeCss / 190;
+    arrowBand = 20 * s;
+    sizeCss = dialSizeCss + arrowBand * 2;
     dpr = window.devicePixelRatio || 1;
     const px = Math.round(sizeCss * dpr);
     if (canvas.width !== px || canvas.height !== px) {
       canvas.width = px;
       canvas.height = px;
+    }
+    canvas.style.width = `${sizeCss}px`;
+    canvas.style.height = `${sizeCss}px`;
+    if (arrowsCanvas && (arrowsCanvas.width !== px || arrowsCanvas.height !== px)) {
+      arrowsCanvas.width = px;
+      arrowsCanvas.height = px;
+    }
+    if (arrowsCanvas) {
+      arrowsCanvas.style.width = `${sizeCss}px`;
+      arrowsCanvas.style.height = `${sizeCss}px`;
     }
   }
   resize();
@@ -251,14 +281,40 @@ export function createMinimapHud() {
     // Original design was tuned at 190px; scale the decorations (marker,
     // "N" label, rings) proportionally so the widget still looks right if
     // its CSS size changes.
-    const s = size / 190;
+    const s = dialSizeCss / 190;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
+    if (arrowsCtx) {
+      arrowsCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      arrowsCtx.clearRect(0, 0, size, size);
+    }
 
-    // Circular clip so the widget reads as a round GPS puck, not a square.
+    // The street-map "dial" itself is exactly the original (unshrunk,
+    // ungrown) puck size - `arrowBand` is just transparent canvas overflow
+    // around it, with no background/border/shadow of its own. Off-screen
+    // peer arrows are drawn out there (see below), so they visibly sit
+    // outside the dial's boundary rather than inside a permanently
+    // reserved ring.
+    const mapRadius = center - arrowBand;
+
+    // Drop shadow + fill for the dial circle itself, drawn *before* the
+    // circular clip below (so the shadow isn't clipped away) - reproduces
+    // what used to be a plain CSS box-shadow on the canvas element, back
+    // when the canvas was exactly the dial's own size.
     ctx.save();
     ctx.beginPath();
-    ctx.arc(center, center, center, 0, Math.PI * 2);
+    ctx.arc(center, center, mapRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#e9e6df';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10 * s;
+    ctx.shadowOffsetY = 2 * s;
+    ctx.fill();
+    ctx.restore();
+
+    // Circular clip so the dial reads as a round GPS puck, not a square.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(center, center, mapRadius, 0, Math.PI * 2);
     ctx.clip();
     ctx.fillStyle = '#e9e6df';
     ctx.fillRect(0, 0, size, size);
@@ -270,7 +326,7 @@ export function createMinimapHud() {
     // The circle's radius is the farthest any visible pixel can be from the
     // center regardless of rotation, so a square "cover the corners" margin
     // isn't needed - the clip already discards anything past that radius.
-    const radiusTiles = Math.ceil(center / TILE_SIZE) + 1;
+    const radiusTiles = Math.ceil(mapRadius / TILE_SIZE) + 1;
 
     // North-up: no rotation here (unlike track-up mode) - true north is
     // always straight up, and it's the car marker (drawn below, outside
@@ -303,7 +359,7 @@ export function createMinimapHud() {
     // North-up map: +x (east) is screen-right, +z (south) is screen-down,
     // so no axis flip is needed.
     const edgeMargin = 16 * s;
-    const visibleRadius = center - edgeMargin;
+    const visibleRadius = mapRadius - edgeMargin;
     const onScreenPeers = [];
     const offScreenPeers = [];
     for (const peer of peers) {
@@ -327,10 +383,10 @@ export function createMinimapHud() {
 
     ctx.restore(); // back to unrotated, unclipped canvas space
 
-    // Distance labels for on-map peers, and clamped edge arrows + labels
-    // for peers currently outside the visible circle - drawn unclipped so
-    // labels near the rim stay fully legible instead of being cut off by
-    // the round bezel.
+    // Distance labels for on-map peers - drawn unclipped so they stay
+    // fully legible near the rim instead of being cut off by the round
+    // bezel. Off-screen peers' arrows/labels are handled separately below
+    // on the overlay canvas (see actx).
     ctx.font = `600 ${Math.round(9 * s)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.lineWidth = 2.5 * s;
@@ -344,38 +400,51 @@ export function createMinimapHud() {
       ctx.fillStyle = '#1a1a1a';
       ctx.fillText(label, lx, ly);
     }
+    // Arrows sit just outside the dial's edge, in the otherwise-empty
+    // transparent overflow area - clearly outside the map boundary rather
+    // than overlapping it or sitting inside a permanent decorated ring.
+    // Drawn on the separate overlay canvas (see arrowsCtx above) so they
+    // always render on top of the zoom buttons/scale bar rather than
+    // being hidden behind that chrome.
+    const actx = arrowsCtx || ctx;
+    const arrowRadius = mapRadius + arrowBand * 0.55;
+    actx.font = `600 ${Math.round(9 * s)}px system-ui, sans-serif`;
+    actx.textAlign = 'center';
+    actx.lineWidth = 2.5 * s;
+    actx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     for (const peer of offScreenPeers) {
       const angle = Math.atan2(peer.py, peer.px);
-      const ex = center + Math.cos(angle) * visibleRadius;
-      const ey = center + Math.sin(angle) * visibleRadius;
-      ctx.save();
-      ctx.translate(ex, ey);
-      ctx.rotate(angle + Math.PI / 2);
-      ctx.beginPath();
-      ctx.moveTo(0, -6 * s);
-      ctx.lineTo(4 * s, 5 * s);
-      ctx.lineTo(-4 * s, 5 * s);
-      ctx.closePath();
-      ctx.fillStyle = peer.colorCss;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5 * s;
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
+      const ex = center + Math.cos(angle) * arrowRadius;
+      const ey = center + Math.sin(angle) * arrowRadius;
+      actx.save();
+      actx.translate(ex, ey);
+      actx.rotate(angle + Math.PI / 2);
+      actx.beginPath();
+      actx.moveTo(0, -10 * s);
+      actx.lineTo(7 * s, 8 * s);
+      actx.lineTo(0, 4 * s);
+      actx.lineTo(-7 * s, 8 * s);
+      actx.closePath();
+      actx.fillStyle = peer.colorCss;
+      actx.strokeStyle = '#ffffff';
+      actx.lineWidth = 1.5 * s;
+      actx.fill();
+      actx.stroke();
+      actx.restore();
 
       const label = formatDistance(peer.distanceMeters);
-      ctx.textBaseline = 'middle';
-      const lx = center + Math.cos(angle) * (visibleRadius - 12 * s);
-      const ly = center + Math.sin(angle) * (visibleRadius - 12 * s);
-      ctx.strokeText(label, lx, ly);
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillText(label, lx, ly);
+      actx.textBaseline = 'middle';
+      const lx = center + Math.cos(angle) * (mapRadius - 12 * s);
+      const ly = center + Math.sin(angle) * (mapRadius - 12 * s);
+      actx.strokeText(label, lx, ly);
+      actx.fillStyle = '#1a1a1a';
+      actx.fillText(label, lx, ly);
     }
 
     // Static north indicator - the map never rotates, so "N" always sits
     // at the top of the dial. Halo-stroked so it stays legible over both
     // light and dark patches of the basemap.
-    const edgeR = center - 10 * s;
+    const edgeR = mapRadius - 10 * s;
     ctx.font = `600 ${Math.round(11 * s)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -405,11 +474,15 @@ export function createMinimapHud() {
     ctx.stroke();
     ctx.restore();
 
-    // Outer bezel ring on top of everything.
+    // Bezel ring on the dial's own edge - replaces the plain CSS
+    // box-shadow the canvas used to have back when it was exactly the
+    // dial's size. Nothing is drawn beyond this (no outer ring at the
+    // bigger canvas edge), so the arrow-overflow area stays fully
+    // transparent when no peers are off-screen.
     ctx.beginPath();
-    ctx.arc(center, center, center - 1, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.lineWidth = 2;
+    ctx.arc(center, center, mapRadius - 1, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.lineWidth = 3 * s;
     ctx.stroke();
 
     updateScaleBar(metersPerPx);

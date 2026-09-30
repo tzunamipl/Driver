@@ -675,20 +675,28 @@
         position: fixed;
         bottom: 20px;
         left: 20px;
-        width: 150px;
+        /* The puck's own diameter - the canvas/arrow-overflow sizing and
+           the zoom button offset below are derived from this via calc(),
+           so the mobile breakpoint only needs to override this one
+           variable. */
+        --mm-dial: 150px;
+        /* Off-screen peer arrows are drawn this far past the dial's edge
+           (see arrowBand in minimap.js - kept in sync with this formula). */
+        --mm-arrow: calc(var(--mm-dial) * 2 / 19);
+        width: var(--mm-dial);
         /* Extra height below the circle reserves room for the scale
-           bar/label so they no longer sit under the map dial; the canvas
-           itself stays pinned to the top of this box (see #minimap-canvas'
-           aspect-ratio) while the box's own bottom edge - and therefore
-           the scale, anchored to it - stays exactly where it always was. */
-        height: 176px;
+           bar/label so they no longer sit under the map dial. */
+        height: calc(var(--mm-dial) + 26px);
         z-index: 10;
         font-family: system-ui, sans-serif;
       }
       #minimap-info {
         position: absolute;
         left: 50%;
-        bottom: calc(100% + 8px);
+        /* The extra `var(--mm-arrow)` clears the dial's own arrow
+           overflow above it (north-pointing peer arrows), not just the
+           dial itself. */
+        bottom: calc(100% + 8px + var(--mm-arrow));
         transform: translateX(-50%);
         display: flex;
         flex-direction: column;
@@ -711,19 +719,43 @@
         font-size: 11px;
         opacity: 0.8;
       }
-      #minimap-canvas {
+      /* Shared positioning for both the map canvas and the peer-arrows
+         overlay canvas stacked on top of it: both are centered on the
+         dial's own center (--mm-dial / 2 from the box's top-left corner),
+         and both are sized in JS to be bigger than the puck itself so
+         off-screen peer arrows have transparent room to be drawn past the
+         dial's edge (see resize()/draw() in minimap.js). Because the two
+         canvases are the same size/position, the dial's own bounding box
+         still lines up exactly with the #minimap box, same as the
+         original pinned-at-top-left design - only the arrow overflow
+         extends beyond it. */
+      #minimap-canvas,
+      #minimap-arrows-canvas {
+        position: absolute;
+        top: calc(var(--mm-dial) / 2);
+        left: calc(var(--mm-dial) / 2);
+        transform: translate(-50%, -50%);
         display: block;
-        width: 100%;
-        aspect-ratio: 1 / 1;
-        border-radius: 50%;
-        background: #e9e6df;
-        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.5);
+        background: transparent;
+      }
+      #minimap-canvas {
         cursor: ns-resize;
         touch-action: none;
       }
+      #minimap-arrows-canvas {
+        /* Purely a visual overlay - drawn on top of the zoom buttons and
+           scale bar (later in DOM order) so peer arrows are never hidden
+           behind them, but it must never intercept clicks/wheel meant for
+           the zoom buttons or the map canvas underneath it. */
+        pointer-events: none;
+      }
       #minimap-zoom {
+        /* Tucked right at the dial's own top-right corner ("on the
+           brink") - `var(--mm-arrow)` compensates for the arrow-overflow
+           canvas overhang above the dial so this still sits the original
+           few px down from the dial's *own* edge, not the bigger canvas'. */
         position: absolute;
-        top: 4px;
+        top: calc(var(--mm-arrow) + 4px);
         right: -4px;
         display: flex;
         flex-direction: column;
@@ -956,8 +988,8 @@
           top: 10px;
           bottom: auto;
           left: 10px;
-          width: 97px;
-          height: 97px;
+          --mm-dial: 97px;
+          height: var(--mm-dial);
         }
         #minimap-info {
           bottom: 8px;
@@ -1109,6 +1141,7 @@
         <div id="minimap-scale-bar"></div>
         <span id="minimap-scale-label"></span>
       </div>
+      <canvas id="minimap-arrows-canvas"></canvas>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">
