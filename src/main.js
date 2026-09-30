@@ -25,6 +25,8 @@ import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
 import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
+import { setupCollapsibleHud } from './hud/collapsible.js';
+import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
@@ -98,6 +100,8 @@ const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, p
 
 // ---------- Input ----------
 const input = createInputController();
+setupCollapsibleHud();
+setupTouchControls(input.keys);
 
 // ---------- Camera ----------
 const cameraFollow = createCameraFollow(camera);
@@ -130,13 +134,12 @@ const shots = createShots({
   },
 });
 const horn = createHorn();
-const gameplayProps = setupGameplayProps({
+setupGameplayProps({
   pedestrians,
   balls,
   shots,
   net,
   carManager,
-  isJoined: () => lobby.isJoined(),
   scoreToast,
 });
 const scoring = createScoring({
@@ -194,7 +197,6 @@ const lobby = createLobby({
   onJoined(color) {
     carManager.spawnLocalCar(color);
     addressSearch.setUiEnabled(true);
-    gameplayProps.setButtonsEnabled(true);
     startLoopOnce();
   },
 });

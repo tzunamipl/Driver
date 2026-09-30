@@ -33,6 +33,37 @@
         pointer-events: none;
         z-index: 10;
       }
+      #hud-toggle {
+        pointer-events: auto;
+        display: block;
+        width: 100%;
+        margin: 0 0 6px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: bold;
+        text-align: left;
+        cursor: pointer;
+      }
+      #hud-toggle::before {
+        content: '▾ ';
+      }
+      #hud.collapsed #hud-toggle {
+        margin-bottom: 0;
+      }
+      #hud.collapsed #hud-toggle::before {
+        content: '▸ ';
+      }
+      #hud.collapsed #hud-body {
+        display: none;
+      }
+      #hud.collapsed #hud-discord {
+        margin-top: 8px;
+        padding-top: 0;
+        border-top: none;
+      }
       #hud .hud-points {
         margin-top: 8px;
         padding-top: 6px;
@@ -115,6 +146,63 @@
         opacity: 1;
       }
 
+      #touch-controls {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 11;
+        pointer-events: none;
+      }
+      #touch-controls button {
+        pointer-events: auto;
+        touch-action: none;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        border-radius: 16px;
+        background: rgba(0, 0, 0, 0.45);
+        color: #fff;
+        font: 700 16px system-ui, sans-serif;
+        text-shadow: 0 1px 2px #000;
+      }
+      #touch-controls button:active {
+        background: rgba(79, 195, 255, 0.45);
+      }
+      .touch-steer {
+        position: absolute;
+        left: 12px;
+        bottom: 300px;
+        display: flex;
+        gap: 10px;
+      }
+      .touch-steer button {
+        width: 76px;
+        height: 76px;
+        font-size: 28px;
+      }
+      .touch-actions {
+        position: absolute;
+        right: 16px;
+        bottom: 230px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .touch-actions button {
+        width: 88px;
+        height: 72px;
+      }
+      @media (pointer: coarse), (max-width: 800px) {
+        #touch-controls { display: block; }
+        .touch-steer { bottom: 16px; }
+        .touch-actions {
+          bottom: 16px;
+          right: 12px;
+          flex-direction: row;
+        }
+        #hud-toggle,
+        #hud-body,
+        #players-panel { display: none; }
+      }
+
       #gauges {
         position: fixed;
         bottom: 20px;
@@ -150,11 +238,33 @@
         max-width: 240px;
         pointer-events: none;
       }
-      #players-panel .players-title {
+      #players-toggle {
+        pointer-events: auto;
+        display: block;
+        width: 100%;
+        margin: 0 0 4px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font: inherit;
         font-weight: bold;
         letter-spacing: 0.5px;
-        margin-bottom: 4px;
+        text-align: left;
         opacity: 0.85;
+        cursor: pointer;
+      }
+      #players-toggle::before {
+        content: '▾ ';
+      }
+      #players-panel.collapsed #players-toggle {
+        margin-bottom: 0;
+      }
+      #players-panel.collapsed #players-toggle::before {
+        content: '▸ ';
+      }
+      #players-panel.collapsed #players-list {
+        display: none;
       }
       #players-panel .players-row {
         display: flex;
@@ -257,6 +367,9 @@
         border-radius: 2px;
         margin-right: 3px;
         vertical-align: middle;
+      }
+      #address-search-toggle {
+        display: none;
       }
       #address-search {
         position: fixed;
@@ -730,6 +843,87 @@
       #attribution a {
         color: inherit;
       }
+      /* Phone: instructions and the player list are gone, the map and
+         speedo sit at the top (a bit smaller), and the hold buttons
+         sit on the bottom edge. These rules come last so they beat the
+         desktop positions above. */
+      @media (pointer: coarse), (max-width: 800px) {
+        #hud {
+          top: 146px;
+          right: 10px;
+          bottom: auto;
+          left: auto;
+          transform: none;
+          background: transparent;
+          padding: 0;
+          text-align: right;
+        }
+        #hud.collapsed #hud-discord,
+        #hud-discord {
+          margin: 0;
+          padding: 0;
+          border: none;
+        }
+        #hud-discord a {
+          font-size: 13px;
+          padding: 5px 8px;
+        }
+        #net-status { bottom: 104px; }
+        #odometer { top: 78%; }
+        #minimap {
+          top: 10px;
+          bottom: auto;
+          left: 10px;
+          width: 168px;
+          height: 168px;
+        }
+        #minimap-info {
+          bottom: 8px;
+          max-width: 86%;
+          overflow: hidden;
+        }
+        #minimap-place { font-size: 12px; }
+        #gauges {
+          top: 10px;
+          bottom: auto;
+          right: 10px;
+        }
+        #speedo {
+          width: 132px;
+          height: 132px;
+        }
+        #speedo .gauge-value { font-size: 24px; }
+        #speedo .gauge-needle { height: 50px; }
+        #address-search-toggle {
+          display: block;
+          position: fixed;
+          top: 184px;
+          right: 10px;
+          z-index: 11;
+          padding: 5px 8px;
+          border: none;
+          border-radius: 6px;
+          background: #4fc3ff;
+          color: #06222f;
+          font: 700 13px system-ui, sans-serif;
+          cursor: pointer;
+        }
+        #address-search {
+          display: none;
+          top: 222px;
+          right: 10px;
+          left: auto;
+          transform: none;
+        }
+        #address-search.is-open { display: flex; }
+        #address-search input { width: min(200px, 52vw); }
+        #address-search-status {
+          top: 268px;
+          right: 10px;
+          left: auto;
+          transform: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -751,28 +945,31 @@
       Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot;
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
+    <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to teleport there\u2026" />
       <button id="address-submit" type="submit">Go</button>
-      <button id="spawn-ball" type="button" disabled>Piłka</button>
     </form>
     <div id="address-search-status"></div>
     <div id="hud">
-      W / &uarr; &mdash; throttle<br />
-      S / &darr; &mdash; brake / reverse<br />
-      A D / &larr; &rarr; &mdash; steer<br />
-      Space &mdash; handbrake<br />
-      Shift &mdash; turbo<br />
-      F &mdash; shoot<br />
-      H &mdash; horn<br />
-      R &mdash; reset car<br />
-      M &mdash; toggle debug view (tile borders + collision hitboxes)
-      <div class="hud-points">
-        Points<br />
-        1 &mdash; kilometre<br />
-        10 &mdash; second airborne<br />
-        5 &mdash; pedestrian<br />
-        3 &mdash; car hit
+      <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Controls</button>
+      <div id="hud-body">
+        W / &uarr; &mdash; throttle<br />
+        S / &darr; &mdash; brake / reverse<br />
+        A D / &larr; &rarr; &mdash; steer<br />
+        Space &mdash; handbrake<br />
+        Shift &mdash; turbo<br />
+        F &mdash; shoot<br />
+        H &mdash; horn<br />
+        R &mdash; reset car<br />
+        M &mdash; toggle debug view (tile borders + collision hitboxes)
+        <div class="hud-points">
+          Points<br />
+          1 &mdash; kilometre<br />
+          10 &mdash; second airborne<br />
+          5 &mdash; pedestrian<br />
+          3 &mdash; car hit
+        </div>
       </div>
       <div id="hud-discord">
         <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
@@ -782,7 +979,7 @@
     <div id="airtime-hud"></div>
     <div id="top-right-stack">
       <div id="players-panel">
-        <div class="players-title">PLAYERS <span id="players-count">0</span></div>
+        <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
         <div id="players-list"></div>
       </div>
       <div id="terrain-stats"></div>
@@ -823,6 +1020,16 @@
         </div>
       </div>
       <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+    </div>
+    <div id="touch-controls">
+      <div class="touch-steer">
+        <button type="button" data-code="KeyA" aria-label="Steer left">◀</button>
+        <button type="button" data-code="KeyD" aria-label="Steer right">▶</button>
+      </div>
+      <div class="touch-actions">
+        <button type="button" data-code="KeyF" aria-label="Shoot">Shoot</button>
+        <button type="button" data-code="KeyW" aria-label="Throttle">Gas</button>
+      </div>
     </div>
     <div id="gauges">
       <div class="gauge" id="speedo">
