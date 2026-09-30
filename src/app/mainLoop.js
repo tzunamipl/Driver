@@ -33,6 +33,7 @@ export function createMainLoop({
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
+  scoring,
   isJoined,
 }) {
   let lastTime = performance.now();
@@ -90,6 +91,12 @@ export function createMainLoop({
     const currentChassisMesh = carManager.getChassisMesh();
     const currentVehicle = carManager.getVehicle();
     if (isJoined() && currentChassisMesh && currentVehicle) {
+      scoring.update(frameDelta, currentChassisMesh, currentVehicle);
+      pedestrians.updatePopulation(
+        currentChassisMesh.position.x,
+        currentChassisMesh.position.y,
+        currentChassisMesh.position.z
+      );
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
       net.publishPose({

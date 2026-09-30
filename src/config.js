@@ -61,6 +61,20 @@ export const IMPACT_ROLL_TORQUE_SCALE = 0.22;
 export const GROUND_RAY_HEIGHT = 50;
 export const MIN_GROUND_CLEARANCE = 0.05;
 
+// ---------- Score ----------
+// One point per whole kilometre of horizontal travel. A frame that jumps
+// farther than this is a reset or a map recenter, not driving.
+export const SCORE_PER_KM = 1;
+export const SCORE_TELEPORT_M = 20;
+// Ten points per whole second the car is actually flying: every wheel off
+// the ground, and the chassis center at least this far above the terrain.
+// Resting ride height is about 1.25 m; fully extended suspension just
+// clears the surface around 2 m, so 2.4 m is a real gap rather than a
+// crest, a curb, or the car sitting on its roof.
+export const SCORE_PER_AIR_SECOND = 10;
+export const FLIGHT_MIN_CLEARANCE_M = 2.4;
+export const SCORE_PER_PEDESTRIAN = 5;
+
 // ---------- Camera follow ----------
 export const CAMERA_OFFSET = [0, 30, -20];
 export const CAMERA_LOOKAT_OFFSET = [0, 10.5, 10];

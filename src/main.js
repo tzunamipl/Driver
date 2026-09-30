@@ -15,6 +15,8 @@ import { createInputController } from './app/input.js';
 import { createCarManager } from './app/carManager.js';
 import { setupGameplayProps } from './app/gameplayProps.js';
 import { createMainLoop } from './app/mainLoop.js';
+import { createScoring } from './app/scoring.js';
+import { createScoreToast } from './hud/scoreToast.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
@@ -115,7 +117,20 @@ const addressSearch = createAddressSearch({
 });
 
 // ---------- Gameplay props (pedestrians + balls) ----------
-const gameplayProps = setupGameplayProps({ pedestrians, balls, net, carManager, isJoined: () => lobby.isJoined() });
+const scoreToast = createScoreToast();
+const gameplayProps = setupGameplayProps({
+  pedestrians,
+  balls,
+  net,
+  carManager,
+  isJoined: () => lobby.isJoined(),
+  scoreToast,
+});
+const scoring = createScoring({
+  world,
+  carManager,
+  onJumpScore: (points) => scoreToast.push(points, 'jump'),
+});
 
 // ---------- Main loop ----------
 let loopStarted = false;
@@ -142,6 +157,7 @@ const mainLoop = createMainLoop({
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
+  scoring,
   isJoined: () => lobby.isJoined(),
 });
 
