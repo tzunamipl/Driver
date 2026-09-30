@@ -54,5 +54,10 @@ export function createInputController() {
     resetWasPressed = resetPressed;
   }
 
-  return { keys, updateControls };
+  function isTyping() {
+    const el = document.activeElement;
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  }
+
+  return { keys, updateControls, isTyping };
 }

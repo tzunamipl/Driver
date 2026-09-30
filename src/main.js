@@ -4,9 +4,11 @@ import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
+import { createShots } from './lib/shots.js';
+import { createHorn } from './lib/horn.js';
 import { BuildingsManager } from './lib/buildings.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, BODY_COLORS, IS_DEV_MODE } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, BODY_COLORS, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard } from './app/collisions.js';
@@ -120,9 +122,19 @@ const addressSearch = createAddressSearch({
 // ---------- Gameplay props (pedestrians + balls) ----------
 const scoreToast = createScoreToast();
 const airtimeHud = createAirtimeHud();
+const shots = createShots({
+  scene,
+  world,
+  onCarHit() {
+    carManager.addScore(SCORE_PER_CAR_HIT);
+    scoreToast.push(SCORE_PER_CAR_HIT, 'car');
+  },
+});
+const horn = createHorn();
 const gameplayProps = setupGameplayProps({
   pedestrians,
   balls,
+  shots,
   net,
   carManager,
   isJoined: () => lobby.isJoined(),
@@ -149,6 +161,8 @@ const mainLoop = createMainLoop({
   buildings,
   balls,
   pedestrians,
+  shots,
+  horn,
   remoteCollisions,
   net,
   input,

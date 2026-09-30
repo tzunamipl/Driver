@@ -5,7 +5,7 @@ import { SCORE_PER_PEDESTRIAN } from '../config.js';
 // is pure gameplay/networking glue with no per-frame physics of its own
 // (balls' per-frame sync still happens in the main loop via balls.syncMeshes()).
 
-export function setupGameplayProps({ pedestrians, balls, net, carManager, isJoined, scoreToast }) {
+export function setupGameplayProps({ pedestrians, balls, shots, net, carManager, isJoined, scoreToast }) {
   const spawnBallBtn = document.getElementById('spawn-ball');
 
   pedestrians.setOnHit((pedId, hit) => {
@@ -19,6 +19,8 @@ export function setupGameplayProps({ pedestrians, balls, net, carManager, isJoin
       for (const ped of msg.peds) pedestrians.addPed(ped.id, ped.x, ped.y, ped.z);
     } else if (msg.type === 'ped-hit') {
       pedestrians.knockFromRemote(msg.pedId, msg);
+    } else if (msg.type === 'shot') {
+      shots.spawnRemote(msg);
     } else if (msg.type === 'ball' || msg.type === 'ball-spawn') {
       balls.ensureRemote(msg.ballId, msg);
     }

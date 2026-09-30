@@ -84,6 +84,9 @@ export const AIRTIME_MIN_UPRIGHT_DOT = 0.5;
 // wheel but aren't a real jump.
 export const AIRTIME_MIN_DURATION_S = 0.5;
 export const SCORE_PER_PEDESTRIAN = 5;
+// A few points for a shot that connects with another player's car. Less
+// than running someone over, and only the shooter scores.
+export const SCORE_PER_CAR_HIT = 3;
 
 // ---------- Camera follow ----------
 export const CAMERA_OFFSET = [0, 30, -20];

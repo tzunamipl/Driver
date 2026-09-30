@@ -21,6 +21,8 @@ export function createMainLoop({
   buildings,
   balls,
   pedestrians,
+  shots,
+  horn,
   remoteCollisions,
   net,
   input,
@@ -76,6 +78,7 @@ export function createMainLoop({
       const snapshotPhysics = carManager.getSnapshotPhysics();
       if (snapshotPhysics) snapshotPhysics();
       pedestrians.flushHits();
+      shots.flushHits();
       accumulator -= FIXED_STEP;
       substeps++;
     }
@@ -89,10 +92,21 @@ export function createMainLoop({
     if (syncMeshes) syncMeshes(alpha);
     balls.syncMeshes();
     pedestrians.syncMeshes(frameDelta);
+    shots.update(frameDelta);
 
     const currentChassisMesh = carManager.getChassisMesh();
     const currentVehicle = carManager.getVehicle();
+    const hornLevel = horn.update(
+      frameDelta,
+      isJoined() && !!currentVehicle && !input.isTyping() && input.keys.has('KeyH'),
+      currentChassisMesh?.position,
+      isJoined() ? net.remotePoses(now) : []
+    );
     if (isJoined() && currentChassisMesh && currentVehicle) {
+      if (!input.isTyping()) {
+        const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
+        if (shot) net.publishProps({ type: 'shot', ...shot });
+      }
       scoring.update(frameDelta, currentChassisMesh, currentVehicle);
       pedestrians.updatePopulation(
         currentChassisMesh.position.x,
@@ -112,6 +126,7 @@ export function createMainLoop({
         speed: velocity.x * poseForward.x + velocity.y * poseForward.y + velocity.z * poseForward.z,
         steer: currentVehicle.wheelInfos[0].steering,
         score: carManager.getScore(),
+        horn: hornLevel,
       });
       if (now >= nextBallSend) {
         nextBallSend = now + 100;

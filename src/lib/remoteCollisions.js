@@ -4,8 +4,10 @@
 // drivers feel the hit and the next pose broadcast carries the result.
 //
 // Group 8 is free (ground is 2, buildings are 4, the local chassis stays
-// on the default group 1). The mask is group 1 only, so a proxy never
-// touches the terrain trimesh, buildings, or the other proxies.
+// on the default group 1, pedestrians are 16). Group 32 is a bullet. The
+// mask is the local chassis plus bullets, so a proxy never touches the
+// terrain trimesh, buildings, or the other proxies. A bullet does not
+// move the proxy: the body stays kinematic.
 
 import * as CANNON from 'cannon-es';
 import { CHASSIS_MATERIAL } from './car.js';
@@ -18,7 +20,8 @@ const CHASSIS_WIDTH = 1.8;
 const CHASSIS_HEIGHT = 0.6;
 const CHASSIS_LENGTH = 4;
 
-const REMOTE_CAR_GROUP = 8;
+export const REMOTE_CAR_GROUP = 8;
+export const BULLET_COLLISION_GROUP = 32;
 const LOCAL_CHASSIS_GROUP = 1;
 
 // Replicated speed is along the car's nose (+Z). Cap it so a bad packet
@@ -64,7 +67,7 @@ function createProxyBody() {
     type: CANNON.Body.KINEMATIC,
     material: CHASSIS_MATERIAL,
     collisionFilterGroup: REMOTE_CAR_GROUP,
-    collisionFilterMask: LOCAL_CHASSIS_GROUP,
+    collisionFilterMask: LOCAL_CHASSIS_GROUP | BULLET_COLLISION_GROUP,
     allowSleep: false,
   });
   body.addShape(new CANNON.Box(new CANNON.Vec3(CHASSIS_WIDTH / 2, CHASSIS_HEIGHT / 2, CHASSIS_LENGTH / 2)));
@@ -72,6 +75,7 @@ function createProxyBody() {
 }
 
 function placeBody(body, pose) {
+  body.playerId = pose.id;
   body.position.set(pose.x, pose.y, pose.z);
   body.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
   const speed = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, Number.isFinite(pose.speed) ? pose.speed : 0));

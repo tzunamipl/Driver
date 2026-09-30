@@ -17,8 +17,10 @@ import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from './buildings.js';
 
 const PED_GROUP = 16;
 const LOCAL_CHASSIS_GROUP = 1;
-// One candidate every 90 m. One cell in two actually grows a figure, so a
-// few hundred metres of loaded streets hold about two dozen of them.
+// One candidate every 90 m, and every cell grows a figure, so a few
+// hundred metres of loaded streets hold about four dozen of them. The
+// cell hash still picks the spot inside the cell, so figures that were
+// already there stay put.
 const CELL_M = 90;
 const SPAWN_RADIUS_M = 320;
 const DESPAWN_RADIUS_M = 480;
@@ -246,8 +248,8 @@ function cellHash(ix, iz) {
   return h >>> 0;
 }
 
-function cellHasPed(ix, iz) {
-  return cellHash(ix, iz) % 2 === 0;
+function cellHasPed() {
+  return true;
 }
 
 function pointInCell(ix, iz) {

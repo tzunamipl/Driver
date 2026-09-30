@@ -126,6 +126,7 @@ export function createNet() {
       speed: pose.speed,
       steer: pose.steer,
       score: sanitizeScore(pose.score),
+      horn: sanitizeHorn(pose.horn),
     }, false);
   }
 
@@ -189,6 +190,7 @@ export function createNet() {
       qw: msg.qw,
       speed: Number.isFinite(msg.speed) ? msg.speed : 0,
       steer: Number.isFinite(msg.steer) ? msg.steer : 0,
+      horn: sanitizeHorn(msg.horn),
     };
     const last = peer.samples[peer.samples.length - 1];
     if (last) {
@@ -352,6 +354,7 @@ function interpolate(samples, renderT) {
     qw: quat.w,
     speed: a.speed + (b.speed - a.speed) * u,
     steer: a.steer + (b.steer - a.steer) * u,
+    horn: (a.horn || 0) + ((b.horn || 0) - (a.horn || 0)) * u,
   };
 }
 
@@ -386,6 +389,12 @@ function slerpQuat(a, b, t) {
     z: a.qz * w1 + bz * w2,
     w: a.qw * w1 + bw * w2,
   };
+}
+
+function sanitizeHorn(horn) {
+  const n = Number(horn);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(1, n);
 }
 
 function sanitizeScore(score) {
