@@ -122,10 +122,11 @@ export function createNet() {
   function handlePose(msg) {
     if (!msg || msg.id === clientId) return;
     if (msg.leave) {
+      // Despawn their rendered car immediately, but deliberately leave the
+      // roster entry alone - someone who left should still show up in the
+      // "who's online" panel as idle/inactive for the rest of ROSTER_TTL_MS,
+      // not vanish the instant they close their tab.
       peers.delete(msg.id);
-      // An explicit leave means the roster shouldn't wait out the full
-      // ROSTER_TTL_MS before dropping them either.
-      roster.delete(msg.id);
       return;
     }
     if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y) || !Number.isFinite(msg.z)) return;
