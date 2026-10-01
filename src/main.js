@@ -6,6 +6,8 @@ import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/horn.js';
+import { createJump } from './lib/jump.js';
+import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
@@ -153,6 +155,8 @@ const shots = createShots({
   },
 });
 const horn = createHorn();
+const jump = createJump({ world });
+createMusic();
 setupGameplayProps({
   pedestrians,
   balls,
@@ -184,6 +188,7 @@ const mainLoop = createMainLoop({
   pedestrians,
   shots,
   horn,
+  jump,
   remoteCollisions,
   net,
   input,

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { AIR_YAW_ACCEL, AIR_YAW_MAX } from '../config.js';
 
 // Shared CANNON.Material tagging the chassis' collision shapes, so main.js
 // can pair it with BUILDING_MATERIAL (see buildings.js) in a dedicated
@@ -457,7 +458,23 @@ export function createCar(
   const stabilityAssistCallback = () => {
     correctWheelieTorque();
 
-    if (vehicle.numWheelsOnGround === 0) return; // airborne - let real physics fully take over
+    if (vehicle.numWheelsOnGround === 0) {
+      // Wheels can't steer in the air. A/D yaw the chassis so a jump can
+      // still be aimed. Only adds spin up to AIR_YAW_MAX, and never pulls
+      // a faster crash spin back down to that cap.
+      if (chassisBody.type === CANNON.Body.DYNAMIC) {
+        const yaw = vehicle.airControlYaw || 0;
+        const dt = world.dt > 0 ? world.dt : 0;
+        if (yaw && dt) {
+          const current = chassisBody.angularVelocity.y;
+          const next = current + yaw * AIR_YAW_ACCEL * dt;
+          if (Math.abs(next) <= AIR_YAW_MAX || Math.abs(next) < Math.abs(current)) {
+            chassisBody.angularVelocity.y = next;
+          }
+        }
+      }
+      return;
+    }
     stabilityCarUp.set(0, 1, 0);
     chassisBody.vectorToWorldFrame(stabilityCarUp, stabilityCarUp);
     const uprightDot = stabilityCarUp.dot(stabilityWorldUp);

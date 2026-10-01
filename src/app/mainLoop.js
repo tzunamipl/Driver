@@ -30,6 +30,7 @@ export function createMainLoop({
   pedestrians,
   shots,
   horn,
+  jump,
   remoteCollisions,
   net,
   input,
@@ -73,6 +74,7 @@ export function createMainLoop({
 
     carManager.getUpdateReset()?.(frameDelta);
     input.updateControls(vehicle, reset);
+    jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // This player's own local (0, 0) origin - equal to the fixed network
     // origin normally, but can diverge after a personal teleport (see

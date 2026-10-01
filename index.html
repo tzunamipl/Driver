@@ -262,9 +262,16 @@
         flex-direction: column;
         gap: 10px;
       }
+      .touch-actions-main {
+        display: flex;
+        gap: 10px;
+      }
       .touch-actions button {
         width: 88px;
         height: 72px;
+      }
+      #touch-controls button[data-code="KeyJ"] {
+        box-shadow: inset 0 calc(var(--charge, 0) * -72px) 0 rgba(79, 195, 255, 0.55);
       }
       @media (pointer: coarse), (max-width: 800px) {
         #touch-controls { display: block; }
@@ -272,7 +279,8 @@
         .touch-actions {
           bottom: 16px;
           right: 12px;
-          flex-direction: row;
+          flex-direction: column;
+          align-items: flex-end;
         }
         #hud-toggle,
         #hud-body,
@@ -984,6 +992,28 @@
         font-size: 10px;
         pointer-events: none;
       }
+      #music-volume {
+        position: fixed;
+        left: 292px;
+        bottom: 28px;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font: 600 12px system-ui, sans-serif;
+        pointer-events: auto;
+      }
+      #music-volume input {
+        width: 110px;
+        margin: 0;
+        accent-color: #4fc3ff;
+        cursor: pointer;
+      }
       /* Phone: instructions and the player list are gone, the map and
          speedo sit at the top (a bit smaller), and the hold buttons
          sit on the bottom edge. These rules come last so they beat the
@@ -1010,6 +1040,10 @@
           padding: 5px 8px;
         }
         #net-status { bottom: 104px; }
+        #music-volume {
+          left: 12px;
+          bottom: 188px;
+        }
         #version-badge { bottom: 88px; }
         #odometer { top: 78%; }
         #minimap {
@@ -1088,6 +1122,10 @@
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
     <div id="version-badge"></div>
+    <label id="music-volume">
+      Music
+      <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="0.4" aria-label="Music volume" />
+    </label>
     <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to teleport there\u2026" />
@@ -1102,11 +1140,12 @@
         <div id="hud-body">
           W / &uarr; &mdash; throttle<br />
           S / &darr; &mdash; brake / reverse<br />
-          A D / &larr; &rarr; &mdash; steer<br />
+          A D / &larr; &rarr; &mdash; steer, also in the air<br />
           Space &mdash; handbrake<br />
           Shift &mdash; turbo<br />
           F &mdash; shoot<br />
           H &mdash; horn<br />
+          J &mdash; jump (hold longer for a higher jump)<br />
           R &mdash; reset car<br />
           M &mdash; toggle debug view
           <div class="hud-points">
@@ -1178,8 +1217,11 @@
         <button type="button" data-code="KeyD" aria-label="Steer right">▶</button>
       </div>
       <div class="touch-actions">
-        <button type="button" data-code="KeyF" aria-label="Shoot">Shoot</button>
-        <button type="button" data-code="KeyW" aria-label="Throttle">Gas</button>
+        <button type="button" data-code="KeyJ" aria-label="Jump">Jump</button>
+        <div class="touch-actions-main">
+          <button type="button" data-code="KeyF" aria-label="Shoot">Shoot</button>
+          <button type="button" data-code="KeyW" aria-label="Throttle">Gas</button>
+        </div>
       </div>
     </div>
     <div id="gauges">
