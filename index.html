@@ -20,7 +20,20 @@
          collapse-to-pill, its full dismiss, and the players panel
          collapse) so they all read as the same kind of motion. */
       :root { --hud-fold-ms: 250ms; }
-      html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #111;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      input, textarea {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
+      }
       #app { width: 100vw; height: 100vh; }
       canvas { display: block; }
       #top-left-stack {
@@ -216,6 +229,9 @@
       #touch-controls button {
         pointer-events: auto;
         touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
         border: 2px solid rgba(255, 255, 255, 0.45);
         border-radius: 16px;
         background: rgba(0, 0, 0, 0.45);
