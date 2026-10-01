@@ -82,7 +82,7 @@ const FAR_Y_OFFSET = -3;
 // into a mosaic texture, since aerial detail is available at much finer zoom
 // than terrain-rgb (which is effectively flat past ~15) and imagery resolution
 // is what makes the ground look sharp up close.
-const AERIAL_ZOOM_BOOST = 3; // 2 levels = 4x4 child tiles = 1024x1024 texture per chunk
+const AERIAL_ZOOM_BOOST = 2; // 2 levels = 4x4 child tiles = 1024x1024 texture per chunk
 const AERIAL_TILE_SIZE = 256;
 
 // Dedicated collision group for terrain bodies so other code (e.g. the
