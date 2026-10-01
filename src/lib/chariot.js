@@ -119,7 +119,7 @@ const POD_MASS = 4;
 // the pod is dead weight dangling off the tether, not something actively
 // held in formation by a spring, so it needs a bit more of its own drag
 // to keep from swinging/overshooting indefinitely on its own.
-const POD_LINEAR_DAMPING = LINEAR_DAMPING + 0.05;
+const POD_LINEAR_DAMPING = LINEAR_DAMPING + 0.2;
 // The pod's own hover repulsor uses its own (much softer) gains rather
 // than the engines' HOVER_STIFFNESS/HOVER_DAMPING/MAX_HOVER_FORCE -
 // those are tuned for one ~37kg engine's share of mass, and would make a
