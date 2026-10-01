@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const mqttBrowser = fileURLToPath(new URL('./node_modules/mqtt/dist/mqtt.esm.js', import.meta.url));
 const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'));
 
-// Build-time stamp, "YY-MM-DD-HH-MM" (UTC, so it's unambiguous regardless
+// Build-time stamp, "YY.MM.DD-HH.MM" (UTC, so it's unambiguous regardless
 // of the CI runner's local timezone). Evaluated once when this config
 // loads, i.e. at the moment `vite build` runs on GitHub Actions - not at
 // request/render time - so it reflects when the deployed bundle was
@@ -13,13 +13,12 @@ const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', impo
 function buildTimestamp() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  return [
-    String(d.getUTCFullYear()).slice(-2),
-    pad(d.getUTCMonth() + 1),
-    pad(d.getUTCDate()),
-    pad(d.getUTCHours()),
-    pad(d.getUTCMinutes()),
-  ].join('-');
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  const mm = pad(d.getUTCMonth() + 1);
+  const dd = pad(d.getUTCDate());
+  const hh = pad(d.getUTCHours());
+  const min = pad(d.getUTCMinutes());
+  return `${yy}.${mm}.${dd}-${hh}.${min}`;
 }
 
 export default defineConfig(({ command }) => ({

@@ -118,7 +118,7 @@ const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, p
 
 // ---------- Input ----------
 const input = createInputController();
-setupCollapsibleHud();
+const collapsibleHud = setupCollapsibleHud();
 setupTouchControls(input.keys);
 
 // ---------- Camera ----------
@@ -217,6 +217,11 @@ const lobby = createLobby({
     carManager.spawnLocalCar(color);
     addressSearch.setUiEnabled(true);
     startLoopOnce();
+    // Only start the help/players auto-fold timers once the player has
+    // actually joined (name/color picked) - starting them at page load
+    // would risk folding the help panel away while they're still on the
+    // lobby form (see hud/collapsible.js).
+    collapsibleHud.startAutoFold();
   },
 });
 
