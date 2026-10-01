@@ -1,6 +1,7 @@
 import * as CANNON from 'cannon-es';
 import { CHASSIS_MATERIAL } from '../lib/car.js';
 import { BUILDING_MATERIAL } from '../lib/buildings.js';
+import { GROUND_MATERIAL } from '../lib/terrain.js';
 
 // Physics world bootstrap: gravity, broadphase, and global/pairwise contact
 // material tuning. Isolated so physics tuning (friction, restitution,
@@ -27,6 +28,28 @@ export function createPhysicsWorld() {
     new CANNON.ContactMaterial(CHASSIS_MATERIAL, BUILDING_MATERIAL, {
       friction: 0.01,
       restitution: 0.6,
+    })
+  );
+
+  // Chassis-vs-ground tuned separately too, in the opposite direction from
+  // buildings: the RaycastVehicle's wheels (not real collision shapes)
+  // already do all of the actual driving traction, so the chassis' own
+  // collision shapes (the tapered hull + 8 corner hitbox spheres - see
+  // car.js) only ever touch the terrain as a rollover/scrape safety net,
+  // e.g. suspension bottoming out under hard acceleration squat, or the
+  // car resting on its roof/side. Left on the world default (0.3
+  // restitution, near-zero 0.05 friction - tuned instead for buildings'
+  // glancing-hit slides), that safety-net contact behaves like a
+  // low-grip trampoline: every bottom-out bounces the chassis back up
+  // with almost nothing to damp any sideways/angular component, which
+  // easily snowballs into a tumble under exactly the harder acceleration
+  // that causes more squat in the first place. A firm, non-bouncy contact
+  // here makes that safety net behave like it's actually resting/scraping
+  // on the ground instead of launching off it.
+  world.addContactMaterial(
+    new CANNON.ContactMaterial(CHASSIS_MATERIAL, GROUND_MATERIAL, {
+      friction: 0.3,
+      restitution: 0,
     })
   );
 

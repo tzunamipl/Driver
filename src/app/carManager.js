@@ -18,6 +18,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   let reset = null;
   let updateReset = null;
   let setCarHitboxVisible = null;
+  let stabilityAssistCallback = null;
   let localName = '';
   let score = 0;
   let nameTag = null;
@@ -37,6 +38,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   function removeCurrentCar() {
     if (!vehicle) return;
     world.removeEventListener('preStep', vehicle.preStepCallback);
+    if (stabilityAssistCallback) world.removeEventListener('preStep', stabilityAssistCallback);
     world.removeBody(vehicle.chassisBody);
     scene.remove(chassisMesh);
     for (const mesh of wheelMeshes) scene.remove(mesh);
@@ -45,7 +47,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
 
   function spawnLocalCar(color) {
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible } = createCar(
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
       world,
       scene,
       playerSpawnPos(),
@@ -59,7 +61,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   /** Spawns the shared "preview" car used before a player has joined a room. */
   function spawnPreviewCar(startPos) {
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible } = createCar(
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
       world,
       scene,
       startPos,

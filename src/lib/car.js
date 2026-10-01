@@ -334,6 +334,142 @@ export function createCar(
 
   vehicle.addToWorld(world);
 
+  // cannon-es's updateMassProperties() approximates a body's rotational
+  // inertia from a box matching just its *shapes'* AABB - here, the thin
+  // chassisHeight-tall hull/hitbox spheres. It has no idea the wheels hang
+  // ~wheelAttachY - suspensionRestLength - radius below that (~1.4m) and
+  // ~wheelFront/wheelBack ahead/behind it, which is exactly where engine/
+  // suspension forces actually get applied. That under-sized inertia made
+  // the car absurdly easy to flip end-over-end under hard acceleration: a
+  // real car resists nose-up "wheelie" pitch with the rotational inertia
+  // of its *whole* mass distribution (engine, wheels, drivetrain) spread
+  // across its true footprint, not just a thin shell around its center.
+  // Recomputing the box-inertia approximation with the vehicle's actual
+  // footprint (track width x true ground-to-origin height x wheelbase)
+  // instead gives pitch/roll resistance in the right ballpark, without
+  // touching collision shapes, mass, or handling (yaw inertia, the one
+  // most players actually feel while steering, is barely affected since
+  // width/length dominate that axis either way).
+  const groundDrop = -wheelAttachY + wheelOptions.suspensionRestLength + wheelOptions.radius;
+  const inertiaHalfExtents = new CANNON.Vec3(axleWidth, groundDrop, wheelFront - wheelBack);
+  CANNON.Box.calculateInertia(inertiaHalfExtents, chassisBody.mass, chassisBody.inertia);
+  chassisBody.invInertia.set(
+    chassisBody.inertia.x > 0 ? 1 / chassisBody.inertia.x : 0,
+    chassisBody.inertia.y > 0 ? 1 / chassisBody.inertia.y : 0,
+    chassisBody.inertia.z > 0 ? 1 / chassisBody.inertia.z : 0
+  );
+  chassisBody.updateInertiaWorld(true);
+
+  // Extra angular damping on top of that so any residual spin (a hard
+  // launch, a bump, a graze off a wall) bleeds off instead of building
+  // into a tumble - real cars have plenty of rotational drag/friction this
+  // simplified rigid body otherwise lacks entirely (default is ~0.01).
+  chassisBody.angularDamping = 0.6;
+
+  // --- Anti-wheelie pitch correction ---
+  // The real root cause of "flips under acceleration": cannon-es's
+  // RaycastVehicle.updateFriction() applies the *forward* (engine/brake)
+  // friction impulse at the wheel's actual ground contact point, using its
+  // full, undamped lever arm back to the chassis' center of mass - unlike
+  // the *side* impulse, which it deliberately shrinks via `rollInfluence`
+  // for exactly this reason (see cannon-es's own updateFriction source:
+  // `rel_pos['xyz'][indexUpAxis] *= wheel.rollInfluence` only touches
+  // wheel.sideImpulse, never wheel.forwardImpulse). With the wheels ~1.4m
+  // below the chassis origin, hard acceleration/braking keeps injecting a
+  // big nose-up/down torque every step with nothing in the library to damp
+  // it - bigger rotational inertia (above) only slows how fast that
+  // builds, it never stops it. This reconstructs the exact torque cannon
+  // just applied for each wheel's forward impulse (from public WheelInfo
+  // state - forwardImpulse, hitPointWorld, hitNormalWorld, the wheel's own
+  // steered worldTransform - mirroring cannon's own forwardWS computation)
+  // and cancels all but a small PITCH_INFLUENCE fraction of it, the same
+  // way rollInfluence does for cornering - so accelerating/braking still
+  // pushes the car forward/back at full force, it just stops also trying
+  // to flip it end over end.
+  const PITCH_INFLUENCE = 0.05;
+  const pitchRightAxisLocal = [new CANNON.Vec3(1, 0, 0), new CANNON.Vec3(0, 1, 0), new CANNON.Vec3(0, 0, 1)][
+    vehicle.indexRightAxis
+  ];
+  const pitchAxle = new CANNON.Vec3();
+  const pitchSurfScaledProj = new CANNON.Vec3();
+  const pitchForward = new CANNON.Vec3();
+  const pitchRelPos = new CANNON.Vec3();
+  const pitchRelPosLocal = new CANNON.Vec3();
+  const pitchRelPosScaled = new CANNON.Vec3();
+  const pitchImpulseVec = new CANNON.Vec3();
+  const pitchTorqueFull = new CANNON.Vec3();
+  const pitchTorqueScaled = new CANNON.Vec3();
+  const pitchTorqueDelta = new CANNON.Vec3();
+  const pitchAngularDelta = new CANNON.Vec3();
+  function correctWheelieTorque() {
+    for (let i = 0; i < vehicle.wheelInfos.length; i++) {
+      const wheel = vehicle.wheelInfos[i];
+      if (!wheel.raycastResult.body || wheel.forwardImpulse === 0) continue;
+      const hitNormal = wheel.raycastResult.hitNormalWorld;
+
+      // Reconstruct this wheel's "forward" world direction the same way
+      // cannon-es's updateFriction just did (it doesn't expose forwardWS
+      // on WheelInfo, so it's cheap to redo from public state).
+      wheel.worldTransform.quaternion.vmult(pitchRightAxisLocal, pitchAxle);
+      const proj = pitchAxle.dot(hitNormal);
+      hitNormal.scale(proj, pitchSurfScaledProj);
+      pitchAxle.vsub(pitchSurfScaledProj, pitchAxle);
+      pitchAxle.normalize();
+      hitNormal.cross(pitchAxle, pitchForward);
+      pitchForward.normalize();
+
+      wheel.raycastResult.hitPointWorld.vsub(chassisBody.position, pitchRelPos);
+      pitchForward.scale(wheel.forwardImpulse, pitchImpulseVec);
+      pitchRelPos.cross(pitchImpulseVec, pitchTorqueFull);
+
+      // Same trick as rollInfluence: shrink the lever arm's vertical
+      // (up-axis) component specifically, in the chassis' own local frame.
+      chassisBody.vectorToLocalFrame(pitchRelPos, pitchRelPosLocal);
+      pitchRelPosLocal.y *= PITCH_INFLUENCE;
+      chassisBody.vectorToWorldFrame(pitchRelPosLocal, pitchRelPosScaled);
+      pitchRelPosScaled.cross(pitchImpulseVec, pitchTorqueScaled);
+
+      // Remove exactly the excess torque cannon's applyImpulse() call
+      // already added to angularVelocity for this wheel this step.
+      pitchTorqueFull.vsub(pitchTorqueScaled, pitchTorqueDelta);
+      chassisBody.invInertiaWorld.vmult(pitchTorqueDelta, pitchAngularDelta);
+      chassisBody.angularVelocity.vsub(pitchAngularDelta, chassisBody.angularVelocity);
+    }
+  }
+
+  // --- Anti-flip stability assist ---
+  // Belt-and-braces on top of the pitch correction above: every physics
+  // step, once the vehicle's own forces for that step are already applied
+  // (this listener runs after vehicle.preStepCallback within the same
+  // 'preStep' dispatch - see cannon-es's World.internalStep), nudge the
+  // chassis back toward upright whenever it's still reasonably level and
+  // at least one wheel is touching the ground (catches bumps/landings the
+  // targeted correction above doesn't, e.g. an uneven touchdown). It
+  // deliberately stops helping once the chassis tips past
+  // STABILITY_MAX_TILT_DOT (~53 degrees), so a real crash, rollover, or
+  // stunt-jump flip still plays out physically instead of being invisibly
+  // rubber-banded upright.
+  const STABILITY_MAX_TILT_DOT = 0.6;
+  const STABILITY_GAIN = 12;
+  const stabilityWorldUp = new CANNON.Vec3(0, 1, 0);
+  const stabilityCarUp = new CANNON.Vec3();
+  const stabilityCorrection = new CANNON.Vec3();
+  const stabilityAssistCallback = () => {
+    correctWheelieTorque();
+
+    if (vehicle.numWheelsOnGround === 0) return; // airborne - let real physics fully take over
+    stabilityCarUp.set(0, 1, 0);
+    chassisBody.vectorToWorldFrame(stabilityCarUp, stabilityCarUp);
+    const uprightDot = stabilityCarUp.dot(stabilityWorldUp);
+    if (uprightDot <= STABILITY_MAX_TILT_DOT) return; // tipped too far - a real flip is already underway
+    stabilityCarUp.cross(stabilityWorldUp, stabilityCorrection);
+    const dt = world.dt > 0 ? world.dt : 0;
+    chassisBody.angularVelocity.x += stabilityCorrection.x * STABILITY_GAIN * dt;
+    chassisBody.angularVelocity.y += stabilityCorrection.y * STABILITY_GAIN * dt;
+    chassisBody.angularVelocity.z += stabilityCorrection.z * STABILITY_GAIN * dt;
+  };
+  world.addEventListener('preStep', stabilityAssistCallback);
+
   // --- Three.js mesh: low-poly Subaru Impreza GC (90s WRX/STI rally style) ---
   // Built entirely from primitive boxes/cylinders to keep it low-poly, sized
   // to roughly match the chassis hitbox (chassisWidth x chassisLength) so it
@@ -523,7 +659,18 @@ export function createCar(
   }
 
 
-  return { vehicle, chassisBody, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible };
+  return {
+    vehicle,
+    chassisBody,
+    chassisMesh,
+    wheelMeshes,
+    syncMeshes,
+    snapshotPhysics,
+    reset,
+    updateReset,
+    setHitboxVisible,
+    stabilityAssistCallback,
+  };
 }
 
 /**
