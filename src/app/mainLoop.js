@@ -44,6 +44,7 @@ export function createMainLoop({
   addressSearch,
   preventGroundTunneling,
   buildingTunnelGuard,
+  preventBuildingEmbedding,
   scoring,
   isJoined,
 }) {
@@ -234,6 +235,12 @@ export function createMainLoop({
         Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
         Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
       );
+      // Catch a car that ended up inside a building's solid volume - a
+      // tile streaming in under an already-parked car, or a teleport
+      // landing on a spot a building occupies - and lift it onto the
+      // roof. Checked here (frame cadence) rather than per physics
+      // substep since that's also how buildings stream in/teleports land.
+      preventBuildingEmbedding(currentVehicle);
 
       minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon }, remotePoses);
     }

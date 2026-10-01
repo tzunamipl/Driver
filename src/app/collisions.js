@@ -8,6 +8,8 @@ import {
   MIN_GROUND_CLEARANCE,
   BUILDING_SWEEP_MIN_DIST_M,
   BUILDING_SWEEP_BACKOFF_M,
+  BUILDING_EMBED_RAY_HEIGHT,
+  BUILDING_EMBED_EPSILON_M,
 } from '../config.js';
 
 // Arcade-style collision responses layered on top of cannon-es's own
@@ -158,4 +160,51 @@ export function createBuildingTunnelGuard(world) {
   }
 
   return { beforeStep, afterStep };
+}
+
+/**
+ * Catches a chassis that ends up *inside* a building's solid volume
+ * instead of merely clipping through its edge - e.g. a building chunk
+ * streaming in right under a car that was already parked there (building
+ * data loads async, after the car/terrain), or an address-search teleport
+ * landing exactly on a spot a building occupies. Rather than letting the
+ * static body's own contact resolution shove the car out sideways through
+ * whichever wall happens to be nearest (jarring, and can still tunnel at
+ * speed), detect the overlap directly and lift the car straight up onto
+ * the building's roof instead.
+ *
+ * Buildings are solid prisms from ground to roof (see lib/buildings.js),
+ * so a ray cast straight down through the chassis' own (x, z), starting
+ * from well above any real building, always hits the roof's top face
+ * first - its hit height is exactly the roof's Y. If the chassis sits
+ * below that (beyond a small epsilon, so a car legitimately parked flush
+ * on the roof isn't mistaken for one embedded just under it), it's inside
+ * the building and gets snapped up onto the roof.
+ */
+export function createBuildingEmbedGuard(world) {
+  const rayFrom = new CANNON.Vec3();
+  const rayTo = new CANNON.Vec3();
+  const rayResult = new CANNON.RaycastResult();
+
+  return function preventBuildingEmbedding(vehicle) {
+    if (!vehicle) return;
+    const pos = vehicle.chassisBody.position;
+    rayFrom.set(pos.x, pos.y + BUILDING_EMBED_RAY_HEIGHT, pos.z);
+    rayTo.set(pos.x, pos.y - BUILDING_EMBED_RAY_HEIGHT, pos.z);
+    rayResult.reset();
+    world.raycastClosest(
+      rayFrom,
+      rayTo,
+      { collisionFilterMask: BUILDING_COLLISION_GROUP },
+      rayResult
+    );
+
+    if (!rayResult.hasHit) return;
+    const roofY = rayResult.hitPointWorld.y;
+    if (pos.y < roofY - BUILDING_EMBED_EPSILON_M) {
+      pos.y = roofY + MIN_GROUND_CLEARANCE;
+      if (vehicle.chassisBody.velocity.y < 0) vehicle.chassisBody.velocity.y = 0;
+      vehicle.chassisBody.angularVelocity.set(0, 0, 0);
+    }
+  };
 }

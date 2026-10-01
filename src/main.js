@@ -13,7 +13,7 @@ import { loadOrCreatePlayerId } from './lib/playerId.js';
 import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
-import { createGroundTunnelGuard, createBuildingTunnelGuard } from './app/collisions.js';
+import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
 import { createCameraFollow } from './app/cameraFollow.js';
 import { createInputController } from './app/input.js';
 import { createCarManager } from './app/carManager.js';
@@ -51,6 +51,7 @@ const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
 const balls = createBalls(scene, world);
 const preventGroundTunneling = createGroundTunnelGuard(world);
 const buildingTunnelGuard = createBuildingTunnelGuard(world);
+const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 
 // ---------- Real-world terrain + 3D buildings (streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
@@ -198,6 +199,7 @@ const mainLoop = createMainLoop({
   addressSearch,
   preventGroundTunneling,
   buildingTunnelGuard,
+  preventBuildingEmbedding,
   scoring,
   isJoined: () => lobby.isJoined(),
 });
