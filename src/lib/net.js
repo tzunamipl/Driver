@@ -4,6 +4,7 @@
 // The broker is best-effort: if it drops, driving still works solo.
 
 import mqtt from 'mqtt';
+import { DEFAULT_VEHICLE_ID, getVehicle } from './vehicles/index.js';
 
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const POSE_TOPIC = 'tzunamipl/driver/v1/pose';
@@ -72,6 +73,7 @@ export function createNet({ clientId } = {}) {
   let lastPublish = 0;
   let playerName = '';
   let playerColor = 0x1c3f94;
+  let playerVehicleId = DEFAULT_VEHICLE_ID;
 
   function emitStatus(status) {
     for (const fn of statusListeners) fn(status);
@@ -107,6 +109,7 @@ export function createNet({ clientId } = {}) {
       id: clientId,
       name: playerName,
       color: playerColor,
+      vehicleId: playerVehicleId,
       x: pose.x,
       y: pose.y,
       z: pose.z,
@@ -144,11 +147,12 @@ export function createNet({ clientId } = {}) {
 
     let peer = peers.get(msg.id);
     if (!peer) {
-      peer = { name: '', color: 0x1c3f94, score: 0, lastSeen: 0, samples: [] };
+      peer = { name: '', color: 0x1c3f94, vehicleId: DEFAULT_VEHICLE_ID, score: 0, lastSeen: 0, samples: [] };
       peers.set(msg.id, peer);
     }
     peer.name = sanitizeName(msg.name);
     peer.color = sanitizeColor(msg.color);
+    peer.vehicleId = sanitizeVehicleId(msg.vehicleId);
     peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
     roster.set(msg.id, { name: peer.name, score: peer.score, lastSeen: Date.now() });
@@ -196,9 +200,10 @@ export function createNet({ clientId } = {}) {
     for (const fn of propListeners) fn(msg);
   }
 
-  function connect({ name, color }) {
+  function connect({ name, color, vehicleId }) {
     playerName = sanitizeName(name);
     playerColor = sanitizeColor(color);
+    playerVehicleId = sanitizeVehicleId(vehicleId);
     emitStatus('connecting');
 
     client = mqtt.connect(BROKER_URL, {
@@ -253,7 +258,7 @@ export function createNet({ clientId } = {}) {
       }
       const pose = interpolate(peer.samples, renderT);
       if (!pose) continue;
-      poses.push({ id, name: peer.name, color: peer.color, score: peer.score, ...pose });
+      poses.push({ id, name: peer.name, color: peer.color, vehicleId: peer.vehicleId, score: peer.score, ...pose });
     }
     return poses;
   }
@@ -283,6 +288,16 @@ export function createNet({ clientId } = {}) {
     return list;
   }
 
+  /**
+   * Updates the vehicle kind published with every subsequent pose, without
+   * a reconnect - used by the debug view's instant vehicle picker (see
+   * hud/vehicleDebugPicker.js) so switching vehicles mid-drive also
+   * updates how this player renders on everyone else's screen.
+   */
+  function setVehicleId(vehicleId) {
+    playerVehicleId = sanitizeVehicleId(vehicleId);
+  }
+
   return {
     clientId,
     spawnOffset,
@@ -295,6 +310,7 @@ export function createNet({ clientId } = {}) {
     getRoster,
     onStatus,
     onProps,
+    setVehicleId,
   };
 }
 
@@ -379,4 +395,8 @@ function sanitizeColor(color) {
   const n = Number(color);
   if (!Number.isInteger(n) || n < 0 || n > 0xffffff) return 0x1c3f94;
   return n;
+}
+
+function sanitizeVehicleId(vehicleId) {
+  return getVehicle(vehicleId).id;
 }

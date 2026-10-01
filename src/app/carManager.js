@@ -1,5 +1,7 @@
 import { createCar, createRemoteCar, createNameTag } from '../lib/car.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
+import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
+import { DEFAULT_BODY_COLOR } from '../config.js';
 import { applyImpactRoll } from './collisions.js';
 
 // Owns the local car's lifecycle (spawn/respawn/despawn) plus the roster of
@@ -22,6 +24,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   let localName = '';
   let score = 0;
   let nameTag = null;
+  let currentColor = DEFAULT_BODY_COLOR;
+  let currentVehicleId = DEFAULT_VEHICLE_ID;
   const remotes = new Map();
 
   function hookCar(nextVehicle, mesh) {
@@ -45,15 +49,46 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
     vehicle = null;
   }
 
-  function spawnLocalCar(color) {
+  function spawnLocalCar(color, vehicleId) {
+    currentColor = color;
+    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     removeCurrentCar();
     ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
       world,
       scene,
       playerSpawnPos(),
       playerSpawnQuat ? playerSpawnQuat() : startQuat,
-      color
+      currentColor,
+      currentVehicleId
     ));
+    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
+    hookCar(vehicle, chassisMesh);
+  }
+
+  /**
+   * Instantly swaps the local car's vehicle kind in place - same position,
+   * heading and velocity, just a different body/mesh underneath - used by
+   * the debug view's vehicle picker (see hud/vehicleDebugPicker.js) so
+   * trying out a vehicle mid-drive doesn't also reset where you are. A
+   * no-op before a car exists (nothing to swap yet; the next spawn just
+   * picks it up via currentVehicleId).
+   */
+  function setVehicleKind(vehicleId) {
+    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    if (!vehicle) return;
+    const position = vehicle.chassisBody.position.clone();
+    const quaternion = vehicle.chassisBody.quaternion.clone();
+    const velocity = vehicle.chassisBody.velocity.clone();
+    removeCurrentCar();
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
+      world,
+      scene,
+      position,
+      quaternion,
+      currentColor,
+      currentVehicleId
+    ));
+    vehicle.chassisBody.velocity.copy(velocity);
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
   }
@@ -80,7 +115,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
       seen.add(pose.id);
       let remote = remotes.get(pose.id);
       if (!remote) {
-        remote = createRemoteCar(scene, pose.color, pose.name, pose.score ?? 0);
+        remote = createRemoteCar(scene, pose.color, pose.name, pose.score ?? 0, pose.vehicleId);
         remotes.set(pose.id, remote);
       } else {
         remote.setAppearance(pose.color, pose.name, pose.score ?? 0);
@@ -107,11 +142,13 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
     remotes,
     spawnLocalCar,
     spawnPreviewCar,
+    setVehicleKind,
     updateRemotes,
     addScore,
     setLocalName,
     getScore: () => score,
     getLocalName: () => localName,
+    getVehicleId: () => currentVehicleId,
     // Live accessors - the underlying values are reassigned on
     // (re)spawn, so callers must read these via the getter each frame
     // rather than destructuring once.

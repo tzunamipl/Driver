@@ -591,6 +591,58 @@
         border: none;
         border-radius: 6px;
       }
+      #vehicle-picker {
+        margin: 0 0 16px;
+      }
+      #vehicle-tabs {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        margin-bottom: 8px;
+      }
+      .vehicle-tab {
+        flex: 1;
+        padding: 7px 6px;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.65);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+      .vehicle-tab.active {
+        color: #fff;
+        border-bottom-color: #4fc3ff;
+      }
+      #vehicle-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+      .vehicle-item {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        background: rgba(0, 0, 0, 0.35);
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .vehicle-item.active {
+        border-color: #4fc3ff;
+        background: rgba(79, 195, 255, 0.18);
+      }
+      .vehicle-empty {
+        margin: 0;
+        padding: 8px 2px;
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 12px;
+      }
       #lobby-join {
         width: 100%;
         padding: 8px 14px;
@@ -692,6 +744,49 @@
         padding-top: 6px;
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         opacity: 0.85;
+      }
+      /* Instant vehicle picker in the debug view (toggled with M, same as
+         #suspension-hud/#terrain-stats) - a compact version of the lobby's
+         tabs + list widget (see .vehicle-tab/.vehicle-item below) that
+         swaps the local car's vehicle kind in place instead of just
+         previewing a choice before joining. */
+      #vehicle-debug-hud {
+        color: #fff;
+        font-family: monospace;
+        font-size: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 8px 10px;
+        border-radius: 6px;
+        z-index: 10;
+        width: 150px;
+      }
+      #vehicle-debug-hud .susp-title {
+        margin-bottom: 6px;
+        opacity: 0.8;
+        letter-spacing: 0.5px;
+      }
+      #vehicle-debug-hud #vehicle-debug-tabs {
+        display: flex;
+        gap: 3px;
+        margin-bottom: 6px;
+      }
+      #vehicle-debug-hud .vehicle-tab {
+        flex: 1;
+        padding: 4px 2px;
+        font-size: 9px;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+      }
+      #vehicle-debug-hud #vehicle-debug-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 100px;
+        overflow-y: auto;
+      }
+      #vehicle-debug-hud .vehicle-item {
+        padding: 5px 6px;
+        font-size: 10px;
       }
       /* Car-navigation-style minimap: round, north-up, with a rotating car
          marker, zoom controls, a scale bar, and a place-name/coordinates
@@ -1087,6 +1182,11 @@
         <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
         <label for="lobby-color">Color</label>
         <input id="lobby-color" name="color" type="color" value="#1c3f94" />
+        <label>Vehicle</label>
+        <div id="vehicle-picker">
+          <div id="vehicle-tabs" role="tablist"></div>
+          <div id="vehicle-list"></div>
+        </div>
         <button id="lobby-join" type="submit" disabled>Drive in</button>
         <p id="lobby-status">Loading terrain…</p>
       </form>
@@ -1154,6 +1254,11 @@
           </div>
         </div>
         <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+      </div>
+      <div id="vehicle-debug-hud">
+        <div class="susp-title">VEHICLE</div>
+        <div id="vehicle-debug-tabs"></div>
+        <div id="vehicle-debug-list"></div>
       </div>
     </div>
     <div id="score-toasts"></div>

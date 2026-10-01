@@ -10,10 +10,13 @@
  * @param {import('../lib/buildings.js').BuildingsManager} deps.buildings
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
+ * @param {HTMLElement} [deps.vehicleDebugHudEl] - instant vehicle picker
+ *   panel (see hud/vehicleDebugPicker.js); optional so tests/other
+ *   call sites that don't need it can omit it.
  * @param {boolean} initialEnabled - on by default in dev mode, off by
  *   default in prod (see config.js APP_MODE).
  */
-export function createDebugVisualsToggle({ terrain, buildings, terrainStatsEl, suspensionHudEl }, initialEnabled) {
+export function createDebugVisualsToggle({ terrain, buildings, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl }, initialEnabled) {
   let debugVisualsEnabled = initialEnabled;
   // Registered later, once the car exists (see carManager.js) - calling
   // setEnabled before that just skips the car hitbox for now; carManager
@@ -23,6 +26,7 @@ export function createDebugVisualsToggle({ terrain, buildings, terrainStatsEl, s
   function apply() {
     terrainStatsEl.style.display = debugVisualsEnabled ? '' : 'none';
     suspensionHudEl.style.display = debugVisualsEnabled ? '' : 'none';
+    if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = debugVisualsEnabled ? '' : 'none';
     terrain.setBordersVisible(debugVisualsEnabled);
     buildings.setHitboxesVisible(debugVisualsEnabled);
     if (setCarHitboxVisible) setCarHitboxVisible(debugVisualsEnabled);

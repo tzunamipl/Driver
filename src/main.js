@@ -30,6 +30,7 @@ import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
+import { createVehicleDebugPicker } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
@@ -110,12 +111,23 @@ const debugVisuals = createDebugVisualsToggle(
     buildings,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
+    vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
   },
   IS_DEV_MODE
 );
 
 // ---------- Car + remote players ----------
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+
+// ---------- Instant vehicle picker in the debug view (see M-key toggle
+// above); needs net too so switches broadcast to peers like the lobby's
+// picker does on join. ----------
+const vehicleDebugPicker = createVehicleDebugPicker({
+  carManager,
+  net,
+  tabsEl: document.getElementById('vehicle-debug-tabs'),
+  listEl: document.getElementById('vehicle-debug-list'),
+});
 
 // ---------- Input ----------
 const input = createInputController();
@@ -215,8 +227,9 @@ const lobby = createLobby({
   net,
   carManager,
   originChain: () => addressSearch.awaitOriginChain(),
-  onJoined(color) {
-    carManager.spawnLocalCar(color);
+  onJoined(color, vehicleId) {
+    carManager.spawnLocalCar(color, vehicleId);
+    vehicleDebugPicker.syncFromCar();
     addressSearch.setUiEnabled(true);
     startLoopOnce();
     // Only start the help/players auto-fold timers once the player has
