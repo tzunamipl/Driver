@@ -30,6 +30,7 @@ import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
+import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
 
@@ -129,6 +130,7 @@ const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
 const minimapHud = createMinimapHud();
+createVersionBadge();
 
 // ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({

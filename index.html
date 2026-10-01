@@ -957,6 +957,17 @@
       #attribution a {
         color: inherit;
       }
+      #version-badge {
+        position: fixed;
+        bottom: 4px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        color: rgba(255, 255, 255, 0.6);
+        font-family: system-ui, sans-serif;
+        font-size: 10px;
+        pointer-events: none;
+      }
       /* Phone: instructions and the player list are gone, the map and
          speedo sit at the top (a bit smaller), and the hold buttons
          sit on the bottom edge. These rules come last so they beat the
@@ -983,6 +994,7 @@
           padding: 5px 8px;
         }
         #net-status { bottom: 104px; }
+        #version-badge { bottom: 88px; }
         #odometer { top: 78%; }
         #minimap {
           top: 10px;
@@ -1059,6 +1071,7 @@
       Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot;
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
+    <div id="version-badge"></div>
     <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to teleport there\u2026" />
