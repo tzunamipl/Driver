@@ -78,6 +78,16 @@ export const BUILDING_SWEEP_MIN_DIST_M = 0.15;
 // contact resolution can take over instead of immediately re-tunneling.
 export const BUILDING_SWEEP_BACKOFF_M = 0.1;
 
+// ---------- Building-embed guard ----------
+// How far above/below the chassis to cast the "is this spot under a
+// building's roof?" ray - tall enough to clear any real building plus the
+// chassis' own resting height on either side.
+export const BUILDING_EMBED_RAY_HEIGHT = 500;
+// Tolerance (metres) before a chassis sitting right at/just above a roof
+// (i.e. legitimately parked on top of a building) is mistaken for one
+// embedded just below it.
+export const BUILDING_EMBED_EPSILON_M = 0.2;
+
 // ---------- Score ----------
 // One point per whole kilometre of horizontal travel. A frame that jumps
 // farther than this is a reset or a map recenter, not driving.
