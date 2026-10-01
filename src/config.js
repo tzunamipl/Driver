@@ -52,6 +52,15 @@ export const MAX_STEER = 0.5;
 // of using an unrelated fixed constant.
 export const BRAKE_FORCE = MAX_FORCE * 10;
 export const TURBO_MULT = 4;
+// Jump charges while the button is held and fires on release. A tap is a
+// small hop; holding out the full charge time reaches the high jump.
+export const JUMP_CHARGE_S = 1.2;
+export const JUMP_MIN_SPEED = 5;
+export const JUMP_MAX_SPEED = 15;
+// Air steering. Wheels do nothing once they're off the ground, so A/D add
+// yaw directly. Capped so a held turn is a heading change, not a blender.
+export const AIR_YAW_ACCEL = 2.4;
+export const AIR_YAW_MAX = 1.5;
 
 // ---------- Collision response (arcade impact roll) ----------
 // Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
