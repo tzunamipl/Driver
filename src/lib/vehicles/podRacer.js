@@ -240,6 +240,12 @@ function createPodRacerVehicle(engineCount, { id, name } = {}) {
     engineCount,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
     buildIndependentRig: (scene, color) => buildIndependentRig(scene, color, engineCount),
+    // See lib/airDrag.js - slim, nose-first engines punch through the air
+    // easily either direction, but the whole row spread broadside-on
+    // (engines + pod + tether/coupling struts, all presenting their full
+    // length to the airflow at once) is by far the draggiest way for this
+    // rig to move.
+    dragProfile: { front: 0.7, side: 2.6, rear: 0.85 },
   };
 }
 

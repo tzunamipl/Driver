@@ -117,4 +117,9 @@ export default {
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
+  // See lib/airDrag.js - a real, tapered car nose cuts through the air
+  // more easily than its flat-ish tail (plus the roof spoiler kicking up
+  // a bit more turbulence reversing into the air), and its flank is by
+  // far the biggest cross-section of all three.
+  dragProfile: { front: 0.85, side: 2.4, rear: 1.2 },
 };

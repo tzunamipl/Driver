@@ -4,6 +4,7 @@ import { MAX_FORCE, MAX_STEER } from '../config.js';
 import { GROUND_COLLISION_GROUP } from './terrain.js';
 import { BUILDING_COLLISION_GROUP } from './buildings.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
+import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { ENGINE_RADIUS, POD_RADIUS, ENGINE_Z, engineLocalOffsets, POD_LOCAL_OFFSET } from './vehicles/podRacerLayout.js';
 import { orientStrut } from './vehicles/podRacer.js';
 
@@ -219,6 +220,10 @@ function hoverAt(world, worldPos, verticalVelocity, rayFrom, rayTo, rayResult, s
  */
 export function createChariotVehicle(world, THREE_scene, startPosition, startQuaternion, color, descriptor) {
   const engineCount = descriptor.engineCount ?? 3;
+  // See lib/airDrag.js - applied relative to the shared, live formation
+  // heading (headingForward/computeFormationHeading), since no single
+  // engine body's own quaternion is an authoritative "facing" for the rig.
+  const dragProfile = descriptor.dragProfile ?? DEFAULT_DRAG_PROFILE;
   const engineOffsets = engineLocalOffsets(engineCount);
   const centerIndex = Math.min(Math.floor(engineCount / 2), engineCount - 1);
   // Engine indices sorted by local x (left to right) - fixed at
@@ -575,6 +580,12 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
         body.velocity.z -= sharedRight.z * lateralSpeed * gripT;
       }
 
+      // Universal directional air drag (see lib/airDrag.js) - every engine
+      // is its own independent body, so each gets its own drag force, all
+      // relative to the one shared live heading rather than this body's
+      // own (cosmetic-only) quaternion.
+      applyAirDrag(body, sharedForward, dragProfile);
+
       wheelInfos[i].worldTransform.position.copy(body.position);
       wheelInfos[i].suspensionLength = Math.min(HOVER_REST_HEIGHT * 2, Math.max(0, hover.clearance));
 
@@ -610,6 +621,10 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
       podBody.applyForce(scratchForce);
     }
     anyGrounded = anyGrounded || podHover.grounded;
+    // The pod (dead weight on the tether) gets the same drag treatment,
+    // using the shared heading too - podBody.quaternion is fixedRotation
+    // and never updates, so it's not a usable "facing" reference.
+    applyAirDrag(podBody, sharedForward, dragProfile);
     const podSlot = wheelInfos.length - 1;
     wheelInfos[podSlot].worldTransform.position.copy(podBody.position);
     wheelInfos[podSlot].suspensionLength = Math.min(HOVER_REST_HEIGHT * 2, Math.max(0, podHover.clearance));

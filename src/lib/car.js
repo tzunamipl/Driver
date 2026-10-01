@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import { getVehicle, DEFAULT_VEHICLE_ID } from './vehicles/index.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
 import { createChariotVehicle, createRemoteChariot } from './chariot.js';
+import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 
 // Re-exported from vehicleShared.js (not defined here) so every existing
 // `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
@@ -335,8 +336,19 @@ export function createCar(
   const stabilityWorldUp = new CANNON.Vec3(0, 1, 0);
   const stabilityCarUp = new CANNON.Vec3();
   const stabilityCorrection = new CANNON.Vec3();
+  // Universal directional air drag (see lib/airDrag.js) - this vehicle's
+  // own dragProfile (falling back to a generic default for any descriptor
+  // that doesn't define one), applied relative to the chassis' own
+  // current facing (its local +Z, same "front" convention every rig here
+  // uses).
+  const dragProfile = descriptor.dragProfile ?? DEFAULT_DRAG_PROFILE;
+  const dragForwardLocal = new CANNON.Vec3(0, 0, 1);
+  const dragForwardWorld = new CANNON.Vec3();
   const stabilityAssistCallback = () => {
     correctWheelieTorque();
+
+    chassisBody.vectorToWorldFrame(dragForwardLocal, dragForwardWorld);
+    applyAirDrag(chassisBody, dragForwardWorld, dragProfile);
 
     if (vehicle.numWheelsOnGround === 0) return; // airborne - let real physics fully take over
     stabilityCarUp.set(0, 1, 0);
