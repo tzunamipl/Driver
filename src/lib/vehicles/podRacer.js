@@ -19,9 +19,11 @@
 //    transforms) - used for *remote* players, who only ever get a single
 //    interpolated pose over the network, so a fully soft pod isn't
 //    reproducible there anyway.
-//  - buildSplitBody(): separate engine-rig and pod groups, each meant to
-//    be driven by its own physics body - used for the *local* player's
-//    chariot (lib/chariot.js), where the tether's slack is real.
+//  - buildIndependentBody(): separate meshes for every engine, every
+//    coupling strut, and the pod, each meant to be driven by its own
+//    physics body - used for the *local* player's chariot
+//    (lib/chariot.js), where the engines flex independently and the
+//    tether's slack is real.
 
 import * as THREE from 'three';
 import {
@@ -135,7 +137,15 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engi
 
   engineOffsets.forEach((off) => {
     const tether = buildStrutMesh(0.025, tetherMat);
-    orientStrut(tether, off, POD_LOCAL_OFFSET);
+    // Same rear-top attach point as the independent (local-player) body -
+    // see TETHER_ENGINE_LOCAL_OFFSET in chariot.js for the rationale; kept
+    // in sync here by hand since this rigid body has no per-engine
+    // quaternion of its own to rotate an offset through (engines never
+    // move relative to the group), so it's simplest to just add the
+    // offset directly in this shared local frame (+Z front, nose convention
+    // from buildEngine()).
+    const attach = { x: off.x, y: off.y + ENGINE_RADIUS, z: off.z - ENGINE_LENGTH / 2 };
+    orientStrut(tether, attach, POD_LOCAL_OFFSET);
     group.add(tether);
   });
 
@@ -143,29 +153,37 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engi
 }
 
 /**
- * Split body for the local, physics-driven chariot (lib/chariot.js): an
- * `engineGroup` (engines + power couplings, rigid relative to each other)
- * and a separate `podGroup` (just the pod), meant to be positioned by two
- * independent physics bodies connected by a soft tether - so the pod
- * visibly lags/swings instead of being bolted to the engines. Also
- * returns `tetherMeshes` (one per engine, already added to `scene`),
- * pre-built but **not** pre-oriented - the caller repositions them every
- * frame via `orientStrut` once it knows both bodies' current transforms.
+ * Independent body for the local, physics-driven chariot (lib/chariot.js)
+ * with genuinely independent engine bodies (see ENGINE_FORMATION_* in
+ * chariot.js): each engine gets its own standalone mesh (added directly
+ * to `scene`, not nested in one shared group, since each is now driven by
+ * its own physics body and can visibly flex apart from the others) and
+ * the power-coupling struts between them become dynamic meshes
+ * (`couplingMeshes`, re-aimed every frame via `orientStrut`) instead of
+ * static children, since the engines can now actually drift relative to
+ * each other. Also returns `tetherMeshes` (one per engine) and `podGroup`,
+ * pre-built but **not** pre-oriented - the caller repositions everything
+ * every frame once it knows each body's current transform.
  */
-function buildSplitBody(scene, color = DEFAULT_BODY_COLOR, engineCount) {
+function buildIndependentBody(scene, color = DEFAULT_BODY_COLOR, engineCount) {
   const engineOffsets = engineLocalOffsets(engineCount);
 
-  const engineGroup = new THREE.Group();
-  engineOffsets.forEach((off) => {
+  const engineMeshes = engineOffsets.map((off) => {
     const engine = buildEngine();
     engine.position.set(off.x, off.y, off.z);
-    engineGroup.add(engine);
+    scene.add(engine);
+    return engine;
   });
-  const sorted = engineOffsets.slice().sort((a, b) => a.x - b.x);
-  for (let i = 0; i < sorted.length - 1; i++) {
+
+  const couplingOrder = engineOffsets
+    .map((off, index) => ({ off, index }))
+    .sort((a, b) => a.off.x - b.off.x)
+    .map((entry) => entry.index);
+  const couplingMeshes = [];
+  for (let i = 0; i < couplingOrder.length - 1; i++) {
     const strut = buildStrutMesh(0.05, couplingMat);
-    orientStrut(strut, sorted[i], sorted[i + 1]);
-    engineGroup.add(strut);
+    scene.add(strut);
+    couplingMeshes.push(strut);
   }
 
   const { group: podGroup, bodyMat } = buildPod(color);
@@ -176,7 +194,7 @@ function buildSplitBody(scene, color = DEFAULT_BODY_COLOR, engineCount) {
     return tether;
   });
 
-  return { engineGroup, podGroup, tetherMeshes, bodyMat, engineOffsets };
+  return { engineMeshes, couplingMeshes, podGroup, tetherMeshes, bodyMat, engineOffsets, couplingOrder };
 }
 
 /**
@@ -196,9 +214,10 @@ function createPodRacerVehicle(engineCount, { id, name } = {}) {
     vehicleType: 'hover',
     engineCount,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
-    buildSplitBody: (scene, color) => buildSplitBody(scene, color, engineCount),
+    buildIndependentBody: (scene, color) => buildIndependentBody(scene, color, engineCount),
   };
 }
+
 
 // Demo variant requested for launch: 3 engines. Other engine counts can be
 // added later with `createPodRacerVehicle(n)` - no other file needs to
