@@ -120,7 +120,7 @@ export const CAMERA_OFFSET = [0, 30, -20];
 export const CAMERA_LOOKAT_OFFSET = [0, 10.5, 10];
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
 export const CAMERA_POSITION_SPEED = 2.5;
-export const CAMERA_LOOKAT_SPEED = 3;
+export const CAMERA_LOOKAT_SPEED = 50;
 // Raw yaw (from the chassis quaternion) carries small high-frequency noise
 // from suspension/wheel-contact vibration, which gets amplified a lot by
 // the long camera offset (~36 units) into visible high-speed jitter. Smooth
