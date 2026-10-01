@@ -21,6 +21,12 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   let updateReset = null;
   let setCarHitboxVisible = null;
   let stabilityAssistCallback = null;
+  // Only set for vehicle kinds that own extra bodies/meshes beyond the one
+  // chassisBody/chassisMesh pair this module cleans up generically below
+  // (currently just the hover rig's separately-tethered pod - see
+  // lib/chariot.js). undefined for wheeled cars, so `dispose?.()` safely
+  // no-ops for those.
+  let dispose = null;
   let localName = '';
   let score = 0;
   let nameTag = null;
@@ -43,6 +49,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
     if (!vehicle) return;
     world.removeEventListener('preStep', vehicle.preStepCallback);
     if (stabilityAssistCallback) world.removeEventListener('preStep', stabilityAssistCallback);
+    dispose?.();
     world.removeBody(vehicle.chassisBody);
     scene.remove(chassisMesh);
     for (const mesh of wheelMeshes) scene.remove(mesh);
@@ -53,7 +60,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
     currentColor = color;
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       playerSpawnPos(),
@@ -80,7 +87,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
     const quaternion = vehicle.chassisBody.quaternion.clone();
     const velocity = vehicle.chassisBody.velocity.clone();
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       position,
@@ -96,7 +103,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
   /** Spawns the shared "preview" car used before a player has joined a room. */
   function spawnPreviewCar(startPos) {
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback } = createCar(
+    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       startPos,

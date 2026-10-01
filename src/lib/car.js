@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { getVehicle, DEFAULT_VEHICLE_ID } from './vehicles/index.js';
+import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
+import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 
-// Shared CANNON.Material tagging the chassis' collision shapes, so main.js
-// can pair it with BUILDING_MATERIAL (see buildings.js) in a dedicated
-// ContactMaterial - lower friction than the world default so a glancing
-// hit against a wall slides/bounces off instead of grabbing and stopping
-// the car dead.
-export const CHASSIS_MATERIAL = new CANNON.Material('chassis');
+// Re-exported from vehicleShared.js (not defined here) so every existing
+// `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
+// working unchanged - see vehicleShared.js for why it had to move out of
+// this file (lib/chariot.js, the hover-vehicle rig, needs it too, and
+// importing it back from here would be circular).
+export { CHASSIS_MATERIAL, createNameTag };
 
 const DEFAULT_BODY_COLOR = 0x1c3f94; // WRC blue
 const CHASSIS_WIDTH = 1.8;
@@ -17,6 +19,7 @@ const WHEEL_RADIUS = 0.4;
 // How long a reset's lift-back-upright takes to ease into place, instead of
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
+
 
 /**
  * Returns the chassis' top-down footprint as an octagon tapered at the
@@ -93,57 +96,17 @@ function buildRallyWheel(radius, parent) {
   return group;
 }
 
-function makeNameSprite(name, score = 0) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(16, 16, 480, 96);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 48px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`${name}  ${score}`, 256, 64);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
-  const sprite = new THREE.Sprite(material);
-  sprite.position.set(0, 2.4, 0);
-  sprite.scale.set(5.2, 1.3, 1);
-  sprite.renderOrder = 1;
-  return sprite;
-}
-
-/** Name + score plate parented by the caller (local chassis or a remote car). */
-export function createNameTag(name, score = 0) {
-  const sprite = makeNameSprite(name, score);
-  let currentName = name;
-  let currentScore = score;
-
-  function set(nextName, nextScore = 0) {
-    const safeScore = Number.isFinite(nextScore) ? nextScore : 0;
-    if (nextName === currentName && safeScore === currentScore) return;
-    currentName = nextName;
-    currentScore = safeScore;
-    const previous = sprite.material;
-    sprite.material = makeNameSprite(nextName, safeScore).material;
-    previous.map?.dispose();
-    previous.dispose();
-  }
-
-  return { sprite, set };
-}
-
 /**
  * Creates a Cannon-es RaycastVehicle (suspension, wheel friction,
  * acceleration) for the physics body, plus the selected vehicle's
  * Three.js mesh (see lib/vehicles/index.js's registry - `vehicleId`
  * defaults to DEFAULT_VEHICLE_ID when omitted/unknown). The physics rig
- * (chassis shape, wheels, inertia tuning) is shared by every vehicle kind
- * for now - only the visible body mesh is swapped per vehicle.
+ * (chassis shape, wheels, inertia tuning) is shared by every *wheeled*
+ * vehicle kind for now - only the visible body mesh is swapped per
+ * vehicle. Hover vehicles (descriptor.vehicleType === 'hover', e.g. the
+ * Chariots of Fire pod racers) are built by a completely different rig
+ * instead - see lib/chariot.js - since differential-thrust hovering has
+ * nothing in common with wheel suspension/friction.
  */
 export function createCar(
   world,
@@ -153,6 +116,11 @@ export function createCar(
   color = DEFAULT_BODY_COLOR,
   vehicleId = DEFAULT_VEHICLE_ID
 ) {
+  const descriptor = getVehicle(vehicleId);
+  if (descriptor.vehicleType === 'hover') {
+    return createChariotVehicle(world, THREE_scene, startPosition, startQuaternion, color, descriptor);
+  }
+
   // --- Chassis physics body ---
   const chassisWidth = CHASSIS_WIDTH;
   const chassisHeight = CHASSIS_HEIGHT;
@@ -242,6 +210,10 @@ export function createCar(
   });
 
   vehicle.addToWorld(world);
+
+  // Labels for hud/suspensionHud.js's generic per-wheel bars, in the same
+  // order as vehicle.wheelInfos (see wheelPositions above).
+  vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];
 
   // cannon-es's updateMassProperties() approximates a body's rotational
   // inertia from a box matching just its *shapes'* AABB - here, the thin
@@ -585,9 +557,16 @@ export function createCar(
 /**
  * Visual-only copy of the local car (no physics) for other players.
  * Wheels are parented to the chassis and spun from the replicated speed.
+ * Hover vehicles (see createCar above) have no wheels to spin, so they're
+ * delegated to createRemoteChariot instead - see lib/chariot.js.
  */
 export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '', score = 0, vehicleId = DEFAULT_VEHICLE_ID) {
-  const { group, bodyMat } = getVehicle(vehicleId).buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
+  const descriptor = getVehicle(vehicleId);
+  if (descriptor.vehicleType === 'hover') {
+    return createRemoteChariot(THREE_scene, color, name, score, descriptor);
+  }
+
+  const { group, bodyMat } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
   const nameTag = createNameTag(name, score);
   group.add(nameTag.sprite);
 

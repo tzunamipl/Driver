@@ -759,6 +759,12 @@
         border-radius: 6px;
         z-index: 10;
         width: 150px;
+        /* #top-left-stack is click-through (pointer-events: none) so the
+           map/driving controls underneath the other HUD pieces stay
+           reachable - but this panel's tabs/buttons need actual clicks,
+           so opt back in here (the lobby's own #vehicle-picker isn't
+           inside that click-through stack, so it never needed this). */
+        pointer-events: auto;
       }
       #vehicle-debug-hud .susp-title {
         margin-bottom: 6px;
@@ -1235,24 +1241,7 @@
       </div>
       <div id="suspension-hud">
         <div class="susp-title">SUSPENSION</div>
-        <div class="susp-grid">
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fl-fill"></div></div>
-            <div class="susp-label">FL <span id="susp-fl-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fr-fill"></div></div>
-            <div class="susp-label">FR <span id="susp-fr-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rl-fill"></div></div>
-            <div class="susp-label">RL <span id="susp-rl-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rr-fill"></div></div>
-            <div class="susp-label">RR <span id="susp-rr-val">&mdash;</span></div>
-          </div>
-        </div>
+        <div class="susp-grid" id="susp-grid"></div>
         <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
       </div>
       <div id="vehicle-debug-hud">
