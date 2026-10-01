@@ -34,7 +34,7 @@ function makeNameSprite(name, score = 0) {
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(material);
-  sprite.position.set(0, 2.4, 0);
+  sprite.position.set(0, 6.2, 0);
   sprite.scale.set(5.2, 1.3, 1);
   sprite.renderOrder = 1;
   return sprite;
