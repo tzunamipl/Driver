@@ -54,8 +54,8 @@ function saveRoster(roster) {
   }
 }
 
-export function createNet() {
-  const clientId = crypto.randomUUID();
+export function createNet({ clientId } = {}) {
+  clientId = clientId || crypto.randomUUID();
   const peers = new Map();
   // id -> { name, score, lastSeen } - a separate, longer-lived roster of
   // everyone seen recently, decoupled from `peers` (which is pruned after

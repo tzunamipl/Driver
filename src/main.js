@@ -8,6 +8,7 @@ import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/horn.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { loadCarState } from './lib/carState.js';
+import { loadOrCreatePlayerId } from './lib/playerId.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
@@ -70,7 +71,10 @@ Object.assign(loadingEl.style, {
 document.body.appendChild(loadingEl);
 
 // ---------- Networking ----------
-const net = createNet();
+// Reuse the same clientId across reloads (see lib/playerId.js) so this
+// browser doesn't show up as a fresh duplicate peer every time the page
+// is refreshed.
+const net = createNet({ clientId: loadOrCreatePlayerId() });
 
 // ---------- Car spawn point ----------
 // Start a few meters back along -Z (opposite of the car's forward +Z). Y is

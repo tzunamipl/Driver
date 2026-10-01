@@ -4,8 +4,10 @@ import { PLAYERS_UPDATE_INTERVAL, PLAYERS_ACTIVE_THRESHOLD_MS } from '../config.
 // a pose in the shared room within the last 24h (see net.js's
 // ROSTER_TTL_MS/localStorage persistence), including the local player,
 // capped to the top 50 - sorted by activeness (most recently active
-// first), then by score. Always visible (not gated by the M debug-visuals
-// toggle), independent of the other HUD widgets.
+// first), then by score. The count badge, though, only tallies currently
+// -active players (see render() below), not idle ones still shown in the
+// list. Always visible (not gated by the M debug-visuals toggle),
+// independent of the other HUD widgets.
 
 const ROSTER_LIMIT = 50;
 
@@ -34,7 +36,12 @@ export function createPlayersPanel() {
   let accum = PLAYERS_UPDATE_INTERVAL;
 
   function render(entries) {
-    countEl.textContent = String(entries.length);
+    // The count badge reflects only currently-active players (local one
+    // included, when joined), not everyone idle-but-still-listed below -
+    // it's meant to answer "how many people are driving around right
+    // now", not "how many have been seen in the last 24h".
+    const activeCount = entries.filter((p) => p.idleMs < PLAYERS_ACTIVE_THRESHOLD_MS).length;
+    countEl.textContent = String(activeCount);
     listEl.innerHTML =
       entries
         .map((p) => {

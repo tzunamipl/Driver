@@ -190,3 +190,9 @@ export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
 // Persists the local car's last known position/orientation/odometer across
 // reloads (see src/lib/carState.js).
 export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
+// Persists a stable, invisible-to-the-player network identity across
+// reloads (see src/lib/playerId.js), so this browser keeps the same
+// "clientId" instead of minting a new one every page load - otherwise
+// every reload would look like a brand-new peer to everyone else (ghost
+// duplicates in the remote-cars list and "who's online" roster).
+export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1';
