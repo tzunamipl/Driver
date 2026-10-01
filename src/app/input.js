@@ -5,9 +5,20 @@ import { MAX_FORCE, MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
 // scheme/tuning (key bindings, force curves) can change independently of
 // physics stepping and rendering.
 
+function isTypingInField() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
 export function createInputController() {
   const keys = new Set();
-  window.addEventListener('keydown', (e) => keys.add(e.code));
+  // Ignore keydowns while a text field (e.g. the address search box) is
+  // focused, so typing there never reaches game controls. keyup always
+  // runs so a key released after the field loses focus doesn't get stuck.
+  window.addEventListener('keydown', (e) => {
+    if (isTypingInField()) return;
+    keys.add(e.code);
+  });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
   // Edge-triggered: reset() now animates the lift over time, so holding R
   // down must fire it once, not restart the animation every frame.
@@ -21,8 +32,7 @@ export function createInputController() {
    */
   function updateControls(vehicle, reset) {
     if (!vehicle) return;
-    const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-    if (typing) {
+    if (isTypingInField()) {
       vehicle.applyEngineForce(0, 2);
       vehicle.applyEngineForce(0, 3);
       vehicle.setSteeringValue(0, 0);
@@ -55,8 +65,7 @@ export function createInputController() {
   }
 
   function isTyping() {
-    const el = document.activeElement;
-    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    return isTypingInField();
   }
 
   return { keys, updateControls, isTyping };

@@ -46,7 +46,7 @@ const ELEVATION_URL = (z, x, y) =>
 // managers (e.g. BuildingsManager) can align their own tile grid exactly
 // with the detail tier's footprint instead of duplicating these constants.
 export const DETAIL_ZOOM = 15; // ~600-800m tiles at mid latitudes; safe worldwide coverage for both sources
-const DETAIL_GRID = 32; // heightmap/mesh resolution per tile edge (GRID+1 vertices)
+const DETAIL_GRID = 16; // heightmap/mesh resolution per tile edge (GRID+1 vertices)
 export const DETAIL_RADIUS = 2; // circular load radius (in tiles) for the fully-detailed tier
 export const UNLOAD_MARGIN = 1; // extra tiles of slack before unloading, to avoid load/unload thrashing
 

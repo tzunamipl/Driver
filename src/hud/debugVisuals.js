@@ -39,6 +39,8 @@ export function createDebugVisualsToggle({ terrain, buildings, terrainStatsEl, s
   }
 
   window.addEventListener('keydown', (e) => {
+    const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+    if (typing) return;
     if (e.code === 'KeyM' && !e.repeat) setEnabled(!debugVisualsEnabled);
   });
 
