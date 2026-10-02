@@ -138,6 +138,25 @@ export const FLIP_UP_DOT_THRESHOLD = 0.5;
 // undefined (e.g. standing still, or barely rolling) to aim the camera at,
 // so we fall back to the chassis heading instead.
 export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
+// Pull the camera closer to the car as speed increases, so high speed
+// feels faster and the car doesn't get lost far ahead of a distant camera.
+// Below this speed (m/s) the camera sits at its normal (farthest) offset.
+export const CAMERA_CLOSE_MIN_SPEED = 10;
+// At/above this speed (m/s) the camera reaches its closest offset.
+export const CAMERA_CLOSE_MAX_SPEED = 30;
+// Closest distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at
+// CAMERA_CLOSE_MAX_SPEED (1 = no change, lower = closer to the car).
+export const CAMERA_CLOSE_MIN_SCALE = 0.9;
+// The exponential position/look-at smoothing above has a fixed settling
+// time (~1/CAMERA_*_SPEED seconds), so while the car is moving at a
+// constant velocity the smoothed camera steadily trails behind by
+// (velocity * that settling time) - negligible at normal speeds but tens
+// of meters at extreme speeds (e.g. ~500km/h). To cancel that steady-state
+// lag without touching the smoothing itself (which would bring jitter
+// back), the smoothing target is pushed ahead by the car's velocity
+// scaled by its own settling time before being smoothed, so a constant
+// velocity converges to zero lag. 1 = full compensation, 0 = none.
+export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection

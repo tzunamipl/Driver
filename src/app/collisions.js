@@ -71,9 +71,8 @@ export function createGroundTunnelGuard(world) {
   const rayTo = new CANNON.Vec3();
   const rayResult = new CANNON.RaycastResult();
 
-  return function preventGroundTunneling(vehicle) {
-    if (!vehicle) return;
-    const pos = vehicle.chassisBody.position;
+  function guardBody(body) {
+    const pos = body.position;
     rayFrom.set(pos.x, pos.y + GROUND_RAY_HEIGHT, pos.z);
     rayTo.set(pos.x, pos.y - GROUND_RAY_HEIGHT, pos.z);
     rayResult.reset();
@@ -88,9 +87,22 @@ export function createGroundTunnelGuard(world) {
       const minY = rayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
       if (pos.y < minY) {
         pos.y = minY;
-        if (vehicle.chassisBody.velocity.y < 0) vehicle.chassisBody.velocity.y = 0;
+        if (body.velocity.y < 0) body.velocity.y = 0;
       }
     }
+  }
+
+  // Multi-body rigs (e.g. the chariot's independent per-engine spheres -
+  // see lib/chariot.js's `tunnelGuardBodies`) need every one of their real
+  // bodies guarded individually, not just the single body other systems
+  // treat as "the chassis" - otherwise the un-guarded bodies can tunnel
+  // through the ground while the guarded one is caught and corrected,
+  // which then fights the power-coupling springs trying to hold the two
+  // apart. Falls back to just `chassisBody` for single-body rigs (cars).
+  return function preventGroundTunneling(vehicle) {
+    if (!vehicle) return;
+    const bodies = vehicle.tunnelGuardBodies ?? [vehicle.chassisBody];
+    for (const body of bodies) guardBody(body);
   };
 }
 
@@ -114,22 +126,37 @@ export function createGroundTunnelGuard(world) {
  * (small, real) motion - never the teleport jump itself.
  */
 export function createBuildingTunnelGuard(world) {
-  const prevPos = new CANNON.Vec3();
+  // One remembered "before" position per guarded body (see
+  // `vehicle.tunnelGuardBodies` below) - keyed by array index, which is
+  // stable across steps for a given vehicle instance (lib/chariot.js's
+  // `engineBodies` array never reorders). Reused/resized on demand rather
+  // than allocated fresh every step.
+  const prevPositions = [];
   const rayResult = new CANNON.RaycastResult();
   let hasPrev = false;
+
+  function bodiesOf(vehicle) {
+    return vehicle.tunnelGuardBodies ?? [vehicle.chassisBody];
+  }
 
   function beforeStep(vehicle) {
     if (!vehicle) {
       hasPrev = false;
       return;
     }
-    prevPos.copy(vehicle.chassisBody.position);
+    const bodies = bodiesOf(vehicle);
+    bodies.forEach((body, i) => {
+      if (!prevPositions[i]) prevPositions[i] = new CANNON.Vec3();
+      prevPositions[i].copy(body.position);
+    });
     hasPrev = true;
   }
 
-  function afterStep(vehicle) {
-    if (!vehicle || !hasPrev) return;
-    const body = vehicle.chassisBody;
+  // Sweeps a single body's own last-step movement for a building crossing
+  // and pulls it back if it tunnelled through - same guard
+  // createGroundTunnelGuard applies to the ground, but swept against the
+  // step's own movement vector instead of a straight-down ray.
+  function guardBody(body, prevPos) {
     const pos = body.position;
     const dx = pos.x - prevPos.x;
     const dy = pos.y - prevPos.y;
@@ -159,6 +186,23 @@ export function createBuildingTunnelGuard(world) {
     }
   }
 
+  // Multi-body rigs (the chariot's independent engine spheres) need every
+  // real body swept individually - guarding only the designated
+  // `chassisBody` left the other engines free to tunnel straight through
+  // buildings while the guarded one got caught, and the strong
+  // power-coupling springs between every engine pair (see chariot.js)
+  // would then drag the corrected body back toward the tunnelled ones (or
+  // vice versa), reading as "the edge engines clip through together,
+  // independently of the middle one".
+  function afterStep(vehicle) {
+    if (!vehicle || !hasPrev) return;
+    const bodies = bodiesOf(vehicle);
+    bodies.forEach((body, i) => {
+      const prevPos = prevPositions[i];
+      if (prevPos) guardBody(body, prevPos);
+    });
+  }
+
   return { beforeStep, afterStep };
 }
 
@@ -186,9 +230,8 @@ export function createBuildingEmbedGuard(world) {
   const rayTo = new CANNON.Vec3();
   const rayResult = new CANNON.RaycastResult();
 
-  return function preventBuildingEmbedding(vehicle) {
-    if (!vehicle) return;
-    const pos = vehicle.chassisBody.position;
+  function guardBody(body) {
+    const pos = body.position;
     rayFrom.set(pos.x, pos.y + BUILDING_EMBED_RAY_HEIGHT, pos.z);
     rayTo.set(pos.x, pos.y - BUILDING_EMBED_RAY_HEIGHT, pos.z);
     rayResult.reset();
@@ -203,8 +246,17 @@ export function createBuildingEmbedGuard(world) {
     const roofY = rayResult.hitPointWorld.y;
     if (pos.y < roofY - BUILDING_EMBED_EPSILON_M) {
       pos.y = roofY + MIN_GROUND_CLEARANCE;
-      if (vehicle.chassisBody.velocity.y < 0) vehicle.chassisBody.velocity.y = 0;
-      vehicle.chassisBody.angularVelocity.set(0, 0, 0);
+      if (body.velocity.y < 0) body.velocity.y = 0;
+      body.angularVelocity.set(0, 0, 0);
     }
+  }
+
+  // See createGroundTunnelGuard/createBuildingTunnelGuard above - every
+  // real body of a multi-body rig needs checking individually, not just
+  // the designated `chassisBody`.
+  return function preventBuildingEmbedding(vehicle) {
+    if (!vehicle) return;
+    const bodies = vehicle.tunnelGuardBodies ?? [vehicle.chassisBody];
+    for (const body of bodies) guardBody(body);
   };
 }

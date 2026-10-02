@@ -940,6 +940,15 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     setSteeringValue,
     setBrake,
     preStepCallback,
+    // Every real engine body, not just the designated `chassisBody` (see
+    // app/collisions.js's ground/building tunnel+embed guards) - without
+    // this, those guards only ever caught/corrected the centre engine,
+    // leaving the two outer ones free to tunnel straight through terrain
+    // or buildings while still strongly power-coupled to the corrected
+    // centre engine (and, via couplingPairs, directly to *each other*),
+    // which read as "the edge engines clip through obstacles together,
+    // independently of the middle one".
+    tunnelGuardBodies: engineBodies,
   };
 
   return {

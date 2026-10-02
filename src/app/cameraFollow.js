@@ -7,6 +7,10 @@ import {
   CAMERA_YAW_SPEED,
   FLIP_UP_DOT_THRESHOLD,
   CAMERA_MIN_SPEED_FOR_VELOCITY_YAW,
+  CAMERA_CLOSE_MIN_SPEED,
+  CAMERA_CLOSE_MAX_SPEED,
+  CAMERA_CLOSE_MIN_SCALE,
+  CAMERA_POSITION_LEAD_FACTOR,
 } from '../config.js';
 
 // Chase camera: follows the car's velocity direction (not just its facing
@@ -26,6 +30,8 @@ export function createCameraFollow(camera) {
   const tmpVec = new THREE.Vector3();
   const tmpForward = new THREE.Vector3();
   const tmpCarUp = new THREE.Vector3();
+  const tmpLeadPos = new THREE.Vector3();
+  const tmpLeadLook = new THREE.Vector3();
   const yawQuat = new THREE.Quaternion();
   const upVec = new THREE.Vector3(0, 1, 0);
   const smoothedLookAt = new THREE.Vector3();
@@ -33,6 +39,7 @@ export function createCameraFollow(camera) {
   let lastYaw = 0;
   let smoothedYaw = 0;
   let smoothedYawInit = false;
+  let smoothedCloseScale = 1;
 
   return function updateCamera(delta, { chassisMesh, vehicle }) {
     if (!chassisMesh || !vehicle) return;
@@ -84,10 +91,48 @@ export function createCameraFollow(camera) {
     const posFactor = 1 - Math.exp(-CAMERA_POSITION_SPEED * delta);
     const lookFactor = 1 - Math.exp(-CAMERA_LOOKAT_SPEED * delta);
 
-    tmpVec.copy(cameraOffset).applyQuaternion(yawQuat).add(carPos);
+    // Pull the camera in closer as speed increases, so high speed feels
+    // faster. Based on actual car speed (not just horizontal velocity) so
+    // it still closes in e.g. mid-air after a big jump.
+    const bodyVel = vehicle.chassisBody.velocity;
+    const speed = bodyVel.length();
+    const speedT = THREE.MathUtils.clamp(
+      (speed - CAMERA_CLOSE_MIN_SPEED) / (CAMERA_CLOSE_MAX_SPEED - CAMERA_CLOSE_MIN_SPEED),
+      0,
+      1
+    );
+    const targetCloseScale = THREE.MathUtils.lerp(1, CAMERA_CLOSE_MIN_SCALE, speedT);
+    smoothedCloseScale += (targetCloseScale - smoothedCloseScale) * posFactor;
+
+    // Exponential smoothing settles toward its target with time constant
+    // 1/CAMERA_*_SPEED, so a constantly moving car steadily trails behind
+    // by (velocity * time constant). Push the smoothing target ahead by
+    // that same amount (scaled by CAMERA_POSITION_LEAD_FACTOR) so the
+    // lag cancels out at any speed instead of only being tolerable at low
+    // speeds - this is what keeps the camera from falling far behind at
+    // extreme speeds while leaving the jitter-filtering smoothing itself
+    // untouched.
+    tmpLeadPos
+      .set(bodyVel.x, bodyVel.y, bodyVel.z)
+      .multiplyScalar((CAMERA_POSITION_LEAD_FACTOR / CAMERA_POSITION_SPEED));
+    tmpLeadLook
+      .set(bodyVel.x, bodyVel.y, bodyVel.z)
+      .multiplyScalar((CAMERA_POSITION_LEAD_FACTOR / CAMERA_LOOKAT_SPEED));
+
+    tmpVec
+      .copy(cameraOffset)
+      .multiplyScalar(smoothedCloseScale)
+      .applyQuaternion(yawQuat)
+      .add(carPos)
+      .add(tmpLeadPos);
     camera.position.lerp(tmpVec, posFactor);
 
-    const lookAt = cameraLookOffset.clone().applyQuaternion(yawQuat).add(carPos);
+    const lookAt = cameraLookOffset
+      .clone()
+      .multiplyScalar(smoothedCloseScale)
+      .applyQuaternion(yawQuat)
+      .add(carPos)
+      .add(tmpLeadLook);
     if (!smoothedLookAtInit) {
       smoothedLookAt.copy(lookAt);
       smoothedLookAtInit = true;
