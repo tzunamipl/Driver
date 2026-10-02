@@ -120,6 +120,9 @@ export default {
   // Baseline rally car engine rating (equivalent bhp - see lib/car.js's
   // hpToEngineForce), independent of every other vehicle's own rating.
   enginePowerHp: 300,
+  // Chassis weight in kg (read generically by lib/car.js's createCar) -
+  // the baseline rally car's own independent weight rating.
+  mass: 150,
   // See lib/airDrag.js - a real, tapered car nose cuts through the air
   // more easily than its flat-ish tail (plus the roof spoiler kicking up
   // a bit more turbulence reversing into the air), and its flank is by

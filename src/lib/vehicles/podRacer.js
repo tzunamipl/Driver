@@ -282,7 +282,7 @@ function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
  * see lib/chariot.js, which reads `engineCount` off the descriptor to
  * build the matching physics rig.
  */
-function createPodRacerVehicle(engineCount, { id, name, engineThrustForce } = {}) {
+function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass } = {}) {
   return {
     id: id ?? `pod-racer-${engineCount}`,
     name: name ?? `Pod Racer (${engineCount} engines)`,
@@ -299,6 +299,11 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce } = {}
     // global force constant, so each pod-racer variant can be tuned on its
     // own.
     engineThrustForce: engineThrustForce ?? 20000,
+    // Total chassis weight in kg, split evenly across this variant's
+    // engines (see lib/chariot.js's createChariotVehicle) - this rig's own
+    // independent weight rating, the hover-rig equivalent of a car's mass
+    // (see lib/car.js).
+    mass: mass ?? 110,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
     buildIndependentRig: (scene, color) => buildIndependentRig(scene, color, engineCount),
     // See lib/airDrag.js - slim, nose-first engines punch through the air

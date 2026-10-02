@@ -84,7 +84,11 @@ const LATERAL_GRIP_RATE = 5; // 1/s - how fast sideways (relative-to-heading) ve
 
 const DEFAULT_BODY_COLOR = 0xff6a1a;
 const RESET_LIFT_DURATION_S = 0.6;
-const CHASSIS_MASS = 110; // total mass budget, split evenly across engines - see ENGINE_MASS below
+// Total mass budget (kg), split evenly across engines - see engineMass
+// below. Only applies if a descriptor omits its own `mass` (see
+// lib/vehicles/podRacer.js), the hover-rig equivalent of the wheeled
+// rig's descriptor.mass (see lib/car.js).
+const DEFAULT_CHASSIS_MASS = 110;
 
 // --- Power coupling (engine-to-engine) ---
 // Real spring+damper between *every* pair of engines (not just
@@ -267,7 +271,7 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
   // rigid group, no invisible formation reference - every engineBodies[i]
   // below is exactly what engineMeshes[i] (see descriptor.buildIndependentRig)
   // renders, 1:1, every frame.
-  const engineMass = CHASSIS_MASS / engineCount;
+  const engineMass = (descriptor.mass ?? DEFAULT_CHASSIS_MASS) / engineCount;
   const engineBodies = engineOffsets.map((off) => {
     const body = buildEngineBody(engineMass);
     const worldOff = new CANNON.Vec3();

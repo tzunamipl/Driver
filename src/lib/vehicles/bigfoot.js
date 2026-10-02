@@ -120,6 +120,10 @@ export default {
   // lib/car.js's hpToEngineForce/DEFAULT_ENGINE_HP), as its own independent
   // number rather than a multiplier on a shared global force constant.
   enginePowerHp: 600,
+  // Chassis weight in kg - a monster truck's huge frame/wheels/roll cage
+  // make it noticeably heavier than the baseline rally car (lib/car.js's
+  // DEFAULT_CHASSIS_MASS), its own independent weight rating.
+  mass: 260,
   // See lib/airDrag.js - a tall, boxy truck is draggy from every angle
   // (unlike the GC8's tapered nose), especially broadside-on.
   dragProfile: { front: 1.3, side: 2.8, rear: 1.6 },

@@ -17,6 +17,11 @@ const CHASSIS_WIDTH = 1.8;
 const CHASSIS_HEIGHT = 0.6;
 const CHASSIS_LENGTH = 4;
 const WHEEL_RADIUS = 0.4;
+// Chassis weight (kg), expressed per-vehicle (descriptor.mass - see
+// lib/vehicles/gc8.js/bigfoot.js) the same way enginePowerHp/dragProfile
+// already are, rather than every wheeled vehicle sharing one hardcoded
+// mass - only applies if a descriptor omits its own value.
+const DEFAULT_CHASSIS_MASS = 150; // baseline rally car's weight
 // How long a reset's lift-back-upright takes to ease into place, instead of
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
@@ -168,7 +173,8 @@ export function createCar(
   const carHullPrism = buildCarHullPrism(carHullPoints, chassisHeight / 2);
 
   const hitboxRadius = Math.min(chassisWidth, chassisHeight) / 2 - 0.05;
-  const chassisBody = new CANNON.Body({ mass: 150, material: CHASSIS_MATERIAL });
+  const chassisMass = descriptor.mass ?? DEFAULT_CHASSIS_MASS;
+  const chassisBody = new CANNON.Body({ mass: chassisMass, material: CHASSIS_MATERIAL });
   chassisBody.addShape(carHullPrism);
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
