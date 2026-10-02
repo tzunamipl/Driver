@@ -301,6 +301,26 @@ export function createCar(
   // shared global force, same pattern as engineForce above.
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
 
+  // Signed forward speed (m/s) along the chassis' own local forward axis -
+  // positive while coasting nose-first (the direction the "accelerate"
+  // key drives towards), negative once actually moving in reverse. Lets
+  // app/input.js tell "still rolling forward, the brake/reverse key
+  // should brake" apart from "already stopped/reversing, it should apply
+  // reverse thrust instead" - without this, holding reverse while still
+  // rolling forward just fought the forward momentum with an equal and
+  // opposite engine force (as slow as accelerating), instead of actually
+  // braking at vehicle.brakeForce like a real brake pedal.
+  const forwardAxisLocal = new CANNON.Vec3(
+    vehicle.indexForwardAxis === 0 ? 1 : 0,
+    vehicle.indexForwardAxis === 1 ? 1 : 0,
+    vehicle.indexForwardAxis === 2 ? 1 : 0
+  );
+  const forwardAxisWorldScratch = new CANNON.Vec3();
+  vehicle.getForwardSpeed = () => {
+    chassisBody.vectorToWorldFrame(forwardAxisLocal, forwardAxisWorldScratch);
+    return chassisBody.velocity.dot(forwardAxisWorldScratch);
+  };
+
   // --- Wheel hitboxes (pedestrians) ---
   // The chassis' own collision shapes (carHullPrism + the 8 corner
   // spheres above) sit close against the body shell, well inboard of

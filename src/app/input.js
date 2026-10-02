@@ -62,7 +62,28 @@ export function createInputController() {
     //    descriptor.engineThrustForce - thrust of one engine) - they leave
     //    this at its default of 1 and only use it as a +-1 throttle sign.
     const engineForceUnit = vehicle.engineForce ?? 1;
-    const engineForce = (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
+    // Signed forward speed (vehicle.getForwardSpeed, see lib/car.js) is
+    // undefined for rigs without the wheeled RaycastVehicle-style forward
+    // axis (e.g. the hover chariot); `?? 0` there just means those rigs
+    // always take the "already stopped" branch below, i.e. keep their old
+    // always-reverse-thrust behavior unchanged.
+    const forwardSpeed = vehicle.getForwardSpeed?.() ?? 0;
+    // Below this (m/s) we treat the car as "stopped" rather than still
+    // coasting, so a light residual drift doesn't get stuck permanently
+    // braking instead of ever engaging reverse/forward thrust.
+    const STOP_SPEED = 0.5;
+    const movingForward = forwardSpeed > STOP_SPEED;
+    const movingBackward = forwardSpeed < -STOP_SPEED;
+    // Pressing the "wrong way" key while still coasting the other way now
+    // actually brakes (at the vehicle's own stronger brakeForce) instead
+    // of just fighting the current momentum with an equal and opposite
+    // engine force (which took as long to stop as it did to speed up) -
+    // only once the car has actually slowed/stopped does the key switch
+    // to applying reverse/forward thrust.
+    const pedalBraking = (forward && movingBackward) || (backward && movingForward);
+    const engineForce = pedalBraking
+      ? 0
+      : (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
     // rear-wheel drive (indices 2, 3)
     vehicle.applyEngineForce(engineForce, 2);
     vehicle.applyEngineForce(engineForce, 3);
@@ -72,13 +93,23 @@ export function createInputController() {
     vehicle.setSteeringValue(steerValue, 1);
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
-    // vehicle.brakeForce is each vehicle's own independent handbrake
-    // strength (see lib/car.js's createCar), set per-rig from its
-    // descriptor the same way engineForce is above - BRAKE_FORCE is only
-    // a fallback for rigs that don't set one (e.g. the hover chariot,
-    // which only treats this as a +0 boolean, not an actual force).
-    const brakeForce = handbrake ? (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale : 0;
-    for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
+    // vehicle.brakeForce is each vehicle's own independent brake strength
+    // (see lib/car.js's createCar), set per-rig from its descriptor the
+    // same way engineForce is above - BRAKE_FORCE is only a fallback for
+    // rigs that don't set one (e.g. the hover chariot, which only treats
+    // this as a +0 boolean, not an actual force).
+    const brakeForce = (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale;
+    const pedalBrake = pedalBraking ? brakeForce : 0;
+    // Handbrake (Space) now only brakes the rear wheels (indices 2, 3),
+    // not all four - locking just the rear tyres' grip while the fronts
+    // keep steering grip is what actually breaks rear traction into a
+    // slide/oversteer, instead of just locking all 4 wheels into a
+    // straight, grippy stop like a regular brake.
+    const handbrakeForce = handbrake ? brakeForce : 0;
+    vehicle.setBrake(pedalBrake, 0);
+    vehicle.setBrake(pedalBrake, 1);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3);
 
     const resetPressed = keys.has('KeyR');
     if (resetPressed && !resetWasPressed && reset) reset();

@@ -120,6 +120,11 @@ export default {
   // Baseline rally car engine rating (equivalent bhp - see lib/car.js's
   // hpToEngineForce), independent of every other vehicle's own rating.
   enginePowerHp: 300,
+  // Braking force in Newtons (read generically by lib/car.js's createCar) -
+  // matches car.js's DEFAULT_BRAKE_FORCE since this is the baseline rally
+  // car, but set explicitly here so its rating stays independent of other
+  // vehicles' (e.g. bigfoot.js's stronger brakes) like enginePowerHp/mass.
+  brakeForce: 60000,
   // Chassis weight in kg (read generically by lib/car.js's createCar) -
   // the baseline rally car's own independent weight rating.
   mass: 150,
