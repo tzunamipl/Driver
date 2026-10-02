@@ -6,7 +6,7 @@ import { BUILDING_COLLISION_GROUP } from './buildings.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { ENGINE_RADIUS, POD_RADIUS, ENGINE_Z, engineLocalOffsets, POD_LOCAL_OFFSET } from './vehicles/podRacerLayout.js';
-import { orientStrut } from './vehicles/podRacer.js';
+import { orientStrut, orientTetherChain } from './vehicles/podRacer.js';
 
 // Hover/differential-thrust physics rig for "Chariots of Fire" pod-racer
 // vehicles (lib/vehicles/podRacer.js) - a completely different rig from
@@ -164,6 +164,15 @@ const POD_MAX_HOVER_FORCE = 1600;
 // swing/sag/lag before the cable snaps taut, instead of feeling like it's
 // rigidly bolted on at a fixed distance.
 const TETHER_SLACK = 2.6;
+// Purely cosmetic: how much the (now 3-segment, see podRacer.js's
+// orientTetherChain) tether visibly bows downward once it's slack - i.e.
+// once its real straight-line length (attach point -> pod) is shorter
+// than the taut `tetherMaxLength` below. Scaled down from the raw slack
+// distance (1 metre of cable slack shouldn't droop 1 whole metre - reads
+// as way too loose/cartoonish) and capped so a fully-slack cable still
+// looks like a cable, not a hoop dragging on the ground.
+const TETHER_SAG_FACTOR = 0.35;
+const TETHER_MAX_SAG = 1.1;
 
 // --- Cosmetic-only engine/formation orientation ---
 // The engines are simple, symmetric spheres - there is no meaningful
@@ -811,7 +820,15 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     });
     tetherMeshes.forEach((tether, i) => {
       tetherAttachScratch.copy(tetherAttachLocal[i]).applyQuaternion(engineMeshes[i].quaternion).add(engineMeshes[i].position);
-      orientStrut(tether, tetherAttachScratch, podGroup.position);
+      // Slack (see TETHER_SLACK/applyTether) = how much shorter the real,
+      // live attach-point-to-pod distance is than the taut cap - sag the
+      // chain's interior joints down by that much (scaled/capped, see
+      // TETHER_SAG_FACTOR/TETHER_MAX_SAG) so a genuinely slack cable
+      // visibly hangs instead of always reading as one rigid straight rod.
+      const dist = tetherAttachScratch.distanceTo(podGroup.position);
+      const slack = Math.max(0, tetherMaxLength - dist);
+      const sag = Math.min(slack * TETHER_SAG_FACTOR, TETHER_MAX_SAG);
+      orientTetherChain(tether, tetherAttachScratch, podGroup.position, sag);
     });
   }
 
@@ -908,7 +925,7 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     for (const strut of couplingMeshes) THREE_scene.remove(strut);
     world.removeBody(podBody);
     THREE_scene.remove(podGroup);
-    for (const tether of tetherMeshes) THREE_scene.remove(tether);
+    for (const tether of tetherMeshes) tether.forEach((segment) => THREE_scene.remove(segment));
   }
 
   // Duck-typed to match lib/car.js's RaycastVehicle-backed `vehicle`

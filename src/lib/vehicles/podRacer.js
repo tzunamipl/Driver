@@ -124,6 +124,51 @@ function tetherEngineAttachLocal(off) {
   return { x: off.x, y: off.y + ENGINE_RADIUS, z: off.z - ENGINE_LENGTH / 2 };
 }
 
+const TETHER_SEGMENT_COUNT = 3;
+
+/**
+ * Builds the `TETHER_SEGMENT_COUNT` unit-strut meshes that make up one
+ * tether, so it can bend/sag along its length (see orientTetherChain())
+ * instead of always rendering as one perfectly rigid, dead-straight rod -
+ * a single strut can never visually show the cable going slack even when
+ * the physics says it genuinely is (see chariot.js's applyTether/
+ * TETHER_SLACK).
+ */
+function buildTetherChain() {
+  return Array.from({ length: TETHER_SEGMENT_COUNT }, () => buildStrutMesh(0.025, tetherMat));
+}
+
+// One reusable scratch joint per *interior* joint of a tether chain (a
+// 3-segment chain has 2 interior joints between its 3 struts) - plain
+// module-level scratch (not per-tether) is safe because every joint is
+// fully (re)computed and consumed synchronously within a single
+// orientTetherChain() call, same pattern as orientStrut() having no
+// persistent state of its own.
+const tetherChainJoints = Array.from({ length: TETHER_SEGMENT_COUNT - 1 }, () => new THREE.Vector3());
+
+/**
+ * Lays `segments` (TETHER_SEGMENT_COUNT struts) end-to-end from `from` to
+ * `to`, bowing the interior joints downward by up to `sag` metres (a
+ * simple parabolic droop, peaking at the midpoint, zero at both ends) so
+ * a slack tether reads as a hanging cable instead of a straight line -
+ * `sag` is expected to be 0 for a taut/rigid cable (collapses back to the
+ * same straight run a single strut would draw).
+ */
+function orientTetherChain(segments, from, to, sag = 0) {
+  const n = segments.length;
+  const joints = [from, ...tetherChainJoints, to];
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    const droop = sag * 4 * t * (1 - t); // parabola: 0 at t=0/1, `sag` at t=0.5
+    joints[i].set(
+      from.x + (to.x - from.x) * t,
+      from.y + (to.y - from.y) * t - droop,
+      from.z + (to.z - from.z) * t
+    );
+  }
+  for (let i = 0; i < n; i++) orientStrut(segments[i], joints[i], joints[i + 1]);
+}
+
 /**
  * Rigid single-group body (engines + power couplings + pod + tethers, all
  * at fixed relative transforms) - used for remote players, who only ever
@@ -152,9 +197,13 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engi
   group.add(podGroup);
 
   engineOffsets.forEach((off) => {
-    const tether = buildStrutMesh(0.025, tetherMat);
-    orientStrut(tether, tetherEngineAttachLocal(off), POD_LOCAL_OFFSET);
-    group.add(tether);
+    const tether = buildTetherChain();
+    // No live slack signal for a rigid remote pose (just one interpolated
+    // network transform for the whole vehicle - see file header), so sag
+    // is 0 here: collapses to the same straight run the old single strut
+    // drew, just now split into TETHER_SEGMENT_COUNT pieces.
+    orientTetherChain(tether, tetherEngineAttachLocal(off), POD_LOCAL_OFFSET, 0);
+    tether.forEach((segment) => group.add(segment));
   });
 
   return { group, bodyMat };
@@ -213,9 +262,14 @@ function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
   // its mesh.
   const localAttach = tetherEngineAttachLocal({ x: 0, y: 0, z: 0 });
   const tetherAttachLocal = engineOffsets.map(() => new THREE.Vector3(localAttach.x, localAttach.y, localAttach.z));
+  // Each tether is now a `TETHER_SEGMENT_COUNT`-piece chain (see
+  // orientTetherChain()) rather than one rigid strut, so it can visibly
+  // bow/sag whenever the real cable (see chariot.js's applyTether) is
+  // slack instead of taut - see chariot.js's syncMeshes for the per-frame
+  // sag calculation driving these.
   const tetherMeshes = engineOffsets.map(() => {
-    const tether = buildStrutMesh(0.025, tetherMat);
-    scene.add(tether);
+    const tether = buildTetherChain();
+    tether.forEach((segment) => scene.add(segment));
     return tether;
   });
 
@@ -255,4 +309,4 @@ function createPodRacerVehicle(engineCount, { id, name } = {}) {
 // change (see ./index.js's VEHICLES list).
 export default createPodRacerVehicle(3);
 
-export { createPodRacerVehicle, orientStrut };
+export { createPodRacerVehicle, orientStrut, orientTetherChain };
