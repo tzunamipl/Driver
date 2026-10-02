@@ -48,11 +48,15 @@ export function createTerrainStatsHud() {
     // Selectable (copy/paste-able) coordinates for bug reports / manually
     // navigating elsewhere - computed in the *network* frame (same frame
     // carState.js persists, independent of any personal teleport) so a
-    // pasted value stays meaningful even after reloading.
+    // pasted value stays meaningful even after reloading. Elevation is the
+    // real-world height above sea level - chassisMesh.position.y is
+    // relative to the origin's height baseline (see terrain.js's
+    // heightOffset), so that baseline is added back in.
     let coordsText = '';
     if (Number.isFinite(viewOriginLat) && Number.isFinite(viewOriginLon)) {
       const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, viewOriginLat, viewOriginLon);
-      coordsText = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      const elevation = chassisMesh.position.y + terrain.heightOffset;
+      coordsText = `${lat.toFixed(6)}, ${lon.toFixed(6)} \u2022 ${elevation.toFixed(1)} m asl`;
     }
     const textLines = [
       'TERRAIN',

@@ -39,11 +39,10 @@ function saveChoices(name, color, vehicleId) {
  * @param {(color: number, vehicleId: string) => void} deps.onJoined - called
  *   once the player has joined (room connected, if applicable) and the
  *   local car should be spawned with the chosen color/vehicle.
- * @param {() => void} [deps.onReset] - called after the saved name/color
- *   are cleared, if the player has already joined, so the caller can also
- *   apply the reset live (respawn with default color/vehicle, re-sync the
- *   debug vehicle picker, etc.) instead of only taking effect on the next
- *   page load.
+ * @param {() => void} [deps.onReset] - called after a mid-drive re-pick
+ *   (see applyLivePick() below) has respawned the local car, so the caller
+ *   can re-sync anything that mirrors the car's color/vehicle outside this
+ *   module (e.g. the debug vehicle picker).
  */
 export function createLobby({ net, carManager, onJoined, onReset, originChain }) {
   const lobbyEl = document.getElementById('lobby');
@@ -122,11 +121,32 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     onJoined(color, vehicleId);
   }
 
+  // Re-picking mid-drive (via the "Reset saved name/color" help-menu
+  // button below, which re-opens this same form) doesn't need to
+  // reconnect to the room - already connected - it just applies the new
+  // name/color/vehicle live and re-hides the form.
+  function applyLivePick(name, color, vehicleId) {
+    carManager.setLocalName(name.slice(0, 16));
+    carManager.spawnLocalCar(color, vehicleId);
+    net.setName(name);
+    net.setColor(color);
+    net.setVehicleId(vehicleId);
+    saveChoices(name, lobbyColor.value, vehicleId);
+    lobbyEl.style.display = 'none';
+    onReset?.();
+  }
+
   lobbyForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const name = lobbyName.value.trim();
-    if (!name || joined || lobbyJoin.disabled) return;
-    joinRoom(name, selectedColor(), vehiclePicker.getSelectedId());
+    if (!name || lobbyJoin.disabled) return;
+    const color = selectedColor();
+    const vehicleId = vehiclePicker.getSelectedId();
+    if (joined) {
+      applyLivePick(name, color, vehicleId);
+    } else {
+      joinRoom(name, color, vehicleId);
+    }
   });
 
   window.addEventListener('pagehide', () => {
@@ -145,22 +165,19 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     vehiclePicker.select(DEFAULT_VEHICLE_ID);
   }
 
-  // Help-menu button: clears the remembered name/color so the lobby form
-  // starts blank again next time. If already in-game (form hidden), also
-  // calls onReset() so the reset is visible immediately - respawning with
-  // the default color/vehicle - rather than only taking effect on the next
-  // page load.
+  // Help-menu button: clears the remembered name/color and re-opens the
+  // name/color/vehicle picker (blanked out) so the player can choose
+  // fresh ones, instead of silently snapping back to defaults. Submitting
+  // the form again (lobbyForm's submit handler above) then applies the
+  // new pick live via applyLivePick() since the player is already joined.
   const resetChoicesBtn = document.getElementById('hud-reset-choices');
   resetChoicesBtn?.addEventListener('click', () => {
     resetSavedChoices();
-    if (joined) onReset?.();
-    const original = resetChoicesBtn.textContent;
-    resetChoicesBtn.textContent = 'Cleared ✓';
-    resetChoicesBtn.disabled = true;
-    setTimeout(() => {
-      resetChoicesBtn.textContent = original;
-      resetChoicesBtn.disabled = false;
-    }, 1500);
+    lobbyJoin.disabled = false;
+    lobbyJoin.textContent = joined ? 'Apply' : 'Drive in';
+    lobbyEl.style.display = '';
+    setLobbyStatus(joined ? 'Pick a new name/color/vehicle' : '');
+    lobbyName.focus();
   });
 
   return {

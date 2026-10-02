@@ -12,7 +12,6 @@ import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
-import { DEFAULT_VEHICLE_ID } from './lib/vehicles/index.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
@@ -268,12 +267,10 @@ const lobby = createLobby({
     collapsibleHud.startAutoFold();
   },
   onReset() {
-    carManager.setLocalName('');
-    carManager.spawnLocalCar(DEFAULT_BODY_COLOR, DEFAULT_VEHICLE_ID);
+    // applyLivePick() in lobby.js already respawned the car with the
+    // newly-picked color/vehicle - just re-sync the debug view's vehicle
+    // picker so it doesn't disagree with the new choice.
     vehicleDebugPicker.syncFromCar();
-    net.setColor(DEFAULT_BODY_COLOR);
-    net.setVehicleId(DEFAULT_VEHICLE_ID);
-    net.setName('');
   },
 });
 
