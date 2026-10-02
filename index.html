@@ -678,6 +678,16 @@
       }
       #net-status[data-status="offline"] { color: #ffb0b0; }
       #net-status[data-status="online"] { color: #b6f5c3; }
+      #debug-hud-row {
+        /* Row wrapper so the vehicle debug picker sits beside the
+           suspension HUD (not stacked underneath it), while the row as a
+           whole still stacks below the help/controls HUD inside
+           #top-left-stack. */
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 8px;
+      }
       #suspension-hud {
         /* Stacked below the help/controls HUD inside #top-left-stack
            (same flex-column approach #terrain-stats uses under
@@ -1239,15 +1249,17 @@
           <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
         </div>
       </div>
-      <div id="suspension-hud">
-        <div class="susp-title">SUSPENSION</div>
-        <div class="susp-grid" id="susp-grid"></div>
-        <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
-      </div>
-      <div id="vehicle-debug-hud">
-        <div class="susp-title">VEHICLE</div>
-        <div id="vehicle-debug-tabs"></div>
-        <div id="vehicle-debug-list"></div>
+      <div id="debug-hud-row">
+        <div id="suspension-hud">
+          <div class="susp-title">SUSPENSION</div>
+          <div class="susp-grid" id="susp-grid"></div>
+          <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+        </div>
+        <div id="vehicle-debug-hud">
+          <div class="susp-title">VEHICLE</div>
+          <div id="vehicle-debug-tabs"></div>
+          <div id="vehicle-debug-list"></div>
+        </div>
       </div>
     </div>
     <div id="score-toasts"></div>

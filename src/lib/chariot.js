@@ -52,7 +52,7 @@ const HOVER_DAMPING = 15; // N per (m/s) of vertical closing speed
 const MAX_HOVER_FORCE = 12000;
 const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
 
-const ENGINE_THRUST_FORCE = MAX_FORCE * 10;
+const ENGINE_THRUST_FORCE = MAX_FORCE * 200;
 const LINEAR_DAMPING = 0.3;
 
 // Real differential-thrust steering (see the file-level comment above):
@@ -62,17 +62,22 @@ const LINEAR_DAMPING = 0.3;
 // this gain - a genuine extra push/pull, not a kinematic trick, so it
 // needs real force to overcome the coupling springs/hover drag, same as
 // any other real steering force would.
-const STEER_DIFF_FORCE = ENGINE_THRUST_FORCE * 0.9;
+const STEER_DIFF_FORCE = MAX_FORCE * 60;
 // Active yaw-rate damping (see computeFormationYawRate/applyHoverAndThrust
 // below): real differential thrust has no built-in "stop turning" - once
 // the formation has picked up some actual yaw rate it keeps coasting on
 // its own momentum/angular inertia after the steering key is released,
 // same as any other real rotating body would. This feeds the formation's
 // live, measured yaw rate back in as an opposing differential-thrust
-// bias every step (regardless of steerCommand), so releasing the key
+// bias every step (regardless of steerCommand, throttleCommand, or even
+// ENGINE_THRUST_FORCE - this fires any time there's measured yaw rate,
+// e.g. from settling/landing with zero throttle), so releasing the key
 // actively brakes the turn instead of just stopping the *extra* push -
 // same role LINEAR_DAMPING plays for straight-line coasting, but for yaw.
-const YAW_DAMPING_FORCE_PER_RAD_S = STEER_DIFF_FORCE;
+// Kept as its own independent constant (not derived from
+// ENGINE_THRUST_FORCE/STEER_DIFF_FORCE) so retuning engine thrust can't
+// silently change how hard idle/settling yaw gets damped out.
+const YAW_DAMPING_FORCE_PER_RAD_S = MAX_FORCE * 9; // == ENGINE_THRUST_FORCE(MAX_FORCE*10) * 0.9 baseline
 // Lateral "grip" - without this, differential thrust only spins the
 // formation's facing while its actual momentum keeps sliding along
 // whatever direction it was already moving (a frictionless-puck drift,
@@ -103,9 +108,23 @@ const CHASSIS_MASS = 110; // total mass budget, split evenly across engines - se
 // term) - each body is a simple, symmetric sphere, so there's nothing
 // meaningful to apply rotational coupling to; see the cosmetic-only
 // orientation handling below instead.
-const POWER_COUPLING_STIFFNESS = 100; // N per metre of stretch/compression
-const POWER_COUPLING_DAMPING = 600; // N per (m/s) of closing/separating speed
-const POWER_COUPLING_MAX_FORCE = 60;
+const POWER_COUPLING_STIFFNESS = 500; // N per metre of stretch/compression
+// Progressive term on top of the linear spring above - force grows with
+// the *cube* of stretch, so it's negligible at small stretch (the normal
+// operating range, where a soft linear spring already holds formation and
+// a stiffer one would just jitter) but ramps up hard once a pair is
+// pulled noticeably apart (e.g. differential thrust during a turn), the
+// same way a real repulsor field or a suspension bump-stop gets
+// dramatically stiffer the further it's compressed/extended. This is what
+// keeps the formation from bowing out further and further under a
+// sustained turn without needing the base linear stiffness high enough to
+// jitter at rest.
+const POWER_COUPLING_STIFFNESS_PROGRESSIVE = 4000000; // N per (metre of stretch)^3
+const POWER_COUPLING_DAMPING = 6000000; // N per (m/s) of closing/separating speed
+// Raised alongside the progressive term above - the old, lower cap would
+// just saturate the extra force at large stretch, defeating the point of
+// making the spring stiffer out there.
+const POWER_COUPLING_MAX_FORCE = 2400;
 
 // --- Pod + tether tuning ---
 // Deliberately tiny next to the ~110kg of engines (split across 3 of
@@ -144,7 +163,7 @@ const POD_MAX_HOVER_FORCE = 1600;
 // once stretched past restLength + SLACK, so the pod has real room to
 // swing/sag/lag before the cable snaps taut, instead of feeling like it's
 // rigidly bolted on at a fixed distance.
-const TETHER_SLACK = 0.6;
+const TETHER_SLACK = 2.6;
 
 // --- Cosmetic-only engine/formation orientation ---
 // The engines are simple, symmetric spheres - there is no meaningful
@@ -438,8 +457,14 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
       couplingRelVel.copy(b.velocity).vsub(a.velocity, couplingRelVel);
       const closingSpeed = couplingRelVel.dot(couplingDelta);
       const stretch = dist - pair.restLength;
+      // Linear term for soft, jitter-free behaviour near rest length, plus
+      // a cubic term (sign-preserving: stretch^3, not Math.abs(stretch)^3)
+      // that only bites once a pair is pulled noticeably apart - see
+      // POWER_COUPLING_STIFFNESS_PROGRESSIVE above.
       const forceMag = THREE.MathUtils.clamp(
-        stretch * POWER_COUPLING_STIFFNESS + closingSpeed * POWER_COUPLING_DAMPING,
+        stretch * POWER_COUPLING_STIFFNESS +
+          stretch * stretch * stretch * POWER_COUPLING_STIFFNESS_PROGRESSIVE +
+          closingSpeed * POWER_COUPLING_DAMPING,
         -POWER_COUPLING_MAX_FORCE,
         POWER_COUPLING_MAX_FORCE
       );
