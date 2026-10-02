@@ -117,6 +117,9 @@ export default {
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
+  // Baseline rally car engine rating (equivalent bhp - see lib/car.js's
+  // hpToEngineForce), independent of every other vehicle's own rating.
+  enginePowerHp: 300,
   // See lib/airDrag.js - a real, tapered car nose cuts through the air
   // more easily than its flat-ish tail (plus the roof spoiler kicking up
   // a bit more turbulence reversing into the air), and its flank is by

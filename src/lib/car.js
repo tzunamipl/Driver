@@ -21,6 +21,20 @@ const WHEEL_RADIUS = 0.4;
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
 
+// Engine power, expressed per-vehicle as an equivalent "bhp" rating
+// (descriptor.enginePowerHp - see lib/vehicles/gc8.js/bigfoot.js) and
+// converted here to the raw engine force (Newtons) that
+// RaycastVehicle.applyEngineForce actually expects. This is a simple,
+// linear arcade conversion for game balance (not a real-world
+// torque/gearing/speed curve) - the point is each car now carries its own
+// independent power number instead of every car scaling off one shared
+// global force constant.
+const FORCE_PER_HP = 1;
+const DEFAULT_ENGINE_HP = 300; // baseline rally car's rating
+function hpToEngineForce(hp) {
+  return hp * FORCE_PER_HP;
+}
+
 
 /**
  * Returns the chassis' top-down footprint as an octagon tapered at the
@@ -77,17 +91,22 @@ function buildCarHullPrism(hull, halfHeight) {
 /**
  * Builds a two-tone low-poly rally wheel: a black tire cylinder plus a
  * smaller gold octagonal "rim" cylinder for a BBS-style mesh-wheel look.
+ * Tire/rim thickness scales with `radius` (rather than a flat constant)
+ * so a bigger-wheeled vehicle (e.g. lib/vehicles/bigfoot.js) reads as a
+ * proportionally chunkier tire instead of a comparatively thin disc.
  */
 function buildRallyWheel(radius, parent) {
   const group = new THREE.Group();
+  const tireWidth = radius * 0.95;
+  const rimWidth = tireWidth * 0.85;
 
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, 0.3, 20);
+  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 20);
   tireGeo.rotateZ(Math.PI / 2);
   const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, 0.32, 8);
+  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, rimWidth, 8);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
@@ -96,6 +115,7 @@ function buildRallyWheel(radius, parent) {
   parent.add(group);
   return group;
 }
+
 
 /**
  * Creates a Cannon-es RaycastVehicle (suspension, wheel friction,
@@ -176,8 +196,15 @@ export function createCar(
     indexForwardAxis: 2,
   });
 
+  // Per-vehicle suspension/wheel-size tuning (see e.g. lib/vehicles/bigfoot.js
+  // for a monster-truck-style override) - any key here overrides the rally-car
+  // defaults below, letting one vehicle (bigger wheels, softer/longer-travel
+  // suspension, etc) differ from the rest without forking the whole rig.
+  const suspensionOverrides = descriptor.suspension ?? {};
+  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
+
   const wheelOptions = {
-    radius: WHEEL_RADIUS,
+    radius: wheelRadius,
     directionLocal: new CANNON.Vec3(0, -1, 0),
     suspensionStiffness: 10,
     suspensionRestLength: 0.55,
@@ -191,6 +218,7 @@ export function createCar(
     maxSuspensionTravel: 0.95,
     customSlidingRotationalSpeed: -30,
     useCustomSlidingRotationalSpeed: true,
+    ...suspensionOverrides,
   };
 
   const axleWidth = chassisWidth / 2 - 0.1;
@@ -215,6 +243,50 @@ export function createCar(
   // Labels for hud/suspensionHud.js's generic per-wheel bars, in the same
   // order as vehicle.wheelInfos (see wheelPositions above).
   vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];
+
+  // Per-vehicle engine power (see app/input.js), as an independent
+  // equivalent-bhp rating rather than a multiplier on any shared global
+  // force - e.g. a monster-truck-style vehicle can simply carry a bigger
+  // enginePowerHp than the baseline rally car.
+  vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
+
+  // --- Wheel hitboxes (pedestrians) ---
+  // The chassis' own collision shapes (carHullPrism + the 8 corner
+  // spheres above) sit close against the body shell, well inboard of
+  // where the wheels actually are (see wheelAttachY/suspensionRestLength/
+  // radius) - a pedestrian clipped by a wheel sticking out past the
+  // body (very visible on a wide-tired vehicle like
+  // lib/vehicles/bigfoot.js) would never register a hit at all. One
+  // kinematic sphere per wheel, sized to that vehicle's own wheelRadius
+  // and re-positioned every physics step from the wheel's real simulated
+  // transform (steering + suspension compression + spin all included),
+  // fixes that without touching the chassis' actual driving
+  // physics: masked to only ever collide with pedestrians (group 16 -
+  // see lib/pedestrians.js's PED_GROUP/lib/remoteCollisions.js's group
+  // map), so it never touches the ground trimesh or buildings and can't
+  // fight the RaycastVehicle's own suspension forces.
+  const WHEEL_HITBOX_PED_GROUP = 16;
+  const wheelHitboxBodies = wheelPositions.map(() => {
+    const body = new CANNON.Body({
+      mass: 0,
+      type: CANNON.Body.KINEMATIC,
+      collisionFilterGroup: 1,
+      collisionFilterMask: WHEEL_HITBOX_PED_GROUP,
+    });
+    body.addShape(new CANNON.Sphere(wheelRadius));
+    world.addBody(body);
+    return body;
+  });
+  const syncWheelHitboxes = () => {
+    for (let i = 0; i < wheelHitboxBodies.length; i++) {
+      vehicle.updateWheelTransform(i);
+      const t = vehicle.wheelInfos[i].worldTransform;
+      wheelHitboxBodies[i].position.copy(t.position);
+      wheelHitboxBodies[i].quaternion.copy(t.quaternion);
+    }
+  };
+  world.addEventListener('preStep', syncWheelHitboxes);
+  vehicle.wheelHitboxBodies = wheelHitboxBodies;
 
   // cannon-es's updateMassProperties() approximates a body's rotational
   // inertia from a box matching just its *shapes'* AABB - here, the thin
@@ -552,6 +624,16 @@ export function createCar(
   }
 
 
+  // Tears down the per-wheel pedestrian hitboxes (see above) - these are
+  // extra bodies/listeners beyond the one chassisBody/chassisMesh pair
+  // app/carManager.js's removeCurrentCar() cleans up generically, so (like
+  // the hover rig's own dispose - see lib/chariot.js) they need their own
+  // explicit teardown on despawn/vehicle-swap.
+  function dispose() {
+    world.removeEventListener('preStep', syncWheelHitboxes);
+    for (const body of wheelHitboxBodies) world.removeBody(body);
+  }
+
   return {
     vehicle,
     chassisBody,
@@ -563,6 +645,7 @@ export function createCar(
     updateReset,
     setHitboxVisible,
     stabilityAssistCallback,
+    dispose,
   };
 }
 
@@ -582,6 +665,10 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
   const nameTag = createNameTag(name, score);
   group.add(nameTag.sprite);
 
+  // Match the local rig's per-vehicle wheel size (see createCar above) so a
+  // bigger-wheeled vehicle (e.g. a monster truck) doesn't look stock-sized
+  // on other players' screens.
+  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
   const axleWidth = CHASSIS_WIDTH / 2 - 0.1;
   const wheelAttachY = -CHASSIS_HEIGHT / 2;
   const wheelLocals = [
@@ -591,7 +678,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     [axleWidth, wheelAttachY, -1.3],
   ];
   const wheelMeshes = wheelLocals.map(([x, y, z]) => {
-    const wheel = buildRallyWheel(WHEEL_RADIUS, group);
+    const wheel = buildRallyWheel(wheelRadius, group);
     wheel.position.set(x, y, z);
     wheel.rotation.order = 'YXZ';
     return wheel;
@@ -605,7 +692,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
   function setPose(pose, dt) {
     group.position.set(pose.x, pose.y, pose.z);
     group.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw).normalize();
-    spin = (spin + (pose.speed / WHEEL_RADIUS) * dt) % (Math.PI * 2);
+    spin = (spin + (pose.speed / wheelRadius) * dt) % (Math.PI * 2);
     wheelMeshes.forEach((wheel, i) => {
       wheel.rotation.y = i < 2 ? pose.steer : 0;
       wheel.rotation.x = spin;

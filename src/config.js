@@ -45,12 +45,14 @@ export const ORIGIN_LON = 17.0385;
 export const DEFAULT_BODY_COLOR = 0x1c3f94;
 
 // ---------- Controls ----------
-export const MAX_FORCE = 300;
 export const MAX_STEER = 0.5;
-// Brakes should be able to stop the car at least as decisively as the engine
-// can accelerate it, so scale brake force off the engine's max power instead
-// of using an unrelated fixed constant.
-export const BRAKE_FORCE = MAX_FORCE * 10;
+// Flat brake force (Newtons) applied at each wheel/engine when the
+// handbrake is held, shared by every vehicle regardless of its own engine
+// power - deliberately NOT derived from any per-vehicle power rating (see
+// lib/car.js's enginePowerHp / lib/vehicles/podRacer.js's
+// engineThrustForce), so retuning one vehicle's power can't silently
+// change how hard every vehicle brakes.
+export const BRAKE_FORCE = 3000;
 export const TURBO_MULT = 4;
 
 // ---------- Collision response (arcade impact roll) ----------

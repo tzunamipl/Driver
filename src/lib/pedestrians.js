@@ -102,15 +102,22 @@ export function createPedestrians(scene, world, groundGroup) {
     return true;
   }
 
-  function bindChassis(chassisBody) {
-    chassisBody.addEventListener('collide', (event) => {
+  function bindChassis(chassisBody, extraBodies = []) {
+    const onCollide = (event) => {
       const id = event.body?.pedId;
       const ped = id && peds.get(id);
       if (!ped || ped.knocked || killed.has(id)) return;
       if (pendingHits.some((hit) => hit.id === id)) return;
+      // Always read velocity off the chassis itself, even when the hit
+      // came from one of `extraBodies` (e.g. a wheel hitbox - see
+      // lib/car.js) - those are kinematic and re-positioned by hand every
+      // step rather than integrated by cannon, so they have no velocity
+      // of their own to throw the pedestrian with.
       const velocity = chassisBody.velocity;
       pendingHits.push({ id, vx: velocity.x, vy: velocity.y, vz: velocity.z });
-    });
+    };
+    chassisBody.addEventListener('collide', onCollide);
+    for (const body of extraBodies) body.addEventListener('collide', onCollide);
   }
 
   // Swap the trigger for a body the ground can actually hit. Spheres,

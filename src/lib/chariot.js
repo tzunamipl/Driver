@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { MAX_FORCE, MAX_STEER } from '../config.js';
+import { MAX_STEER } from '../config.js';
 import { GROUND_COLLISION_GROUP } from './terrain.js';
 import { BUILDING_COLLISION_GROUP } from './buildings.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
@@ -31,7 +31,7 @@ import { orientStrut, orientTetherChain } from './vehicles/podRacer.js';
 //  - Steering: with no single rigid body left to kinematically spin, this
 //    uses real differential thrust instead - each engine's own thrust
 //    magnitude is biased up/down based on which side of the formation it
-//    is (see STEER_DIFF_FORCE) while every engine pushes along the same
+//    is (see steerDiffForce) while every engine pushes along the same
 //    shared heading vector (see computeFormationHeading). Pushing one
 //    side harder than the other is a genuine net torque on the spring-
 //    coupled assembly, so the formation's yaw is a real emergent result
@@ -52,32 +52,21 @@ const HOVER_DAMPING = 15; // N per (m/s) of vertical closing speed
 const MAX_HOVER_FORCE = 12000;
 const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
 
-const ENGINE_THRUST_FORCE = MAX_FORCE * 200;
+// Per-engine thrust (descriptor.engineThrustForce - see
+// lib/vehicles/podRacer.js) is this chariot's own independent power
+// characteristic, the hover-rig equivalent of a car's enginePowerHp (see
+// lib/car.js) - not derived from any shared global force constant. The
+// default below only applies if a descriptor somehow omits it.
+const DEFAULT_ENGINE_THRUST_FORCE = 20000;
+// Steering/yaw-damping gains below are expressed as fixed fractions of
+// one engine's own thrust rating (computed per-vehicle in
+// createChariotVehicle), so they scale automatically with whatever power
+// a given pod-racer variant is tuned to instead of needing separate
+// retuning for every new engineThrustForce value.
+const STEER_DIFF_FORCE_RATIO = 0.9; // of one engine's thrust rating
+const YAW_DAMPING_FORCE_RATIO = 0.135; // of one engine's thrust rating
 const LINEAR_DAMPING = 0.3;
 
-// Real differential-thrust steering (see the file-level comment above):
-// each engine's own thrust is biased by its *original* local-x sign
-// (fixed at construction, not its live position, so a transient wobble
-// can't flip which side an engine counts as) times steerCommand times
-// this gain - a genuine extra push/pull, not a kinematic trick, so it
-// needs real force to overcome the coupling springs/hover drag, same as
-// any other real steering force would.
-const STEER_DIFF_FORCE = MAX_FORCE * 60;
-// Active yaw-rate damping (see computeFormationYawRate/applyHoverAndThrust
-// below): real differential thrust has no built-in "stop turning" - once
-// the formation has picked up some actual yaw rate it keeps coasting on
-// its own momentum/angular inertia after the steering key is released,
-// same as any other real rotating body would. This feeds the formation's
-// live, measured yaw rate back in as an opposing differential-thrust
-// bias every step (regardless of steerCommand, throttleCommand, or even
-// ENGINE_THRUST_FORCE - this fires any time there's measured yaw rate,
-// e.g. from settling/landing with zero throttle), so releasing the key
-// actively brakes the turn instead of just stopping the *extra* push -
-// same role LINEAR_DAMPING plays for straight-line coasting, but for yaw.
-// Kept as its own independent constant (not derived from
-// ENGINE_THRUST_FORCE/STEER_DIFF_FORCE) so retuning engine thrust can't
-// silently change how hard idle/settling yaw gets damped out.
-const YAW_DAMPING_FORCE_PER_RAD_S = MAX_FORCE * 9; // == ENGINE_THRUST_FORCE(MAX_FORCE*10) * 0.9 baseline
 // Lateral "grip" - without this, differential thrust only spins the
 // formation's facing while its actual momentum keeps sliding along
 // whatever direction it was already moving (a frictionless-puck drift,
@@ -248,6 +237,15 @@ function hoverAt(world, worldPos, verticalVelocity, rayFrom, rayTo, rayResult, s
  */
 export function createChariotVehicle(world, THREE_scene, startPosition, startQuaternion, color, descriptor) {
   const engineCount = descriptor.engineCount ?? 3;
+  // This vehicle's own independent power characteristic: thrust (Newtons)
+  // produced by one engine at full throttle - see
+  // lib/vehicles/podRacer.js's engineThrustForce. Steering/yaw-damping
+  // gains are kept as fixed ratios of it (see STEER_DIFF_FORCE_RATIO/
+  // YAW_DAMPING_FORCE_RATIO above) so they scale with whatever power this
+  // particular variant is tuned to.
+  const engineThrustForce = descriptor.engineThrustForce ?? DEFAULT_ENGINE_THRUST_FORCE;
+  const steerDiffForce = engineThrustForce * STEER_DIFF_FORCE_RATIO;
+  const yawDampingForcePerRadS = engineThrustForce * YAW_DAMPING_FORCE_RATIO;
   // See lib/airDrag.js - applied relative to the shared, live formation
   // heading (headingForward/computeFormationHeading), since no single
   // engine body's own quaternion is an authoritative "facing" for the rig.
@@ -324,13 +322,20 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
   let brakeCommand = 0;
 
   function applyEngineForce(value) {
-    throttleCommand = THREE.MathUtils.clamp(-value / MAX_FORCE, -1, 1);
+    // app/input.js leaves vehicle.engineForce unset for this rig (it only
+    // matters for wheeled cars - see lib/car.js), so its default of 1
+    // means `value` already arrives as a plain +-1 (or +-TURBO_MULT,
+    // clamped below) throttle command - this rig's own engineThrustForce
+    // (above) is what actually determines the real force applied, entirely
+    // independent of whatever unit app/input.js's engineForce happens to
+    // be for other vehicles.
+    throttleCommand = THREE.MathUtils.clamp(-value, -1, 1);
   }
   function setSteeringValue(value) {
     // Negated: the differential-thrust effect below turns opposite to a
     // naive value/MAX_STEER mapping, same sign convention this rig has
     // always used for its (previously kinematic, now real-force)
-    // steering - see STEER_DIFF_FORCE.
+    // steering - see steerDiffForce.
     steerCommand = THREE.MathUtils.clamp(-value / MAX_STEER, -1, 1);
   }
   function setBrake(value) {
@@ -432,7 +437,7 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
    * that component by their separation gives the formation's angular
    * velocity directly from real, independently-simulated physics state -
    * nothing kinematic/remembered. Used to actively damp residual spin
-   * once steering input stops (see YAW_DAMPING_FORCE_PER_RAD_S) - must be
+   * once steering input stops (see yawDampingForcePerRadS) - must be
    * called right after computeFormationHeading (reuses its headingForward
    * and horizDist).
    */
@@ -569,7 +574,7 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     const sharedForward = headingForward; // already real/live, see computeFormationHeading
     const sharedRight = headingRight; // already real/live, see computeFormationHeading
     // Measured right now, before any of this step's forces are applied -
-    // see computeFormationYawRate/YAW_DAMPING_FORCE_PER_RAD_S.
+    // see computeFormationYawRate/yawDampingForcePerRadS.
     const yawRate = computeFormationYawRate();
     const stepDt = world.dt > 0 ? world.dt : 1 / 60;
 
@@ -592,9 +597,13 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
       // so any already-picked-up spin actively bleeds off instead of
       // coasting on its own momentum once the key is released.
       const sideSign = Math.sign(engineOffsets[i].x);
-      const steerBias = brakeCommand ? 0 : steerCommand * sideSign * STEER_DIFF_FORCE;
-      const yawDampingBias = -yawRate * sideSign * YAW_DAMPING_FORCE_PER_RAD_S;
-      const thrustForce = brakeCommand ? 0 : throttleCommand * ENGINE_THRUST_FORCE / engineCount;
+      const steerBias = brakeCommand ? 0 : steerCommand * sideSign * steerDiffForce;
+      const yawDampingBias = -yawRate * sideSign * yawDampingForcePerRadS;
+      // Each engine applies its own full thrust rating (not divided by
+      // engineCount) - engineThrustForce is defined as the thrust of ONE
+      // engine, so more engines genuinely means more total formation
+      // thrust, matching how a real multi-engine craft would work.
+      const thrustForce = brakeCommand ? 0 : throttleCommand * engineThrustForce;
       const totalThrust = thrustForce + steerBias + yawDampingBias;
       if (totalThrust !== 0) {
         scratchForce.set(sharedForward.x * totalThrust, sharedForward.y * totalThrust, sharedForward.z * totalThrust);

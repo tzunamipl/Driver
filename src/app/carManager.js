@@ -39,7 +39,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
       if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
       applyImpactRoll(nextVehicle.chassisBody, event.contact);
     });
-    pedestrians.bindChassis(nextVehicle.chassisBody);
+    pedestrians.bindChassis(nextVehicle.chassisBody, nextVehicle.wheelHitboxBodies ?? []);
     if (nameTag?.sprite.parent) nameTag.sprite.parent.remove(nameTag.sprite);
     nameTag = createNameTag(localName, score);
     mesh.add(nameTag.sprite);

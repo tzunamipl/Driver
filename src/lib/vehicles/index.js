@@ -7,6 +7,7 @@
 
 import gc8 from './gc8.js';
 import podRacer from './podRacer.js';
+import bigfoot from './bigfoot.js';
 
 // Fixed set of tabs shown in the lobby's vehicle picker, in display order.
 // `id` is what's actually stored/selected; `label` is only for display.
@@ -19,9 +20,9 @@ export const CATEGORIES = [
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [gc8, podRacer];
+export const VEHICLES = [gc8, podRacer, bigfoot];
 
-export const DEFAULT_VEHICLE_ID = gc8.id;
+export const DEFAULT_VEHICLE_ID = bigfoot.id;
 
 const byId = new Map(VEHICLES.map((v) => [v.id, v]));
 
