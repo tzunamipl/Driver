@@ -1,5 +1,6 @@
 import { DIRECTIONS, STATS_UPDATE_INTERVAL } from '../config.js';
 import { computeHeadingDeg, headingDirection } from '../lib/heading.js';
+import { localToLatLon } from '../lib/geo.js';
 
 // Terrain/buildings streaming stats HUD (memory usage + tile streaming
 // map). Debug-only overlay; disabled outright when debug visuals are off
@@ -17,7 +18,10 @@ export function createTerrainStatsHud() {
   let fpsAccum = 0;
   let fpsFrames = 0;
 
-  function updateTerrainStats(delta, { terrain, buildings, chassisMesh, debugVisualsEnabled, pedestrians }) {
+  function updateTerrainStats(
+    delta,
+    { terrain, buildings, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
+  ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
     fpsAccum += delta;
@@ -41,6 +45,15 @@ export function createTerrainStatsHud() {
 
     const b = buildings.getStats();
     const pedCount = pedestrians?.getCount ? pedestrians.getCount() : null;
+    // Selectable (copy/paste-able) coordinates for bug reports / manually
+    // navigating elsewhere - computed in the *network* frame (same frame
+    // carState.js persists, independent of any personal teleport) so a
+    // pasted value stays meaningful even after reloading.
+    let coordsText = '';
+    if (Number.isFinite(viewOriginLat) && Number.isFinite(viewOriginLon)) {
+      const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, viewOriginLat, viewOriginLon);
+      coordsText = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    }
     const textLines = [
       'TERRAIN',
       `fps: ${fps.toFixed(0)}`,
@@ -51,6 +64,7 @@ export function createTerrainStatsHud() {
       `ahead: ${aheadTx},${aheadTy}`,
       `buildings: ${b.buildings} in ${b.loaded} tiles${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
     ];
+    if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);
     if (b.usingCachedData) {
       textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
@@ -62,6 +76,7 @@ export function createTerrainStatsHud() {
     const cols = s.grid[0].length;
     terrainStatsEl.innerHTML =
       `<div class="ts-text">${textLines.join('\n')}</div>` +
+      (coordsText ? `<div class="ts-coords" title="Current position - selectable to copy">${coordsText}</div>` : '') +
       `<div class="ts-compass-wrap">` +
       `<span class="ts-dir n">N</span><span class="ts-dir s">S</span>` +
       `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
@@ -72,7 +87,7 @@ export function createTerrainStatsHud() {
             .map((state, rx) => {
               const isPlayer = state === 'player';
               const cellState = isPlayer ? 'loaded' : state;
-              const isAhead = ry - s.radius === dir.dy && rx - s.radius === dir.dx;
+              const isAhead = ry - s.gridCenter.row === dir.dy && rx - s.gridCenter.col === dir.dx;
               const classes = ['ts-cell', cellState];
               if (isPlayer) classes.push('player');
               if (isAhead) classes.push('ahead');

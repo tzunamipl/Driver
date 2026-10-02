@@ -42,15 +42,17 @@ export const ORIGIN_LON = 17.0385;
 
 // Starting body color when the lobby is skipped (dev mode). The lobby
 // itself uses a color picker; this is only the fallback blue.
-export const DEFAULT_BODY_COLOR = 0x1c3f94;
+export const DEFAULT_BODY_COLOR = 0xffffff;
 
 // ---------- Controls ----------
-export const MAX_FORCE = 300;
 export const MAX_STEER = 0.5;
-// Brakes should be able to stop the car at least as decisively as the engine
-// can accelerate it, so scale brake force off the engine's max power instead
-// of using an unrelated fixed constant.
-export const BRAKE_FORCE = MAX_FORCE * 10;
+// Flat brake force (Newtons) applied at each wheel/engine when the
+// handbrake is held, shared by every vehicle regardless of its own engine
+// power - deliberately NOT derived from any per-vehicle power rating (see
+// lib/car.js's enginePowerHp / lib/vehicles/podRacer.js's
+// engineThrustForce), so retuning one vehicle's power can't silently
+// change how hard every vehicle brakes.
+export const BRAKE_FORCE = 3000;
 export const TURBO_MULT = 4;
 // Jump charges while the button is held and fires on release. A tap is a
 // small hop; holding out the full charge time reaches the high jump.
@@ -129,7 +131,7 @@ export const CAMERA_OFFSET = [0, 30, -20];
 export const CAMERA_LOOKAT_OFFSET = [0, 10.5, 10];
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
 export const CAMERA_POSITION_SPEED = 2.5;
-export const CAMERA_LOOKAT_SPEED = 3;
+export const CAMERA_LOOKAT_SPEED = 50;
 // Raw yaw (from the chassis quaternion) carries small high-frequency noise
 // from suspension/wheel-contact vibration, which gets amplified a lot by
 // the long camera offset (~36 units) into visible high-speed jitter. Smooth
@@ -147,6 +149,25 @@ export const FLIP_UP_DOT_THRESHOLD = 0.5;
 // undefined (e.g. standing still, or barely rolling) to aim the camera at,
 // so we fall back to the chassis heading instead.
 export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
+// Pull the camera closer to the car as speed increases, so high speed
+// feels faster and the car doesn't get lost far ahead of a distant camera.
+// Below this speed (m/s) the camera sits at its normal (farthest) offset.
+export const CAMERA_CLOSE_MIN_SPEED = 10;
+// At/above this speed (m/s) the camera reaches its closest offset.
+export const CAMERA_CLOSE_MAX_SPEED = 30;
+// Closest distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at
+// CAMERA_CLOSE_MAX_SPEED (1 = no change, lower = closer to the car).
+export const CAMERA_CLOSE_MIN_SCALE = 0.9;
+// The exponential position/look-at smoothing above has a fixed settling
+// time (~1/CAMERA_*_SPEED seconds), so while the car is moving at a
+// constant velocity the smoothed camera steadily trails behind by
+// (velocity * that settling time) - negligible at normal speeds but tens
+// of meters at extreme speeds (e.g. ~500km/h). To cancel that steady-state
+// lag without touching the smoothing itself (which would bring jitter
+// back), the smoothing target is pushed ahead by the car's velocity
+// scaled by its own settling time before being smoothed, so a constant
+// velocity converges to zero lag. 1 = full compensation, 0 = none.
+export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection

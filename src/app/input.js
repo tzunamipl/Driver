@@ -1,4 +1,4 @@
-import { MAX_FORCE, MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
+import { MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
 
 // Keyboard input: reads raw key state and translates it into vehicle
 // control calls each frame. Isolated from the main loop so control
@@ -50,7 +50,19 @@ export function createInputController() {
     const turbo = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const forceScale = turbo ? TURBO_MULT : 1;
 
-    const engineForce = (forward ? -MAX_FORCE : backward ? MAX_FORCE : 0) * forceScale;
+    // vehicle.engineForce is each vehicle's own independent power
+    // characteristic, set per-rig from its descriptor (not from any shared
+    // global constant):
+    //  - wheeled cars (lib/car.js's createCar) derive it from
+    //    descriptor.enginePowerHp - an equivalent-bhp rating, so e.g. a
+    //    monster truck can be tuned dramatically more powerful than the
+    //    baseline rally car just by giving it a bigger hp number.
+    //  - hover chariots (lib/chariot.js's createChariotVehicle) don't use
+    //    this for their actual thrust at all (see
+    //    descriptor.engineThrustForce - thrust of one engine) - they leave
+    //    this at its default of 1 and only use it as a +-1 throttle sign.
+    const engineForceUnit = vehicle.engineForce ?? 1;
+    const engineForce = (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
     // rear-wheel drive (indices 2, 3)
     vehicle.applyEngineForce(engineForce, 2);
     vehicle.applyEngineForce(engineForce, 3);
@@ -60,7 +72,12 @@ export function createInputController() {
     vehicle.setSteeringValue(steerValue, 1);
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
-    const brakeForce = handbrake ? BRAKE_FORCE * forceScale : 0;
+    // vehicle.brakeForce is each vehicle's own independent handbrake
+    // strength (see lib/car.js's createCar), set per-rig from its
+    // descriptor the same way engineForce is above - BRAKE_FORCE is only
+    // a fallback for rigs that don't set one (e.g. the hover chariot,
+    // which only treats this as a +0 boolean, not an actual force).
+    const brakeForce = handbrake ? (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale : 0;
     for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
     const resetPressed = keys.has('KeyR');

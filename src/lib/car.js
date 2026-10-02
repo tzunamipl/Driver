@@ -1,42 +1,55 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { AIR_YAW_ACCEL, AIR_YAW_MAX } from '../config.js';
+import { getVehicle, DEFAULT_VEHICLE_ID } from './vehicles/index.js';
+import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
+import { createChariotVehicle, createRemoteChariot } from './chariot.js';
+import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
+import { createWheeledVehicle } from './wheeledVehicle.js';
+import { findGroundY } from './terrain.js';
 
-// Shared CANNON.Material tagging the chassis' collision shapes, so main.js
-// can pair it with BUILDING_MATERIAL (see buildings.js) in a dedicated
-// ContactMaterial - lower friction than the world default so a glancing
-// hit against a wall slides/bounces off instead of grabbing and stopping
-// the car dead.
-export const CHASSIS_MATERIAL = new CANNON.Material('chassis');
+// Re-exported from vehicleShared.js (not defined here) so every existing
+// `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
+// working unchanged - see vehicleShared.js for why it had to move out of
+// this file (lib/chariot.js, the hover-vehicle rig, needs it too, and
+// importing it back from here would be circular).
+export { CHASSIS_MATERIAL, createNameTag };
 
-/**
- * Slants the top-front and top-back vertices of a BoxGeometry inward along Z
- * to create a tapered "greenhouse" shape (windshield/rear-window rake),
- * keeping everything low-poly (still just box triangles, no extra geometry).
- */
-function taperCabinTop(geometry, frontInset, backInset) {
-  const pos = geometry.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    if (y > 0) {
-      if (z > 0) pos.setZ(i, z - frontInset);
-      else pos.setZ(i, z + backInset);
-    }
-  }
-  pos.needsUpdate = true;
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-const DEFAULT_BODY_COLOR = 0x1c3f94; // WRC blue
+const DEFAULT_BODY_COLOR = 0xffffff; // white
 const CHASSIS_WIDTH = 1.8;
 const CHASSIS_HEIGHT = 0.6;
 const CHASSIS_LENGTH = 4;
 const WHEEL_RADIUS = 0.4;
+// Chassis weight (kg), expressed per-vehicle (descriptor.mass - see
+// lib/vehicles/gc8.js/bigfoot.js) the same way enginePowerHp/dragProfile
+// already are, rather than every wheeled vehicle sharing one hardcoded
+// mass - only applies if a descriptor omits its own value.
+const DEFAULT_CHASSIS_MASS = 150; // baseline rally car's weight
 // How long a reset's lift-back-upright takes to ease into place, instead of
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
+
+// Engine power, expressed per-vehicle as an equivalent "bhp" rating
+// (descriptor.enginePowerHp - see lib/vehicles/gc8.js/bigfoot.js) and
+// converted here to the raw engine force (Newtons) that
+// RaycastVehicle.applyEngineForce actually expects. This is a simple,
+// linear arcade conversion for game balance (not a real-world
+// torque/gearing/speed curve) - the point is each car now carries its own
+// independent power number instead of every car scaling off one shared
+// global force constant.
+const FORCE_PER_HP = 2;
+const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
+function hpToEngineForce(hp) {
+  return hp * FORCE_PER_HP;
+}
+
+// Braking force (Newtons), expressed per-vehicle (descriptor.brakeForce -
+// see lib/vehicles/gc8.js/bigfoot.js) the same way enginePowerHp/mass
+// already are, rather than every wheeled vehicle sharing one hardcoded
+// handbrake strength from config.js's BRAKE_FORCE - a heavier/more
+// powerful vehicle (e.g. a monster truck) can carry its own stronger
+// brakes instead of fighting the same braking force as the baseline car.
+const DEFAULT_BRAKE_FORCE = 3000; // baseline rally car's rating (matches the previous shared config.js constant)
+
 
 /**
  * Returns the chassis' top-down footprint as an octagon tapered at the
@@ -91,95 +104,24 @@ function buildCarHullPrism(hull, halfHeight) {
 }
 
 /**
- * Builds a low-poly Subaru Impreza GC (90s WRX/STI rally-styled) body out of
- * primitive boxes/cylinders: boxy sedan shell, raked cabin greenhouse, hood
- * scoop, round rally fog lights + rectangular headlights, and the iconic
- * STI rear wing on struts. The group stands in for the chassis mesh, sized
- * to roughly match the physics chassis footprint. `bodyMat` is the painted
- * shell so a remote car can recolor without rebuilding geometry.
- */
-function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
-  const group = new THREE.Group();
-
-  const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.45 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x161616, metalness: 0.2, roughness: 0.8 });
-  const glassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
-  const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0x554417, roughness: 0.3 });
-  const fogMat = new THREE.MeshStandardMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
-  const tailMat = new THREE.MeshStandardMaterial({ color: 0x7a0f0f, emissive: 0x3a0000, roughness: 0.4 });
-
-  const parts = [];
-  const add = (geometry, material, x, y, z) => {
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    parts.push(mesh);
-    return mesh;
-  };
-
-  // Main lower body shell.
-  add(new THREE.BoxGeometry(chassisWidth, 0.5, chassisLength * 0.9), bodyMat, 0, -0.3, 0);
-
-  // Tapered cabin/greenhouse (windshield rake at front, rear-window rake at back).
-  const cabinGeo = taperCabinTop(new THREE.BoxGeometry(chassisWidth * 0.83, 0.55, chassisLength * 0.5), 0.5, 0.35);
-  add(cabinGeo, glassMat, 0, 0.175, -0.1);
-
-  // Hood (protrudes slightly past the main shell toward the nose).
-  add(new THREE.BoxGeometry(chassisWidth * 0.97, 0.12, chassisLength * 0.28), bodyMat, 0, 0.01, chassisLength * 0.36);
-
-  // Front bumper/nose cap.
-  add(new THREE.BoxGeometry(chassisWidth, 0.35, 0.25), trimMat, 0, -0.35, chassisLength * 0.475);
-
-  // Rear trunk deck + bumper.
-  add(new THREE.BoxGeometry(chassisWidth * 0.97, 0.15, chassisLength * 0.2), bodyMat, 0, -0.02, -chassisLength * 0.39);
-  add(new THREE.BoxGeometry(chassisWidth, 0.3, 0.2), trimMat, 0, -0.35, -chassisLength * 0.4875);
-
-  // Grille + rectangular headlights.
-  add(new THREE.BoxGeometry(0.5, 0.15, 0.03), trimMat, 0, -0.15, chassisLength * 0.49);
-  add(new THREE.BoxGeometry(0.35, 0.18, 0.05), lightMat, chassisWidth * 0.36, -0.1, chassisLength * 0.49);
-  add(new THREE.BoxGeometry(0.35, 0.18, 0.05), lightMat, -chassisWidth * 0.36, -0.1, chassisLength * 0.49);
-
-  // Round rally fog lights (Impreza GC trademark).
-  const fogGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.06, 12);
-  fogGeo.rotateX(Math.PI / 2);
-  add(fogGeo, fogMat, chassisWidth * 0.28, -0.42, chassisLength * 0.5);
-  add(fogGeo.clone(), fogMat, -chassisWidth * 0.28, -0.42, chassisLength * 0.5);
-
-  // Taillights.
-  add(new THREE.BoxGeometry(0.3, 0.15, 0.05), tailMat, chassisWidth * 0.42, 0, -chassisLength * 0.49);
-  add(new THREE.BoxGeometry(0.3, 0.15, 0.05), tailMat, -chassisWidth * 0.42, 0, -chassisLength * 0.49);
-
-  // Hood scoop (WRX icon).
-  add(new THREE.BoxGeometry(0.45, 0.08, 0.4), trimMat, 0, 0.11, chassisLength * 0.325);
-
-  // Side mirrors.
-  add(new THREE.BoxGeometry(0.1, 0.08, 0.15), bodyMat, chassisWidth * 0.53, 0.15, chassisLength * 0.15);
-  add(new THREE.BoxGeometry(0.1, 0.08, 0.15), bodyMat, -chassisWidth * 0.53, 0.15, chassisLength * 0.15);
-
-  // Rear STI wing on struts.
-  const strutGeo = new THREE.BoxGeometry(0.05, 0.35, 0.05);
-  add(strutGeo, trimMat, chassisWidth * 0.36, 0.2, -chassisLength * 0.46);
-  add(strutGeo.clone(), trimMat, -chassisWidth * 0.36, 0.2, -chassisLength * 0.46);
-  add(new THREE.BoxGeometry(chassisWidth * 0.9, 0.05, 0.35), trimMat, 0, 0.38, -chassisLength * 0.46);
-
-  parts.forEach((mesh) => group.add(mesh));
-  return { group, bodyMat };
-}
-
-/**
  * Builds a two-tone low-poly rally wheel: a black tire cylinder plus a
  * smaller gold octagonal "rim" cylinder for a BBS-style mesh-wheel look.
+ * Tire/rim thickness scales with `radius` (rather than a flat constant)
+ * so a bigger-wheeled vehicle (e.g. lib/vehicles/bigfoot.js) reads as a
+ * proportionally chunkier tire instead of a comparatively thin disc.
  */
 function buildRallyWheel(radius, parent) {
   const group = new THREE.Group();
+  const tireWidth = radius * 0.95;
+  const rimWidth = tireWidth * 0.85;
 
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, 0.3, 20);
+  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 20);
   tireGeo.rotateZ(Math.PI / 2);
   const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, 0.32, 8);
+  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, rimWidth, 8);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
@@ -189,62 +131,32 @@ function buildRallyWheel(radius, parent) {
   return group;
 }
 
-function makeNameSprite(name, score = 0) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-  ctx.fillRect(16, 16, 480, 96);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 48px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`${name}  ${score}`, 256, 64);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
-  const sprite = new THREE.Sprite(material);
-  sprite.position.set(0, 2.4, 0);
-  sprite.scale.set(5.2, 1.3, 1);
-  sprite.renderOrder = 1;
-  return sprite;
-}
-
-/** Name + score plate parented by the caller (local chassis or a remote car). */
-export function createNameTag(name, score = 0) {
-  const sprite = makeNameSprite(name, score);
-  let currentName = name;
-  let currentScore = score;
-
-  function set(nextName, nextScore = 0) {
-    const safeScore = Number.isFinite(nextScore) ? nextScore : 0;
-    if (nextName === currentName && safeScore === currentScore) return;
-    currentName = nextName;
-    currentScore = safeScore;
-    const previous = sprite.material;
-    sprite.material = makeNameSprite(nextName, safeScore).material;
-    previous.map?.dispose();
-    previous.dispose();
-  }
-
-  return { sprite, set };
-}
 
 /**
  * Creates a Cannon-es RaycastVehicle (suspension, wheel friction,
- * acceleration) for the physics body, plus a matching low-poly
- * Subaru Impreza GC Three.js mesh.
+ * acceleration) for the physics body, plus the selected vehicle's
+ * Three.js mesh (see lib/vehicles/index.js's registry - `vehicleId`
+ * defaults to DEFAULT_VEHICLE_ID when omitted/unknown). The physics rig
+ * (chassis shape, wheels, inertia tuning) is shared by every *wheeled*
+ * vehicle kind for now - only the visible body mesh is swapped per
+ * vehicle. Hover vehicles (descriptor.vehicleType === 'hover', e.g. the
+ * Chariots of Fire pod racers) are built by a completely different rig
+ * instead - see lib/chariot.js - since differential-thrust hovering has
+ * nothing in common with wheel suspension/friction.
  */
 export function createCar(
   world,
   THREE_scene,
   startPosition = new CANNON.Vec3(0, 1, 0),
   startQuaternion = new CANNON.Quaternion(0, 0, 0, 1),
-  color = DEFAULT_BODY_COLOR
+  color = DEFAULT_BODY_COLOR,
+  vehicleId = DEFAULT_VEHICLE_ID
 ) {
+  const descriptor = getVehicle(vehicleId);
+  if (descriptor.vehicleType === 'hover') {
+    return createChariotVehicle(world, THREE_scene, startPosition, startQuaternion, color, descriptor);
+  }
+
   // --- Chassis physics body ---
   const chassisWidth = CHASSIS_WIDTH;
   const chassisHeight = CHASSIS_HEIGHT;
@@ -271,7 +183,8 @@ export function createCar(
   const carHullPrism = buildCarHullPrism(carHullPoints, chassisHeight / 2);
 
   const hitboxRadius = Math.min(chassisWidth, chassisHeight) / 2 - 0.05;
-  const chassisBody = new CANNON.Body({ mass: 150, material: CHASSIS_MATERIAL });
+  const chassisMass = descriptor.mass ?? DEFAULT_CHASSIS_MASS;
+  const chassisBody = new CANNON.Body({ mass: chassisMass, material: CHASSIS_MATERIAL });
   chassisBody.addShape(carHullPrism);
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
@@ -292,28 +205,67 @@ export function createCar(
   chassisBody.angularVelocity.set(0, 0, 0);
 
   // --- Vehicle ---
-  const vehicle = new CANNON.RaycastVehicle({
+  // Built from scratch (lib/wheeledVehicle.js) rather than
+  // CANNON.RaycastVehicle - see that file's header for why (full-travel
+  // suspension raycasts, normal-aligned suspension force, and a proper
+  // effective-mass friction solve with built-in pitch/roll lever-arm
+  // reduction, instead of needing this file to patch cannon's vehicle
+  // after the fact).
+  const vehicle = createWheeledVehicle({
     chassisBody,
     indexRightAxis: 0,
     indexUpAxis: 1,
     indexForwardAxis: 2,
   });
 
+  // Per-vehicle suspension/wheel-size tuning (see e.g. lib/vehicles/bigfoot.js
+  // for a monster-truck-style override) - any key here overrides the rally-car
+  // defaults below, letting one vehicle (bigger wheels, softer/longer-travel
+  // suspension, etc) differ from the rest without forking the whole rig.
+  const suspensionOverrides = descriptor.suspension ?? {};
+  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
+
   const wheelOptions = {
-    radius: WHEEL_RADIUS,
+    radius: wheelRadius,
     directionLocal: new CANNON.Vec3(0, -1, 0),
-    suspensionStiffness: 10,
+    // Stiffness of 10 let the chassis sag ~0.245m under its own resting
+    // weight (g/(4*stiffness), independent of mass) - nearly half the rest
+    // length, so the body visibly slumped down onto the springs at a
+    // standstill. 35 brings static sag down to a realistic ~7cm. Damping
+    // is scaled up by the same sqrt(stiffness) ratio to keep the same
+    // damping ratio (same bounciness/settle behavior as before, just stiffer).
+    suspensionStiffness: 35,
     suspensionRestLength: 0.55,
     frictionSlip: 5,
-    dampingRelaxation: 1.4,
-    dampingCompression: 2.0,
+    // Damping ratio = damping / (2*sqrt(stiffness)); critical damping here
+    // is 2*sqrt(35) ~= 11.83. The old values (2.62/3.74, ratios ~0.22/0.32)
+    // were well under 1 (underdamped), so every bump/landing kept the
+    // spring oscillating for a beat or two instead of settling - read as
+    // the chassis feeling bouncy/springy on ground contact. Raised to
+    // ratios ~0.75/0.5 (rebound damped harder than compression, same as a
+    // real shock) so the suspension absorbs a hit and settles promptly
+    // instead of bouncing back.
+    dampingRelaxation: 8.87,
+    dampingCompression: 5.92,
     maxSuspensionForce: 100000,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
-    maxSuspensionTravel: 0.95,
+    // Real suspension travel is a handful of inches, not most of a meter -
+    // 0.95 (nearly 2x the wheel radius) let the wheels visibly telescope
+    // in/out over every bump instead of staying close to the body like an
+    // actual suspension. 0.35 keeps enough droop/compression to soak up
+    // curbs and landings without the wheels looking like they're on
+    // springs stretched way past the chassis. Needs to clear this
+    // suspension's own static sag under the car's resting weight (now
+    // ~0.07m at stiffness 35) with real headroom left over for bumps/
+    // landings - anything too tight bottoms the springs out under nothing
+    // more than the car's own weight and the resulting zero-compliance
+    // corner destabilizes into a persistent, stuck-in-place lean.
+    maxSuspensionTravel: 0.35,
     customSlidingRotationalSpeed: -30,
     useCustomSlidingRotationalSpeed: true,
+    ...suspensionOverrides,
   };
 
   const axleWidth = chassisWidth / 2 - 0.1;
@@ -334,6 +286,64 @@ export function createCar(
   });
 
   vehicle.addToWorld(world);
+
+  // Labels for hud/suspensionHud.js's generic per-wheel bars, in the same
+  // order as vehicle.wheelInfos (see wheelPositions above).
+  vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];
+
+  // Per-vehicle engine power (see app/input.js), as an independent
+  // equivalent-bhp rating rather than a multiplier on any shared global
+  // force - e.g. a monster-truck-style vehicle can simply carry a bigger
+  // enginePowerHp than the baseline rally car.
+  vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
+
+  // Per-vehicle handbrake strength (see app/input.js) - independent of any
+  // shared global force, same pattern as engineForce above.
+  vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
+
+  // --- Wheel hitboxes (pedestrians) ---
+  // The chassis' own collision shapes (carHullPrism + the 8 corner
+  // spheres above) sit close against the body shell, well inboard of
+  // where the wheels actually are (see wheelAttachY/suspensionRestLength/
+  // radius) - a pedestrian clipped by a wheel sticking out past the
+  // body (very visible on a wide-tired vehicle like
+  // lib/vehicles/bigfoot.js) would never register a hit at all. One
+  // kinematic sphere per wheel, sized to that vehicle's own wheelRadius
+  // and re-positioned every physics step from the wheel's real simulated
+  // transform (steering + suspension compression + spin all included),
+  // fixes that without touching the chassis' actual driving
+  // physics: masked to only ever collide with pedestrians (group 16 -
+  // see lib/pedestrians.js's PED_GROUP/lib/remoteCollisions.js's group
+  // map), so it never touches the ground trimesh or buildings and can't
+  // fight the RaycastVehicle's own suspension forces.
+  const WHEEL_HITBOX_PED_GROUP = 16;
+  const wheelHitboxBodies = wheelPositions.map(() => {
+    const body = new CANNON.Body({
+      mass: 0,
+      type: CANNON.Body.KINEMATIC,
+      collisionFilterGroup: 1,
+      collisionFilterMask: WHEEL_HITBOX_PED_GROUP,
+    });
+    body.addShape(new CANNON.Sphere(wheelRadius));
+    world.addBody(body);
+    return body;
+  });
+  const syncWheelHitboxes = () => {
+    for (let i = 0; i < wheelHitboxBodies.length; i++) {
+      vehicle.updateWheelTransform(i);
+      const t = vehicle.wheelInfos[i].worldTransform;
+      wheelHitboxBodies[i].position.copy(t.position);
+      wheelHitboxBodies[i].quaternion.copy(t.quaternion);
+    }
+  };
+  world.addEventListener('preStep', syncWheelHitboxes);
+  vehicle.wheelHitboxBodies = wheelHitboxBodies;
+  // Tell the suspension raycasts (lib/wheeledVehicle.js) to ignore these -
+  // each one sits centered exactly on its own wheel, so without this the
+  // wheel's own hitbox is the closest thing its suspension ray can hit
+  // (well before the actual ground/building), reading as instantly
+  // bottomed-out suspension.
+  vehicle.ignoreBodies.push(...wheelHitboxBodies);
 
   // cannon-es's updateMassProperties() approximates a body's rotational
   // inertia from a box matching just its *shapes'* AABB - here, the thin
@@ -367,131 +377,37 @@ export function createCar(
   // simplified rigid body otherwise lacks entirely (default is ~0.01).
   chassisBody.angularDamping = 0.6;
 
-  // --- Anti-wheelie pitch correction ---
-  // The real root cause of "flips under acceleration": cannon-es's
-  // RaycastVehicle.updateFriction() applies the *forward* (engine/brake)
-  // friction impulse at the wheel's actual ground contact point, using its
-  // full, undamped lever arm back to the chassis' center of mass - unlike
-  // the *side* impulse, which it deliberately shrinks via `rollInfluence`
-  // for exactly this reason (see cannon-es's own updateFriction source:
-  // `rel_pos['xyz'][indexUpAxis] *= wheel.rollInfluence` only touches
-  // wheel.sideImpulse, never wheel.forwardImpulse). With the wheels ~1.4m
-  // below the chassis origin, hard acceleration/braking keeps injecting a
-  // big nose-up/down torque every step with nothing in the library to damp
-  // it - bigger rotational inertia (above) only slows how fast that
-  // builds, it never stops it. This reconstructs the exact torque cannon
-  // just applied for each wheel's forward impulse (from public WheelInfo
-  // state - forwardImpulse, hitPointWorld, hitNormalWorld, the wheel's own
-  // steered worldTransform - mirroring cannon's own forwardWS computation)
-  // and cancels all but a small PITCH_INFLUENCE fraction of it, the same
-  // way rollInfluence does for cornering - so accelerating/braking still
-  // pushes the car forward/back at full force, it just stops also trying
-  // to flip it end over end.
-  const PITCH_INFLUENCE = 0.05;
-  const pitchRightAxisLocal = [new CANNON.Vec3(1, 0, 0), new CANNON.Vec3(0, 1, 0), new CANNON.Vec3(0, 0, 1)][
-    vehicle.indexRightAxis
-  ];
-  const pitchAxle = new CANNON.Vec3();
-  const pitchSurfScaledProj = new CANNON.Vec3();
-  const pitchForward = new CANNON.Vec3();
-  const pitchRelPos = new CANNON.Vec3();
-  const pitchRelPosLocal = new CANNON.Vec3();
-  const pitchRelPosScaled = new CANNON.Vec3();
-  const pitchImpulseVec = new CANNON.Vec3();
-  const pitchTorqueFull = new CANNON.Vec3();
-  const pitchTorqueScaled = new CANNON.Vec3();
-  const pitchTorqueDelta = new CANNON.Vec3();
-  const pitchAngularDelta = new CANNON.Vec3();
-  function correctWheelieTorque() {
-    for (let i = 0; i < vehicle.wheelInfos.length; i++) {
-      const wheel = vehicle.wheelInfos[i];
-      if (!wheel.raycastResult.body || wheel.forwardImpulse === 0) continue;
-      const hitNormal = wheel.raycastResult.hitNormalWorld;
-
-      // Reconstruct this wheel's "forward" world direction the same way
-      // cannon-es's updateFriction just did (it doesn't expose forwardWS
-      // on WheelInfo, so it's cheap to redo from public state).
-      wheel.worldTransform.quaternion.vmult(pitchRightAxisLocal, pitchAxle);
-      const proj = pitchAxle.dot(hitNormal);
-      hitNormal.scale(proj, pitchSurfScaledProj);
-      pitchAxle.vsub(pitchSurfScaledProj, pitchAxle);
-      pitchAxle.normalize();
-      hitNormal.cross(pitchAxle, pitchForward);
-      pitchForward.normalize();
-
-      wheel.raycastResult.hitPointWorld.vsub(chassisBody.position, pitchRelPos);
-      pitchForward.scale(wheel.forwardImpulse, pitchImpulseVec);
-      pitchRelPos.cross(pitchImpulseVec, pitchTorqueFull);
-
-      // Same trick as rollInfluence: shrink the lever arm's vertical
-      // (up-axis) component specifically, in the chassis' own local frame.
-      chassisBody.vectorToLocalFrame(pitchRelPos, pitchRelPosLocal);
-      pitchRelPosLocal.y *= PITCH_INFLUENCE;
-      chassisBody.vectorToWorldFrame(pitchRelPosLocal, pitchRelPosScaled);
-      pitchRelPosScaled.cross(pitchImpulseVec, pitchTorqueScaled);
-
-      // Remove exactly the excess torque cannon's applyImpulse() call
-      // already added to angularVelocity for this wheel this step.
-      pitchTorqueFull.vsub(pitchTorqueScaled, pitchTorqueDelta);
-      chassisBody.invInertiaWorld.vmult(pitchTorqueDelta, pitchAngularDelta);
-      chassisBody.angularVelocity.vsub(pitchAngularDelta, chassisBody.angularVelocity);
-    }
-  }
-
-  // --- Anti-flip stability assist ---
-  // Belt-and-braces on top of the pitch correction above: every physics
-  // step, once the vehicle's own forces for that step are already applied
-  // (this listener runs after vehicle.preStepCallback within the same
-  // 'preStep' dispatch - see cannon-es's World.internalStep), nudge the
-  // chassis back toward upright whenever it's still reasonably level and
-  // at least one wheel is touching the ground (catches bumps/landings the
-  // targeted correction above doesn't, e.g. an uneven touchdown). It
-  // deliberately stops helping once the chassis tips past
-  // STABILITY_MAX_TILT_DOT (~53 degrees), so a real crash, rollover, or
-  // stunt-jump flip still plays out physically instead of being invisibly
-  // rubber-banded upright.
-  const STABILITY_MAX_TILT_DOT = 0.6;
-  const STABILITY_GAIN = 12;
-  const stabilityWorldUp = new CANNON.Vec3(0, 1, 0);
-  const stabilityCarUp = new CANNON.Vec3();
-  const stabilityCorrection = new CANNON.Vec3();
+  // --- Air drag ---
+  // Anti-wheelie pitch correction and anti-flip stability assist used to
+  // live here as a bolt-on fix for cannon-es's RaycastVehicle (reconstruct
+  // the torque it just applied, then subtract most of it back out; nudge
+  // the chassis back upright if it tips too far). Both are gone now - the
+  // replacement vehicle rig (lib/wheeledVehicle.js) applies its forward/
+  // lateral tyre impulses through an already-reduced lever arm (pitch/roll
+  // influence) at the moment the impulse happens, so the excess torque
+  // never gets injected into angularVelocity in the first place, and the
+  // corrected inertia tensor + angularDamping above are enough on their
+  // own to keep landings/bumps settling naturally instead of needing a
+  // rubber-banded "stay upright" assist.
+  // Universal directional air drag (see lib/airDrag.js) - this vehicle's
+  // own dragProfile (falling back to a generic default for any descriptor
+  // that doesn't define one), applied relative to the chassis' own
+  // current facing (its local +Z, same "front" convention every rig here
+  // uses).
+  const dragProfile = descriptor.dragProfile ?? DEFAULT_DRAG_PROFILE;
+  const dragForwardLocal = new CANNON.Vec3(0, 0, 1);
+  const dragForwardWorld = new CANNON.Vec3();
   const stabilityAssistCallback = () => {
-    correctWheelieTorque();
-
-    if (vehicle.numWheelsOnGround === 0) {
-      // Wheels can't steer in the air. A/D yaw the chassis so a jump can
-      // still be aimed. Only adds spin up to AIR_YAW_MAX, and never pulls
-      // a faster crash spin back down to that cap.
-      if (chassisBody.type === CANNON.Body.DYNAMIC) {
-        const yaw = vehicle.airControlYaw || 0;
-        const dt = world.dt > 0 ? world.dt : 0;
-        if (yaw && dt) {
-          const current = chassisBody.angularVelocity.y;
-          const next = current + yaw * AIR_YAW_ACCEL * dt;
-          if (Math.abs(next) <= AIR_YAW_MAX || Math.abs(next) < Math.abs(current)) {
-            chassisBody.angularVelocity.y = next;
-          }
-        }
-      }
-      return;
-    }
-    stabilityCarUp.set(0, 1, 0);
-    chassisBody.vectorToWorldFrame(stabilityCarUp, stabilityCarUp);
-    const uprightDot = stabilityCarUp.dot(stabilityWorldUp);
-    if (uprightDot <= STABILITY_MAX_TILT_DOT) return; // tipped too far - a real flip is already underway
-    stabilityCarUp.cross(stabilityWorldUp, stabilityCorrection);
-    const dt = world.dt > 0 ? world.dt : 0;
-    chassisBody.angularVelocity.x += stabilityCorrection.x * STABILITY_GAIN * dt;
-    chassisBody.angularVelocity.y += stabilityCorrection.y * STABILITY_GAIN * dt;
-    chassisBody.angularVelocity.z += stabilityCorrection.z * STABILITY_GAIN * dt;
+    chassisBody.vectorToWorldFrame(dragForwardLocal, dragForwardWorld);
+    applyAirDrag(chassisBody, dragForwardWorld, dragProfile);
   };
   world.addEventListener('preStep', stabilityAssistCallback);
 
-  // --- Three.js mesh: low-poly Subaru Impreza GC (90s WRX/STI rally style) ---
-  // Built entirely from primitive boxes/cylinders to keep it low-poly, sized
-  // to roughly match the chassis hitbox (chassisWidth x chassisLength) so it
+  // --- Three.js mesh: selected vehicle's body ---
+  // Built by the vehicle descriptor (see lib/vehicles/index.js), sized to
+  // roughly match the chassis hitbox (chassisWidth x chassisLength) so it
   // still lines up with the wheels and physics body.
-  const { group: chassisMesh } = buildImprezaBody(chassisWidth, chassisLength, color);
+  const { group: chassisMesh } = getVehicle(vehicleId).buildBody(chassisWidth, chassisLength, color);
   THREE_scene.add(chassisMesh);
 
   // Debug-only wireframe marking the chassis' actual physics hitbox: the
@@ -626,7 +542,18 @@ export function createCar(
 
   function reset(position, quaternion) {
     const targetPosition = position ?? chassisBody.position.clone();
-    if (!position) targetPosition.y += chassisHeight + 0.5;
+    if (!position) {
+      // Lift from whichever is higher: the car's current position, or the
+      // real terrain surface at its current x/z - covers the normal
+      // "flip upright in place" case *and* recovering a car that's somehow
+      // ended up underground (e.g. fell through before
+      // app/collisions.js's ground-tunneling guard could catch it), where
+      // lifting by a fixed offset from the (still-underground) current
+      // position would just put it back underground.
+      const groundY = findGroundY(world, targetPosition.x, targetPosition.z);
+      if (groundY !== null && groundY > targetPosition.y) targetPosition.y = groundY;
+      targetPosition.y += chassisHeight + 0.5;
+    }
     const targetQuaternion = quaternion ?? uprightQuaternionPreservingHeading();
 
     liftAnim = {
@@ -676,6 +603,16 @@ export function createCar(
   }
 
 
+  // Tears down the per-wheel pedestrian hitboxes (see above) - these are
+  // extra bodies/listeners beyond the one chassisBody/chassisMesh pair
+  // app/carManager.js's removeCurrentCar() cleans up generically, so (like
+  // the hover rig's own dispose - see lib/chariot.js) they need their own
+  // explicit teardown on despawn/vehicle-swap.
+  function dispose() {
+    world.removeEventListener('preStep', syncWheelHitboxes);
+    for (const body of wheelHitboxBodies) world.removeBody(body);
+  }
+
   return {
     vehicle,
     chassisBody,
@@ -687,18 +624,30 @@ export function createCar(
     updateReset,
     setHitboxVisible,
     stabilityAssistCallback,
+    dispose,
   };
 }
 
 /**
  * Visual-only copy of the local car (no physics) for other players.
  * Wheels are parented to the chassis and spun from the replicated speed.
+ * Hover vehicles (see createCar above) have no wheels to spin, so they're
+ * delegated to createRemoteChariot instead - see lib/chariot.js.
  */
-export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '', score = 0) {
-  const { group, bodyMat } = buildImprezaBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
+export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = '', score = 0, vehicleId = DEFAULT_VEHICLE_ID) {
+  const descriptor = getVehicle(vehicleId);
+  if (descriptor.vehicleType === 'hover') {
+    return createRemoteChariot(THREE_scene, color, name, score, descriptor);
+  }
+
+  const { group, bodyMat } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
   const nameTag = createNameTag(name, score);
   group.add(nameTag.sprite);
 
+  // Match the local rig's per-vehicle wheel size (see createCar above) so a
+  // bigger-wheeled vehicle (e.g. a monster truck) doesn't look stock-sized
+  // on other players' screens.
+  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
   const axleWidth = CHASSIS_WIDTH / 2 - 0.1;
   const wheelAttachY = -CHASSIS_HEIGHT / 2;
   const wheelLocals = [
@@ -708,7 +657,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     [axleWidth, wheelAttachY, -1.3],
   ];
   const wheelMeshes = wheelLocals.map(([x, y, z]) => {
-    const wheel = buildRallyWheel(WHEEL_RADIUS, group);
+    const wheel = buildRallyWheel(wheelRadius, group);
     wheel.position.set(x, y, z);
     wheel.rotation.order = 'YXZ';
     return wheel;
@@ -722,7 +671,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
   function setPose(pose, dt) {
     group.position.set(pose.x, pose.y, pose.z);
     group.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw).normalize();
-    spin = (spin + (pose.speed / WHEEL_RADIUS) * dt) % (Math.PI * 2);
+    spin = (spin + (pose.speed / wheelRadius) * dt) % (Math.PI * 2);
     wheelMeshes.forEach((wheel, i) => {
       wheel.rotation.y = i < 2 ? pose.steer : 0;
       wheel.rotation.x = spin;

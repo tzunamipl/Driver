@@ -204,6 +204,42 @@
         100% { opacity: 0; transform: translateY(-16px); }
       }
 
+      /* System notices (e.g. the ground-tunnel guard's auto-rescue) - like
+         score-toasts above, but top-center, longer-lived, and wraps longer
+         explanatory sentences instead of a short "+N". */
+      #system-notices {
+        position: fixed;
+        left: 50%;
+        top: 10%;
+        transform: translateX(-50%);
+        z-index: 13;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        pointer-events: none;
+        max-width: min(90vw, 480px);
+      }
+      .system-notice {
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        text-align: center;
+        background: rgba(40, 10, 10, 0.75);
+        border: 1px solid rgba(255, 120, 120, 0.4);
+        border-radius: 8px;
+        padding: 8px 16px;
+        text-shadow: 0 1px 2px #000;
+        animation: system-notice 5s ease forwards;
+      }
+      @keyframes system-notice {
+        0% { opacity: 0; transform: translateY(-8px); }
+        8% { opacity: 1; transform: translateY(0); }
+        88% { opacity: 1; }
+        100% { opacity: 0; transform: translateY(-8px); }
+      }
+
       #airtime-hud {
         position: fixed;
         left: 50%;
@@ -420,6 +456,17 @@
         white-space: pre;
         margin-bottom: 6px;
       }
+      #terrain-stats .ts-coords {
+        /* The container above is pointer-events:none (it overlays the 3D
+           scene and shouldn't intercept clicks/drags meant for it) - this
+           one line opts back in so the lat/lon text can actually be
+           selected and copied (e.g. for bug reports or re-navigating). */
+        pointer-events: auto;
+        user-select: text;
+        cursor: text;
+        margin-bottom: 6px;
+        opacity: 0.9;
+      }
       #terrain-stats .ts-compass-wrap {
         display: grid;
         grid-template-columns: 12px max-content 12px;
@@ -599,6 +646,58 @@
         border: none;
         border-radius: 6px;
       }
+      #vehicle-picker {
+        margin: 0 0 16px;
+      }
+      #vehicle-tabs {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        margin-bottom: 8px;
+      }
+      .vehicle-tab {
+        flex: 1;
+        padding: 7px 6px;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.65);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+      .vehicle-tab.active {
+        color: #fff;
+        border-bottom-color: #4fc3ff;
+      }
+      #vehicle-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+      .vehicle-item {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        background: rgba(0, 0, 0, 0.35);
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .vehicle-item.active {
+        border-color: #4fc3ff;
+        background: rgba(79, 195, 255, 0.18);
+      }
+      .vehicle-empty {
+        margin: 0;
+        padding: 8px 2px;
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 12px;
+      }
       #lobby-join {
         width: 100%;
         padding: 8px 14px;
@@ -634,6 +733,16 @@
       }
       #net-status[data-status="offline"] { color: #ffb0b0; }
       #net-status[data-status="online"] { color: #b6f5c3; }
+      #debug-hud-row {
+        /* Row wrapper so the vehicle debug picker sits beside the
+           suspension HUD (not stacked underneath it), while the row as a
+           whole still stacks below the help/controls HUD inside
+           #top-left-stack. */
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 8px;
+      }
       #suspension-hud {
         /* Stacked below the help/controls HUD inside #top-left-stack
            (same flex-column approach #terrain-stats uses under
@@ -700,6 +809,55 @@
         padding-top: 6px;
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         opacity: 0.85;
+      }
+      /* Instant vehicle picker in the debug view (toggled with M, same as
+         #suspension-hud/#terrain-stats) - a compact version of the lobby's
+         tabs + list widget (see .vehicle-tab/.vehicle-item below) that
+         swaps the local car's vehicle kind in place instead of just
+         previewing a choice before joining. */
+      #vehicle-debug-hud {
+        color: #fff;
+        font-family: monospace;
+        font-size: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 8px 10px;
+        border-radius: 6px;
+        z-index: 10;
+        width: 150px;
+        /* #top-left-stack is click-through (pointer-events: none) so the
+           map/driving controls underneath the other HUD pieces stay
+           reachable - but this panel's tabs/buttons need actual clicks,
+           so opt back in here (the lobby's own #vehicle-picker isn't
+           inside that click-through stack, so it never needed this). */
+        pointer-events: auto;
+      }
+      #vehicle-debug-hud .susp-title {
+        margin-bottom: 6px;
+        opacity: 0.8;
+        letter-spacing: 0.5px;
+      }
+      #vehicle-debug-hud #vehicle-debug-tabs {
+        display: flex;
+        gap: 3px;
+        margin-bottom: 6px;
+      }
+      #vehicle-debug-hud .vehicle-tab {
+        flex: 1;
+        padding: 4px 2px;
+        font-size: 9px;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+      }
+      #vehicle-debug-hud #vehicle-debug-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 100px;
+        overflow-y: auto;
+      }
+      #vehicle-debug-hud .vehicle-item {
+        padding: 5px 6px;
+        font-size: 10px;
       }
       /* Car-navigation-style minimap: round, north-up, with a rotating car
          marker, zoom controls, a scale bar, and a place-name/coordinates
@@ -1120,7 +1278,12 @@
         <label for="lobby-name">Name</label>
         <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
         <label for="lobby-color">Color</label>
-        <input id="lobby-color" name="color" type="color" value="#1c3f94" />
+        <input id="lobby-color" name="color" type="color" value="#ffffff" />
+        <label>Vehicle</label>
+        <div id="vehicle-picker">
+          <div id="vehicle-tabs" role="tablist"></div>
+          <div id="vehicle-list"></div>
+        </div>
         <button id="lobby-join" type="submit" disabled>Drive in</button>
         <p id="lobby-status">Loading terrain…</p>
       </form>
@@ -1172,30 +1335,21 @@
           <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
         </div>
       </div>
-      <div id="suspension-hud">
-        <div class="susp-title">SUSPENSION</div>
-        <div class="susp-grid">
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fl-fill"></div></div>
-            <div class="susp-label">FL <span id="susp-fl-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-fr-fill"></div></div>
-            <div class="susp-label">FR <span id="susp-fr-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rl-fill"></div></div>
-            <div class="susp-label">RL <span id="susp-rl-val">&mdash;</span></div>
-          </div>
-          <div class="susp-wheel">
-            <div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill" id="susp-rr-fill"></div></div>
-            <div class="susp-label">RR <span id="susp-rr-val">&mdash;</span></div>
-          </div>
+      <div id="debug-hud-row">
+        <div id="suspension-hud">
+          <div class="susp-title">SUSPENSION</div>
+          <div class="susp-grid" id="susp-grid"></div>
+          <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
         </div>
-        <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+        <div id="vehicle-debug-hud">
+          <div class="susp-title">VEHICLE</div>
+          <div id="vehicle-debug-tabs"></div>
+          <div id="vehicle-debug-list"></div>
+        </div>
       </div>
     </div>
     <div id="score-toasts"></div>
+    <div id="system-notices"></div>
     <div id="airtime-hud"></div>
     <div id="top-right-stack">
       <div id="players-panel">

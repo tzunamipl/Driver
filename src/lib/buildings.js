@@ -398,7 +398,33 @@ export class BuildingsManager {
     // physics hitbox (its convex-hull prism shape) - created alongside every body
     // so toggling never has to walk/rebuild chunks, just flip .visible.
     // See setHitboxesVisible().
-    this._hitboxMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, depthTest: false });
+    //
+    // Rendered as two overlapping wireframes sharing the same geometry
+    // rather than one depthTest:false mesh, so a line's brightness reflects
+    // whether it's actually visible or hidden behind something else (e.g.
+    // another building, or the hitbox's own far walls) instead of every
+    // line always drawing on top at full brightness regardless of what's
+    // in front of it:
+    //  - `_hitboxMaterial`: normal depth test (depthFunc defaults to
+    //    LessEqual), so this one only draws where the line is genuinely
+    //    the frontmost thing - bright pink, the "actually visible" case.
+    //  - `_hitboxMaterialOccluded`: the opposite comparison (GreaterDepth),
+    //    so it only draws where something else already won the depth
+    //    test - dark pink, the "covered by something else" case. Neither
+    //    writes depth (depthWrite: false) so this x-ray pair never
+    //    interferes with each other's test or anything drawn after them.
+    this._hitboxMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff33ff,
+      wireframe: true,
+      depthWrite: false,
+    });
+    this._hitboxMaterialOccluded = new THREE.MeshBasicMaterial({
+      color: 0x660066,
+      wireframe: true,
+      depthTest: true,
+      depthFunc: THREE.GreaterDepth,
+      depthWrite: false,
+    });
     this._hitboxesVisible = false;
 
     // Region cache: the last fetched tile-range and the buildings within it
@@ -682,12 +708,22 @@ export class BuildingsManager {
         });
         hitboxGeometry.rotateX(-Math.PI / 2);
         hitboxGeometry.translate(0, -physicsHalfHeight, 0);
+        // Two meshes sharing this one geometry - see the materials' doc
+        // comment above for why - rather than a single mesh, so occluded
+        // lines render dark instead of every line always drawing on top.
         const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
         hitboxMesh.position.copy(body.position);
         hitboxMesh.visible = this._hitboxesVisible;
         hitboxMesh.renderOrder = 999;
         this.scene.add(hitboxMesh);
         hitboxMeshes.push(hitboxMesh);
+
+        const hitboxMeshOccluded = new THREE.Mesh(hitboxGeometry, this._hitboxMaterialOccluded);
+        hitboxMeshOccluded.position.copy(body.position);
+        hitboxMeshOccluded.visible = this._hitboxesVisible;
+        hitboxMeshOccluded.renderOrder = 999;
+        this.scene.add(hitboxMeshOccluded);
+        hitboxMeshes.push(hitboxMeshOccluded);
 
         // The extrusion geometry itself runs from y=0 to y=height in local
         // space; translate it up to the sampled ground height so the
@@ -725,6 +761,10 @@ export class BuildingsManager {
       chunk.mesh.geometry.dispose();
     }
     for (const body of chunk.bodies) this.world.removeBody(body);
+    // Each building contributes two meshes sharing one geometry (see the
+    // bright/occluded pair in _loadChunkFromCache) - disposing it via both
+    // is harmless (BufferGeometry.dispose() is a no-op past the first
+    // call), just simpler than tracking which half of the pair owns it.
     for (const hitboxMesh of chunk.hitboxMeshes) {
       this.scene.remove(hitboxMesh);
       hitboxMesh.geometry.dispose();

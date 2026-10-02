@@ -89,7 +89,7 @@ function formatCoords(lat, lon) {
 
 // Peer colors arrive as 0xRRGGBB integers (see net.js's sanitizeColor).
 function colorToCss(color) {
-  const n = Number.isInteger(color) ? color & 0xffffff : 0x1c3f94;
+  const n = Number.isInteger(color) ? color & 0xffffff : 0xffffff;
   return `#${n.toString(16).padStart(6, '0')}`;
 }
 

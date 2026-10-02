@@ -2,6 +2,7 @@ import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
+import { remapLocalOrigin } from './lib/geo.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
@@ -23,6 +24,7 @@ import { setupGameplayProps } from './app/gameplayProps.js';
 import { createMainLoop } from './app/mainLoop.js';
 import { createScoring } from './app/scoring.js';
 import { createScoreToast } from './hud/scoreToast.js';
+import { createNoticeHud } from './hud/notice.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
@@ -32,6 +34,7 @@ import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
+import { createVehicleDebugPicker } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
@@ -51,7 +54,28 @@ const world = createPhysicsWorld();
 const remoteCollisions = createRemoteCollisions(world);
 const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
 const balls = createBalls(scene, world);
-const preventGroundTunneling = createGroundTunnelGuard(world);
+const noticeHud = createNoticeHud();
+const preventGroundTunneling = createGroundTunnelGuard(
+  world,
+  () => {
+    // The network/world origin, remapped into *this* player's current local
+    // frame (see mainLoop.js's toViewFrame for the same remap applied to
+    // remote poses) - i.e. "wherever the game's own starting location is,
+    // expressed in local scene coordinates right now". Computed fresh on
+    // every call (rather than once) since a personal teleport (see
+    // ui/addressSearch.js) changes that mapping at runtime; this is what the
+    // ground-tunnel guard rescues a body to if it's stuck somewhere with no
+    // terrain data at all (e.g. a teleport destination outside the map's
+    // coverage), since the player's *current* position is exactly the place
+    // that's already proven to have no ground.
+    const { lat, lon } = addressSearch.getCurrentOrigin();
+    return remapLocalOrigin(0, 0, ORIGIN_LAT, ORIGIN_LON, lat, lon);
+  },
+  () =>
+    noticeHud.show(
+      "Couldn't find any ground under your car for a while, so you've been teleported back to the starting location."
+    )
+);
 const buildingTunnelGuard = createBuildingTunnelGuard(world);
 const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 
@@ -112,12 +136,23 @@ const debugVisuals = createDebugVisualsToggle(
     buildings,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
+    vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
   },
   IS_DEV_MODE
 );
 
 // ---------- Car + remote players ----------
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+
+// ---------- Instant vehicle picker in the debug view (see M-key toggle
+// above); needs net too so switches broadcast to peers like the lobby's
+// picker does on join. ----------
+const vehicleDebugPicker = createVehicleDebugPicker({
+  carManager,
+  net,
+  tabsEl: document.getElementById('vehicle-debug-tabs'),
+  listEl: document.getElementById('vehicle-debug-list'),
+});
 
 // ---------- Input ----------
 const input = createInputController();
@@ -220,8 +255,9 @@ const lobby = createLobby({
   net,
   carManager,
   originChain: () => addressSearch.awaitOriginChain(),
-  onJoined(color) {
-    carManager.spawnLocalCar(color);
+  onJoined(color, vehicleId) {
+    carManager.spawnLocalCar(color, vehicleId);
+    vehicleDebugPicker.syncFromCar();
     addressSearch.setUiEnabled(true);
     startLoopOnce();
     // Only start the help/players auto-fold timers once the player has

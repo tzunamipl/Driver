@@ -45,10 +45,12 @@ export function createPhysicsWorld() {
   // easily snowballs into a tumble under exactly the harder acceleration
   // that causes more squat in the first place. A firm, non-bouncy contact
   // here makes that safety net behave like it's actually resting/scraping
-  // on the ground instead of launching off it.
+  // on the ground instead of launching off it. Friction lowered from an
+  // earlier 0.3 so a rollover/belly-scrape slides smoothly across the
+  // terrain instead of catching and tumbling/jerking to a stop.
   world.addContactMaterial(
     new CANNON.ContactMaterial(CHASSIS_MATERIAL, GROUND_MATERIAL, {
-      friction: 0.3,
+      friction: 0.1,
       restitution: 0,
     })
   );

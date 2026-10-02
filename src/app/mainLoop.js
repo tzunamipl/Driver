@@ -209,7 +209,15 @@ export function createMainLoop({
     cameraFollow(frameDelta, { chassisMesh: currentChassisMesh, vehicle: currentVehicle });
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle);
     const debugVisualsEnabled = debugVisuals.isEnabled();
-    terrainStatsHud.updateTerrainStats(frameDelta, { terrain, buildings, chassisMesh: currentChassisMesh, debugVisualsEnabled, pedestrians });
+    terrainStatsHud.updateTerrainStats(frameDelta, {
+      terrain,
+      buildings,
+      chassisMesh: currentChassisMesh,
+      debugVisualsEnabled,
+      pedestrians,
+      viewOriginLat,
+      viewOriginLon,
+    });
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
@@ -220,23 +228,36 @@ export function createMainLoop({
       sun.target.position.copy(currentChassisMesh.position);
       sun.target.updateMatrixWorld();
 
-      // Stream terrain chunks in/out as the car moves (cheap no-op if the
-      // player is still inside the currently-loaded tile).
-      terrain.update(currentChassisMesh.position.x, currentChassisMesh.position.z);
+      // Stream terrain/buildings chunks in/out as the car moves (cheap
+      // no-op if the player is still inside the currently-loaded tile) -
+      // but never while a teleport (ui/addressSearch.js's recenter()) is
+      // in flight. During that window terrain.originLat/originLon have
+      // already flipped to the destination while the chassis mesh is
+      // still sitting at its *old* local position (it only moves once
+      // recenter() resolves and reset() runs), so computing a tile center
+      // from the two here would reinterpret stale local coordinates
+      // against the new origin and stream in a bogus, unrelated
+      // neighborhood - clobbering TerrainManager's center bookkeeping out
+      // from under the recenter() call already streaming in the real
+      // destination tiles (visible as tiles stuck "planned" in the debug
+      // HUD while the loaded-tile count climbs from the stray fetches).
+      if (!addressSearch.isTeleporting()) {
+        terrain.update(currentChassisMesh.position.x, currentChassisMesh.position.z);
 
-      // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
-      // detail tier; compute the current tile center the same way
-      // TerrainManager.update() does internally so the two stay aligned.
-      const { lat: carLat, lon: carLon } = localToLatLon(
-        currentChassisMesh.position.x,
-        currentChassisMesh.position.z,
-        viewOriginLat,
-        viewOriginLon
-      );
-      buildings.update(
-        Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
-        Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
-      );
+        // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
+        // detail tier; compute the current tile center the same way
+        // TerrainManager.update() does internally so the two stay aligned.
+        const { lat: carLat, lon: carLon } = localToLatLon(
+          currentChassisMesh.position.x,
+          currentChassisMesh.position.z,
+          viewOriginLat,
+          viewOriginLon
+        );
+        buildings.update(
+          Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
+          Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
+        );
+      }
       // Catch a car that ended up inside a building's solid volume - a
       // tile streaming in under an already-parked car, or a teleport
       // landing on a spot a building occupies - and lift it onto the

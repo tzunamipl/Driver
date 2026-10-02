@@ -144,6 +144,11 @@ export function createAddressSearch({ terrain, buildings, carManager, origin, is
   return {
     getCurrentOrigin: () => ({ lat: currentOriginLat, lon: currentOriginLon }),
     awaitOriginChain: () => teleportChain,
+    // True from the moment terrain.recenter() starts until the car has
+    // been dropped at its destination - see mainLoop.js, which skips its
+    // own per-frame terrain/buildings streaming calls during this window
+    // to avoid racing recenter()'s own streaming with stale car coordinates.
+    isTeleporting: () => teleporting,
     setUiEnabled(enabled) {
       addressInput.disabled = !enabled || !CAN_CHANGE_LOCATION;
       addressSubmit.disabled = !enabled || !CAN_CHANGE_LOCATION;
