@@ -101,7 +101,7 @@ const _groundRayResult = new CANNON.RaycastResult();
 // underground - see lib/car.js's reset(), which anchors its lift target to
 // this instead of a fixed offset from the car's own, possibly-underground,
 // current position).
-const GROUND_SEARCH_HEIGHT = 5000;
+export const GROUND_SEARCH_HEIGHT = 5000;
 
 /**
  * Finds the terrain surface's y at a given (x, z) by casting a tall ray

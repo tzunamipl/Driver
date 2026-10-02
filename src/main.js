@@ -2,6 +2,7 @@ import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
+import { remapLocalOrigin } from './lib/geo.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
@@ -21,6 +22,7 @@ import { setupGameplayProps } from './app/gameplayProps.js';
 import { createMainLoop } from './app/mainLoop.js';
 import { createScoring } from './app/scoring.js';
 import { createScoreToast } from './hud/scoreToast.js';
+import { createNoticeHud } from './hud/notice.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
@@ -50,7 +52,28 @@ const world = createPhysicsWorld();
 const remoteCollisions = createRemoteCollisions(world);
 const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
 const balls = createBalls(scene, world);
-const preventGroundTunneling = createGroundTunnelGuard(world);
+const noticeHud = createNoticeHud();
+const preventGroundTunneling = createGroundTunnelGuard(
+  world,
+  () => {
+    // The network/world origin, remapped into *this* player's current local
+    // frame (see mainLoop.js's toViewFrame for the same remap applied to
+    // remote poses) - i.e. "wherever the game's own starting location is,
+    // expressed in local scene coordinates right now". Computed fresh on
+    // every call (rather than once) since a personal teleport (see
+    // ui/addressSearch.js) changes that mapping at runtime; this is what the
+    // ground-tunnel guard rescues a body to if it's stuck somewhere with no
+    // terrain data at all (e.g. a teleport destination outside the map's
+    // coverage), since the player's *current* position is exactly the place
+    // that's already proven to have no ground.
+    const { lat, lon } = addressSearch.getCurrentOrigin();
+    return remapLocalOrigin(0, 0, ORIGIN_LAT, ORIGIN_LON, lat, lon);
+  },
+  () =>
+    noticeHud.show(
+      "Couldn't find any ground under your car for a while, so you've been teleported back to the starting location."
+    )
+);
 const buildingTunnelGuard = createBuildingTunnelGuard(world);
 const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 

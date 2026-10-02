@@ -1,5 +1,5 @@
 import * as CANNON from 'cannon-es';
-import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
+import { GROUND_COLLISION_GROUP, GROUND_SEARCH_HEIGHT } from '../lib/terrain.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import {
   IMPACT_ROLL_MIN_SPEED,
@@ -17,6 +17,16 @@ import {
 // visibly flip/roll the car, and (2) a ground-tunneling guard that catches
 // fast tumbles clipping through the terrain mesh. Kept together since both
 // are "physics feel" patches applied around the raw cannon-es step.
+
+// If a body finds literally no ground - neither the short per-step ray nor
+// the tall fallback one - for this many consecutive physics steps, there's
+// no terrain data to ever recover onto at its current (x, z) at all (e.g.
+// a teleport to a spot outside the map's data coverage), not just a chunk
+// still streaming in. Rather than leave it frozen there forever, it gets
+// rescued back to the world's own starting spot, which is guaranteed to
+// have valid terrain.
+const NO_GROUND_RESCUE_STEPS = 3 * 60; // ~3 seconds at the 60Hz fixed physics step
+const HOME_RESCUE_HEIGHT = 50; // dropped from above so the usual guard logic settles it onto the real surface
 
 const _impactNormal = new CANNON.Vec3();
 const _impactImpulse = new CANNON.Vec3();
@@ -72,12 +82,22 @@ export function applyImpactRoll(chassisBody, contact) {
  * ground body at all to tunnel through. A body with nothing under it gets
  * frozen in place instead of left to free-fall, then released and snapped
  * onto the real surface the moment a chunk loads under it and the ray
- * starts hitting again.
+ * starts hitting again. If no chunk ever loads there (no terrain data
+ * exists at that (x, z) at all - not just "still streaming in"), the body
+ * is eventually rescued back to the game's own starting location instead
+ * of staying frozen forever - see `getHomePosition` below. `onRescue`, if
+ * given, is called (with no arguments) exactly when that rescue fires, so
+ * callers can surface it to the player (e.g. an on-screen notice - see
+ * main.js) instead of their car silently jumping elsewhere.
  */
-export function createGroundTunnelGuard(world) {
+export function createGroundTunnelGuard(world, getHomePosition, onRescue) {
   const rayFrom = new CANNON.Vec3();
   const rayTo = new CANNON.Vec3();
   const rayResult = new CANNON.RaycastResult();
+  // Per-body count of consecutive steps spent with no ground found at all
+  // (see NO_GROUND_RESCUE_STEPS above) - a WeakMap so it never leaks/holds
+  // onto bodies after they're discarded (e.g. switching vehicles).
+  const noGroundStreak = new WeakMap();
 
   function guardBody(body) {
     const pos = body.position;
@@ -92,6 +112,7 @@ export function createGroundTunnelGuard(world) {
     );
 
     if (rayResult.hasHit) {
+      noGroundStreak.delete(body);
       const minY = rayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
       if (pos.y < minY) {
         // Snap back on top and kill all motion, not just downward
@@ -109,15 +130,74 @@ export function createGroundTunnelGuard(world) {
       return;
     }
 
-    // No ground within reach of the ray at all - not a one-step tunnel,
-    // but a spot where no terrain chunk is loaded yet under this body
-    // (e.g. a fast drive/teleport that outran TerrainManager's async
-    // streaming - see mainLoop.js). Letting gravity keep integrating here
-    // would have the body free-fall indefinitely with nothing to ever
-    // catch it. Instead, freeze it in place (zero all motion so it just
-    // hangs rather than plunging further) and keep re-casting every step;
-    // once a chunk streams in underneath, the hasHit branch above fires
-    // and snaps it back down onto the real surface.
+    // No ground within the short ray's reach. Three very different causes
+    // land here:
+    //  1. No terrain chunk loaded under this body at all yet (e.g. a fast
+    //     drive/teleport that outran TerrainManager's async streaming -
+    //     see mainLoop.js). Nothing to snap onto yet.
+    //  2. A chunk *is* loaded, but the body is sitting much deeper than
+    //     GROUND_RAY_HEIGHT below its surface (e.g. a stale saved position
+    //     from before this guard existed, or one that slipped past it) -
+    //     the short ray is deliberately tight (cheap, run every physics
+    //     step) so it simply can't see that far.
+    //  3. Nothing is actually wrong - a big jump/fall can legitimately
+    //     carry the car higher above the real terrain than the short ray
+    //     can see, with genuine empty air (not an unstreamed chunk) the
+    //     whole way down.
+    // A single tall fallback raycast (the same one lib/terrain.js's
+    // findGroundY uses for the reset button, just inlined here to avoid
+    // paying for it every step in the common case) tells these apart: if
+    // it finds ground *above* the body, that's case 2 - snap straight onto
+    // it now rather than leaving the body frozen in a hole forever waiting
+    // for a chunk that's already there. If it finds ground *below* the
+    // body instead, that's case 3 - the car is simply airborne, so leave
+    // it alone and let normal gravity keep carrying it down rather than
+    // yanking it out of the air. If it finds nothing either, genuinely no
+    // chunk is loaded yet (case 1) - freeze in place (zero all motion so
+    // it just hangs rather than plunging further) and keep re-casting
+    // every step; once a chunk streams in underneath, one of the branches
+    // above will catch it.
+    rayFrom.set(pos.x, pos.y + GROUND_SEARCH_HEIGHT, pos.z);
+    rayTo.set(pos.x, pos.y - GROUND_SEARCH_HEIGHT, pos.z);
+    rayResult.reset();
+    world.raycastClosest(rayFrom, rayTo, { collisionFilterMask: GROUND_COLLISION_GROUP }, rayResult);
+    if (rayResult.hasHit) {
+      noGroundStreak.delete(body);
+      // The short ray above only reaches GROUND_RAY_HEIGHT either way, so
+      // missing it doesn't necessarily mean trouble - a real jump/fall can
+      // easily carry the car higher above the terrain than that cheap ray
+      // can see, and this fallback ray will (correctly) find the real
+      // ground far below. Only snap+freeze when the ground is at/above the
+      // body (it's actually embedded in/under the terrain - genuine
+      // tunneling); if the ground is still comfortably below it, the car
+      // is simply airborne and should keep falling under normal gravity
+      // rather than being yanked down and stopped mid-flight.
+      if (rayResult.hitPointWorld.y < pos.y - GROUND_RAY_HEIGHT) return;
+      pos.y = rayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
+      body.velocity.set(0, 0, 0);
+      body.angularVelocity.set(0, 0, 0);
+      return;
+    }
+
+    // Neither ray found anything - there's no terrain data at this (x, z)
+    // at all, not just an unstreamed chunk (which would resolve within a
+    // handful of steps once TerrainManager catches up). After being stuck
+    // like this for NO_GROUND_RESCUE_STEPS in a row, give up waiting and
+    // rescue the body back to the game's own starting location (guaranteed
+    // to have valid terrain) instead of leaving it frozen indefinitely -
+    // the caller-supplied `getHomePosition()` already accounts for any
+    // personal teleport (see main.js), since the player's *current*
+    // position is exactly the spot that's already proven to have no
+    // ground to go back to.
+    const streak = (noGroundStreak.get(body) ?? 0) + 1;
+    if (streak > NO_GROUND_RESCUE_STEPS && getHomePosition) {
+      const home = getHomePosition();
+      pos.set(home.x, HOME_RESCUE_HEIGHT, home.z);
+      noGroundStreak.delete(body);
+      onRescue?.();
+    } else {
+      noGroundStreak.set(body, streak);
+    }
     body.velocity.set(0, 0, 0);
     body.angularVelocity.set(0, 0, 0);
   }

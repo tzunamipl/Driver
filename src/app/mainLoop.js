@@ -207,7 +207,15 @@ export function createMainLoop({
     cameraFollow(frameDelta, { chassisMesh: currentChassisMesh, vehicle: currentVehicle });
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle);
     const debugVisualsEnabled = debugVisuals.isEnabled();
-    terrainStatsHud.updateTerrainStats(frameDelta, { terrain, buildings, chassisMesh: currentChassisMesh, debugVisualsEnabled, pedestrians });
+    terrainStatsHud.updateTerrainStats(frameDelta, {
+      terrain,
+      buildings,
+      chassisMesh: currentChassisMesh,
+      debugVisualsEnabled,
+      pedestrians,
+      viewOriginLat,
+      viewOriginLon,
+    });
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 

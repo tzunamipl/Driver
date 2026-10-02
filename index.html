@@ -204,6 +204,42 @@
         100% { opacity: 0; transform: translateY(-16px); }
       }
 
+      /* System notices (e.g. the ground-tunnel guard's auto-rescue) - like
+         score-toasts above, but top-center, longer-lived, and wraps longer
+         explanatory sentences instead of a short "+N". */
+      #system-notices {
+        position: fixed;
+        left: 50%;
+        top: 10%;
+        transform: translateX(-50%);
+        z-index: 13;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        pointer-events: none;
+        max-width: min(90vw, 480px);
+      }
+      .system-notice {
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        text-align: center;
+        background: rgba(40, 10, 10, 0.75);
+        border: 1px solid rgba(255, 120, 120, 0.4);
+        border-radius: 8px;
+        padding: 8px 16px;
+        text-shadow: 0 1px 2px #000;
+        animation: system-notice 5s ease forwards;
+      }
+      @keyframes system-notice {
+        0% { opacity: 0; transform: translateY(-8px); }
+        8% { opacity: 1; transform: translateY(0); }
+        88% { opacity: 1; }
+        100% { opacity: 0; transform: translateY(-8px); }
+      }
+
       #airtime-hud {
         position: fixed;
         left: 50%;
@@ -411,6 +447,17 @@
       #terrain-stats .ts-text {
         white-space: pre;
         margin-bottom: 6px;
+      }
+      #terrain-stats .ts-coords {
+        /* The container above is pointer-events:none (it overlays the 3D
+           scene and shouldn't intercept clicks/drags meant for it) - this
+           one line opts back in so the lat/lon text can actually be
+           selected and copied (e.g. for bug reports or re-navigating). */
+        pointer-events: auto;
+        user-select: text;
+        cursor: text;
+        margin-bottom: 6px;
+        opacity: 0.9;
       }
       #terrain-stats .ts-compass-wrap {
         display: grid;
@@ -1263,6 +1310,7 @@
       </div>
     </div>
     <div id="score-toasts"></div>
+    <div id="system-notices"></div>
     <div id="airtime-hud"></div>
     <div id="top-right-stack">
       <div id="players-panel">

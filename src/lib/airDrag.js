@@ -37,7 +37,7 @@ import * as CANNON from 'cannon-es';
 //   front - multiplier while moving nose-first through the air
 //   rear  - multiplier while moving tail-first (reversing)
 //   side  - multiplier for the broadside (sideways/vertical) component
-export const AIR_DRAG_BASE_COEFFICIENT = 0.45; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
+export const AIR_DRAG_BASE_COEFFICIENT = 0.01; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
 
 // Used by any vehicle descriptor that doesn't define its own `dragProfile`
 // - a generic, slightly-more-draggy-broadside-than-nose-on profile.
