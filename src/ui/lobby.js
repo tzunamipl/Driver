@@ -39,8 +39,13 @@ function saveChoices(name, color, vehicleId) {
  * @param {(color: number, vehicleId: string) => void} deps.onJoined - called
  *   once the player has joined (room connected, if applicable) and the
  *   local car should be spawned with the chosen color/vehicle.
+ * @param {() => void} [deps.onReset] - called after the saved name/color
+ *   are cleared, if the player has already joined, so the caller can also
+ *   apply the reset live (respawn with default color/vehicle, re-sync the
+ *   debug vehicle picker, etc.) instead of only taking effect on the next
+ *   page load.
  */
-export function createLobby({ net, carManager, onJoined, originChain }) {
+export function createLobby({ net, carManager, onJoined, onReset, originChain }) {
   const lobbyEl = document.getElementById('lobby');
   // Dev mode skips the name/color prompt entirely (see joinRoom() below)
   // and drives as "dev_mode" in the default blue - hide the prompt so it
@@ -141,13 +146,14 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
   }
 
   // Help-menu button: clears the remembered name/color so the lobby form
-  // starts blank again next time (only meaningful before joining, since the
-  // form is hidden once in-game - which is also why the click needs its
-  // own feedback below, rather than relying on the now-hidden form
-  // visibly clearing).
+  // starts blank again next time. If already in-game (form hidden), also
+  // calls onReset() so the reset is visible immediately - respawning with
+  // the default color/vehicle - rather than only taking effect on the next
+  // page load.
   const resetChoicesBtn = document.getElementById('hud-reset-choices');
   resetChoicesBtn?.addEventListener('click', () => {
     resetSavedChoices();
+    if (joined) onReset?.();
     const original = resetChoicesBtn.textContent;
     resetChoicesBtn.textContent = 'Cleared ✓';
     resetChoicesBtn.disabled = true;

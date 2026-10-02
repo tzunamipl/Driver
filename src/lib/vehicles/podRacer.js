@@ -298,7 +298,7 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass 
     // by lib/chariot.js's createChariotVehicle. Not derived from any shared
     // global force constant, so each pod-racer variant can be tuned on its
     // own.
-    engineThrustForce: engineThrustForce ?? 20000,
+    engineThrustForce: engineThrustForce ?? 3900,
     // Total chassis weight in kg, split evenly across this variant's
     // engines (see lib/chariot.js's createChariotVehicle) - this rig's own
     // independent weight rating, the hover-rig equivalent of a car's mass
