@@ -142,8 +142,20 @@ export function createLobby({ net, carManager, onJoined, originChain }) {
 
   // Help-menu button: clears the remembered name/color so the lobby form
   // starts blank again next time (only meaningful before joining, since the
-  // form is hidden once in-game).
-  document.getElementById('hud-reset-choices')?.addEventListener('click', resetSavedChoices);
+  // form is hidden once in-game - which is also why the click needs its
+  // own feedback below, rather than relying on the now-hidden form
+  // visibly clearing).
+  const resetChoicesBtn = document.getElementById('hud-reset-choices');
+  resetChoicesBtn?.addEventListener('click', () => {
+    resetSavedChoices();
+    const original = resetChoicesBtn.textContent;
+    resetChoicesBtn.textContent = 'Cleared ✓';
+    resetChoicesBtn.disabled = true;
+    setTimeout(() => {
+      resetChoicesBtn.textContent = original;
+      resetChoicesBtn.disabled = false;
+    }, 1500);
+  });
 
   return {
     isJoined: () => joined,
