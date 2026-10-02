@@ -7,7 +7,7 @@ const RAMP_S = 2.5;
 const QUIET = 0.08;
 const FULL_DISTANCE_M = 20;
 const SILENT_DISTANCE_M = 120;
-const PEAK_GAIN = 0.18;
+const PEAK_GAIN = 0.11;
 const TONE_A = 430;
 const TONE_B = 510;
 

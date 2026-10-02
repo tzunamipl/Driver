@@ -7,7 +7,9 @@ import { MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
 
 function isTypingInField() {
   const el = document.activeElement;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  if (!el) return false;
+  if (el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
 export function createInputController() {
@@ -37,6 +39,7 @@ export function createInputController() {
       vehicle.applyEngineForce(0, 3);
       vehicle.setSteeringValue(0, 0);
       vehicle.setSteeringValue(0, 1);
+      vehicle.airControlYaw = 0;
       return;
     }
     const forward = keys.has('KeyW') || keys.has('ArrowUp');
@@ -67,6 +70,7 @@ export function createInputController() {
     const steerValue = left ? MAX_STEER : right ? -MAX_STEER : 0;
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
+    vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
     // vehicle.brakeForce is each vehicle's own independent handbrake
     // strength (see lib/car.js's createCar), set per-rig from its
