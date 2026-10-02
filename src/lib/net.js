@@ -298,6 +298,21 @@ export function createNet({ clientId } = {}) {
     playerVehicleId = sanitizeVehicleId(vehicleId);
   }
 
+  /**
+   * Updates the color published with every subsequent pose, without a
+   * reconnect - mirrors setVehicleId() above, used by the "Reset saved
+   * name/color" help-menu button (see ui/lobby.js) so resetting mid-drive
+   * also updates how this player renders on everyone else's screen.
+   */
+  function setColor(color) {
+    playerColor = sanitizeColor(color);
+  }
+
+  /** Updates the name published with every subsequent pose. See setColor(). */
+  function setName(name) {
+    playerName = sanitizeName(name);
+  }
+
   return {
     clientId,
     spawnOffset,
@@ -311,6 +326,8 @@ export function createNet({ clientId } = {}) {
     onStatus,
     onProps,
     setVehicleId,
+    setColor,
+    setName,
   };
 }
 

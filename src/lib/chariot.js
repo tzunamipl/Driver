@@ -57,7 +57,7 @@ const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
 // characteristic, the hover-rig equivalent of a car's enginePowerHp (see
 // lib/car.js) - not derived from any shared global force constant. The
 // default below only applies if a descriptor somehow omits it.
-const DEFAULT_ENGINE_THRUST_FORCE = 20000;
+const DEFAULT_ENGINE_THRUST_FORCE = 2000;
 // Steering/yaw-damping gains below are expressed as fixed fractions of
 // one engine's own thrust rating (computed per-vehicle in
 // createChariotVehicle), so they scale automatically with whatever power
