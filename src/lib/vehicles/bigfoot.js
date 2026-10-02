@@ -127,8 +127,11 @@ export default {
     suspensionStiffness: 20,
     suspensionRestLength: 0.75,
     maxSuspensionTravel: 0.4,
-    dampingRelaxation: 3.39,
-    dampingCompression: 4.52,
+    // Scaled from the baseline rally car's (now less underdamped, see
+    // car.js) 8.87/5.92 by the same sqrt(stiffness) ratio as before
+    // (sqrt(20/35) ~= 0.756), to keep the same damping ratio/settle feel.
+    dampingRelaxation: 6.71,
+    dampingCompression: 4.48,
     maxSuspensionForce: 250000,
   },
   // Twice the baseline rally car's engine rating (equivalent bhp - see
@@ -139,6 +142,11 @@ export default {
   // make it noticeably heavier than the baseline rally car (lib/car.js's
   // DEFAULT_CHASSIS_MASS), its own independent weight rating.
   mass: 260,
+  // Heavier than the baseline rally car (see mass above), so it needs
+  // proportionally stronger brakes (lib/car.js's DEFAULT_BRAKE_FORCE) to
+  // pull up in a comparable distance rather than needing much longer to
+  // stop just because it's carrying more weight.
+  brakeForce: 5200,
   // See lib/airDrag.js - a tall, boxy truck is draggy from every angle
   // (unlike the GC8's tapered nose), especially broadside-on.
   dragProfile: { front: 1.3, side: 2.8, rear: 1.6 },

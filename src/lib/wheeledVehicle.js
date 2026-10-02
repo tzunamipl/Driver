@@ -50,8 +50,8 @@ const DEFAULT_WHEEL_OPTIONS = {
   suspensionRestLength: 0.55,
   maxSuspensionTravel: 0.35,
   maxSuspensionForce: 1e5,
-  dampingCompression: 3.74,
-  dampingRelaxation: 2.62,
+  dampingCompression: 5.92,
+  dampingRelaxation: 8.87,
   frictionSlip: 5,
   rollInfluence: 0.01,
   // Mirrors the old standalone PITCH_INFLUENCE constant in car.js - how

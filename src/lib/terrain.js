@@ -93,6 +93,37 @@ export const GROUND_COLLISION_GROUP = 2;
 // the chassis meets the ground (that pair still uses the world default).
 export const GROUND_MATERIAL = new CANNON.Material('ground');
 
+const _groundRayFrom = new CANNON.Vec3();
+const _groundRayTo = new CANNON.Vec3();
+const _groundRayResult = new CANNON.RaycastResult();
+// Tall enough to find the terrain surface under/over a body regardless of
+// how far it's ended up from it (e.g. a car that's somehow sunk well
+// underground - see lib/car.js's reset(), which anchors its lift target to
+// this instead of a fixed offset from the car's own, possibly-underground,
+// current position).
+const GROUND_SEARCH_HEIGHT = 5000;
+
+/**
+ * Finds the terrain surface's y at a given (x, z) by casting a tall ray
+ * straight down through that whole column - independent of any particular
+ * body's current position, so it works even when that body has ended up
+ * far below (or above) the real surface. Returns null if no terrain chunk
+ * is loaded there yet (e.g. a spot this player's TerrainManager hasn't
+ * streamed in).
+ */
+export function findGroundY(world, x, z) {
+  _groundRayFrom.set(x, GROUND_SEARCH_HEIGHT, z);
+  _groundRayTo.set(x, -GROUND_SEARCH_HEIGHT, z);
+  _groundRayResult.reset();
+  world.raycastClosest(
+    _groundRayFrom,
+    _groundRayTo,
+    { collisionFilterMask: GROUND_COLLISION_GROUP },
+    _groundRayResult
+  );
+  return _groundRayResult.hasHit ? _groundRayResult.hitPointWorld.y : null;
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -742,10 +773,16 @@ export class TerrainManager {
    * Snapshot of current memory/streaming state for a debug HUD: counts of
    * loaded/pending/staged-for-removal chunks, lifetime created/removed
    * totals, an estimated byte footprint of everything currently loaded, and
-   * a small square "map" grid (centered on the player) tagging every
-   * detail-tier tile in view as loaded / pending-create / pending-remove /
-   * empty. Far-tier totals are reported as aggregate counts only (its
-   * footprint is far too large to usefully render as a HUD grid).
+   * a "map" grid tagging every detail-tier tile tracked in any state
+   * (loaded / pending-create / pending-remove) as loaded / pending /
+   * removing / empty, centered on the player. The grid's bounding box is
+   * grown (beyond the normal `keepRadius` window) to cover every tracked
+   * tile, not just ones near the player - a stray tile loaded somewhere
+   * else (e.g. a bug racing a recenter() call - see mainLoop.js) would
+   * otherwise silently fall outside a fixed-size window and inflate the
+   * loaded/created counts above with no visual trace of where it went.
+   * Far-tier totals are reported as aggregate counts only (its footprint
+   * is far too large to usefully render as a HUD grid).
    */
   getStats() {
     let memoryBytes = 0;
@@ -754,10 +791,39 @@ export class TerrainManager {
     for (const chunk of this.farChunks.values()) farMemoryBytes += chunk.bytes || 0;
 
     const keepRadius = DETAIL_RADIUS + UNLOAD_MARGIN;
+    // Stray tiles (see doc comment above) can in principle land arbitrarily
+    // far from the player - e.g. a chunk left behind by a teleport - and
+    // widening the grid to always cover them would make the HUD panel grow
+    // without bound (observed: a single far-away stray tile blew the grid
+    // up to cover the whole screen). Cap how far the *rendered* grid will
+    // stretch to accommodate strays; anything further out is still counted
+    // (see `stray` below) but shown as a number in the text summary instead
+    // of inflating the grid itself.
+    const maxStrayRadius = keepRadius + 5;
+    let minDx = -keepRadius;
+    let maxDx = keepRadius;
+    let minDy = -keepRadius;
+    let maxDy = keepRadius;
+    let stray = 0;
+    const allKeys = new Set([...this.chunks.keys(), ...this.pending, ...this.pendingRemoval.keys()]);
+    for (const k of allKeys) {
+      const [tx, ty] = k.split('_').map(Number);
+      const dx = tx - this._centerX;
+      const dy = ty - this._centerY;
+      if (Math.abs(dx) > maxStrayRadius || Math.abs(dy) > maxStrayRadius) {
+        stray++;
+        continue;
+      }
+      if (dx < minDx) minDx = dx;
+      if (dx > maxDx) maxDx = dx;
+      if (dy < minDy) minDy = dy;
+      if (dy > maxDy) maxDy = dy;
+    }
+
     const grid = [];
-    for (let dy = -keepRadius; dy <= keepRadius; dy++) {
+    for (let dy = minDy; dy <= maxDy; dy++) {
       const row = [];
-      for (let dx = -keepRadius; dx <= keepRadius; dx++) {
+      for (let dx = minDx; dx <= maxDx; dx++) {
         const tx = this._centerX + dx;
         const ty = this._centerY + dy;
         const k = this._key(tx, ty);
@@ -779,7 +845,16 @@ export class TerrainManager {
       memoryBytes,
       center: { tx: this._centerX, ty: this._centerY },
       radius: keepRadius,
+      // Grid indices of the player's own (center) cell - usually equal to
+      // (-minDy, -minDx), i.e. `radius` from each edge, but can shift if
+      // the bounding box above grew asymmetrically to cover a stray tile.
+      gridCenter: { row: -minDy, col: -minDx },
       grid,
+      // Tiles tracked (loaded/pending/pending-removal) further than
+      // `maxStrayRadius` from the player - not drawn in `grid` above (to
+      // keep the HUD panel bounded in size), but still worth surfacing as
+      // a count so a leftover far-away tile remains visible/diagnosable.
+      stray,
       far: {
         loaded: this.farChunks.size,
         pending: this.farPending.size,

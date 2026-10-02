@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { MAX_STEER } from '../config.js';
-import { GROUND_COLLISION_GROUP } from './terrain.js';
+import { GROUND_COLLISION_GROUP, findGroundY } from './terrain.js';
 import { BUILDING_COLLISION_GROUP } from './buildings.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
@@ -856,7 +856,16 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
 
   function reset(position, quaternion) {
     const targetPosition = position ?? chassisBody.position.clone();
-    if (!position) targetPosition.y += 1.5;
+    if (!position) {
+      // Same underground-recovery logic as lib/car.js's reset() - lift
+      // from whichever is higher, the rig's current position or the real
+      // terrain surface at its current x/z, so a hover rig that's somehow
+      // sunk underground gets lifted back up from the real ground instead
+      // of by a fixed offset from its still-underground current spot.
+      const groundY = findGroundY(world, targetPosition.x, targetPosition.z);
+      if (groundY !== null && groundY > targetPosition.y) targetPosition.y = groundY;
+      targetPosition.y += 1.5;
+    }
     const targetQuaternion = quaternion ?? uprightQuaternionPreservingHeading();
 
     const targetPodLocal = new CANNON.Vec3(POD_LOCAL_OFFSET.x, POD_LOCAL_OFFSET.y, POD_LOCAL_OFFSET.z);

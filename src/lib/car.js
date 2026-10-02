@@ -5,6 +5,7 @@ import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
 import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
+import { findGroundY } from './terrain.js';
 
 // Re-exported from vehicleShared.js (not defined here) so every existing
 // `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
@@ -40,6 +41,14 @@ const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;
 }
+
+// Braking force (Newtons), expressed per-vehicle (descriptor.brakeForce -
+// see lib/vehicles/gc8.js/bigfoot.js) the same way enginePowerHp/mass
+// already are, rather than every wheeled vehicle sharing one hardcoded
+// handbrake strength from config.js's BRAKE_FORCE - a heavier/more
+// powerful vehicle (e.g. a monster truck) can carry its own stronger
+// brakes instead of fighting the same braking force as the baseline car.
+const DEFAULT_BRAKE_FORCE = 3000; // baseline rally car's rating (matches the previous shared config.js constant)
 
 
 /**
@@ -228,8 +237,16 @@ export function createCar(
     suspensionStiffness: 35,
     suspensionRestLength: 0.55,
     frictionSlip: 5,
-    dampingRelaxation: 2.62,
-    dampingCompression: 3.74,
+    // Damping ratio = damping / (2*sqrt(stiffness)); critical damping here
+    // is 2*sqrt(35) ~= 11.83. The old values (2.62/3.74, ratios ~0.22/0.32)
+    // were well under 1 (underdamped), so every bump/landing kept the
+    // spring oscillating for a beat or two instead of settling - read as
+    // the chassis feeling bouncy/springy on ground contact. Raised to
+    // ratios ~0.75/0.5 (rebound damped harder than compression, same as a
+    // real shock) so the suspension absorbs a hit and settles promptly
+    // instead of bouncing back.
+    dampingRelaxation: 8.87,
+    dampingCompression: 5.92,
     maxSuspensionForce: 100000,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
@@ -279,6 +296,10 @@ export function createCar(
   // force - e.g. a monster-truck-style vehicle can simply carry a bigger
   // enginePowerHp than the baseline rally car.
   vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
+
+  // Per-vehicle handbrake strength (see app/input.js) - independent of any
+  // shared global force, same pattern as engineForce above.
+  vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
 
   // --- Wheel hitboxes (pedestrians) ---
   // The chassis' own collision shapes (carHullPrism + the 8 corner
@@ -521,7 +542,18 @@ export function createCar(
 
   function reset(position, quaternion) {
     const targetPosition = position ?? chassisBody.position.clone();
-    if (!position) targetPosition.y += chassisHeight + 0.5;
+    if (!position) {
+      // Lift from whichever is higher: the car's current position, or the
+      // real terrain surface at its current x/z - covers the normal
+      // "flip upright in place" case *and* recovering a car that's somehow
+      // ended up underground (e.g. fell through before
+      // app/collisions.js's ground-tunneling guard could catch it), where
+      // lifting by a fixed offset from the (still-underground) current
+      // position would just put it back underground.
+      const groundY = findGroundY(world, targetPosition.x, targetPosition.z);
+      if (groundY !== null && groundY > targetPosition.y) targetPosition.y = groundY;
+      targetPosition.y += chassisHeight + 0.5;
+    }
     const targetQuaternion = quaternion ?? uprightQuaternionPreservingHeading();
 
     liftAnim = {

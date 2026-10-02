@@ -113,7 +113,7 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
  */
 export default {
   id: 'gc8',
-  name: 'Subaru Impreza GC8',
+  name: 'GC8',
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,

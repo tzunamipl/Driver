@@ -68,7 +68,12 @@ export function createInputController() {
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
 
-    const brakeForce = handbrake ? BRAKE_FORCE * forceScale : 0;
+    // vehicle.brakeForce is each vehicle's own independent handbrake
+    // strength (see lib/car.js's createCar), set per-rig from its
+    // descriptor the same way engineForce is above - BRAKE_FORCE is only
+    // a fallback for rigs that don't set one (e.g. the hover chariot,
+    // which only treats this as a +0 boolean, not an actual force).
+    const brakeForce = handbrake ? (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale : 0;
     for (let i = 0; i < 4; i++) vehicle.setBrake(brakeForce, i);
 
     const resetPressed = keys.has('KeyR');

@@ -65,6 +65,14 @@ export function applyImpactRoll(chassisBody, contact) {
  * ground. As a safety net, cast a ray straight down through the chassis
  * every step and clamp it back above the terrain surface if it ever ends
  * up embedded.
+ *
+ * Also doubles as the "never falls underground" guard for the other way
+ * this can happen: driving/teleporting to a spot where TerrainManager
+ * hasn't finished streaming a chunk in yet, so there's momentarily no
+ * ground body at all to tunnel through. A body with nothing under it gets
+ * frozen in place instead of left to free-fall, then released and snapped
+ * onto the real surface the moment a chunk loads under it and the ray
+ * starts hitting again.
  */
 export function createGroundTunnelGuard(world) {
   const rayFrom = new CANNON.Vec3();
@@ -86,10 +94,32 @@ export function createGroundTunnelGuard(world) {
     if (rayResult.hasHit) {
       const minY = rayResult.hitPointWorld.y + MIN_GROUND_CLEARANCE;
       if (pos.y < minY) {
+        // Snap back on top and kill all motion, not just downward
+        // velocity - this is the same clamp whether it's catching an
+        // ordinary single-step tunnel (small gap) or releasing a body
+        // that's been frozen in open air below (see the no-hit branch
+        // below) for however long it took a terrain chunk to stream in
+        // under it (a much bigger gap) - either way it should land dead
+        // still exactly on the surface, not carry residual spin/velocity
+        // through the snap.
         pos.y = minY;
-        if (body.velocity.y < 0) body.velocity.y = 0;
+        body.velocity.set(0, 0, 0);
+        body.angularVelocity.set(0, 0, 0);
       }
+      return;
     }
+
+    // No ground within reach of the ray at all - not a one-step tunnel,
+    // but a spot where no terrain chunk is loaded yet under this body
+    // (e.g. a fast drive/teleport that outran TerrainManager's async
+    // streaming - see mainLoop.js). Letting gravity keep integrating here
+    // would have the body free-fall indefinitely with nothing to ever
+    // catch it. Instead, freeze it in place (zero all motion so it just
+    // hangs rather than plunging further) and keep re-casting every step;
+    // once a chunk streams in underneath, the hasHit branch above fires
+    // and snaps it back down onto the real surface.
+    body.velocity.set(0, 0, 0);
+    body.angularVelocity.set(0, 0, 0);
   }
 
   // Multi-body rigs (e.g. the chariot's independent per-engine spheres -

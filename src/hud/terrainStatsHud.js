@@ -51,6 +51,7 @@ export function createTerrainStatsHud() {
       `ahead: ${aheadTx},${aheadTy}`,
       `buildings: ${b.buildings} in ${b.loaded} tiles${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
     ];
+    if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);
     if (b.usingCachedData) {
       textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
@@ -72,7 +73,7 @@ export function createTerrainStatsHud() {
             .map((state, rx) => {
               const isPlayer = state === 'player';
               const cellState = isPlayer ? 'loaded' : state;
-              const isAhead = ry - s.radius === dir.dy && rx - s.radius === dir.dx;
+              const isAhead = ry - s.gridCenter.row === dir.dy && rx - s.gridCenter.col === dir.dx;
               const classes = ['ts-cell', cellState];
               if (isPlayer) classes.push('player');
               if (isAhead) classes.push('ahead');
