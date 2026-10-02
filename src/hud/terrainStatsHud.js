@@ -11,6 +11,46 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Per-tile loading progress is shown as a square split by both diagonals
+// into 4 triangles (one per loaded asset - see quadrantBackground below),
+// each one yellow (not loaded yet) until its asset actually finishes
+// building, then switching to green (the same detail-level green as
+// before, just filled in one quadrant at a time instead of all at once).
+// A cell that hasn't even got terrain yet stays flat yellow (the
+// 'pending' state below, no quadrants) - only once terrain exists does
+// the cell start showing (and filling in) its quadrant breakdown,
+// mirroring the real load order (terrain, then roads/rivers, then
+// buildings - see mainLoop.js).
+const PENDING_COLOR = '#ffc107';
+const TERRAIN_DETAIL_COLORS = { high: '#39ff14', medium: '#2e8b22', low: '#6f8f6a' };
+
+/**
+ * Builds a CSS conic-gradient splitting a cell into 4 triangles (top/
+ * right/bottom/left, via a -45deg-rotated 4-stop conic-gradient - the
+ * standard trick for an "X"-divided square) representing terrain/streets/
+ * rivers/buildings respectively. Each quadrant is yellow until its asset
+ * finishes loading, then switches to the cell's detail-level green -
+ * streets/rivers only ever load for HIGH-detail tiles (see terrain.js), so
+ * for any other tile those two quadrants are treated as already
+ * "complete" rather than permanently stuck yellow for content that will
+ * never be fetched there.
+ */
+function quadrantBackground(cell, buildings, streets, rivers) {
+  const doneColor = TERRAIN_DETAIL_COLORS[cell.level] || TERRAIN_DETAIL_COLORS.medium;
+  const isHigh = cell.level === 'high';
+  const streetsDone = isHigh ? !!streets?.isTileLoaded?.(cell.tx, cell.ty) : true;
+  const riversDone = isHigh ? !!rivers?.isTileLoaded?.(cell.tx, cell.ty) : true;
+  const buildingsDone = !!buildings?.isTileLoaded?.(cell.tx, cell.ty);
+  const terrainColor = doneColor; // terrain is implicitly done for any 'loaded' cell
+  const streetsColor = streetsDone ? doneColor : PENDING_COLOR;
+  const riversColor = riversDone ? doneColor : PENDING_COLOR;
+  const buildingsColor = buildingsDone ? doneColor : PENDING_COLOR;
+  return (
+    `conic-gradient(from -45deg, ${terrainColor} 0turn 0.25turn, ${streetsColor} 0.25turn 0.5turn, ` +
+    `${riversColor} 0.5turn 0.75turn, ${buildingsColor} 0.75turn 1turn)`
+  );
+}
+
 export function createTerrainStatsHud() {
   const terrainStatsEl = document.getElementById('terrain-stats');
   let statsAccum = 0;
@@ -20,7 +60,7 @@ export function createTerrainStatsHud() {
 
   function updateTerrainStats(
     delta,
-    { terrain, buildings, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
+    { terrain, buildings, streets, rivers, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
   ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
@@ -66,7 +106,8 @@ export function createTerrainStatsHud() {
       `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
       `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
       `ahead: ${aheadTx},${aheadTy}`,
-      `buildings: ${b.buildings} in ${b.loaded} tiles${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
+      `buildings: ${b.buildings} in ${b.loaded} tiles${b.building ? ` (${b.building} building\u2026)` : ''}` +
+        `${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
     ];
     if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);
@@ -86,30 +127,37 @@ export function createTerrainStatsHud() {
       `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
       `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 14px)">` +
       s.grid
-        .map((row, ry) =>
+        .map((row) =>
           row
-            .map((state, rx) => {
-              const isPlayer = state === 'player';
-              const cellState = isPlayer ? 'loaded' : state;
-              const isAhead = ry - s.gridCenter.row === dir.dy && rx - s.gridCenter.col === dir.dx;
+            .map((cell) => {
+              const isPlayer = cell.state === 'player';
+              const cellState = isPlayer ? 'loaded' : cell.state;
               const classes = ['ts-cell', cellState];
               if (isPlayer) classes.push('player');
-              if (isAhead) classes.push('ahead');
+              // Once terrain itself is loaded (including the player's own
+              // tile, which is always loaded by definition), replace the
+              // flat per-state background with the 4-quadrant progress
+              // indicator (see quadrantBackground) showing terrain/roads/
+              // rivers/buildings loading progress for that specific tile.
+              const style =
+                cellState === 'loaded' ? ` style="background:${quadrantBackground(cell, buildings, streets, rivers)}"` : '';
               const glyph = isPlayer ? dir.arrow : '';
-              return `<span class="${classes.join(' ')}">${glyph}</span>`;
+              return `<span class="${classes.join(' ')}"${style}>${glyph}</span>`;
             })
             .join('')
         )
         .join('') +
       `</div></div>` +
       `<div class="ts-legend">` +
-      `<span><span class="swatch" style="background:rgba(76,175,80,0.7)"></span>loaded</span>` +
-      `<span><span class="swatch" style="background:rgba(255,193,7,0.7)"></span>planned</span>` +
+      `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.high}"></span>high detail</span>` +
+      `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.medium}"></span>medium detail</span>` +
+      `<span><span class="swatch" style="background:${PENDING_COLOR}"></span>pending/planned</span>` +
       `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>removing</span>` +
       `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
-      `<span>${dir.arrow} you / ahead highlighted</span>` +
+      `<span>${dir.arrow} you</span>` +
       `</div>`;
   }
 
   return { updateTerrainStats, el: terrainStatsEl };
 }
+

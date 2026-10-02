@@ -40,11 +40,13 @@ async function geocodeAddress(query) {
  * @param {object} deps
  * @param {import('../lib/terrain.js').TerrainManager} deps.terrain
  * @param {import('../lib/buildings.js').BuildingsManager} deps.buildings
+ * @param {import('../lib/streets.js').StreetsManager} [deps.streets]
+ * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('./carManager.js').ReturnType} deps.carManager
  * @param {{lat: number, lon: number}} deps.origin - initial spawn origin
  * @param {() => boolean} deps.isJoined
  */
-export function createAddressSearch({ terrain, buildings, carManager, origin, isJoined }) {
+export function createAddressSearch({ terrain, buildings, streets, rivers, carManager, origin, isJoined }) {
   // Tracks whichever lat/lon this player's own local (0, 0) origin
   // currently represents - starts at `origin` (the shared network origin)
   // but is repointed whenever *this* player teleports elsewhere. Read
@@ -100,6 +102,8 @@ export function createAddressSearch({ terrain, buildings, carManager, origin, is
       // as extra insurance against ever falling through the ground.
       await terrain.recenter(lat, lon);
       buildings.recenter(lat, lon);
+      if (streets) streets.recenter(lat, lon);
+      if (rivers) rivers.recenter(lat, lon);
       currentOriginLat = lat;
       currentOriginLon = lon;
       await buildings.update(
@@ -107,6 +111,20 @@ export function createAddressSearch({ terrain, buildings, carManager, origin, is
         Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
         true
       );
+      if (streets) {
+        await streets.update(
+          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+          true
+        );
+      }
+      if (rivers) {
+        await rivers.update(
+          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+          true
+        );
+      }
       // Only override position - omit the quaternion so reset() keeps the
       // car's current heading instead of snapping it back to the default
       // facing direction.

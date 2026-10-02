@@ -93,6 +93,26 @@ const MAX_FOOTPRINT_METERS = 500; // building footprints bigger than this are al
 
 const BUILDING_COLOR = 0xb8b0a4;
 
+// Per-frame time budget (ms) spent synchronously extruding/physics-building
+// already-fetched buildings into meshes/bodies. A freshly-available region
+// can have dozens of tiles' worth of buildings (each needing a convex
+// hull, several ground raycasts, and an ExtrudeGeometry) become buildable
+// in the very same frame its network fetch resolves - doing all of that
+// synchronously in one go is what used to cause a visible freeze/stutter
+// whenever the player crossed into unexplored territory. Capping how much
+// of that CPU work happens per frame (continuing across frames via
+// `_buildQueue`/`_inProgressBuilds` below, see _stepChunkBuild) spreads it
+// out instead, trading "tiles pop in instantly" for "tiles pop in across a
+// handful of frames, never a stutter" - same end result a few frames
+// later, no dropped frame in between.
+const BUILD_TIME_BUDGET_MS = 6;
+
+// How many buildings to process before re-checking the clock within a
+// single _stepChunkBuild call - checking performance.now() after every
+// single building would add measurable overhead of its own for dense
+// tiles, so time is only sampled every this-many buildings.
+const BUILD_TIME_CHECK_INTERVAL = 4;
+
 // How many BUILDING_TILE_ZOOM tiles beyond the detail tier's keep radius
 // to keep fetched/cached in memory at once - the bigger this buffer, the
 // less often new tiles need fetching as the player drives around (at the
@@ -124,7 +144,9 @@ const MAX_FEATURES_PER_TILE = 8000;
  * just hardcoded.
  */
 let tileUrlTemplatePromise = null;
-async function getTileUrlTemplate() {
+// Exported so streets.js (same OpenFreeMap tiles, different layer) can
+// reuse this instead of independently re-fetching/memoizing the TileJSON.
+export async function getTileUrlTemplate() {
   if (!tileUrlTemplatePromise) {
     tileUrlTemplatePromise = fetch(TILEJSON_URL)
       .then((res) => {
@@ -386,6 +408,15 @@ export class BuildingsManager {
     this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
+    // Time-sliced build pipeline (see BUILD_TIME_BUDGET_MS above): tiles
+    // whose buildings are ready to be extruded/physics-built but haven't
+    // started yet sit in `_buildQueue`; a tile that's partway through
+    // (paused mid-tile once the frame's time budget ran out) lives in
+    // `_inProgressBuilds` instead, keyed the same way as `chunks`, so it
+    // can be resumed exactly where it left off next frame.
+    this._buildQueue = []; // [{ tx, ty, key }]
+    this._queuedKeys = new Set();
+    this._inProgressBuilds = new Map(); // key -> build descriptor (see _beginChunkBuild)
     this.material = new THREE.MeshStandardMaterial({
       color: BUILDING_COLOR,
       roughness: 0.9,
@@ -625,7 +656,7 @@ export class BuildingsManager {
    * but on any slope (or right at a terrain tile seam) some corners of
    * the footprint end up with real terrain below the prism's bottom face,
    * leaving a gap a car can drive/get stuck under. Used only for the
-   * physics shape's bottom (see _loadChunkFromCache) - the visible mesh
+   * physics shape's bottom (see _stepChunkBuild) - the visible mesh
    * still sits at the single center-sampled height, which is the correct
    * "flat foundation" look for a real building anyway.
    */
@@ -639,21 +670,45 @@ export class BuildingsManager {
   }
 
   /**
-   * Builds one tile's chunk (mesh + physics bodies) synchronously from the
-   * already-fetched region cache - no network I/O here, so it's cheap
-   * enough to call every frame for every tile currently in view (it early-
-   * returns if the tile's already loaded).
+   * Starts a new time-sliced build for one tile from the already-fetched
+   * region cache (no network I/O) - returns a resumable "build descriptor"
+   * consumed by _stepChunkBuild/_finishChunkBuild rather than doing all the
+   * work here, so a dense tile's worth of buildings never has to finish in
+   * a single frame (see BUILD_TIME_BUDGET_MS above).
    */
-  _loadChunkFromCache(tx, ty) {
+  _beginChunkBuild(tx, ty) {
     const key = this._key(tx, ty);
-    if (this.chunks.has(key)) return;
+    return {
+      tx,
+      ty,
+      key,
+      list: this._buildingsByTile.get(key) || [],
+      index: 0,
+      geometries: [],
+      bodies: [],
+      hitboxMeshes: [],
+      skipped: 0,
+    };
+  }
 
-    const list = this._buildingsByTile.get(key) || [];
-    const geometries = [];
-    const bodies = [];
-    const hitboxMeshes = [];
-    let skipped = 0;
-    for (const entry of list) {
+  /**
+   * Processes buildings from a build descriptor (see _beginChunkBuild)
+   * starting at `build.index`, stopping either when the tile's whole list
+   * is done or when `deadline` (a performance.now() timestamp) is reached -
+   * whichever comes first. Safe to call again on the same descriptor next
+   * frame to resume exactly where it left off. Returns true once the tile
+   * is fully processed (ready for _finishChunkBuild), false if paused.
+   */
+  _stepChunkBuild(build, deadline) {
+    const { list } = build;
+    let sinceCheck = 0;
+    while (build.index < list.length) {
+      if (sinceCheck >= BUILD_TIME_CHECK_INTERVAL) {
+        if (performance.now() >= deadline) return false;
+        sinceCheck = 0;
+      }
+      sinceCheck++;
+      const entry = list[build.index++];
       try {
         const points = entry.ring.map((p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon));
         const built = buildFootprintGeometry(points, entry.height);
@@ -687,7 +742,7 @@ export class BuildingsManager {
         body.addShape(buildFootprintPrism(built.hull, center, physicsHalfHeight));
         body.position.set(center.x, physicsCenterY, center.z);
         this.world.addBody(body);
-        bodies.push(body);
+        build.bodies.push(body);
 
         // Debug hitbox wireframe: the same convex-hull prism as the
         // physics shape above (built via the same extrusion technique as
@@ -716,26 +771,31 @@ export class BuildingsManager {
         hitboxMesh.visible = this._hitboxesVisible;
         hitboxMesh.renderOrder = 999;
         this.scene.add(hitboxMesh);
-        hitboxMeshes.push(hitboxMesh);
+        build.hitboxMeshes.push(hitboxMesh);
 
         const hitboxMeshOccluded = new THREE.Mesh(hitboxGeometry, this._hitboxMaterialOccluded);
         hitboxMeshOccluded.position.copy(body.position);
         hitboxMeshOccluded.visible = this._hitboxesVisible;
         hitboxMeshOccluded.renderOrder = 999;
         this.scene.add(hitboxMeshOccluded);
-        hitboxMeshes.push(hitboxMeshOccluded);
+        build.hitboxMeshes.push(hitboxMeshOccluded);
 
         // The extrusion geometry itself runs from y=0 to y=height in local
         // space; translate it up to the sampled ground height so the
         // merged-geometry vertices land at the right world Y.
         built.geometry.translate(0, groundY, 0);
-        geometries.push(built.geometry);
+        build.geometries.push(built.geometry);
       } catch (err) {
-        skipped++;
-        console.warn('Skipping one malformed building footprint', tx, ty, err);
+        build.skipped++;
+        console.warn('Skipping one malformed building footprint', build.tx, build.ty, err);
       }
     }
+    return true;
+  }
 
+  /** Finalizes a fully-processed build descriptor (see _stepChunkBuild) into a chunk in `this.chunks`. */
+  _finishChunkBuild(build) {
+    const { tx, ty, key, geometries, bodies, hitboxMeshes, skipped } = build;
     let mesh = null;
     if (geometries.length) {
       const merged = mergeGeometries(geometries, false);
@@ -753,6 +813,26 @@ export class BuildingsManager {
     this.stats.buildings += bodies.length;
   }
 
+  /**
+   * Discards a build descriptor that's paused mid-tile (see _stepChunkBuild)
+   * without finishing it - used when a tile drifts out of range or the
+   * manager recenters while a build is in flight, so its partially-created
+   * bodies/hitbox meshes don't leak into the world/scene unfinished.
+   */
+  _abandonChunkBuild(build) {
+    for (const body of build.bodies) this.world.removeBody(body);
+    for (const hitboxMesh of build.hitboxMeshes) {
+      this.scene.remove(hitboxMesh);
+      hitboxMesh.geometry.dispose();
+    }
+    for (const g of build.geometries) g.dispose();
+  }
+
+  /** True once a tile's mesh/physics have actually been built (not just fetched) - used by the debug stats HUD's per-tile progress indicator. */
+  isTileLoaded(tx, ty) {
+    return this.chunks.has(this._key(tx, ty));
+  }
+
   _unloadChunk(key) {
     const chunk = this.chunks.get(key);
     if (!chunk) return;
@@ -762,7 +842,7 @@ export class BuildingsManager {
     }
     for (const body of chunk.bodies) this.world.removeBody(body);
     // Each building contributes two meshes sharing one geometry (see the
-    // bright/occluded pair in _loadChunkFromCache) - disposing it via both
+    // bright/occluded pair in _stepChunkBuild) - disposing it via both
     // is harmless (BufferGeometry.dispose() is a no-op past the first
     // call), just simpler than tracking which half of the pair owns it.
     for (const hitboxMesh of chunk.hitboxMeshes) {
@@ -792,6 +872,13 @@ export class BuildingsManager {
   recenter(lat, lon) {
     for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
     this.pendingRemoval.clear();
+    // Abandon (not finish) any tile build that was mid-flight - it almost
+    // certainly belongs to the old location's tile grid, and finishing it
+    // would just add soon-to-be-unloaded bodies/meshes for nothing.
+    for (const build of this._inProgressBuilds.values()) this._abandonChunkBuild(build);
+    this._inProgressBuilds.clear();
+    this._buildQueue = [];
+    this._queuedKeys.clear();
     this._region = null;
     this._buildingsByTile = new Map();
     this._regionPending = null;
@@ -808,20 +895,61 @@ export class BuildingsManager {
    * (re)builds every tile within the detail tier's circular radius from
    * that cache, and stages/unloads tiles that have drifted out of range -
    * mirroring TerrainManager.update()'s detail-tier bookkeeping (same tile
-   * grid, circular radius, and unload-delay constants).
+   * grid, circular radius, and unload-delay constants). The actual
+   * mesh/physics building is time-sliced (see BUILD_TIME_BUDGET_MS,
+   * _stepChunkBuild) rather than all done in one go, so a newly-available
+   * region's worth of tiles never freezes the frame they become ready in -
+   * unless `awaitAll` (teleport/initial load, already behind its own
+   * blocking loading-screen await), which runs the build queue to
+   * completion with no per-frame time limit instead.
    */
   async update(centerTx, centerTy, awaitAll = false) {
     const ensure = this._ensureRegion(centerTx, centerTy);
     if (awaitAll) await ensure;
     else ensure.catch(() => {});
 
+    const keepRadius = this._keepRadius();
+
     if (this._regionCovers(centerTx, centerTy)) {
       for (const { dx, dy } of circleOffsets(DETAIL_RADIUS)) {
-        this._loadChunkFromCache(centerTx + dx, centerTy + dy);
+        const tx = centerTx + dx;
+        const ty = centerTy + dy;
+        const key = this._key(tx, ty);
+        if (!this.chunks.has(key) && !this._inProgressBuilds.has(key) && !this._queuedKeys.has(key)) {
+          this._queuedKeys.add(key);
+          this._buildQueue.push({ tx, ty, key });
+        }
       }
     }
 
-    const keepRadius = this._keepRadius();
+    const deadline = awaitAll ? Infinity : performance.now() + BUILD_TIME_BUDGET_MS;
+    // Resume anything paused mid-tile last frame first, so a tile already
+    // partway built finishes before a brand new one is even started.
+    for (const [key, build] of this._inProgressBuilds) {
+      if (performance.now() >= deadline) break;
+      if (!inCircle(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
+        this._abandonChunkBuild(build);
+        this._inProgressBuilds.delete(key);
+        continue;
+      }
+      if (this._stepChunkBuild(build, deadline)) {
+        this._finishChunkBuild(build);
+        this._inProgressBuilds.delete(key);
+      }
+    }
+    while (this._buildQueue.length && performance.now() < deadline) {
+      const { tx, ty, key } = this._buildQueue.shift();
+      this._queuedKeys.delete(key);
+      if (this.chunks.has(key)) continue; // already built via some other path
+      if (!inCircle(tx - centerTx, ty - centerTy, keepRadius)) continue; // drifted out of range while queued
+      const build = this._beginChunkBuild(tx, ty);
+      if (this._stepChunkBuild(build, deadline)) {
+        this._finishChunkBuild(build);
+      } else {
+        this._inProgressBuilds.set(key, build);
+      }
+    }
+
     for (const [k, chunk] of this.chunks) {
       const farAway = !inCircle(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius);
       if (farAway) {
@@ -845,6 +973,10 @@ export class BuildingsManager {
     return {
       loaded: this.chunks.size,
       pendingRemoval: this.pendingRemoval.size,
+      // Tiles whose buildings are fetched but not yet (fully) built into
+      // meshes/bodies (see BUILD_TIME_BUDGET_MS) - surfaced so the HUD can
+      // show "still constructing" separately from "still downloading".
+      building: this._buildQueue.length + this._inProgressBuilds.size,
       regionLoading: !!this._regionPending,
       regionFailed: !!this._regionFailedAt,
       usingCachedData: this._usingCachedData,

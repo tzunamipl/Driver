@@ -10,6 +10,8 @@ import { createHorn } from './lib/horn.js';
 import { createJump } from './lib/jump.js';
 import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
+import { StreetsManager } from './lib/streets.js';
+import { RiversManager } from './lib/rivers.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
@@ -82,6 +84,8 @@ const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 // ---------- Real-world terrain + 3D buildings (streamed) ----------
 const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+const streets = new StreetsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+const rivers = new RiversManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -134,6 +138,8 @@ const debugVisuals = createDebugVisualsToggle(
   {
     terrain,
     buildings,
+    streets,
+    rivers,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
@@ -174,6 +180,8 @@ createVersionBadge();
 const addressSearch = createAddressSearch({
   terrain,
   buildings,
+  streets,
+  rivers,
   carManager,
   origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
   isJoined: () => lobby.isJoined(),
@@ -220,6 +228,8 @@ const mainLoop = createMainLoop({
   SUN_OFFSET,
   terrain,
   buildings,
+  streets,
+  rivers,
   balls,
   pedestrians,
   shots,

@@ -50,6 +50,43 @@ const DETAIL_GRID = 16; // heightmap/mesh resolution per tile edge (GRID+1 verti
 export const DETAIL_RADIUS = 2; // circular load radius (in tiles) for the fully-detailed tier
 export const UNLOAD_MARGIN = 1; // extra tiles of slack before unloading, to avoid load/unload thrashing
 
+// ---------------------------------------------------------------------------
+// Sub-tier detail level: *within* the detail tier's loaded footprint above,
+// each tile is additionally tagged HIGH/MEDIUM/LOW so extra-expensive
+// content (currently streets.js/rivers.js's debug overlays) only has to be
+// fetched/rendered for the handful of tiles immediately around the player,
+// not the whole detail tier:
+//   - HIGH: the 3x3 block of tiles centered on the player's current tile
+//     (the player's own tile plus its 8 neighbors).
+//   - MEDIUM: every other tile currently loaded by the detail tier.
+//   - LOW: not produced by anything yet - reserved for a future tier
+//     further out than the current detail-tier footprint.
+// Exported (with the color ramp below) so streets.js/rivers.js can mirror
+// the same HIGH-only footprint instead of duplicating this radius, and so
+// debugVisuals/terrain border coloring stay in sync with whatever actually
+// gets the extra detail.
+// ---------------------------------------------------------------------------
+export const HIGH_DETAIL_RADIUS = 1; // tiles (square, i.e. the 3x3 block) - see above
+export const DetailLevel = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
+
+/** Classifies a tile offset (dx, dy from the current center tile) into a DetailLevel - see the doc comment above. */
+export function detailLevelForOffset(dx, dy) {
+  if (Math.abs(dx) <= HIGH_DETAIL_RADIUS && Math.abs(dy) <= HIGH_DETAIL_RADIUS) return DetailLevel.HIGH;
+  return DetailLevel.MEDIUM; // LOW is reserved for a future tier, never produced today
+}
+
+// Tile detail-level color ramp - a bright/medium/desaturated green ramp so
+// a tile's current detail level reads at a glance. Not used for the 3D
+// scene's tile borders (those stay a plain yellow, see borderMaterial
+// below) - instead consumed by the debug stats HUD's tile grid
+// (terrainStatsHud.js) via getStats()'s per-cell `level` field.
+export const DETAIL_LEVEL_COLORS = {
+  [DetailLevel.HIGH]: 0x39ff14, // bright green
+  [DetailLevel.MEDIUM]: 0x2e8b22, // medium green
+  [DetailLevel.LOW]: 0x6f8f6a, // desaturated green (unused today, see DetailLevel doc comment)
+};
+
+
 // A tile is "in" a circular radius R if dx^2+dy^2 <= (R + CIRCLE_SLACK)^2.
 // The slack rounds the selection out a bit past a mathematically strict
 // circle so the shape doesn't look overly sparse/spiky at small radii, while
@@ -455,6 +492,11 @@ export class TerrainManager {
     return `${tx}_${ty}`;
   }
 
+  /** True once a tile's terrain mesh/physics have actually been built - used by the debug stats HUD's per-tile progress indicator. */
+  isTileLoaded(tx, ty) {
+    return this.chunks.has(this._key(tx, ty));
+  }
+
   /**
    * Re-centers the whole terrain system on a new lat/lon origin - used to
    * "teleport" the car to an arbitrary searched address. The local flat-
@@ -534,6 +576,7 @@ export class TerrainManager {
       // 3D view, plus fainter/thinner lines along every triangle edge of
       // the tile's actual render geometry (its polygons). Both are part of
       // the debug visuals, so they respect the current toggle state.
+      const level = detailLevelForOffset(tx - this._centerX, ty - this._centerY);
       const border = buildTileBorder(geometry, DETAIL_GRID);
       border.visible = this.bordersVisible;
       this.scene.add(border);
@@ -558,7 +601,7 @@ export class TerrainManager {
           grid.geometry.attributes.instanceStart.data.array.length) *
           4;
 
-      this.chunks.set(key, { mesh, body, border, grid, tx, ty, bytes });
+      this.chunks.set(key, { mesh, body, border, grid, tx, ty, bytes, level });
       this.stats.created++;
     } catch (err) {
       console.warn('Terrain chunk failed to load', tx, ty, err);
@@ -742,6 +785,14 @@ export class TerrainManager {
       } else {
         this.pendingRemoval.delete(k);
       }
+
+      // The player has just moved to a new center tile (we're past the
+      // centerUnchanged early-return above), so every already-loaded
+      // tile's HIGH/MEDIUM detail level may have shifted too - keep
+      // chunk.level current (consumed by getStats() for the debug HUD
+      // grid) even though the 3D border itself stays a plain yellow and
+      // doesn't change color with detail level.
+      chunk.level = detailLevelForOffset(chunk.tx - centerX, chunk.ty - centerY);
     }
     for (const [k, ticksLeft] of this.pendingRemoval) {
       if (ticksLeft <= 1) {
@@ -831,7 +882,12 @@ export class TerrainManager {
         if (this.pendingRemoval.has(k)) state = 'removing';
         else if (this.chunks.has(k)) state = 'loaded';
         else if (this.pending.has(k)) state = 'pending';
-        row.push(dx === 0 && dy === 0 ? 'player' : state);
+        // `level` (HIGH/MEDIUM/LOW, see DetailLevel above) is reported for
+        // every cell regardless of load state, so the HUD can shade a cell
+        // by its detail tier as soon as it's loaded (debugVisuals' M-key
+        // view) - this is purely a HUD affordance and is unrelated to the
+        // 3D scene's tile borders, which stay a plain yellow.
+        row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy) });
       }
       grid.push(row);
     }

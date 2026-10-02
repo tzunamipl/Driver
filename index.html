@@ -499,17 +499,21 @@
         border-radius: 2px;
         box-sizing: border-box;
       }
-      #terrain-stats .ts-cell.loaded { background: rgba(76, 175, 80, 0.55); }
+      #terrain-stats .ts-cell.loaded { background: rgba(76, 175, 80, 0.55); } /* overridden inline per-cell, see terrainStatsHud.js's quadrantBackground */
       #terrain-stats .ts-cell.pending { background: rgba(255, 193, 7, 0.6); color: #3a2a00; }
       #terrain-stats .ts-cell.removing { background: rgba(244, 67, 54, 0.45); }
       #terrain-stats .ts-cell.empty { background: rgba(255, 255, 255, 0.06); }
       #terrain-stats .ts-cell.player {
-        background: #fff;
-        color: #111;
+        /* No forced background - loaded cells (including the player's own,
+           always loaded by definition) get their 4-quadrant terrain/roads/
+           rivers/buildings progress color inline (see terrainStatsHud.js).
+           White glow + outlined glyph keep "you" readable against
+           whatever color combination that cell currently shows. */
+        color: #fff;
+        text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 2px #000;
         font-weight: bold;
         box-shadow: 0 0 4px #fff;
       }
-      #terrain-stats .ts-cell.ahead { outline: 2px solid #4fc3ff; outline-offset: -1px; }
       #terrain-stats .ts-legend {
         margin-top: 6px;
         opacity: 0.85;
@@ -517,6 +521,11 @@
         flex-wrap: wrap;
         gap: 6px;
         font-size: 10px;
+        /* Capped independently of the rest of the panel (whose width is set
+           by the longer stat lines above) so the legend wraps onto several
+           short lines instead of stretching the whole HUD panel wide enough
+           to fit every swatch on a single row. */
+        max-width: 190px;
       }
       #terrain-stats .ts-legend span.swatch {
         display: inline-block;

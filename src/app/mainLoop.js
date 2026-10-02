@@ -26,6 +26,8 @@ export function createMainLoop({
   SUN_OFFSET,
   terrain,
   buildings,
+  streets,
+  rivers,
   balls,
   pedestrians,
   shots,
@@ -212,6 +214,8 @@ export function createMainLoop({
     terrainStatsHud.updateTerrainStats(frameDelta, {
       terrain,
       buildings,
+      streets,
+      rivers,
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
@@ -253,10 +257,25 @@ export function createMainLoop({
           viewOriginLat,
           viewOriginLon
         );
-        buildings.update(
-          Math.floor(lon2tileX(carLon, DETAIL_ZOOM)),
-          Math.floor(lat2tileY(carLat, DETAIL_ZOOM))
-        );
+        const tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
+        const tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
+        // Load priority: terrain (above, needed for driving/physics) first,
+        // then roads/rivers, then buildings last - buildings are by far
+        // the most expensive to construct (per-building convex hull/
+        // raycasts/extrusion, see buildings.js), so kicking off their
+        // fetch/build last means the cheaper, more immediately important
+        // content (ground to drive on, then the debug road/river overlay)
+        // is never left waiting behind it. All three stream on the same
+        // tile grid but only actually fetch/build anything once it's their
+        // turn to matter: streets/rivers only while the debug overlay is
+        // visible (see vectorLineLayer.js's update() early-return), and
+        // every manager time-slices its own CPU-heavy mesh/physics
+        // building across frames (see buildings.js's BUILD_TIME_BUDGET_MS)
+        // rather than doing it all in the frame it becomes available, so
+        // none of this ever freezes a frame.
+        streets.update(tileX, tileY);
+        rivers.update(tileX, tileY);
+        buildings.update(tileX, tileY);
       }
       // Catch a car that ended up inside a building's solid volume - a
       // tile streaming in under an already-parked car, or a teleport
