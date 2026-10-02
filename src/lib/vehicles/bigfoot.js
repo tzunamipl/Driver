@@ -103,17 +103,32 @@ export default {
   category: 'misc',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
-  // Comically oversized wheels (baseline rally car is 0.4) - the whole
-  // point of a monster truck.
-  wheelRadius: 1.1,
-  // Huge, soft, long-travel suspension so it can soak up monster-truck-size
-  // drops/jumps instead of bottoming out like a stock car would.
+  // Oversized wheels (baseline rally car is 0.4) - still a hallmark of a
+  // monster truck, but toned down from an earlier, comically huge 1.1 so
+  // the truck doesn't look like it's riding on tractor tires.
+  wheelRadius: 0.75,
+  // Soft, longer-travel suspension than the baseline rally car (so it can
+  // soak up monster-truck-size drops/jumps without bottoming out) but
+  // still proportioned like an actual suspension rather than most of a
+  // meter of travel. restLength/maxTravel scale down with the smaller
+  // wheelRadius above (same restLength:radius and travel:restLength
+  // ratios as before), keeping the suspension proportioned to the truck's
+  // new, smaller tires instead of floating them absurdly high.
   suspension: {
-    suspensionStiffness: 10,
-    suspensionRestLength: 1.1,
-    maxSuspensionTravel: 2.4,
-    dampingRelaxation: 2.4,
-    dampingCompression: 3.2,
+    // Stiffness 10 sagged ~0.245m under its own resting weight (same
+    // static-sag math as the baseline car, independent of mass) - stiffer
+    // 20 halves that to a more realistic ~0.12m while staying softer than
+    // the baseline rally car's stiffness 35, since a monster truck's
+    // suspension is still meant to be noticeably softer/longer-travel.
+    // Damping scaled up by the same sqrt(stiffness) ratio to preserve the
+    // original damping ratio/settle behavior. (Sag depends only on
+    // stiffness/mass, not restLength/radius, so this didn't need to
+    // change when the wheels got smaller.)
+    suspensionStiffness: 20,
+    suspensionRestLength: 0.75,
+    maxSuspensionTravel: 0.4,
+    dampingRelaxation: 3.39,
+    dampingCompression: 4.52,
     maxSuspensionForce: 250000,
   },
   // Twice the baseline rally car's engine rating (equivalent bhp - see

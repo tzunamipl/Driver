@@ -42,7 +42,7 @@ export const ORIGIN_LON = 17.0385;
 
 // Starting body color when the lobby is skipped (dev mode). The lobby
 // itself uses a color picker; this is only the fallback blue.
-export const DEFAULT_BODY_COLOR = 0x1c3f94;
+export const DEFAULT_BODY_COLOR = 0xffffff;
 
 // ---------- Controls ----------
 export const MAX_STEER = 0.5;

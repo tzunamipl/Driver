@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 
-const DEFAULT_BODY_COLOR = 0x1c3f94; // WRC blue
+const DEFAULT_BODY_COLOR = 0xffffff; // white
 
 /**
  * Slants the top-front and top-back vertices of a BoxGeometry inward along Z

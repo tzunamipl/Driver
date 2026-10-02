@@ -72,7 +72,7 @@ export function createNet({ clientId } = {}) {
   let connected = false;
   let lastPublish = 0;
   let playerName = '';
-  let playerColor = 0x1c3f94;
+  let playerColor = 0xffffff;
   let playerVehicleId = DEFAULT_VEHICLE_ID;
 
   function emitStatus(status) {
@@ -147,7 +147,7 @@ export function createNet({ clientId } = {}) {
 
     let peer = peers.get(msg.id);
     if (!peer) {
-      peer = { name: '', color: 0x1c3f94, vehicleId: DEFAULT_VEHICLE_ID, score: 0, lastSeen: 0, samples: [] };
+      peer = { name: '', color: 0xffffff, vehicleId: DEFAULT_VEHICLE_ID, score: 0, lastSeen: 0, samples: [] };
       peers.set(msg.id, peer);
     }
     peer.name = sanitizeName(msg.name);
@@ -393,7 +393,7 @@ function sanitizeName(name) {
 
 function sanitizeColor(color) {
   const n = Number(color);
-  if (!Number.isInteger(n) || n < 0 || n > 0xffffff) return 0x1c3f94;
+  if (!Number.isInteger(n) || n < 0 || n > 0xffffff) return 0xffffff;
   return n;
 }
 
