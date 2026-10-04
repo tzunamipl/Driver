@@ -333,13 +333,17 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
 
     // Per-surface tyre compound (road/water/normal - see
     // surfaceCompounds.js, set every frame on wheel.surface by
-    // app/mainLoop.js's classifySurfaceAt): scales this wheel's own base
-    // frictionSlip, then clamps the resulting raw grip force to the
-    // compound's load-independent ceiling, before turning it into this
-    // step's impulse budget - so e.g. water stays slippery regardless of
-    // how loaded the wheel currently is, not just proportionally grippier.
+    // app/mainLoop.js's classifySurfaceAt): scales *and* offsets this
+    // wheel's own base frictionSlip, then clamps the resulting raw grip
+    // force to the compound's load-independent ceiling, before turning it
+    // into this step's impulse budget - so e.g. water stays slippery
+    // regardless of how loaded the wheel currently is, not just
+    // proportionally grippier. Clamped to >= 0 since a large enough
+    // negative frictionSlipOffset could otherwise flip grip negative for
+    // a low-frictionSlip vehicle.
     const compound = getSurfaceCompound(wheel.surface);
-    const rawGripForce = Math.min(wheel.suspensionForce * wheel.frictionSlip * compound.frictionMultiplier, compound.maxForceN);
+    const effectiveFrictionSlip = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
+    const rawGripForce = Math.min(wheel.suspensionForce * effectiveFrictionSlip, compound.maxForceN);
     const maxGrip = rawGripForce * dt;
 
     // Longitudinal: engine force (continuous push) plus brake treated as a

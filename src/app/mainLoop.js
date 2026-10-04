@@ -36,6 +36,7 @@ export function createMainLoop({
   horn,
   jump,
   splash,
+  tireSmoke,
   remoteCollisions,
   net,
   input,
@@ -246,6 +247,10 @@ export function createMainLoop({
     // lib/splash.js/vectorPolygonLayer.js's doc comments) so this shows
     // during normal play, not just with the debug overlay open.
     splash.update(frameDelta, currentVehicle, world, waterAreas);
+    // Tyre-smoke particles: reads wheel.sliding/wheel.surface (already set
+    // above/by wheeledVehicle.js's friction solve), so like splash.js this
+    // runs unconditionally - not gated on debugVisualsEnabled.
+    tireSmoke.update(frameDelta, currentVehicle, world);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {

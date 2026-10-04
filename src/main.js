@@ -9,6 +9,7 @@ import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/horn.js';
 import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
+import { createTireSmoke } from './lib/tireSmoke.js';
 import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
@@ -206,6 +207,7 @@ const shots = createShots({
 const horn = createHorn();
 const jump = createJump({ world });
 const splash = createSplash(scene);
+const tireSmoke = createTireSmoke(scene);
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -243,6 +245,7 @@ const mainLoop = createMainLoop({
   horn,
   jump,
   splash,
+  tireSmoke,
   remoteCollisions,
   net,
   input,
