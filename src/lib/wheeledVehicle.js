@@ -39,6 +39,10 @@ import * as CANNON from 'cannon-es';
 //      applied - so the car simply never accumulates the excess
 //      wheelie/flip torque cannon-es's own vehicle does, instead of
 //      generating it and then subtracting it back out a step later.
+//   4. Each wheel also applies rolling resistance (Frr = Crr(v) * Fz, Crr
+//      growing with speed) any time it's loaded and moving, independent
+//      of engine/brake input - so a car coasts to a stop on a flat road
+//      like a real one instead of rolling forever once up to speed.
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
@@ -49,10 +53,30 @@ const DEFAULT_WHEEL_OPTIONS = {
   suspensionStiffness: 35,
   suspensionRestLength: 0.55,
   maxSuspensionTravel: 0.35,
-  maxSuspensionForce: 1e5,
+  // car.js computes its own mass-derived value (see DEFAULT_SUSPENSION_FORCE_G
+  // there) and every current vehicle descriptor gets one - this is only a
+  // fallback for callers that don't go through car.js at all.
+  maxSuspensionForce: 1e6,
   dampingCompression: 5.92,
   dampingRelaxation: 8.87,
-  frictionSlip: 5,
+  frictionSlip: 1.6, // mu - see car.js's matching comment for why not 5
+  // Rolling resistance coefficient (dimensionless, Crr at near-zero speed)
+  // - a real tyre constantly loses a little energy to deformation at the
+  // contact patch, so it never coasts forever even with the engine off and
+  // no brake applied. Modelled as a force opposing rolling motion,
+  // proportional to the wheel's own normal load (suspensionForce) the same
+  // way real rolling resistance is (Frr = Crr(v) * Fz) - see
+  // applyFriction's rollingResistance handling below. 0.015 is a typical
+  // asphalt value for a road tyre at low speed; per-vehicle descriptors can
+  // override it (e.g. knobby off-road tyres) via car.js's suspension
+  // overrides, same as frictionSlip/rollInfluence above.
+  rollingResistance: 0.015,
+  // How much rollingResistance grows with speed - real tyres get
+  // noticeably draggier as they go faster (more flex/heat/air resistance
+  // in the tyre carcass itself), not just a flat drag force. Modelled as
+  // Crr(v) = rollingResistance * (1 + rollingResistanceSpeedFactor * |v|)
+  // (v in m/s) - 0.02 means Crr roughly doubles by ~50 m/s (180 km/h).
+  rollingResistanceSpeedFactor: 0.02,
   rollInfluence: 0.01,
   // Mirrors the old standalone PITCH_INFLUENCE constant in car.js - how
   // much of the forward (accel/brake) impulse's true lever arm survives
@@ -318,6 +342,30 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       forwardImpulse = 0;
     }
     forwardImpulse += wheel.engineForce * dt;
+
+    // Rolling resistance: a small, continuous drag opposing the wheel's
+    // own rolling motion (Frr = Crr(v) * Fz, same formula real tyres
+    // follow, with Crr growing with speed via rollingResistanceSpeedFactor
+    // - see DEFAULT_WHEEL_OPTIONS above), present any time the wheel is
+    // loaded and moving - unlike engine force/brake above, this always
+    // acts regardless of throttle/brake input, which is what actually
+    // makes a car coast to a stop on a flat road instead of rolling
+    // forever (and lose top speed faster than a flat drag force would).
+    // Capped at (not solved as) the impulse that would zero the wheel's
+    // own forward speed, so it slows the car toward a stop rather than
+    // ever reversing it in one step.
+    if (wheel.rollingResistance > 0) {
+      chassisBody.getVelocityAtWorldPoint(hitPoint, velAtPoint1);
+      const rollSpeed = frictionForward.dot(velAtPoint1);
+      const denom = impulseDenominator(chassisBody, hitPoint, frictionForward);
+      if (denom > 1e-9 && rollSpeed !== 0) {
+        const stopImpulse = -rollSpeed / denom; // impulse needed to zero rollSpeed
+        const speedDependentCrr = wheel.rollingResistance * (1 + wheel.rollingResistanceSpeedFactor * Math.abs(rollSpeed));
+        const maxResistImpulse = speedDependentCrr * wheel.suspensionForce * dt;
+        const resistImpulse = Math.sign(stopImpulse) * Math.min(Math.abs(stopImpulse), maxResistImpulse);
+        forwardImpulse += resistImpulse;
+      }
+    }
 
     // Lateral: fully cancel sideways slip at the contact patch (grippy
     // cornering), clamped below by the shared friction circle.

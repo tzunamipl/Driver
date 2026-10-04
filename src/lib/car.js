@@ -23,10 +23,40 @@ const WHEEL_RADIUS = 0.4;
 // lib/vehicles/gc8.js/bigfoot.js) the same way enginePowerHp/dragProfile
 // already are, rather than every wheeled vehicle sharing one hardcoded
 // mass - only applies if a descriptor omits its own value.
-const DEFAULT_CHASSIS_MASS = 150; // baseline rally car's weight
+// 1500kg matches a real rally-prepped car's curb weight (a plain ~150kg
+// figure made the chassis feel unrealistically light/floaty under the
+// world's real-world gravity - see physicsSetup.js). Every other
+// mass-dependent constant below (FORCE_PER_HP, DEFAULT_BRAKE_FORCE) - and
+// each vehicle's own explicit mass/brakeForce/maxSuspensionForce - was
+// scaled up by the same 10x factor so acceleration, braking, and
+// suspension response all feel identical to before, just at a real mass.
+const DEFAULT_CHASSIS_MASS = 1500; // baseline rally car's weight
 // How long a reset's lift-back-upright takes to ease into place, instead of
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
+// Matches app/physicsSetup.js's world gravity magnitude - duplicated here
+// (rather than imported) since it's only needed for the per-wheel static
+// load estimate below, not for simulating gravity itself.
+const GRAVITY = 9.82;
+// How much harder than its own resting weight a wheel's suspension (and
+// therefore its tyre's available grip - see wheeledVehicle.js's
+// maxGrip = suspensionForce * dt * frictionSlip) is allowed to push,
+// expressed as a multiple of static per-wheel load ("g" of load, not of
+// chassis acceleration) rather than a flat absolute Newton figure -
+// otherwise a flat cap either needs re-tuning every time a vehicle's mass
+// changes (see DEFAULT_CHASSIS_MASS's history) or, left generous enough to
+// never need retuning, ends up so high it never actually binds. That's
+// exactly what was happening here: a hard sideways landing spikes the
+// suspension's damping term (proportional to closing speed * mass) far
+// above its steady-state load, and with the old flat ~270x-static cap
+// that spike fed straight into maxGrip, giving the tyre enough one-frame
+// grip budget to fully cancel a car's entire sideways momentum in a single
+// step - reads as the car snapping instantly upright/straight on landing
+// instead of sliding. Capping load at a realistic multiple of a wheel's
+// own static share of the chassis weight means a landing hard enough to
+// need more grip than that actually slides instead.
+const DEFAULT_SUSPENSION_FORCE_G = 8;
+const WHEELS_PER_VEHICLE = 4;
 
 // Engine power, expressed per-vehicle as an equivalent "bhp" rating
 // (descriptor.enginePowerHp - see lib/vehicles/gc8.js/bigfoot.js) and
@@ -36,7 +66,10 @@ const RESET_LIFT_DURATION_S = 0.6;
 // torque/gearing/speed curve) - the point is each car now carries its own
 // independent power number instead of every car scaling off one shared
 // global force constant.
-const FORCE_PER_HP = 2;
+// Scaled up 10x alongside DEFAULT_CHASSIS_MASS (150kg -> 1500kg) so
+// force/mass - and therefore acceleration - stays exactly what it was
+// before the mass bump.
+const FORCE_PER_HP = 12;
 const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;
@@ -48,7 +81,9 @@ function hpToEngineForce(hp) {
 // handbrake strength from config.js's BRAKE_FORCE - a heavier/more
 // powerful vehicle (e.g. a monster truck) can carry its own stronger
 // brakes instead of fighting the same braking force as the baseline car.
-const DEFAULT_BRAKE_FORCE = 3000; // baseline rally car's rating (matches the previous shared config.js constant)
+// Also scaled 10x alongside DEFAULT_CHASSIS_MASS (see above) to keep the
+// same braking deceleration as before the mass bump.
+const DEFAULT_BRAKE_FORCE = 30000; // baseline rally car's rating
 
 
 /**
@@ -224,6 +259,13 @@ export function createCar(
   // suspension, etc) differ from the rest without forking the whole rig.
   const suspensionOverrides = descriptor.suspension ?? {};
   const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
+  // See DEFAULT_SUSPENSION_FORCE_G above - this vehicle's own independent
+  // "how many g's of load can the suspension push before it's capped"
+  // rating (lib/vehicles/bigfoot.js raises it for its monster-truck-sized
+  // jumps/landings), the same per-vehicle-overridable pattern as
+  // mass/enginePowerHp/wheelRadius.
+  const suspensionForceG = descriptor.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G;
+  const maxSuspensionForce = ((chassisMass * GRAVITY) / WHEELS_PER_VEHICLE) * suspensionForceG;
 
   const wheelOptions = {
     radius: wheelRadius,
@@ -236,7 +278,26 @@ export function createCar(
     // damping ratio (same bounciness/settle behavior as before, just stiffer).
     suspensionStiffness: 35,
     suspensionRestLength: 0.55,
-    frictionSlip: 5,
+    // Tyre friction coefficient (mu, see wheeledVehicle.js's
+    // maxGrip = suspensionForce * dt * frictionSlip) - 1.6 matches a
+    // genuinely sticky tarmac rally tyre. The old value of 5 was an
+    // unrealistic "super-glue" grip level (real tyres top out around
+    // 1.3-1.8, even race slicks) that - combined with the old uncapped
+    // suspension-force spikes on hard impacts (see maxSuspensionForce
+    // above) - let a single frame's tyre grip budget fully cancel a car's
+    // entire sideways momentum on landing, reading as an instant,
+    // unrealistic snap back upright/straight instead of a visible slide.
+    frictionSlip: 1.6,
+    // Rolling resistance coefficient (Crr at low speed, see
+    // wheeledVehicle.js) - the baseline rally car's road tyres on asphalt.
+    // Per-vehicle descriptors (e.g. lib/vehicles/bigfoot.js's knobbier
+    // off-road tyres) can raise or lower this independently via
+    // descriptor.suspension, same as frictionSlip/suspensionStiffness
+    // above. rollingResistanceSpeedFactor (how fast Crr grows with speed)
+    // is likewise overridable but left at wheeledVehicle.js's default here
+    // since road vs. off-road tyres differ mainly in their base Crr, not
+    // how sharply it climbs with speed.
+    rollingResistance: 0.015,
     // Damping ratio = damping / (2*sqrt(stiffness)); critical damping here
     // is 2*sqrt(35) ~= 11.83. The old values (2.62/3.74, ratios ~0.22/0.32)
     // were well under 1 (underdamped), so every bump/landing kept the
@@ -247,7 +308,12 @@ export function createCar(
     // instead of bouncing back.
     dampingRelaxation: 8.87,
     dampingCompression: 5.92,
-    maxSuspensionForce: 100000,
+    // Derived from this vehicle's own mass/suspensionForceG above (see the
+    // DEFAULT_SUSPENSION_FORCE_G comment) rather than a flat number, so it
+    // scales automatically with chassisMass and stays a realistic cap
+    // (instead of a huge flat ceiling that let hard-landing suspension
+    // spikes translate into unrealistically sticky tyre grip).
+    maxSuspensionForce,
     rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
