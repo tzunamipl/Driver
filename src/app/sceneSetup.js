@@ -41,7 +41,7 @@ export function createSceneEnvironment() {
   // only affects rendered geometry, not the sky (scene.background above
   // stays plain sky blue, deliberately not fog-tinted).
   const FOG_NEAR_METERS = 6_000;
-  const FOG_FAR_METERS = 11_000;
+  const FOG_FAR_METERS = 13_000;
   scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR_METERS, FOG_FAR_METERS);
 
   const camera = new THREE.PerspectiveCamera(
