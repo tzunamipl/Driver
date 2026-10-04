@@ -30,14 +30,17 @@ const TERRAIN_DETAIL_COLORS = { high: '#39ff14', medium: '#2e8b22', low: '#6f8f6
  * standard trick for an "X"-divided square) representing terrain/streets/
  * rivers/buildings respectively. Each quadrant is yellow until its asset
  * finishes loading, then switches to the cell's detail-level green -
- * streets/rivers only ever load for HIGH-detail tiles (see terrain.js), so
- * for any other tile those two quadrants are treated as already
- * "complete" rather than permanently stuck yellow for content that will
- * never be fetched there.
+ * streets/rivers only ever load for HIGH-detail tiles, and buildings only
+ * loads out to MEDIUM (i.e. terrain.js's DETAIL_RADIUS - LOW tiles are a
+ * terrain-only outer ring, see terrain.js's DetailLevel doc comment), so
+ * for any tile those quadrants will never actually load on, they're
+ * treated as already "complete" rather than permanently stuck yellow for
+ * content that will never be fetched there.
  */
 function quadrantBackground(cell, buildings, streets, rivers, waterAreas) {
   const doneColor = TERRAIN_DETAIL_COLORS[cell.level] || TERRAIN_DETAIL_COLORS.medium;
   const isHigh = cell.level === 'high';
+  const isLow = cell.level === 'low';
   const streetsDone = isHigh ? !!streets?.isTileLoaded?.(cell.tx, cell.ty) : true;
   // Both rivers.js (waterway centerlines) and waterAreas.js (water
   // polygons) are "the water debug overlay" from this HUD's perspective -
@@ -45,7 +48,7 @@ function quadrantBackground(cell, buildings, streets, rivers, waterAreas) {
   const riversDone = isHigh
     ? !!rivers?.isTileLoaded?.(cell.tx, cell.ty) && !!waterAreas?.isTileLoaded?.(cell.tx, cell.ty)
     : true;
-  const buildingsDone = !!buildings?.isTileLoaded?.(cell.tx, cell.ty);
+  const buildingsDone = isLow ? true : !!buildings?.isTileLoaded?.(cell.tx, cell.ty);
   const terrainColor = doneColor; // terrain is implicitly done for any 'loaded' cell
   const streetsColor = streetsDone ? doneColor : PENDING_COLOR;
   const riversColor = riversDone ? doneColor : PENDING_COLOR;
@@ -130,7 +133,7 @@ export function createTerrainStatsHud() {
       `<div class="ts-compass-wrap">` +
       `<span class="ts-dir n">N</span><span class="ts-dir s">S</span>` +
       `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
-      `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 14px)">` +
+      `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 5px)">` +
       s.grid
         .map((row) =>
           row
@@ -156,6 +159,7 @@ export function createTerrainStatsHud() {
       `<div class="ts-legend">` +
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.high}"></span>high detail</span>` +
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.medium}"></span>medium detail</span>` +
+      `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.low}"></span>low detail</span>` +
       `<span><span class="swatch" style="background:${PENDING_COLOR}"></span>pending/planned</span>` +
       `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>removing</span>` +
       `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +

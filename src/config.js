@@ -128,7 +128,7 @@ export const SCORE_PER_CAR_HIT = 3;
 
 // ---------- Camera follow ----------
 export const CAMERA_OFFSET = [0, 30, -20];
-export const CAMERA_LOOKAT_OFFSET = [0, 10.5, 10];
+export const CAMERA_LOOKAT_OFFSET = [0, 14, 10];
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
 export const CAMERA_POSITION_SPEED = 2.5;
 export const CAMERA_LOOKAT_SPEED = 50;

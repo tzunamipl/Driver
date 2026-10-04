@@ -1,8 +1,15 @@
 import * as THREE from 'three';
+import { FAR_BASE_COLOR } from '../lib/terrain.js';
 
 // Renderer / scene / camera / lighting bootstrap - the pure "rendering
 // environment" concern, isolated from physics, gameplay, and UI so it can
 // be tuned (fog, shadows, FOV...) independently of everything else.
+
+// Fog is tinted to match the FAR backdrop tier's own low-detail terrain
+// color (its lowland elevation-ramp stop, see terrain.js FAR_BASE_COLOR)
+// rather than the LOW tier's debug HUD color, so fogged-out tiles visually
+// fade/"fall into" the same tone the low-detail backdrop already uses.
+const FOG_COLOR = FAR_BASE_COLOR;
 
 /**
  * Builds the renderer, scene, and camera and mounts the renderer's canvas
@@ -24,13 +31,18 @@ export function createSceneEnvironment() {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-  // Exponential-squared fog: unlike a linear Fog with a hard far cutoff,
-  // this fades gradually and asymptotically - near the car it's barely
-  // noticeable (so nearby detail stays crisp), while it naturally swallows
-  // the far-LOD terrain into the sky color by tens of km out, mimicking
-  // real atmospheric haze instead of hard-clipping distant terrain out of
-  // view entirely.
-  scene.fog = new THREE.FogExp2(0x87ceeb, 0.00005);
+  // Linear (not exponential) fog: stays fully clear out to 10km - nearby
+  // and most of the LOW detail tier reads crisp with no haze at all - then
+  // fades LOW detail tiles out between 10km and 20km (LOW_DETAIL_RADIUS's
+  // own max reach), fully dissolving them into the fog color by 20km. The
+  // FAR backdrop tier beyond that opts out of fog entirely (see its
+  // material's fog:false in terrain.js) so it keeps its own hand-tuned
+  // elevation color ramp instead of flattening into the fog color. Fog
+  // only affects rendered geometry, not the sky (scene.background above
+  // stays plain sky blue, deliberately not fog-tinted).
+  const FOG_NEAR_METERS = 6_000;
+  const FOG_FAR_METERS = 13_000;
+  scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR_METERS, FOG_FAR_METERS);
 
   const camera = new THREE.PerspectiveCamera(
     70,
