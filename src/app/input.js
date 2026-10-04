@@ -124,7 +124,20 @@ export function createInputController() {
     const perWheelEngineForce = engineForce * (2 / driveWheels.length);
     for (const i of driveWheels) vehicle.applyEngineForce(perWheelEngineForce, i);
 
-    const steerValue = left ? MAX_STEER : right ? -MAX_STEER : 0;
+    // Speed-sensitive steering lock: lerp between the vehicle's own
+    // maxSteerAt0 (dead stop) and maxSteerAt100 (100 km/h and up) ratings
+    // (see lib/car.js/lib/vehicles/*.js), by how fast it's actually going
+    // right now - `?? MAX_STEER` on both ends keeps any rig that doesn't
+    // set these (e.g. the hover chariot) on today's flat, speed-
+    // independent lock. Uses the unsigned speed so reversing fast also
+    // tapers the lock, not just driving forward fast.
+    const speedKmh = Math.abs(forwardSpeed) * 3.6;
+    const steerSpeedT = Math.min(speedKmh / 100, 1);
+    const maxSteerAt0 = vehicle.maxSteerAt0 ?? MAX_STEER;
+    const maxSteerAt100 = vehicle.maxSteerAt100 ?? MAX_STEER;
+    const effectiveMaxSteer = maxSteerAt0 + (maxSteerAt100 - maxSteerAt0) * steerSpeedT;
+
+    const steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;

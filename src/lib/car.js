@@ -6,6 +6,7 @@ import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { findGroundY } from './terrain.js';
+import { MAX_STEER } from '../config.js';
 
 // Re-exported from vehicleShared.js (not defined here) so every existing
 // `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
@@ -401,6 +402,18 @@ export function createCar(
   // Per-vehicle handbrake strength (see app/input.js) - independent of any
   // shared global force, same pattern as engineForce above.
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
+
+  // Speed-sensitive steering lock (radians) - how far the front wheels
+  // are allowed to turn at a dead stop (maxSteerAt0) versus at 100 km/h
+  // and above (maxSteerAt100). app/input.js lerps between these two by
+  // the car's current speed instead of applying one flat lock at every
+  // speed, so a car that's tuned to turn sharply at parking-lot speeds
+  // doesn't also snap-turn (and likely spin out) at highway speed.
+  // Falls back to the shared MAX_STEER constant for both ends, so a
+  // descriptor that doesn't set these keeps today's flat, speed-
+  // independent lock unchanged.
+  vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
+  vehicle.maxSteerAt100 = descriptor.maxSteerAt100 ?? MAX_STEER;
 
   // Signed forward speed (m/s) along the chassis' own local forward axis -
   // positive while coasting nose-first (the direction the "accelerate"

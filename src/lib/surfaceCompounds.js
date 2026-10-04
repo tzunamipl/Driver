@@ -32,7 +32,7 @@ export const SURFACE_COMPOUNDS = {
   // every vehicle's own frictionSlip is already tuned against (see car.js's
   // "genuinely sticky tarmac rally tyre" comment), so this is left as a
   // neutral, uncapped, unadjusted baseline.
-  road: { frictionMultiplier: 1.1, frictionSlipOffset: 1.4, maxForceN: Infinity },
+  road: { frictionMultiplier: 4.1, frictionSlipOffset: 1.4, maxForceN: Infinity },
   // Everything else (open terrain, dirt, grass, off the mapped road
   // network) - the default a wheel is classified as. Even the same tyre
   // bites a bare/unpaved surface a little less confidently than tarmac.
