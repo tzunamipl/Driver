@@ -9,7 +9,8 @@ import {
   CAMERA_MIN_SPEED_FOR_VELOCITY_YAW,
   CAMERA_CLOSE_MIN_SPEED,
   CAMERA_CLOSE_MAX_SPEED,
-  CAMERA_CLOSE_MIN_SCALE,
+  CAMERA_CLOSE_SCALE_AT_MIN_SPEED,
+  CAMERA_CLOSE_SCALE_AT_MAX_SPEED,
   CAMERA_POSITION_LEAD_FACTOR,
 } from '../config.js';
 
@@ -91,9 +92,10 @@ export function createCameraFollow(camera) {
     const posFactor = 1 - Math.exp(-CAMERA_POSITION_SPEED * delta);
     const lookFactor = 1 - Math.exp(-CAMERA_LOOKAT_SPEED * delta);
 
-    // Pull the camera in closer as speed increases, so high speed feels
-    // faster. Based on actual car speed (not just horizontal velocity) so
-    // it still closes in e.g. mid-air after a big jump.
+    // Pull the camera in closer as speed decreases, so slowing down/idling
+    // feels more intimate while cruising at speed keeps the wider framing.
+    // Based on actual car speed (not just horizontal velocity) so it still
+    // reacts correctly e.g. mid-air after a big jump.
     const bodyVel = vehicle.chassisBody.velocity;
     const speed = bodyVel.length();
     const speedT = THREE.MathUtils.clamp(
@@ -101,7 +103,11 @@ export function createCameraFollow(camera) {
       0,
       1
     );
-    const targetCloseScale = THREE.MathUtils.lerp(1, CAMERA_CLOSE_MIN_SCALE, speedT);
+    const targetCloseScale = THREE.MathUtils.lerp(
+      CAMERA_CLOSE_SCALE_AT_MIN_SPEED,
+      CAMERA_CLOSE_SCALE_AT_MAX_SPEED,
+      speedT
+    );
     smoothedCloseScale += (targetCloseScale - smoothedCloseScale) * posFactor;
 
     // Exponential smoothing settles toward its target with time constant

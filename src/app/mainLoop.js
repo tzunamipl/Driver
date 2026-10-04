@@ -28,6 +28,7 @@ export function createMainLoop({
   buildings,
   streets,
   rivers,
+  waterAreas,
   balls,
   pedestrians,
   shots,
@@ -216,13 +217,17 @@ export function createMainLoop({
       buildings,
       streets,
       rivers,
+      waterAreas,
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
       viewOriginLat,
       viewOriginLon,
     });
-    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world);
+    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world, {
+      streets,
+      waterAreas,
+    });
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
@@ -275,6 +280,7 @@ export function createMainLoop({
         // none of this ever freezes a frame.
         streets.update(tileX, tileY);
         rivers.update(tileX, tileY);
+        waterAreas.update(tileX, tileY);
         buildings.update(tileX, tileY);
       }
       // Catch a car that ended up inside a building's solid volume - a

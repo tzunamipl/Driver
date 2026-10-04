@@ -9,14 +9,80 @@
 // being hardcoded to exactly 4 wheels.
 import { isWheelGrounded } from '../lib/wheelContact.js';
 
-// Debug-mode wheel colouring: green while a wheel is touching the ground,
-// blue while it's off the ground (matching the "hasLanded" readout below,
-// which reflects the scoring module's own touched-ground gate rather than
-// any single wheel). Ground contact here is verified with its own
-// world-down raycast (see wheelContact.js) rather than trusting cannon-es's
-// own `wheel.isInContact`, which under-reports contact on real terrain.
-const WHEEL_ON_GROUND_COLOR = '#4caf50';
+// Debug-mode wheel colouring: blue while a wheel is off the ground
+// (matching the "hasLanded" readout below, which reflects the scoring
+// module's own touched-ground gate rather than any single wheel). Ground
+// contact here is verified with its own world-down raycast (see
+// wheelContact.js) rather than trusting cannon-es's own `wheel.isInContact`,
+// which under-reports contact on real terrain.
+//
+// While grounded, the fill instead fades from green (plenty of grip in
+// hand) through yellow/orange (approaching the tyre's friction limit) to
+// red (actually sliding, i.e. demanded forward+lateral impulse exceeded
+// maxGrip this step) - driven by wheel.gripFraction/wheel.sliding, both
+// computed every physics step in wheeledVehicle.js's applyFriction() from
+// the same friction-circle solve that drives the actual physics (not a
+// separate/approximate readout).
 const WHEEL_OFF_GROUND_COLOR = '#4fc3ff';
+const GRIP_COLOR_STOPS = [
+  [0, [76, 175, 80]], // green - comfortably within grip
+  [0.7, [255, 193, 7]], // amber - approaching the limit
+  [1, [244, 67, 54]], // red - at/over the limit (sliding)
+];
+
+// Terrain-type square colours (see the square's doc comment below):
+// generic ground is the same green as "plenty of grip" above since both
+// read as "normal" at a glance; road and water get their own unambiguous
+// colours instead of a gradient, since terrain type is categorical, not a
+// continuous quantity.
+const TERRAIN_COLOR_GENERIC = '#4caf50';
+const TERRAIN_COLOR_ROAD = '#e53935';
+const TERRAIN_COLOR_WATER = '#2196f3';
+
+function gripFractionToColor(fraction) {
+  const f = Math.min(1, Math.max(0, fraction));
+  let lo = GRIP_COLOR_STOPS[0];
+  let hi = GRIP_COLOR_STOPS[GRIP_COLOR_STOPS.length - 1];
+  for (let i = 0; i < GRIP_COLOR_STOPS.length - 1; i++) {
+    if (f >= GRIP_COLOR_STOPS[i][0] && f <= GRIP_COLOR_STOPS[i + 1][0]) {
+      lo = GRIP_COLOR_STOPS[i];
+      hi = GRIP_COLOR_STOPS[i + 1];
+      break;
+    }
+  }
+  const span = hi[0] - lo[0] || 1;
+  const t = (f - lo[0]) / span;
+  const [r1, g1, b1] = lo[1];
+  const [r2, g2, b2] = hi[1];
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
+ * Classifies a world (x, z) position's terrain type for the debug square
+ * (see rebuildBars/updateSuspensionHud below): road (checked first - "on
+ * road and water" counts as road per the HUD's own convention) if it
+ * falls within any `streets` stripe's real-world width, else water if it
+ * falls inside any `waterAreas` polygon, else generic ground. Both
+ * terrain layers are optional (debugVisuals.js only wires them up once
+ * loaded, and both only have data once the M-key debug overlays
+ * themselves are visible - see their own classifyAt/containsPoint doc
+ * comments) - this degrades to "always generic" if either/both are
+ * missing or simply haven't loaded data for this spot yet.
+ */
+function classifyTerrainAt(x, z, { streets, waterAreas } = {}) {
+  if (streets?.containsPoint(x, z)) return 'road';
+  if (waterAreas?.classifyAt(x, z)) return 'water';
+  return 'generic';
+}
+
+function terrainColor(kind) {
+  if (kind === 'road') return TERRAIN_COLOR_ROAD;
+  if (kind === 'water') return TERRAIN_COLOR_WATER;
+  return TERRAIN_COLOR_GENERIC;
+}
 
 export function createSuspensionHud() {
   const grid = document.getElementById('susp-grid');
@@ -34,10 +100,12 @@ export function createSuspensionHud() {
       const wheelEl = document.createElement('div');
       wheelEl.className = 'susp-wheel';
       wheelEl.innerHTML =
+        '<div class="susp-terrain"></div>' +
         '<div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill"></div></div>' +
         `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>`;
       grid.appendChild(wheelEl);
       return {
+        terrain: wheelEl.querySelector('.susp-terrain'),
         fill: wheelEl.querySelector('.susp-fill'),
         val: wheelEl.querySelector('.susp-val'),
       };
@@ -49,10 +117,16 @@ export function createSuspensionHud() {
    * full compression (bottomed out), with a rest-length marker line fixed
    * at 50% - so the fill visibly moves up as a wheel loads/compresses
    * (cornering, braking, bumps) and down as it unloads/droops (cresting a
-   * bump, airborne). The fill colour flags ground contact directly: green
-   * while the wheel is touching, blue while it's off the ground.
+   * bump, airborne). The fill colour flags ground contact directly: blue
+   * while the wheel is off the ground, else a green->amber->red gradient
+   * driven by how close that wheel's tyre is to its friction limit (red
+   * once it's actually sliding). The small square above each bar is a
+   * separate, independent readout: the terrain type directly under that
+   * wheel's (x, z) position (green = generic ground, red = road, blue =
+   * water - see classifyTerrainAt above), regardless of whether the wheel
+   * is actually touching the ground right now.
    */
-  function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world) {
+  function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world, terrainLayers) {
     if (!debugVisualsEnabled || !vehicle) return;
 
     const signature = `${vehicle.wheelInfos.length}:${vehicle.wheelLabels?.join(',') ?? ''}`;
@@ -62,17 +136,21 @@ export function createSuspensionHud() {
     }
 
     vehicle.wheelInfos.forEach((wheel, i) => {
-      const { fill, val } = bars[i];
+      const { terrain, fill, val } = bars[i];
       const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;
       const maxLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel;
       const span = maxLength - minLength || 1;
       const clampedLength = Math.min(maxLength, Math.max(minLength, wheel.suspensionLength));
       const compressionFrac = (maxLength - clampedLength) / span;
       const grounded = isWheelGrounded(world, wheel);
+      const gripFraction = wheel.sliding ? 1 : wheel.gripFraction ?? 0;
 
       fill.style.height = `${Math.round(compressionFrac * 100)}%`;
-      fill.style.background = grounded ? WHEEL_ON_GROUND_COLOR : WHEEL_OFF_GROUND_COLOR;
+      fill.style.background = grounded ? gripFractionToColor(gripFraction) : WHEEL_OFF_GROUND_COLOR;
       val.textContent = grounded ? `${Math.round(compressionFrac * 100)}%` : 'air';
+
+      const pos = wheel.worldTransform.position;
+      terrain.style.background = terrainColor(classifyTerrainAt(pos.x, pos.z, terrainLayers));
     });
 
     if (landedVal) landedVal.textContent = hasLanded ? 'true' : 'false';

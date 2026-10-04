@@ -12,6 +12,7 @@ import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
+import { WaterAreasManager } from './lib/waterAreas.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
@@ -86,6 +87,7 @@ const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 const streets = new StreetsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 const rivers = new RiversManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+const waterAreas = new WaterAreasManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -140,6 +142,7 @@ const debugVisuals = createDebugVisualsToggle(
     buildings,
     streets,
     rivers,
+    waterAreas,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
@@ -182,6 +185,7 @@ const addressSearch = createAddressSearch({
   buildings,
   streets,
   rivers,
+  waterAreas,
   carManager,
   origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
   isJoined: () => lobby.isJoined(),
@@ -230,6 +234,7 @@ const mainLoop = createMainLoop({
   buildings,
   streets,
   rivers,
+  waterAreas,
   balls,
   pedestrians,
   shots,

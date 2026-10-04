@@ -307,6 +307,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   const frictionRelPos2 = new CANNON.Vec3();
   function applyFriction(wheel, dt) {
     wheel.sliding = false;
+    wheel.gripFraction = 0;
     if (!wheel.isInContact) return;
 
     const groundBody = wheel.raycastResult.body;
@@ -372,6 +373,11 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     let sideImpulse = solveBilateralImpulse(chassisBody, groundBody?.mass > 0 ? groundBody : null, hitPoint, frictionAxle, maxGrip);
 
     const combined = Math.hypot(forwardImpulse, sideImpulse);
+    // How much of this wheel's available grip the current demand is using
+    // (0 = unloaded, 1 = right at the limit/sliding) - exposed purely for
+    // debug visuals (see hud/suspensionHud.js's green->red gradient),
+    // doesn't feed back into the physics at all.
+    wheel.gripFraction = maxGrip > 0 ? Math.min(1, combined / maxGrip) : 0;
     if (combined > maxGrip && combined > 0) {
       wheel.sliding = true;
       const scale = maxGrip / combined;

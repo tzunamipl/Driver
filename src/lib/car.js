@@ -341,10 +341,29 @@ export function createCar(
   const wheelAttachY = -chassisHeight / 2;
 
   const wheelPositions = [
-    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelFront), // front-left
-    new CANNON.Vec3(axleWidth, wheelAttachY, wheelFront), // front-right
-    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelBack), // rear-left
-    new CANNON.Vec3(axleWidth, wheelAttachY, wheelBack), // rear-right
+    // Signs here are chassis-local (+X = vehicle.indexRightAxis), not
+    // screen-left/right - with this rig's forward = local +Z and the
+    // chase cam (app/cameraFollow.js) sitting behind the car looking the
+    // same way, facing "forward" flips screen left/right relative to a
+    // fixed-axis label (exactly like turning to face the opposite compass
+    // direction swaps which hand is which). Verified directly against the
+    // actual camera (THREE.Matrix4.lookAt + Vector3.project with this
+    // rig's CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET): local +X projects to the
+    // *left* half of the screen, local -X to the *right* half. So this
+    // array is ordered (+X, then -X) within each front/rear pair - left
+    // wheel first, right wheel second - to match hud/suspensionHud.js's
+    // grid, which lays its bars out in this same array order (its first
+    // two cells side by side, then its next two below) and is otherwise
+    // just a plain left-to-right reading order with no sign math of its
+    // own. (Earlier revisions had this backwards in two different ways:
+    // originally -X was labeled "left" despite rendering on-screen-right;
+    // a later fix corrected the label text but kept the old array order,
+    // so the *correct* label still landed in the HUD's wrong left/right
+    // grid cell.)
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelFront), // front-left
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelFront), // front-right
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelBack), // rear-left
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelBack), // rear-right
   ];
 
   wheelPositions.forEach((pos) => {

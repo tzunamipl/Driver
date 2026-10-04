@@ -42,11 +42,12 @@ async function geocodeAddress(query) {
  * @param {import('../lib/buildings.js').BuildingsManager} deps.buildings
  * @param {import('../lib/streets.js').StreetsManager} [deps.streets]
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
+ * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('./carManager.js').ReturnType} deps.carManager
  * @param {{lat: number, lon: number}} deps.origin - initial spawn origin
  * @param {() => boolean} deps.isJoined
  */
-export function createAddressSearch({ terrain, buildings, streets, rivers, carManager, origin, isJoined }) {
+export function createAddressSearch({ terrain, buildings, streets, rivers, waterAreas, carManager, origin, isJoined }) {
   // Tracks whichever lat/lon this player's own local (0, 0) origin
   // currently represents - starts at `origin` (the shared network origin)
   // but is repointed whenever *this* player teleports elsewhere. Read
@@ -104,6 +105,7 @@ export function createAddressSearch({ terrain, buildings, streets, rivers, carMa
       buildings.recenter(lat, lon);
       if (streets) streets.recenter(lat, lon);
       if (rivers) rivers.recenter(lat, lon);
+      if (waterAreas) waterAreas.recenter(lat, lon);
       currentOriginLat = lat;
       currentOriginLon = lon;
       await buildings.update(
@@ -120,6 +122,13 @@ export function createAddressSearch({ terrain, buildings, streets, rivers, carMa
       }
       if (rivers) {
         await rivers.update(
+          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
+          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
+          true
+        );
+      }
+      if (waterAreas) {
+        await waterAreas.update(
           Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
           Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
           true

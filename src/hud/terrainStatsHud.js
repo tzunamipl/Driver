@@ -35,11 +35,16 @@ const TERRAIN_DETAIL_COLORS = { high: '#39ff14', medium: '#2e8b22', low: '#6f8f6
  * "complete" rather than permanently stuck yellow for content that will
  * never be fetched there.
  */
-function quadrantBackground(cell, buildings, streets, rivers) {
+function quadrantBackground(cell, buildings, streets, rivers, waterAreas) {
   const doneColor = TERRAIN_DETAIL_COLORS[cell.level] || TERRAIN_DETAIL_COLORS.medium;
   const isHigh = cell.level === 'high';
   const streetsDone = isHigh ? !!streets?.isTileLoaded?.(cell.tx, cell.ty) : true;
-  const riversDone = isHigh ? !!rivers?.isTileLoaded?.(cell.tx, cell.ty) : true;
+  // Both rivers.js (waterway centerlines) and waterAreas.js (water
+  // polygons) are "the water debug overlay" from this HUD's perspective -
+  // folded into one quadrant rather than growing the 4-quadrant layout.
+  const riversDone = isHigh
+    ? !!rivers?.isTileLoaded?.(cell.tx, cell.ty) && !!waterAreas?.isTileLoaded?.(cell.tx, cell.ty)
+    : true;
   const buildingsDone = !!buildings?.isTileLoaded?.(cell.tx, cell.ty);
   const terrainColor = doneColor; // terrain is implicitly done for any 'loaded' cell
   const streetsColor = streetsDone ? doneColor : PENDING_COLOR;
@@ -60,7 +65,7 @@ export function createTerrainStatsHud() {
 
   function updateTerrainStats(
     delta,
-    { terrain, buildings, streets, rivers, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
+    { terrain, buildings, streets, rivers, waterAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
   ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
@@ -140,7 +145,7 @@ export function createTerrainStatsHud() {
               // indicator (see quadrantBackground) showing terrain/roads/
               // rivers/buildings loading progress for that specific tile.
               const style =
-                cellState === 'loaded' ? ` style="background:${quadrantBackground(cell, buildings, streets, rivers)}"` : '';
+                cellState === 'loaded' ? ` style="background:${quadrantBackground(cell, buildings, streets, rivers, waterAreas)}"` : '';
               const glyph = isPlayer ? dir.arrow : '';
               return `<span class="${classes.join(' ')}"${style}>${glyph}</span>`;
             })
