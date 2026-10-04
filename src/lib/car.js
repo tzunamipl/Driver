@@ -7,6 +7,7 @@ import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { findGroundY } from './terrain.js';
 import { MAX_STEER } from '../config.js';
+import { GRAVITY } from './physicsConstants.js';
 
 // Re-exported from vehicleShared.js (not defined here) so every existing
 // `import { CHASSIS_MATERIAL } from './lib/car.js'` call site keeps
@@ -35,10 +36,10 @@ const DEFAULT_CHASSIS_MASS = 1500; // baseline rally car's weight
 // How long a reset's lift-back-upright takes to ease into place, instead of
 // snapping there in a single instantaneous teleport.
 const RESET_LIFT_DURATION_S = 0.6;
-// Matches app/physicsSetup.js's world gravity magnitude - duplicated here
-// (rather than imported) since it's only needed for the per-wheel static
-// load estimate below, not for simulating gravity itself.
-const GRAVITY = 9.82;
+// Matches app/physicsSetup.js's world gravity magnitude - imported from
+// physicsConstants.js (rather than duplicated as a literal) so the two
+// stay in sync; needed here only for the per-wheel static load estimate
+// below, not for simulating gravity itself.
 // How much harder than its own resting weight a wheel's suspension (and
 // therefore its tyre's available grip - see wheeledVehicle.js's
 // maxGrip = suspensionForce * dt * frictionSlip) is allowed to push,

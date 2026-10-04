@@ -2,13 +2,14 @@ import * as CANNON from 'cannon-es';
 import { CHASSIS_MATERIAL } from '../lib/car.js';
 import { BUILDING_MATERIAL } from '../lib/buildings.js';
 import { GROUND_MATERIAL } from '../lib/terrain.js';
+import { GRAVITY } from '../lib/physicsConstants.js';
 
 // Physics world bootstrap: gravity, broadphase, and global/pairwise contact
 // material tuning. Isolated so physics tuning (friction, restitution,
 // bounce) can be iterated on without touching rendering or gameplay code.
 
 export function createPhysicsWorld() {
-  const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+  const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -GRAVITY, 0) });
   world.broadphase = new CANNON.SAPBroadphase(world);
   world.defaultContactMaterial.friction = 0.05;
   // Bounce on any collision (ground, buildings, etc.) instead of the
