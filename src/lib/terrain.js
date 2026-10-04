@@ -105,8 +105,8 @@ export const UNLOAD_DELAY_TICKS = 3;
 // always within the detail tier's footprint, so far chunks are never driven
 // on), and a much coarser mesh. Zoom is deliberately low so covering
 // FAR_RADIUS_METERS only needs a few dozen chunks instead of thousands.
-const FAR_ZOOM = 9; // ~body of tile is tens of km across at mid latitudes
-const FAR_GRID = 12; // low mesh resolution per tile edge - it's a distant backdrop
+const FAR_ZOOM = 11; // ~body of tile is tens of km across at mid latitudes
+const FAR_GRID = 11; // low mesh resolution per tile edge - it's a distant backdrop
 const FAR_RADIUS_METERS = 150_000; // how far out the low-detail terrain extends
 const FAR_UNLOAD_MARGIN = 1; // tiles of slack, same purpose as UNLOAD_MARGIN above
 const FAR_UNLOAD_DELAY_TICKS = 3;
@@ -391,12 +391,14 @@ export function circleOffsets(radius) {
 
 // Coarse elevation -> color ramp used for the far/low-detail tier, standing
 // in for aerial imagery (which isn't fetched at that tier). Purely
-// stylistic: lowland green -> hill brown -> rock grey -> snow cap.
+// stylistic: lowland green -> hill brown -> rock grey -> snow cap, all
+// pushed toward blue to read as a hazy, atmosphere-tinted backdrop rather
+// than competing for attention with the full-color detail tier up close.
 const FAR_COLOR_STOPS = [
-  { y: 300, r: 0.3, g: 0.45, b: 0.2 },
-  { y: 900, r: 0.42, g: 0.38, b: 0.28 },
-  { y: 1600, r: 0.55, g: 0.55, b: 0.55 },
-  { y: Infinity, r: 0.92, g: 0.92, b: 0.95 },
+  { y: 300, r: 0.22, g: 0.38, b: 0.42 },
+  { y: 900, r: 0.3, g: 0.36, b: 0.48 },
+  { y: 1600, r: 0.42, g: 0.47, b: 0.58 },
+  { y: Infinity, r: 0.82, g: 0.86, b: 0.97 },
 ];
 function farElevationColor(y, out) {
   const stop = FAR_COLOR_STOPS.find((s) => y < s.y) || FAR_COLOR_STOPS[FAR_COLOR_STOPS.length - 1];
@@ -692,6 +694,24 @@ export class TerrainManager {
           .replace(
             '#include <clipping_planes_fragment>',
             '#include <clipping_planes_fragment>\nif (dot(vHoleXZ - uHoleCenter, vHoleXZ - uHoleCenter) < uHoleRadiusSq) discard;'
+          )
+          // Grazing-angle haze: faces whose normal sits closer to perpendicular
+          // to the view direction (i.e. the surface itself is closer to
+          // parallel with the view - a distant plain stretching toward the
+          // horizon) get brightened with a cool blue tint, mimicking
+          // atmospheric haze; faces pointed straight at the camera stay at
+          // their base color. `vNormal`/`vViewPosition` are varyings the
+          // standard material shader already provides, so this is just one
+          // extra dot product and a mix per fragment - free on top of the
+          // existing per-pixel lighting, and this mesh is low-poly to begin
+          // with (FAR_GRID is coarse).
+          .replace(
+            '#include <opaque_fragment>',
+            `
+            float facing = abs(dot(normalize(vNormal), normalize(vViewPosition)));
+            float haze = 1.0 - facing;
+            outgoingLight = mix(outgoingLight, outgoingLight + vec3(0.1, 0.14, 0.2), haze * 0.7);
+            #include <opaque_fragment>`
           );
       };
       const mesh = new THREE.Mesh(geometry, material);
@@ -736,7 +756,9 @@ export class TerrainManager {
    * Ensures chunks around (localX, localZ) are loaded, and unloads chunks
    * that have fallen far enough outside the load radius. Both the detail
    * and far tiers are driven from the same call, each on its own tile grid.
-   * Pass `await` (via awaitAll=true) to block until the initial batch is ready.
+   * Pass `await` (via awaitAll=true) to block until the initial detail-tier
+   * batch is ready - the far tier is always fire-and-forget (see below) so
+   * its many more tiles never delay spawning.
    */
   async update(localX, localZ, awaitAll = false) {
     // Keep the far-tier hole centered on the player every call, even when
@@ -767,8 +789,12 @@ export class TerrainManager {
     for (const { dx, dy } of circleOffsets(DETAIL_RADIUS)) {
       wanted.push(this._loadChunk(centerX + dx, centerY + dy));
     }
+    // Far-tier chunks are a distant, non-collidable backdrop - never worth
+    // blocking spawn on. Kick them off without joining `wanted`/awaitAll so
+    // the (potentially dozens of) far tiles stream in after the detail tier
+    // (and thus after the car can safely spawn) instead of delaying it.
     for (const { dx, dy } of circleOffsets(this.farRadiusTiles)) {
-      wanted.push(this._loadFarChunk(farCenterX + dx, farCenterY + dy));
+      this._loadFarChunk(farCenterX + dx, farCenterY + dy);
     }
     if (awaitAll) await Promise.all(wanted);
 
