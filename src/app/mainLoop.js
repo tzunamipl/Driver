@@ -68,6 +68,7 @@ export function createMainLoop({
     if (pendingCarState) saveCarState(pendingCarState);
   });
   const poseForward = new THREE.Vector3();
+  const terrainHeading = new THREE.Vector3();
 
   function animate() {
     requestAnimationFrame(animate);
@@ -284,7 +285,15 @@ export function createMainLoop({
       // destination tiles (visible as tiles stuck "planned" in the debug
       // HUD while the loaded-tile count climbs from the stray fetches).
       if (!addressSearch.isTeleporting()) {
-        terrain.update(currentChassisMesh.position.x, currentChassisMesh.position.z);
+        // Car's facing direction (local XZ only), used to prioritize the
+        // LOW-detail ring's streaming queue toward tiles ahead of the
+        // player over ones behind - see TerrainManager.update()'s heading
+        // param / _queuePriorityRank.
+        terrainHeading.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
+        terrain.update(currentChassisMesh.position.x, currentChassisMesh.position.z, false, {
+          x: terrainHeading.x,
+          z: terrainHeading.z,
+        });
 
         // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
         // detail tier; compute the current tile center the same way

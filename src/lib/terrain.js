@@ -124,6 +124,13 @@ export const UNLOAD_DELAY_TICKS = 3;
 const FAR_ZOOM = 11; // ~body of tile is tens of km across at mid latitudes
 const FAR_GRID = 11; // low mesh resolution per tile edge - it's a distant backdrop
 export const FAR_RADIUS_METERS = 120_000; // how far out the low-detail terrain extends
+// Real-world radius (in tiles, at DETAIL_ZOOM) of the circular "hole" cut out
+// of the far tier so it never overlaps the detail tier - see the
+// TerrainManager constructor below for how this is converted to meters and
+// applied. Defaults to just past the detail tier's own keep radius, but is
+// its own constant (rather than reusing LOW_DETAIL_RADIUS directly) so it
+// can be tuned independently.
+export const FAR_HOLE_RADIUS_TILES = LOW_DETAIL_RADIUS + UNLOAD_MARGIN - 1;
 const FAR_UNLOAD_MARGIN = 1; // tiles of slack, same purpose as UNLOAD_MARGIN above
 const FAR_UNLOAD_DELAY_TICKS = 3;
 // Nudge the far mesh slightly below the detail tier so where their footprints
@@ -475,6 +482,13 @@ export class TerrainManager {
     this._lastCenter = null;
     this._centerX = 0;
     this._centerY = 0;
+    // Player heading (local-space forward direction, XZ only), used to
+    // split the LOW-detail ring's queue priority into "ahead" vs "behind"
+    // (see _queuePriorityRank). Zero until update() is first called with a
+    // heading, which just makes every LOW tile rank as "ahead" - a neutral
+    // fallback rather than a bias in either direction.
+    this._headingX = 0;
+    this._headingZ = 0;
     // Lifetime counters for the debug/stats HUD.
     this.stats = { created: 0, removed: 0 };
     // Whether newly-created chunks show their perimeter border by default;
@@ -505,7 +519,7 @@ export class TerrainManager {
     // tiers never occupy the same ground at once regardless of far-tile
     // size. Shared uniform objects: every far chunk's material references
     // the same objects, so updating `.value` here updates all of them.
-    const holeRadiusMeters = (LOW_DETAIL_RADIUS + UNLOAD_MARGIN + 1) * tileSizeMeters(DETAIL_ZOOM, originLat);
+    const holeRadiusMeters = FAR_HOLE_RADIUS_TILES * tileSizeMeters(DETAIL_ZOOM, originLat);
     this.holeUniforms = {
       center: { value: new THREE.Vector2(0, 0) },
       radiusSq: { value: holeRadiusMeters * holeRadiusMeters },
@@ -577,18 +591,29 @@ export class TerrainManager {
     this.originLat = lat;
     this.originLon = lon;
     this.farRadiusTiles = FAR_RADIUS_METERS / tileSizeMeters(FAR_ZOOM, lat);
-    const holeRadiusMeters = (LOW_DETAIL_RADIUS + UNLOAD_MARGIN + 1) * tileSizeMeters(DETAIL_ZOOM, lat);
+    const holeRadiusMeters = FAR_HOLE_RADIUS_TILES * tileSizeMeters(DETAIL_ZOOM, lat);
     this.holeUniforms.radiusSq.value = holeRadiusMeters * holeRadiusMeters;
 
     await this.init();
   }
 
-  /** Lower is more urgent: HIGH tiles always jump ahead of MEDIUM/LOW ones, regardless of how long those have been queued. */
+  /**
+   * Lower is more urgent: HIGH tiles always jump ahead of MEDIUM/LOW ones,
+   * regardless of how long those have been queued. Within the LOW ring,
+   * tiles ahead of the player's current heading (_headingX/_headingZ, see
+   * update()) outrank ones behind it - the player is about to drive toward
+   * the former and away from the latter, so "behind" LOW tiles are pushed
+   * to the very back of the whole queue instead of competing on distance
+   * alone.
+   */
   _queuePriorityRank(tx, ty) {
-    const level = detailLevelForOffset(tx - this._centerX, ty - this._centerY);
+    const dx = tx - this._centerX;
+    const dy = ty - this._centerY;
+    const level = detailLevelForOffset(dx, dy);
     if (level === DetailLevel.HIGH) return 0;
     if (level === DetailLevel.MEDIUM) return 1;
-    return 2; // LOW
+    const behindHeading = dx * this._headingX + dy * this._headingZ < 0;
+    return behindHeading ? 3 : 2; // LOW: ahead (2) before behind (3)
   }
 
   /**
@@ -974,9 +999,17 @@ export class TerrainManager {
    * and far tiers are driven from the same call, each on its own tile grid.
    * Pass `await` (via awaitAll=true) to block until the initial detail-tier
    * batch is ready - the far tier is always fire-and-forget (see below) so
-   * its many more tiles never delay spawning.
+   * its many more tiles never delay spawning. `heading`, if given, is the
+   * player's current local-space forward direction as {x, z} (only the
+   * sign of its dot product with a tile offset matters, so it need not be
+   * normalized) - used to prioritize LOW-ring tiles ahead of the player
+   * over ones behind (see _queuePriorityRank).
    */
-  async update(localX, localZ, awaitAll = false) {
+  async update(localX, localZ, awaitAll = false, heading = null) {
+    if (heading) {
+      this._headingX = heading.x;
+      this._headingZ = heading.z;
+    }
     // Keep the far-tier hole centered on the player every call, even when
     // the tile grid below hasn't changed - otherwise the hole would only
     // move in DETAIL_ZOOM-tile-sized jumps instead of tracking smoothly.
@@ -1057,6 +1090,26 @@ export class TerrainManager {
       }
       chunk.level = newLevel;
     }
+
+    // Also prune not-yet-loaded queue entries that have already drifted
+    // out to this same keepRadius while waiting their turn (e.g. a LOW
+    // tile pushed to the back of the queue for being behind the player's
+    // heading, see _queuePriorityRank, while the player kept driving
+    // away). Without this they'd sit queued until finally dequeued,
+    // fetched and built, only to be immediately staged for removal the
+    // moment they finish loading - wasted work for a tile that's already
+    // unwanted. Rebuild entries are skipped: those belong to a tile
+    // that's still loaded and already handled by the farAway/pendingRemoval
+    // bookkeeping above.
+    if (this._loadQueue.length) {
+      this._loadQueue = this._loadQueue.filter((entry) => {
+        if (entry.rebuild) return true;
+        const stillWanted = inCircle(entry.tx - centerX, entry.ty - centerY, keepRadius);
+        if (!stillWanted) this._resolveQueueWaiters(entry.key);
+        return stillWanted;
+      });
+    }
+
     for (const [k, ticksLeft] of this.pendingRemoval) {
       if (ticksLeft <= 1) {
         this._unloadChunk(k); // also clears it from pendingRemoval
