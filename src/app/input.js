@@ -25,6 +25,16 @@ export function createInputController() {
   // Edge-triggered: reset() now animates the lift over time, so holding R
   // down must fire it once, not restart the animation every frame.
   let resetWasPressed = false;
+  // "Brake-only" latches: once pressing the opposite-direction key brakes
+  // a still-moving car, keep braking (never fall through to reverse/
+  // forward thrust) for as long as that key stays held, even after the
+  // car has fully stopped. The latch only clears on key release, so the
+  // driver must lift the key and press it again to actually engage
+  // reverse/forward - holding it through the stop no longer auto-reverses.
+  let backwardWasPressed = false;
+  let forwardWasPressed = false;
+  let backwardBrakeOnly = false;
+  let forwardBrakeOnly = false;
 
   /**
    * Applies current key state to the vehicle's engine/steering/brake, and
@@ -74,13 +84,28 @@ export function createInputController() {
     const STOP_SPEED = 0.5;
     const movingForward = forwardSpeed > STOP_SPEED;
     const movingBackward = forwardSpeed < -STOP_SPEED;
+    // Arm the brake-only latch the moment the opposite-direction key is
+    // pressed into a still-moving car; release it as soon as the key is
+    // let go. While armed, the key keeps braking even after the car drops
+    // below STOP_SPEED, so reverse/forward thrust only kicks in once the
+    // driver lifts the key and presses it again (with the car already
+    // stopped/no longer coasting the other way).
+    if (backward && !backwardWasPressed && movingForward) backwardBrakeOnly = true;
+    if (!backward) backwardBrakeOnly = false;
+    if (forward && !forwardWasPressed && movingBackward) forwardBrakeOnly = true;
+    if (!forward) forwardBrakeOnly = false;
+    backwardWasPressed = backward;
+    forwardWasPressed = forward;
     // Pressing the "wrong way" key while still coasting the other way now
     // actually brakes (at the vehicle's own stronger brakeForce) instead
     // of just fighting the current momentum with an equal and opposite
     // engine force (which took as long to stop as it did to speed up) -
-    // only once the car has actually slowed/stopped does the key switch
-    // to applying reverse/forward thrust.
-    const pedalBraking = (forward && movingBackward) || (backward && movingForward);
+    // only once the car has actually slowed/stopped AND the key has been
+    // released and pressed again does the key switch to applying
+    // reverse/forward thrust.
+    const pedalBraking =
+      (forward && (movingBackward || forwardBrakeOnly)) ||
+      (backward && (movingForward || backwardBrakeOnly));
     const engineForce = pedalBraking
       ? 0
       : (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
