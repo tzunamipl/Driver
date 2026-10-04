@@ -39,6 +39,31 @@ import {
   POD_LOCAL_OFFSET,
 } from './podRacerLayout.js';
 
+// === Tunable parameters (read generically by lib/chariot.js - see the
+// matching createPodRacerVehicle() defaults below) ===
+// Keeping every physics/power knob for this vehicle up here in one place,
+// instead of buried in createPodRacerVehicle()'s own default parameter
+// values ~250 lines down past all the body-geometry code, so retuning it
+// doesn't mean hunting through mesh-building boilerplate.
+
+// Thrust (Newtons) produced by a single engine at full throttle - this
+// chariot's own independent power characteristic (the hover-rig
+// equivalent of a car's enginePowerHp, see lib/car.js), read generically
+// by lib/chariot.js's createChariotVehicle. Not derived from any shared
+// global force constant, so each pod-racer variant can be tuned on its
+// own.
+const ENGINE_THRUST_FORCE = 13500;
+// Total chassis weight in kg, split evenly across this variant's engines
+// (see lib/chariot.js's createChariotVehicle) - this rig's own
+// independent weight rating, the hover-rig equivalent of a car's mass
+// (see lib/car.js).
+const MASS = 110;
+// See lib/airDrag.js - slim, nose-first engines punch through the air
+// easily either direction, but the whole row spread broadside-on (engines
+// + pod + tether/coupling struts, all presenting their full length to the
+// airflow at once) is by far the draggiest way for this rig to move.
+const DRAG_PROFILE = { front: 0.7, side: 2.6, rear: 0.85 };
+
 const DEFAULT_BODY_COLOR = 0xff6a1a; // flame orange
 
 const engineBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a8d93, metalness: 0.8, roughness: 0.35 });
@@ -292,26 +317,14 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass 
     // rig (lib/chariot.js) instead of the wheeled RaycastVehicle rig.
     vehicleType: 'hover',
     engineCount,
-    // Thrust (Newtons) produced by a single engine at full throttle - this
-    // chariot's own independent power characteristic (the hover-rig
-    // equivalent of a car's enginePowerHp, see lib/car.js), read generically
-    // by lib/chariot.js's createChariotVehicle. Not derived from any shared
-    // global force constant, so each pod-racer variant can be tuned on its
-    // own.
-    engineThrustForce: engineThrustForce ?? 3900,
-    // Total chassis weight in kg, split evenly across this variant's
-    // engines (see lib/chariot.js's createChariotVehicle) - this rig's own
-    // independent weight rating, the hover-rig equivalent of a car's mass
-    // (see lib/car.js).
-    mass: mass ?? 110,
+    // See the tunable-parameters block at the top of this file -
+    // `engineThrustForce`/`mass` overrides let individual variants
+    // (registered via this factory) deviate from those defaults.
+    engineThrustForce: engineThrustForce ?? ENGINE_THRUST_FORCE,
+    mass: mass ?? MASS,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
     buildIndependentRig: (scene, color) => buildIndependentRig(scene, color, engineCount),
-    // See lib/airDrag.js - slim, nose-first engines punch through the air
-    // easily either direction, but the whole row spread broadside-on
-    // (engines + pod + tether/coupling struts, all presenting their full
-    // length to the airflow at once) is by far the draggiest way for this
-    // rig to move.
-    dragProfile: { front: 0.7, side: 2.6, rear: 0.85 },
+    dragProfile: DRAG_PROFILE,
   };
 }
 

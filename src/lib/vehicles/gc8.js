@@ -6,6 +6,37 @@
 
 import * as THREE from 'three';
 
+// === Tunable parameters (read generically by lib/car.js/app/input.js -
+// see the matching descriptor fields at the bottom of this file) ===
+// Keeping every physics/power knob for this vehicle up here in one place,
+// instead of scattered through the body-geometry code below, so retuning
+// it doesn't mean hunting through mesh-building boilerplate.
+
+// Baseline rally car engine rating (equivalent bhp - see lib/car.js's
+// hpToEngineForce), independent of every other vehicle's own rating. See
+// lib/car.js's FORCE_PER_HP for the *global* hp->force conversion shared
+// by every wheeled vehicle.
+const ENGINE_POWER_HP = 300;
+// Braking force in Newtons - set explicitly here so its rating stays
+// independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
+// ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
+// braking deceleration as before the mass bump (see MASS's comment).
+const BRAKE_FORCE = 600000;
+// Chassis weight in kg - the baseline rally car's own independent weight
+// rating. 1500kg matches a real rally-prepped car's curb weight (an
+// earlier 150kg felt unrealistically light/floaty under the world's
+// real-world gravity - see app/physicsSetup.js).
+const MASS = 1500;
+// See lib/airDrag.js - a real, tapered car nose cuts through the air more
+// easily than its flat-ish tail (plus the roof spoiler kicking up a bit
+// more turbulence reversing into the air), and its flank is by far the
+// biggest cross-section of all three. These multipliers are unchanged
+// from before airDrag.js's AIR_DRAG_BASE_COEFFICIENT rebalance (0.01 -> 4)
+// - that rebalance was about restoring the *absolute* scale of drag to
+// match this car's (also rebalanced) engine force, not about this car's
+// relative front/side/rear shape, which didn't change.
+const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
+
 const DEFAULT_BODY_COLOR = 0xffffff; // white
 
 /**
@@ -117,20 +148,8 @@ export default {
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
-  // Baseline rally car engine rating (equivalent bhp - see lib/car.js's
-  // hpToEngineForce), independent of every other vehicle's own rating.
-  enginePowerHp: 300,
-  // Braking force in Newtons (read generically by lib/car.js's createCar) -
-  // matches car.js's DEFAULT_BRAKE_FORCE since this is the baseline rally
-  // car, but set explicitly here so its rating stays independent of other
-  // vehicles' (e.g. bigfoot.js's stronger brakes) like enginePowerHp/mass.
-  brakeForce: 60000,
-  // Chassis weight in kg (read generically by lib/car.js's createCar) -
-  // the baseline rally car's own independent weight rating.
-  mass: 150,
-  // See lib/airDrag.js - a real, tapered car nose cuts through the air
-  // more easily than its flat-ish tail (plus the roof spoiler kicking up
-  // a bit more turbulence reversing into the air), and its flank is by
-  // far the biggest cross-section of all three.
-  dragProfile: { front: 0.85, side: 2.4, rear: 1.2 },
+  enginePowerHp: ENGINE_POWER_HP,
+  brakeForce: BRAKE_FORCE,
+  mass: MASS,
+  dragProfile: DRAG_PROFILE,
 };

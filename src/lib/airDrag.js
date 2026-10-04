@@ -37,7 +37,20 @@ import * as CANNON from 'cannon-es';
 //   front - multiplier while moving nose-first through the air
 //   rear  - multiplier while moving tail-first (reversing)
 //   side  - multiplier for the broadside (sideways/vertical) component
-export const AIR_DRAG_BASE_COEFFICIENT = 0.01; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
+export const AIR_DRAG_BASE_COEFFICIENT = 0.3; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
+// Was 0.01 - calibrated back when cars had a far lighter chassis mass and
+// a proportionally weaker engine force (see lib/car.js's DEFAULT_CHASSIS_MASS/
+// FORCE_PER_HP history). Those were later scaled up 10x together to give
+// the chassis a realistic weight without changing its acceleration feel,
+// // but this coefficient was never rescaled to match - quadratic drag grows
+// // with v^2, so a propulsive force 10x bigger needs ~sqrt(10) more drag per
+// // unit speed^2 just to keep the same top speed, let alone actually cap it
+// // at something reasonable. Left this weak, drag (plus the still-small
+// rolling resistance - see wheeledVehicle.js) basically never caught up to
+// the now much larger engine force before a car reached absurd (hundreds
+// of m/s) velocities. Rebalanced here so cars top out in a believable
+// range (see lib/vehicles/gc8.js/bigfoot.js's dragProfile for exactly what
+// top speed each vehicle lands on).
 
 // Used by any vehicle descriptor that doesn't define its own `dragProfile`
 // - a generic, slightly-more-draggy-broadside-than-nose-on profile.
