@@ -3,6 +3,7 @@ import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/ge
 import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
+import { classifySurfaceAt } from '../lib/terrainSurface.js';
 
 // How often to persist the local car's position/orientation/odometer (see
 // lib/carState.js) - frequent enough that a crash/refresh rarely loses more
@@ -28,11 +29,15 @@ export function createMainLoop({
   buildings,
   streets,
   rivers,
+  waterAreas,
   balls,
   pedestrians,
   shots,
   horn,
   jump,
+  splash,
+  tireSmoke,
+  bodyDust,
   remoteCollisions,
   net,
   input,
@@ -216,13 +221,46 @@ export function createMainLoop({
       buildings,
       streets,
       rivers,
+      waterAreas,
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
       viewOriginLat,
       viewOriginLon,
     });
-    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world);
+    // Per-wheel tyre-grip surface (road/water/normal - see
+    // lib/surfaceCompounds.js) read by wheeledVehicle.js's applyFriction()
+    // on the *next* physics step(s) this frame's accumulator loop runs -
+    // same one-frame-lag timing splash.js already accepts for its own
+    // wheel-on-water check below, using each wheel's last-known world
+    // position rather than blocking on a fresh raycast mid-step.
+    if (currentVehicle) {
+      for (const wheel of currentVehicle.wheelInfos) {
+        const pos = wheel.worldTransform.position;
+        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas });
+      }
+    }
+    suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world, {
+      streets,
+      waterAreas,
+    });
+    // Wheel-splash particles: independent of debugVisualsEnabled (see
+    // lib/splash.js/vectorPolygonLayer.js's doc comments) so this shows
+    // during normal play, not just with the debug overlay open. Also
+    // passes streets so a wheel on a bridge road over water (road wins,
+    // per terrainSurface.js's classifySurfaceAt) doesn't splash, and
+    // rivers so narrow waterway centerlines (too thin to be filled
+    // polygons in waterAreas) splash too.
+    splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
+    // Tyre-smoke particles: reads wheel.sliding/wheel.surface (already set
+    // above/by wheeledVehicle.js's friction solve), so like splash.js this
+    // runs unconditionally - not gated on debugVisualsEnabled.
+    tireSmoke.update(frameDelta, currentVehicle, world);
+    // Chassis body-dust particles: driven by discrete 'collide' events
+    // (see app/carManager.js's hookCar) rather than a per-frame
+    // grounded check like splash/tireSmoke, so only animate/age already-
+    // spawned puffs here.
+    bodyDust.update(frameDelta);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
@@ -265,16 +303,22 @@ export function createMainLoop({
         // raycasts/extrusion, see buildings.js), so kicking off their
         // fetch/build last means the cheaper, more immediately important
         // content (ground to drive on, then the debug road/river overlay)
-        // is never left waiting behind it. All three stream on the same
-        // tile grid but only actually fetch/build anything once it's their
-        // turn to matter: streets/rivers only while the debug overlay is
-        // visible (see vectorLineLayer.js's update() early-return), and
+        // is never left waiting behind it. All four stream on the same
+        // tile grid, and all three of streets/rivers/waterAreas always
+        // fetch/build regardless of the M-key debug overlay's own
+        // visibility (buildings.js has no such toggle to begin with),
+        // since their data also drives gameplay: streets' per-wheel
+        // tyre-grip surface classification, and both rivers' and
+        // waterAreas' splash.js wheel-on-water check (see
+        // vectorLineLayer.js's alwaysStream option doc comment and
+        // vectorPolygonLayer.js's own doc comment) - and
         // every manager time-slices its own CPU-heavy mesh/physics
         // building across frames (see buildings.js's BUILD_TIME_BUDGET_MS)
         // rather than doing it all in the frame it becomes available, so
         // none of this ever freezes a frame.
         streets.update(tileX, tileY);
         rivers.update(tileX, tileY);
+        waterAreas.update(tileX, tileY);
         buildings.update(tileX, tileY);
       }
       // Catch a car that ended up inside a building's solid volume - a

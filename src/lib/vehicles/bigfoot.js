@@ -88,6 +88,15 @@ const BRAKE_FORCE = 52000;
 // open wheel wells/knobby tires mean it tops out well below a rally car
 // despite having far more power.
 const DRAG_PROFILE = { front: 4.6, side: 9.9, rear: 5.7 };
+// Speed-sensitive steering lock (radians, see app/input.js's effective-
+// steer lerp between these two): how far the front wheels turn at a dead
+// stop (maxSteerAt0) versus at 100 km/h (maxSteerAt100) and above. This
+// truck's tall, top-heavy chassis (see MASS/SUSPENSION above) is far more
+// flip-prone on a sudden hard turn at speed than the baseline rally car,
+// so its highway-speed lock is cut down even further - this truck's own
+// independent rating, same pattern as ENGINE_POWER_HP/BRAKE_FORCE.
+const MAX_STEER_AT_0 = 0.5;
+const MAX_STEER_AT_100 = 0.12;
 
 const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
 
@@ -187,6 +196,8 @@ export default {
   suspensionForceG: SUSPENSION_FORCE_G,
   enginePowerHp: ENGINE_POWER_HP,
   mass: MASS,
+  maxSteerAt0: MAX_STEER_AT_0,
+  maxSteerAt100: MAX_STEER_AT_100,
   brakeForce: BRAKE_FORCE,
   dragProfile: DRAG_PROFILE,
 };

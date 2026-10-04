@@ -149,15 +149,19 @@ export const FLIP_UP_DOT_THRESHOLD = 0.5;
 // undefined (e.g. standing still, or barely rolling) to aim the camera at,
 // so we fall back to the chassis heading instead.
 export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
-// Pull the camera closer to the car as speed increases, so high speed
-// feels faster and the car doesn't get lost far ahead of a distant camera.
-// Below this speed (m/s) the camera sits at its normal (farthest) offset.
+// Pull the camera closer to the car as it slows down, so standing still/
+// crawling feels more intimate while cruising at speed keeps the wider,
+// more "in control" framing. Below this speed (m/s) the camera sits at
+// its closest offset.
 export const CAMERA_CLOSE_MIN_SPEED = 10;
-// At/above this speed (m/s) the camera reaches its closest offset.
-export const CAMERA_CLOSE_MAX_SPEED = 30;
-// Closest distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at
-// CAMERA_CLOSE_MAX_SPEED (1 = no change, lower = closer to the car).
-export const CAMERA_CLOSE_MIN_SCALE = 0.9;
+// At/above this speed (m/s) the camera reaches its farthest offset.
+export const CAMERA_CLOSE_MAX_SPEED = 100;
+// Distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at/below
+// CAMERA_CLOSE_MIN_SPEED (1 = no change, lower = closer to the car).
+export const CAMERA_CLOSE_SCALE_AT_MIN_SPEED = 0.6;
+// Distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at/above
+// CAMERA_CLOSE_MAX_SPEED (1 = no change, higher = farther from the car).
+export const CAMERA_CLOSE_SCALE_AT_MAX_SPEED = 1;
 // The exponential position/look-at smoothing above has a fixed settling
 // time (~1/CAMERA_*_SPEED seconds), so while the car is moving at a
 // constant velocity the smoothed camera steadily trails behind by

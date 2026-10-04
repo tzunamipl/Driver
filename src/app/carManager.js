@@ -1,5 +1,6 @@
 import { createCar, createRemoteCar, createNameTag } from '../lib/car.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
+import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
 import { DEFAULT_BODY_COLOR } from '../config.js';
 import { applyImpactRoll } from './collisions.js';
@@ -11,7 +12,7 @@ import { applyImpactRoll } from './collisions.js';
 // touches all of those, but exposes a narrow API so callers (main loop,
 // lobby, address search) don't need to know the wiring details.
 
-export function createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat, playerSpawnQuat }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
   let wheelMeshes = [];
@@ -36,8 +37,25 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, play
 
   function hookCar(nextVehicle, mesh) {
     nextVehicle.chassisBody.addEventListener('collide', (event) => {
-      if (event.body.collisionFilterGroup !== BUILDING_COLLISION_GROUP) return;
-      applyImpactRoll(nextVehicle.chassisBody, event.contact);
+      if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
+        applyImpactRoll(nextVehicle.chassisBody, event.contact);
+        return;
+      }
+      // Chassis-vs-ground contact: kick up a dust puff at the contact
+      // point, scaled by how hard the body actually hit (see
+      // lib/bodyDust.js) - gentle rests/settles (e.g. parking) don't
+      // reach bodyDust's own MIN_IMPACT_SPEED floor.
+      if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP && bodyDust) {
+        const contact = event.contact;
+        const chassis = nextVehicle.chassisBody;
+        // contact.ri/rj are already lever arms in world orientation from
+        // each body's own center of mass (see applyImpactRoll's own doc
+        // comment above) - add the matching center to get the actual
+        // world-space contact point, whichever side the chassis ended up
+        // on in the pair.
+        const point = contact.bi === chassis ? chassis.position.vadd(contact.ri) : chassis.position.vadd(contact.rj);
+        bodyDust.onGroundContact(point, Math.abs(contact.getImpactVelocityAlongNormal()));
+      }
     });
     pedestrians.bindChassis(nextVehicle.chassisBody, nextVehicle.wheelHitboxBodies ?? []);
     if (nameTag?.sprite.parent) nameTag.sprite.parent.remove(nameTag.sprite);

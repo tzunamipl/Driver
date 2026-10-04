@@ -21,7 +21,7 @@ const ENGINE_POWER_HP = 300;
 // independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
 // ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
 // braking deceleration as before the mass bump (see MASS's comment).
-const BRAKE_FORCE = 600000;
+const BRAKE_FORCE = 6000;
 // Chassis weight in kg - the baseline rally car's own independent weight
 // rating. 1500kg matches a real rally-prepped car's curb weight (an
 // earlier 150kg felt unrealistically light/floaty under the world's
@@ -36,6 +36,15 @@ const MASS = 1500;
 // match this car's (also rebalanced) engine force, not about this car's
 // relative front/side/rear shape, which didn't change.
 const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
+// Speed-sensitive steering lock (radians, see app/input.js's effective-
+// steer lerp between these two): how far the front wheels turn at a dead
+// stop (maxSteerAt0) versus at 100 km/h (maxSteerAt100) and above. A real
+// rally car's rack isn't actually speed-sensitive, but full 0.5 rad lock
+// at highway speed would snap the tail out, so this tapers down to a
+// steadier, more planted amount of lock once up to speed - still this
+// car's own independent rating, same pattern as ENGINE_POWER_HP/MASS.
+const MAX_STEER_AT_0 = 0.5;
+const MAX_STEER_AT_100 = 0.3;
 
 const DEFAULT_BODY_COLOR = 0xffffff; // white
 
@@ -151,5 +160,15 @@ export default {
   enginePowerHp: ENGINE_POWER_HP,
   brakeForce: BRAKE_FORCE,
   mass: MASS,
+  maxSteerAt0: MAX_STEER_AT_0,
+  maxSteerAt100: MAX_STEER_AT_100,
   dragProfile: DRAG_PROFILE,
+  // All-wheel drive (see lib/car.js's driveWheels doc comment/app/input.js)
+  // - matches the real GC8 WRX/STI's symmetrical AWD drivetrain, and puts
+  // this car's power down through all four tyres instead of just the rear
+  // pair, noticeably cutting down on wheelspin/oversteer under hard
+  // acceleration (especially on looser surfaces - see
+  // lib/surfaceCompounds.js) versus a rear-wheel-drive car with the same
+  // enginePowerHp.
+  driveWheels: [0, 1, 2, 3],
 };

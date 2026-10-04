@@ -24,12 +24,13 @@
 // so they're kept to just the handful of tiles actually worth the detail.
 
 import * as CANNON from 'cannon-es';
+import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, DoubleSide } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { PbfReader } from 'pbf';
 import { VectorTile } from '@mapbox/vector-tile';
-import { tileX2lon, tileY2lat, lon2tileX, lat2tileY, latLonToLocal } from './geo.js';
+import { tileX2lon, tileY2lat, lon2tileX, lat2tileY, latLonToLocal, localToLatLon } from './geo.js';
 import { getTileUrlTemplate } from './buildings.js';
 import {
   DETAIL_ZOOM,
@@ -76,24 +77,44 @@ const BUILD_TIME_CHECK_INTERVAL = 16;
  *   the same `key` share one LineMaterial/mesh per tile); returning
  *   null/undefined skips the feature entirely.
  * @param {number} [options.lift] - meters above sampled ground to draw the line, avoiding z-fighting.
+ * @param {boolean} [options.flat] - when true, each style's `linewidth` is a real-world-meters
+ *   stripe drawn as a flat quad lying in the ground's XZ plane (e.g. streets.js's per-road-class
+ *   widths), instead of the default LineMaterial "fat line" (screen-space-width, always facing the
+ *   camera - fine for rivers' thin debug traces, but reads as sprite-like billboards rather than a
+ *   stripe actually lying on the ground once the line gets wide).
+ * @param {boolean} [options.alwaysStream] - when true, update() fetches/builds segment data
+ *   regardless of the debug overlay's own visibility (mirrors vectorPolygonLayer.js's water data,
+ *   which streams unconditionally since its classifyAt also drives splash.js's wheel-on-water
+ *   check) - set by streets.js since containsPoint()/road classification now also drives
+ *   lib/wheeledVehicle.js's per-surface tyre grip (see surfaceCompounds.js), and by rivers.js
+ *   since its containsPoint() now also drives splash.js's wheel-on-water check for waterway
+ *   centerlines (streams/canals/ditches too narrow to be mapped as filled polygons). Both must
+ *   work whether or not anyone ever opens the M-key debug overlay.
  */
-export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2 }) {
+export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false, alwaysStream = false }) {
   const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - tileZoom);
-  // Style key -> LineMaterial, shared across every tile/instance of this
-  // layer so e.g. every "motorway" segment anywhere reuses one material
-  // instead of allocating a new GPU program per tile.
+  // Style key -> material (LineMaterial, or MeshBasicMaterial when `flat`),
+  // shared across every tile/instance of this layer so e.g. every
+  // "motorway" segment anywhere reuses one material instead of allocating
+  // a new GPU program per tile.
   const materials = new Map();
   function materialFor(style) {
     let mat = materials.get(style.key);
     if (!mat) {
-      mat = new LineMaterial({ color: style.color, linewidth: style.linewidth, transparent: true, opacity: 0.85 });
-      mat.resolution.set(window.innerWidth, window.innerHeight);
+      if (flat) {
+        mat = new MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.85, side: DoubleSide });
+      } else {
+        mat = new LineMaterial({ color: style.color, linewidth: style.linewidth, transparent: true, opacity: 0.85 });
+        mat.resolution.set(window.innerWidth, window.innerHeight);
+      }
       materials.set(style.key, mat);
     }
     return mat;
   }
   window.addEventListener('resize', () => {
-    for (const mat of materials.values()) mat.resolution.set(window.innerWidth, window.innerHeight);
+    for (const mat of materials.values()) {
+      if (mat.resolution) mat.resolution.set(window.innerWidth, window.innerHeight);
+    }
   });
 
   /**
@@ -332,7 +353,34 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
             bucket = { style: seg.style, positions: [] };
             byStyleKey.set(seg.style.key, bucket);
           }
-          bucket.positions.push(a.x, ay, a.z, b.x, by, b.z);
+          if (flat) {
+            // Flat ground-hugging quad: offset each endpoint sideways in the
+            // XZ plane only (not toward the camera, unlike LineMaterial's
+            // fat lines below) so the stripe actually lies on the terrain
+            // instead of billboarding - see `flat` option doc comment above.
+            const dx = b.x - a.x;
+            const dz = b.z - a.z;
+            const len = Math.hypot(dx, dz);
+            // Degenerate (near-zero-length) segment: no well-defined
+            // direction to offset perpendicular to, so fall back to an
+            // arbitrary sideways axis rather than dividing by ~0.
+            const nx = len > 1e-6 ? -dz / len : 1;
+            const nz = len > 1e-6 ? dx / len : 0;
+            const hw = seg.style.linewidth / 2;
+            const ox = nx * hw;
+            const oz = nz * hw;
+            // Two triangles covering the quad [a-off, a+off, b-off, b+off].
+            bucket.positions.push(
+              a.x - ox, ay, a.z - oz,
+              a.x + ox, ay, a.z + oz,
+              b.x + ox, by, b.z + oz,
+              a.x - ox, ay, a.z - oz,
+              b.x + ox, by, b.z + oz,
+              b.x - ox, by, b.z - oz,
+            );
+          } else {
+            bucket.positions.push(a.x, ay, a.z, b.x, by, b.z);
+          }
         } catch (err) {
           console.warn(`Skipping one malformed ${layerName} segment`, build.tx, build.ty, err);
         }
@@ -345,9 +393,16 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       const { tx, ty, key, byStyleKey } = build;
       const lines = [];
       for (const bucket of byStyleKey.values()) {
-        const geometry = new LineSegmentsGeometry();
-        geometry.setPositions(bucket.positions);
-        const mesh = new LineSegments2(geometry, materialFor(bucket.style));
+        let mesh;
+        if (flat) {
+          const geometry = new BufferGeometry();
+          geometry.setAttribute('position', new Float32BufferAttribute(bucket.positions, 3));
+          mesh = new Mesh(geometry, materialFor(bucket.style));
+        } else {
+          const geometry = new LineSegmentsGeometry();
+          geometry.setPositions(bucket.positions);
+          mesh = new LineSegments2(geometry, materialFor(bucket.style));
+        }
         mesh.visible = this._visible;
         this.scene.add(mesh);
         lines.push(mesh);
@@ -361,6 +416,50 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     /** True once a tile's line meshes have actually been built (not just fetched) - used by the debug stats HUD's per-tile progress indicator. */
     isTileLoaded(tx, ty) {
       return this.chunks.has(this._key(tx, ty));
+    }
+
+    /**
+     * Tests whether a world (x, z) position falls within any `flat`
+     * stripe's real-world half-width of its segment (the exact same
+     * half-width the ground-hugging quad in _stepChunkBuild is actually
+     * drawn with) - used by hud/suspensionHud.js's terrain-type square to
+     * tell "on the road" apart from "off to the side of it", and by
+     * lib/terrainSurface.js's classifySurfaceAt (which drives
+     * lib/wheeledVehicle.js's per-surface tyre grip, see
+     * surfaceCompounds.js) - without waiting for that tile's mesh to
+     * finish building, and independent of the debug overlay's own
+     * visibility for `alwaysStream` layers (streets.js - see that option's
+     * doc comment on createVectorLineLayer) the same way
+     * vectorPolygonLayer.js's classifyAt works regardless of its fill
+     * mesh's visibility. Only meaningful for `flat` layers (streets.js's
+     * real-meter road widths); non-flat layers (rivers.js's screen-space
+     * fat lines) have no well-defined real-world width to test against, so
+     * this always returns false for those rather than guessing one.
+     */
+    containsPoint(x, z) {
+      if (!flat) return false;
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon);
+      const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
+      const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const list = this._segmentsByTile.get(`${tx + dx}_${ty + dy}`);
+          if (!list) continue;
+          for (const seg of list) {
+            const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon);
+            const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon);
+            const abx = b.x - a.x;
+            const abz = b.z - a.z;
+            const lenSq = abx * abx + abz * abz;
+            const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / lenSq)) : 0;
+            const px = a.x + abx * t;
+            const pz = a.z + abz * t;
+            const dist = Math.hypot(x - px, z - pz);
+            if (dist <= seg.style.linewidth / 2) return true;
+          }
+        }
+      }
+      return false;
     }
 
     _unloadChunk(key) {
@@ -407,8 +506,11 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     async update(centerTx, centerTy, awaitAll = false) {
       // No point paying for the network fetch/tile build at all while the
       // overlay is hidden - just like terrain.js's borders/buildings'
-      // hitboxes, this is purely cosmetic debug output.
-      if (!this._visible) return;
+      // hitboxes, this is purely cosmetic debug output - *unless*
+      // `alwaysStream` opted in (streets.js, since containsPoint() also
+      // drives tyre-grip surface classification - see that option's doc
+      // comment above).
+      if (!alwaysStream && !this._visible) return;
 
       const ensure = this._ensureRegion(centerTx, centerTy);
       if (awaitAll) await ensure;

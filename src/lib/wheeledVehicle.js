@@ -1,4 +1,5 @@
 import * as CANNON from 'cannon-es';
+import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 
 // Self-contained replacement for cannon-es's CANNON.RaycastVehicle, built
 // from scratch instead of layering fixes on top of it (see car.js's former
@@ -169,6 +170,12 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       suspensionForce: 0,
       isInContact: false,
       sliding: false,
+      // Ground-surface key (road/water/normal - see surfaceCompounds.js),
+      // driven every frame by app/mainLoop.js's classifySurfaceAt call
+      // from this wheel's last-known world position; defaults to the
+      // generic surface until the first frame sets it (e.g. the very
+      // first physics step after spawn).
+      surface: DEFAULT_SURFACE_KEY,
       connectionPointWorld: new CANNON.Vec3(),
       directionWorld: new CANNON.Vec3(),
       axleWorld: new CANNON.Vec3(),
@@ -307,6 +314,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   const frictionRelPos2 = new CANNON.Vec3();
   function applyFriction(wheel, dt) {
     wheel.sliding = false;
+    wheel.gripFraction = 0;
     if (!wheel.isInContact) return;
 
     const groundBody = wheel.raycastResult.body;
@@ -323,7 +331,20 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     normal.cross(frictionAxle, frictionForward);
     frictionForward.normalize();
 
-    const maxGrip = wheel.suspensionForce * dt * wheel.frictionSlip;
+    // Per-surface tyre compound (road/water/normal - see
+    // surfaceCompounds.js, set every frame on wheel.surface by
+    // app/mainLoop.js's classifySurfaceAt): scales *and* offsets this
+    // wheel's own base frictionSlip, then clamps the resulting raw grip
+    // force to the compound's load-independent ceiling, before turning it
+    // into this step's impulse budget - so e.g. water stays slippery
+    // regardless of how loaded the wheel currently is, not just
+    // proportionally grippier. Clamped to >= 0 since a large enough
+    // negative frictionSlipOffset could otherwise flip grip negative for
+    // a low-frictionSlip vehicle.
+    const compound = getSurfaceCompound(wheel.surface);
+    const effectiveFrictionSlip = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
+    const rawGripForce = Math.min(wheel.suspensionForce * effectiveFrictionSlip, compound.maxForceN);
+    const maxGrip = rawGripForce * dt;
 
     // Longitudinal: engine force (continuous push) plus brake treated as a
     // velocity-zeroing impulse (so the handbrake/brake actually locks
@@ -372,6 +393,11 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     let sideImpulse = solveBilateralImpulse(chassisBody, groundBody?.mass > 0 ? groundBody : null, hitPoint, frictionAxle, maxGrip);
 
     const combined = Math.hypot(forwardImpulse, sideImpulse);
+    // How much of this wheel's available grip the current demand is using
+    // (0 = unloaded, 1 = right at the limit/sliding) - exposed purely for
+    // debug visuals (see hud/suspensionHud.js's green->red gradient),
+    // doesn't feed back into the physics at all.
+    wheel.gripFraction = maxGrip > 0 ? Math.min(1, combined / maxGrip) : 0;
     if (combined > maxGrip && combined > 0) {
       wheel.sliding = true;
       const scale = maxGrip / combined;
