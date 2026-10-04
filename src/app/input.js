@@ -44,9 +44,13 @@ export function createInputController() {
    */
   function updateControls(vehicle, reset) {
     if (!vehicle) return;
+    // Which wheels get engine force (see lib/car.js's driveWheels doc
+    // comment) - defaults to rear-wheel drive for rigs that don't set one
+    // (e.g. the hover chariot, which ignores the wheel index argument
+    // entirely anyway).
+    const driveWheels = vehicle.driveWheels ?? [2, 3];
     if (isTypingInField()) {
-      vehicle.applyEngineForce(0, 2);
-      vehicle.applyEngineForce(0, 3);
+      for (const i of driveWheels) vehicle.applyEngineForce(0, i);
       vehicle.setSteeringValue(0, 0);
       vehicle.setSteeringValue(0, 1);
       vehicle.airControlYaw = 0;
@@ -109,11 +113,31 @@ export function createInputController() {
     const engineForce = pedalBraking
       ? 0
       : (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
-    // rear-wheel drive (indices 2, 3)
-    vehicle.applyEngineForce(engineForce, 2);
-    vehicle.applyEngineForce(engineForce, 3);
+    // Spread engineForce across however many wheels this vehicle drives
+    // (lib/car.js's driveWheels, defaulting to rear-wheel drive), scaled
+    // so the *total* propulsive force stays the same as the original
+    // rear-wheel-drive-only tuning (FORCE_PER_HP in lib/car.js assumed
+    // exactly 2 driven wheels each getting the full engineForce value) -
+    // 2 driven wheels still gets the full value per wheel (unchanged from
+    // before this option existed), while e.g. 4-wheel drive gets half each,
+    // for the same total force split across twice as many contact patches.
+    const perWheelEngineForce = engineForce * (2 / driveWheels.length);
+    for (const i of driveWheels) vehicle.applyEngineForce(perWheelEngineForce, i);
 
-    const steerValue = left ? MAX_STEER : right ? -MAX_STEER : 0;
+    // Speed-sensitive steering lock: lerp between the vehicle's own
+    // maxSteerAt0 (dead stop) and maxSteerAt100 (100 km/h and up) ratings
+    // (see lib/car.js/lib/vehicles/*.js), by how fast it's actually going
+    // right now - `?? MAX_STEER` on both ends keeps any rig that doesn't
+    // set these (e.g. the hover chariot) on today's flat, speed-
+    // independent lock. Uses the unsigned speed so reversing fast also
+    // tapers the lock, not just driving forward fast.
+    const speedKmh = Math.abs(forwardSpeed) * 3.6;
+    const steerSpeedT = Math.min(speedKmh / 100, 1);
+    const maxSteerAt0 = vehicle.maxSteerAt0 ?? MAX_STEER;
+    const maxSteerAt100 = vehicle.maxSteerAt100 ?? MAX_STEER;
+    const effectiveMaxSteer = maxSteerAt0 + (maxSteerAt100 - maxSteerAt0) * steerSpeedT;
+
+    const steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;

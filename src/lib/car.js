@@ -6,6 +6,7 @@ import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { findGroundY } from './terrain.js';
+import { MAX_STEER } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
 
 // Re-exported from vehicleShared.js (not defined here) so every existing
@@ -342,10 +343,29 @@ export function createCar(
   const wheelAttachY = -chassisHeight / 2;
 
   const wheelPositions = [
-    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelFront), // front-left
-    new CANNON.Vec3(axleWidth, wheelAttachY, wheelFront), // front-right
-    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelBack), // rear-left
-    new CANNON.Vec3(axleWidth, wheelAttachY, wheelBack), // rear-right
+    // Signs here are chassis-local (+X = vehicle.indexRightAxis), not
+    // screen-left/right - with this rig's forward = local +Z and the
+    // chase cam (app/cameraFollow.js) sitting behind the car looking the
+    // same way, facing "forward" flips screen left/right relative to a
+    // fixed-axis label (exactly like turning to face the opposite compass
+    // direction swaps which hand is which). Verified directly against the
+    // actual camera (THREE.Matrix4.lookAt + Vector3.project with this
+    // rig's CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET): local +X projects to the
+    // *left* half of the screen, local -X to the *right* half. So this
+    // array is ordered (+X, then -X) within each front/rear pair - left
+    // wheel first, right wheel second - to match hud/suspensionHud.js's
+    // grid, which lays its bars out in this same array order (its first
+    // two cells side by side, then its next two below) and is otherwise
+    // just a plain left-to-right reading order with no sign math of its
+    // own. (Earlier revisions had this backwards in two different ways:
+    // originally -X was labeled "left" despite rendering on-screen-right;
+    // a later fix corrected the label text but kept the old array order,
+    // so the *correct* label still landed in the HUD's wrong left/right
+    // grid cell.)
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelFront), // front-left
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelFront), // front-right
+    new CANNON.Vec3(axleWidth, wheelAttachY, wheelBack), // rear-left
+    new CANNON.Vec3(-axleWidth, wheelAttachY, wheelBack), // rear-right
   ];
 
   wheelPositions.forEach((pos) => {
@@ -364,9 +384,37 @@ export function createCar(
   // enginePowerHp than the baseline rally car.
   vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
 
+  // Which wheels (indices into vehicle.wheelInfos/wheelLabels above, so
+  // [0,1,2,3] = FL,FR,RL,RR) actually receive engine force - see
+  // app/input.js's updateControls. Defaults to rear-wheel drive (the
+  // baseline rally car and every vehicle before this option existed), but
+  // a descriptor can list any subset (e.g. gc8.js's Subaru sets all four
+  // for all-wheel drive). app/input.js normalizes the per-wheel force so
+  // the *total* propulsive force stays the same regardless of how many
+  // wheels share it (matching FORCE_PER_HP's original 2-driven-wheel
+  // tuning) - so this purely changes how that same total power is put
+  // down (and therefore how the car actually handles: AWD spreads the
+  // longitudinal demand thinner per wheel, leaving more of each wheel's
+  // friction-circle budget free for cornering grip and cutting down on
+  // wheelspin, especially on low-grip surfaces - see
+  // lib/surfaceCompounds.js), not how powerful the engine itself is.
+  vehicle.driveWheels = descriptor.driveWheels ?? [2, 3];
+
   // Per-vehicle handbrake strength (see app/input.js) - independent of any
   // shared global force, same pattern as engineForce above.
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
+
+  // Speed-sensitive steering lock (radians) - how far the front wheels
+  // are allowed to turn at a dead stop (maxSteerAt0) versus at 100 km/h
+  // and above (maxSteerAt100). app/input.js lerps between these two by
+  // the car's current speed instead of applying one flat lock at every
+  // speed, so a car that's tuned to turn sharply at parking-lot speeds
+  // doesn't also snap-turn (and likely spin out) at highway speed.
+  // Falls back to the shared MAX_STEER constant for both ends, so a
+  // descriptor that doesn't set these keeps today's flat, speed-
+  // independent lock unchanged.
+  vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
+  vehicle.maxSteerAt100 = descriptor.maxSteerAt100 ?? MAX_STEER;
 
   // Signed forward speed (m/s) along the chassis' own local forward axis -
   // positive while coasting nose-first (the direction the "accelerate"
