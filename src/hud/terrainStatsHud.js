@@ -133,7 +133,7 @@ export function createTerrainStatsHud() {
       `<div class="ts-compass-wrap">` +
       `<span class="ts-dir n">N</span><span class="ts-dir s">S</span>` +
       `<span class="ts-dir w">W</span><span class="ts-dir e">E</span>` +
-      `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 8px)">` +
+      `<div class="ts-grid" style="grid-template-columns: repeat(${cols}, 5px)">` +
       s.grid
         .map((row) =>
           row

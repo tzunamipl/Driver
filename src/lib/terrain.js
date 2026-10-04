@@ -614,6 +614,28 @@ export class TerrainManager {
   }
 
   /**
+   * Like _enqueueLoad, but for a tile that's already loaded and just needs
+   * its mesh/physics rebuilt at a new detail level (MEDIUM<->LOW crossing,
+   * see update()). Unlike _enqueueLoad this doesn't bail out early when
+   * `chunks.has(key)` - that's expected to be true here - and _loadChunk
+   * keeps the old mesh/body visible/collidable until the new one has
+   * actually finished loading, so the tile never has a visible gap where
+   * nothing is rendered while its replacement streams in.
+   */
+  _enqueueRebuild(tx, ty) {
+    const key = this._key(tx, ty);
+    let waiters = this._queueWaiters.get(key);
+    if (!waiters) {
+      waiters = [];
+      this._queueWaiters.set(key, waiters);
+      this._loadQueue.push({ tx, ty, key, rebuild: true });
+    }
+    const promise = new Promise((resolve) => waiters.push(resolve));
+    this._pumpQueue();
+    return promise;
+  }
+
+  /**
    * Drains _loadQueue strictly one tile at a time - never starts a second
    * _loadChunk before the previous one has fully finished (fetch + mesh/
    * physics build) - picking, on every iteration, the queued tile with the
@@ -632,7 +654,7 @@ export class TerrainManager {
     try {
       let next;
       while ((next = this._dequeueNext())) {
-        const { tx, ty, key } = next;
+        const { tx, ty, key, rebuild } = next;
         // Note: _queueWaiters[key] is deliberately *not* cleared yet here -
         // it stays registered for the whole fetch/build below, so a tile
         // that's already in-flight (removed from _loadQueue, i.e. no
@@ -640,11 +662,18 @@ export class TerrainManager {
         // recognized by _enqueueLoad and attaches its new caller to the
         // same waiter list instead of pushing a duplicate queue entry for
         // a tile that's already being worked on.
-        if (this.chunks.has(key) || !inCircle(tx - this._centerX, ty - this._centerY, LOW_DETAIL_RADIUS)) {
+        // For a rebuild, `chunks.has(key)` is expected to already be true
+        // (the old mesh is kept on screen until the replacement is ready),
+        // so that check is skipped - only drop it if the tile has drifted
+        // out of range while it was waiting in line.
+        if (
+          (!rebuild && this.chunks.has(key)) ||
+          !inCircle(tx - this._centerX, ty - this._centerY, LOW_DETAIL_RADIUS)
+        ) {
           this._resolveQueueWaiters(key);
           continue;
         }
-        await this._loadChunk(tx, ty);
+        await this._loadChunk(tx, ty, rebuild);
         this._resolveQueueWaiters(key);
       }
     } finally {
@@ -680,9 +709,13 @@ export class TerrainManager {
     return this._loadQueue.splice(bestIdx, 1)[0];
   }
 
-  async _loadChunk(tx, ty) {
+  async _loadChunk(tx, ty, rebuild = false) {
     const key = this._key(tx, ty);
-    if (this.chunks.has(key) || this.pending.has(key)) return;
+    if ((this.chunks.has(key) && !rebuild) || this.pending.has(key)) return;
+    // For a rebuild this is the mesh/body being replaced - kept alive and
+    // in the scene until the new one is fully ready (see below), instead
+    // of being torn down upfront and leaving a visible gap.
+    const oldChunk = rebuild ? this.chunks.get(key) : null;
     this.pending.add(key);
     try {
       // LOW tiles (the outer ring beyond MEDIUM's DETAIL_RADIUS footprint,
@@ -768,6 +801,15 @@ export class TerrainManager {
 
       this.chunks.set(key, { mesh, body, border, grid, tx, ty, bytes, level });
       this.stats.created++;
+      // For a rebuild, the old mesh/body were kept fully intact and
+      // visible/collidable in the scene up to this point (see the
+      // rebuild-handling block in update()) - only now that the
+      // replacement is actually ready do we tear the old one down, so the
+      // tile is never visibly empty while its new mesh streams in.
+      if (oldChunk) {
+        this._disposeChunkResources(oldChunk);
+        this.stats.removed++;
+      }
     } catch (err) {
       console.warn('Terrain chunk failed to load', tx, ty, err);
     } finally {
@@ -775,9 +817,8 @@ export class TerrainManager {
     }
   }
 
-  _unloadChunk(key) {
-    const chunk = this.chunks.get(key);
-    if (!chunk) return;
+  /** Tears down a chunk's Three.js/Cannon-es resources, without touching `this.chunks`/stats bookkeeping - shared by _unloadChunk and the rebuild swap in _loadChunk. */
+  _disposeChunkResources(chunk) {
     this.scene.remove(chunk.mesh);
     chunk.mesh.geometry.dispose();
     chunk.mesh.material.map?.dispose();
@@ -790,6 +831,12 @@ export class TerrainManager {
     // module scope above) so they're intentionally never disposed here.
     // chunk.body is null for LOW tiles (see _loadChunk) - no physics to tear down.
     if (chunk.body) this.world.removeBody(chunk.body);
+  }
+
+  _unloadChunk(key) {
+    const chunk = this.chunks.get(key);
+    if (!chunk) return;
+    this._disposeChunkResources(chunk);
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
     this.stats.removed++;
@@ -997,13 +1044,15 @@ export class TerrainManager {
       // MEDIUM) doesn't sit there with no collision body under the car.
       const newLevel = detailLevelForOffset(chunk.tx - centerX, chunk.ty - centerY);
       if ((newLevel === DetailLevel.LOW) !== (chunk.level === DetailLevel.LOW) && !farAway) {
-        const { tx: chunkTx, ty: chunkTy } = chunk;
-        this._unloadChunk(k);
         // Re-request via the same priority queue as everything else (not
         // a direct _loadChunk call) so this rebuild still respects the
         // one-at-a-time/priority-order rule instead of sneaking in an
-        // extra concurrent fetch.
-        this._enqueueLoad(chunkTx, chunkTy);
+        // extra concurrent fetch. Unlike a plain reload, the old mesh/body
+        // are deliberately *not* torn down here - _enqueueRebuild keeps
+        // them fully visible/collidable until the replacement has
+        // actually finished loading (see _loadChunk), so the tile never
+        // flashes empty while streaming in its new detail level.
+        this._enqueueRebuild(chunk.tx, chunk.ty);
         continue;
       }
       chunk.level = newLevel;
