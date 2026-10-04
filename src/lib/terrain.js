@@ -487,6 +487,13 @@ export class TerrainManager {
     this._loadQueue = []; // [{ tx, ty, key }]
     this._queueWaiters = new Map(); // key -> Array<() => void>
     this._pumping = false; // whether the queue-draining loop is currently running
+    // Bumped on every recenter() so any _loadChunk/_loadFarChunk fetch that
+    // was already in flight for the *old* origin - e.g. the queue pump
+    // mid-await on a fetch when recenter() is called by the teleport flow -
+    // can tell its origin has since changed and bail out instead of
+    // resuming with stale tx/ty but the new originLat/originLon, which
+    // would otherwise insert mismatched geometry into the fresh chunk set.
+    this._loadEpoch = 0;
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
     this._lastCenter = null;
     this._centerX = 0;
@@ -578,6 +585,12 @@ export class TerrainManager {
    * new origin's initial chunk batch has loaded.
    */
   async recenter(lat, lon) {
+    // Invalidate any load(s) already in flight for the old origin *first* -
+    // see _loadEpoch's comment - so a queue pump currently awaiting a fetch
+    // (or a concurrently in-flight _loadFarChunk) recognizes it's stale and
+    // bails out as soon as that await resolves, rather than going on to add
+    // old-origin tile data to the freshly-cleared chunk maps below.
+    this._loadEpoch++;
     for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
     for (const key of Array.from(this.farChunks.keys())) this._unloadFarChunk(key);
     this.pending.clear();
@@ -762,6 +775,7 @@ export class TerrainManager {
     // in the scene until the new one is fully ready (see below), instead
     // of being torn down upfront and leaving a visible gap.
     const oldChunk = rebuild ? this.chunks.get(key) : null;
+    const epoch = this._loadEpoch;
     this.pending.add(key);
     try {
       // LOW tiles (the outer ring beyond MEDIUM's DETAIL_RADIUS footprint,
@@ -789,6 +803,12 @@ export class TerrainManager {
         }),
       ]);
       const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
+
+      // The origin may have moved on to a new recenter() while the fetches
+      // above were in flight (see _loadEpoch) - tx/ty are meaningless in
+      // the new origin's local space, so bail out instead of building and
+      // inserting mismatched geometry into the fresh chunk set.
+      if (epoch !== this._loadEpoch) return;
 
       const geometry = new THREE.PlaneGeometry(1, 1, gridRes, gridRes);
       const position = geometry.attributes.position;
@@ -945,6 +965,7 @@ export class TerrainManager {
   async _loadFarChunk(tx, ty) {
     const key = this._key(tx, ty);
     if (this.farChunks.has(key) || this.farPending.has(key)) return;
+    const epoch = this._loadEpoch;
     this.farPending.add(key);
     try {
       const elevImg = await loadImage(ELEVATION_URL(FAR_ZOOM, tx, ty)).catch((err) => {
@@ -952,6 +973,11 @@ export class TerrainManager {
         return null;
       });
       const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
+
+      // See _loadChunk's matching check - bail out if recenter() moved the
+      // origin on while the fetch above was in flight, instead of building
+      // this old-origin tile into the fresh far-chunk set.
+      if (epoch !== this._loadEpoch) return;
 
       const geometry = new THREE.PlaneGeometry(1, 1, FAR_GRID, FAR_GRID);
       const position = geometry.attributes.position;
