@@ -382,6 +382,22 @@ export function createCar(
   // enginePowerHp than the baseline rally car.
   vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
 
+  // Which wheels (indices into vehicle.wheelInfos/wheelLabels above, so
+  // [0,1,2,3] = FL,FR,RL,RR) actually receive engine force - see
+  // app/input.js's updateControls. Defaults to rear-wheel drive (the
+  // baseline rally car and every vehicle before this option existed), but
+  // a descriptor can list any subset (e.g. gc8.js's Subaru sets all four
+  // for all-wheel drive). app/input.js normalizes the per-wheel force so
+  // the *total* propulsive force stays the same regardless of how many
+  // wheels share it (matching FORCE_PER_HP's original 2-driven-wheel
+  // tuning) - so this purely changes how that same total power is put
+  // down (and therefore how the car actually handles: AWD spreads the
+  // longitudinal demand thinner per wheel, leaving more of each wheel's
+  // friction-circle budget free for cornering grip and cutting down on
+  // wheelspin, especially on low-grip surfaces - see
+  // lib/surfaceCompounds.js), not how powerful the engine itself is.
+  vehicle.driveWheels = descriptor.driveWheels ?? [2, 3];
+
   // Per-vehicle handbrake strength (see app/input.js) - independent of any
   // shared global force, same pattern as engineForce above.
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;

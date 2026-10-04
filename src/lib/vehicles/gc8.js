@@ -152,4 +152,12 @@ export default {
   brakeForce: BRAKE_FORCE,
   mass: MASS,
   dragProfile: DRAG_PROFILE,
+  // All-wheel drive (see lib/car.js's driveWheels doc comment/app/input.js)
+  // - matches the real GC8 WRX/STI's symmetrical AWD drivetrain, and puts
+  // this car's power down through all four tyres instead of just the rear
+  // pair, noticeably cutting down on wheelspin/oversteer under hard
+  // acceleration (especially on looser surfaces - see
+  // lib/surfaceCompounds.js) versus a rear-wheel-drive car with the same
+  // enginePowerHp.
+  driveWheels: [0, 1, 2, 3],
 };
