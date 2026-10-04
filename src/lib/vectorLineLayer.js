@@ -82,8 +82,15 @@ const BUILD_TIME_CHECK_INTERVAL = 16;
  *   widths), instead of the default LineMaterial "fat line" (screen-space-width, always facing the
  *   camera - fine for rivers' thin debug traces, but reads as sprite-like billboards rather than a
  *   stripe actually lying on the ground once the line gets wide).
+ * @param {boolean} [options.alwaysStream] - when true, update() fetches/builds segment data
+ *   regardless of the debug overlay's own visibility (mirrors vectorPolygonLayer.js's water data,
+ *   which streams unconditionally since its classifyAt also drives splash.js's wheel-on-water
+ *   check) - set by streets.js since containsPoint()/road classification now also drives
+ *   lib/wheeledVehicle.js's per-surface tyre grip (see surfaceCompounds.js), which must work
+ *   whether or not anyone ever opens the M-key debug overlay. Left false (debug-only, the
+ *   cheaper default) for rivers.js, which has no equivalent gameplay consumer.
  */
-export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false }) {
+export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false, alwaysStream = false }) {
   const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - tileZoom);
   // Style key -> material (LineMaterial, or MeshBasicMaterial when `flat`),
   // shared across every tile/instance of this layer so e.g. every
@@ -415,15 +422,21 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
      * stripe's real-world half-width of its segment (the exact same
      * half-width the ground-hugging quad in _stepChunkBuild is actually
      * drawn with) - used by hud/suspensionHud.js's terrain-type square to
-     * tell "on the road" apart from "off to the side of it", without
-     * waiting for that tile's mesh to finish building. Only meaningful
-     * for `flat` layers (streets.js's real-meter road widths); non-flat
-     * layers (rivers.js's screen-space fat lines) have no well-defined
-     * real-world width to test against, so this always returns false for
-     * those rather than guessing one.
+     * tell "on the road" apart from "off to the side of it", and by
+     * lib/terrainSurface.js's classifySurfaceAt (which drives
+     * lib/wheeledVehicle.js's per-surface tyre grip, see
+     * surfaceCompounds.js) - without waiting for that tile's mesh to
+     * finish building, and independent of the debug overlay's own
+     * visibility for `alwaysStream` layers (streets.js - see that option's
+     * doc comment on createVectorLineLayer) the same way
+     * vectorPolygonLayer.js's classifyAt works regardless of its fill
+     * mesh's visibility. Only meaningful for `flat` layers (streets.js's
+     * real-meter road widths); non-flat layers (rivers.js's screen-space
+     * fat lines) have no well-defined real-world width to test against, so
+     * this always returns false for those rather than guessing one.
      */
     containsPoint(x, z) {
-      if (!flat || !this._visible) return false;
+      if (!flat) return false;
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon);
       const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
       const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
@@ -492,8 +505,11 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     async update(centerTx, centerTy, awaitAll = false) {
       // No point paying for the network fetch/tile build at all while the
       // overlay is hidden - just like terrain.js's borders/buildings'
-      // hitboxes, this is purely cosmetic debug output.
-      if (!this._visible) return;
+      // hitboxes, this is purely cosmetic debug output - *unless*
+      // `alwaysStream` opted in (streets.js, since containsPoint() also
+      // drives tyre-grip surface classification - see that option's doc
+      // comment above).
+      if (!alwaysStream && !this._visible) return;
 
       const ensure = this._ensureRegion(centerTx, centerTy);
       if (awaitAll) await ensure;

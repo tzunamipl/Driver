@@ -16,6 +16,13 @@
 // screen-space fat lines that billboard toward the camera) via the
 // `flat` option. All the actual per-class color/width parameters live in
 // roadClasses.js.
+//
+// Passes `alwaysStream: true` (unlike rivers.js) so its segment data (and
+// therefore containsPoint()) is available regardless of the M-key debug
+// overlay's own visibility: lib/terrainSurface.js's classifySurfaceAt
+// reads it every frame to decide a wheel's tyre-grip surface (see
+// lib/surfaceCompounds.js/lib/wheeledVehicle.js), which has to work during
+// normal play, not just with the debug overlay open.
 
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad } from './roadClasses.js';
@@ -43,4 +50,5 @@ export const StreetsManager = createVectorLineLayer({
   classify,
   lift: STREET_LIFT,
   flat: true,
+  alwaysStream: true,
 });

@@ -8,6 +8,8 @@
 // lib/chariot.js's variable engine count + pod (E1/E2/.../POD), instead of
 // being hardcoded to exactly 4 wheels.
 import { isWheelGrounded } from '../lib/wheelContact.js';
+import { classifySurfaceAt } from '../lib/terrainSurface.js';
+import { DEFAULT_SURFACE_KEY } from '../lib/surfaceCompounds.js';
 
 // Debug-mode wheel colouring: blue while a wheel is off the ground
 // (matching the "hasLanded" readout below, which reflects the scoring
@@ -62,20 +64,17 @@ function gripFractionToColor(fraction) {
 
 /**
  * Classifies a world (x, z) position's terrain type for the debug square
- * (see rebuildBars/updateSuspensionHud below): road (checked first - "on
- * road and water" counts as road per the HUD's own convention) if it
- * falls within any `streets` stripe's real-world width, else water if it
- * falls inside any `waterAreas` polygon, else generic ground. Both
- * terrain layers are optional (debugVisuals.js only wires them up once
- * loaded, and both only have data once the M-key debug overlays
- * themselves are visible - see their own classifyAt/containsPoint doc
- * comments) - this degrades to "always generic" if either/both are
- * missing or simply haven't loaded data for this spot yet.
+ * (see rebuildBars/updateSuspensionHud below) via lib/terrainSurface.js's
+ * shared classifySurfaceAt (same priority/fallback this HUD originally
+ * defined: road first - "on road and water" counts as road - then water,
+ * else the generic/default surface, which this HUD displays as "generic"
+ * rather than terrainSurface.js's internal 'normal' key), also used by
+ * lib/wheeledVehicle.js's per-surface tyre grip so the two can't drift out
+ * of sync.
  */
-function classifyTerrainAt(x, z, { streets, waterAreas } = {}) {
-  if (streets?.containsPoint(x, z)) return 'road';
-  if (waterAreas?.classifyAt(x, z)) return 'water';
-  return 'generic';
+function classifyTerrainAt(x, z, layers) {
+  const surface = classifySurfaceAt(x, z, layers);
+  return surface === DEFAULT_SURFACE_KEY ? 'generic' : surface;
 }
 
 function terrainColor(kind) {

@@ -1,4 +1,5 @@
 import * as CANNON from 'cannon-es';
+import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 
 // Self-contained replacement for cannon-es's CANNON.RaycastVehicle, built
 // from scratch instead of layering fixes on top of it (see car.js's former
@@ -169,6 +170,12 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       suspensionForce: 0,
       isInContact: false,
       sliding: false,
+      // Ground-surface key (road/water/normal - see surfaceCompounds.js),
+      // driven every frame by app/mainLoop.js's classifySurfaceAt call
+      // from this wheel's last-known world position; defaults to the
+      // generic surface until the first frame sets it (e.g. the very
+      // first physics step after spawn).
+      surface: DEFAULT_SURFACE_KEY,
       connectionPointWorld: new CANNON.Vec3(),
       directionWorld: new CANNON.Vec3(),
       axleWorld: new CANNON.Vec3(),
@@ -324,7 +331,16 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     normal.cross(frictionAxle, frictionForward);
     frictionForward.normalize();
 
-    const maxGrip = wheel.suspensionForce * dt * wheel.frictionSlip;
+    // Per-surface tyre compound (road/water/normal - see
+    // surfaceCompounds.js, set every frame on wheel.surface by
+    // app/mainLoop.js's classifySurfaceAt): scales this wheel's own base
+    // frictionSlip, then clamps the resulting raw grip force to the
+    // compound's load-independent ceiling, before turning it into this
+    // step's impulse budget - so e.g. water stays slippery regardless of
+    // how loaded the wheel currently is, not just proportionally grippier.
+    const compound = getSurfaceCompound(wheel.surface);
+    const rawGripForce = Math.min(wheel.suspensionForce * wheel.frictionSlip * compound.frictionMultiplier, compound.maxForceN);
+    const maxGrip = rawGripForce * dt;
 
     // Longitudinal: engine force (continuous push) plus brake treated as a
     // velocity-zeroing impulse (so the handbrake/brake actually locks

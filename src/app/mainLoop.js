@@ -3,6 +3,7 @@ import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/ge
 import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
+import { classifySurfaceAt } from '../lib/terrainSurface.js';
 
 // How often to persist the local car's position/orientation/odometer (see
 // lib/carState.js) - frequent enough that a crash/refresh rarely loses more
@@ -34,6 +35,7 @@ export function createMainLoop({
   shots,
   horn,
   jump,
+  splash,
   remoteCollisions,
   net,
   input,
@@ -224,10 +226,26 @@ export function createMainLoop({
       viewOriginLat,
       viewOriginLon,
     });
+    // Per-wheel tyre-grip surface (road/water/normal - see
+    // lib/surfaceCompounds.js) read by wheeledVehicle.js's applyFriction()
+    // on the *next* physics step(s) this frame's accumulator loop runs -
+    // same one-frame-lag timing splash.js already accepts for its own
+    // wheel-on-water check below, using each wheel's last-known world
+    // position rather than blocking on a fresh raycast mid-step.
+    if (currentVehicle) {
+      for (const wheel of currentVehicle.wheelInfos) {
+        const pos = wheel.worldTransform.position;
+        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas });
+      }
+    }
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world, {
       streets,
       waterAreas,
     });
+    // Wheel-splash particles: independent of debugVisualsEnabled (see
+    // lib/splash.js/vectorPolygonLayer.js's doc comments) so this shows
+    // during normal play, not just with the debug overlay open.
+    splash.update(frameDelta, currentVehicle, world, waterAreas);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
@@ -270,10 +288,15 @@ export function createMainLoop({
         // raycasts/extrusion, see buildings.js), so kicking off their
         // fetch/build last means the cheaper, more immediately important
         // content (ground to drive on, then the debug road/river overlay)
-        // is never left waiting behind it. All three stream on the same
+        // is never left waiting behind it. All four stream on the same
         // tile grid but only actually fetch/build anything once it's their
-        // turn to matter: streets/rivers only while the debug overlay is
-        // visible (see vectorLineLayer.js's update() early-return), and
+        // turn to matter: rivers only while the debug overlay is visible
+        // (see vectorLineLayer.js's update() early-return) - but streets
+        // and waterAreas always fetch/build regardless of that toggle,
+        // since their data also drives per-wheel tyre-grip surface
+        // classification/splash.js's wheel-on-water check respectively
+        // (see vectorLineLayer.js's alwaysStream option doc comment and
+        // vectorPolygonLayer.js's own doc comment) - and
         // every manager time-slices its own CPU-heavy mesh/physics
         // building across frames (see buildings.js's BUILD_TIME_BUDGET_MS)
         // rather than doing it all in the frame it becomes available, so
