@@ -10,6 +10,7 @@ import { createHorn } from './lib/horn.js';
 import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
+import { createBodyDust } from './lib/bodyDust.js';
 import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
@@ -153,7 +154,11 @@ const debugVisuals = createDebugVisualsToggle(
 );
 
 // ---------- Car + remote players ----------
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+// Created ahead of carManager (rather than alongside splash/tireSmoke
+// below) since carManager's chassisBody 'collide' listener needs it
+// immediately on first spawn.
+const bodyDust = createBodyDust(scene);
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
 // ---------- Instant vehicle picker in the debug view (see M-key toggle
 // above); needs net too so switches broadcast to peers like the lobby's
@@ -246,6 +251,7 @@ const mainLoop = createMainLoop({
   jump,
   splash,
   tireSmoke,
+  bodyDust,
   remoteCollisions,
   net,
   input,

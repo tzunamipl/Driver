@@ -37,6 +37,7 @@ export function createMainLoop({
   jump,
   splash,
   tireSmoke,
+  bodyDust,
   remoteCollisions,
   net,
   input,
@@ -255,6 +256,11 @@ export function createMainLoop({
     // above/by wheeledVehicle.js's friction solve), so like splash.js this
     // runs unconditionally - not gated on debugVisualsEnabled.
     tireSmoke.update(frameDelta, currentVehicle, world);
+    // Chassis body-dust particles: driven by discrete 'collide' events
+    // (see app/carManager.js's hookCar) rather than a per-frame
+    // grounded check like splash/tireSmoke, so only animate/age already-
+    // spawned puffs here.
+    bodyDust.update(frameDelta);
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
