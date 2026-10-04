@@ -123,7 +123,7 @@ export const UNLOAD_DELAY_TICKS = 3;
 // FAR_RADIUS_METERS only needs a few dozen chunks instead of thousands.
 const FAR_ZOOM = 11; // ~body of tile is tens of km across at mid latitudes
 const FAR_GRID = 11; // low mesh resolution per tile edge - it's a distant backdrop
-const FAR_RADIUS_METERS = 150_000; // how far out the low-detail terrain extends
+export const FAR_RADIUS_METERS = 120_000; // how far out the low-detail terrain extends
 const FAR_UNLOAD_MARGIN = 1; // tiles of slack, same purpose as UNLOAD_MARGIN above
 const FAR_UNLOAD_DELAY_TICKS = 3;
 // Nudge the far mesh slightly below the detail tier so where their footprints
@@ -427,6 +427,16 @@ function farElevationColor(y, out) {
   const stop = FAR_COLOR_STOPS.find((s) => y < s.y) || FAR_COLOR_STOPS[FAR_COLOR_STOPS.length - 1];
   out.setRGB(stop.r, stop.g, stop.b);
 }
+
+// Lowland stop of the ramp above, exposed as a flat hex color for things
+// that need a single representative "low-detail background" tone (e.g.
+// scene fog) rather than the full elevation-dependent gradient - most
+// driving happens near this elevation band, so it's the best single match.
+export const FAR_BASE_COLOR = new THREE.Color(
+  FAR_COLOR_STOPS[0].r,
+  FAR_COLOR_STOPS[0].g,
+  FAR_COLOR_STOPS[0].b
+).getHex();
 
 /**
  * Streams real-world terrain (aerial imagery + elevation) as circularly-
@@ -829,7 +839,12 @@ export class TerrainManager {
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       geometry.computeVertexNormals();
 
-      const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+      // fog: false - the FAR backdrop tier is excluded from scene.fog so
+      // it keeps its own elevation-based color ramp (FAR_COLOR_STOPS,
+      // already hand-tuned to read as a hazy atmosphere-tinted horizon)
+      // all the way out, instead of being flattened into the fog color by
+      // the 20km far-distance that's meant to target the LOW detail tier.
+      const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, fog: false });
       // Punch the player-centered hole (see holeUniforms comment above) by
       // discarding fragments within holeRadius of the player's local x/z.
       // Vertex local x/z double as world x/z here since far-tier meshes are
