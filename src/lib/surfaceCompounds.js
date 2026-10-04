@@ -32,11 +32,11 @@ export const SURFACE_COMPOUNDS = {
   // every vehicle's own frictionSlip is already tuned against (see car.js's
   // "genuinely sticky tarmac rally tyre" comment), so this is left as a
   // neutral, uncapped, unadjusted baseline.
-  road: { frictionMultiplier: 1.1, frictionSlipOffset: 1.4, maxForceN: Infinity },
+  road: { frictionMultiplier: 1.0, frictionSlipOffset: 1.4, maxForceN: Infinity },
   // Everything else (open terrain, dirt, grass, off the mapped road
   // network) - the default a wheel is classified as. Even the same tyre
   // bites a bare/unpaved surface a little less confidently than tarmac.
-  normal: { frictionMultiplier: 0.8, frictionSlipOffset: 0.1, maxForceN: Infinity },
+  normal: { frictionMultiplier: 0.8, frictionSlipOffset: 0.5, maxForceN: Infinity },
   // OSM water polygons (lib/waterAreas.js) - tyres barely bite into open
   // water at all, and what little grip remains shouldn't scale up just
   // because a heavier vehicle is pressing down harder on it, hence the
@@ -44,7 +44,7 @@ export const SURFACE_COMPOUNDS = {
   // offset on top of the multiplier so even high-frictionSlip vehicles
   // (sticky race tyres) still lose a bit of fixed grip in water, not just
   // a percentage of an already-high number.
-  water: { frictionMultiplier: 0.3, frictionSlipOffset: -0.1, maxForceN: 5000 },
+  water: { frictionMultiplier: 0.2, frictionSlipOffset: -0.1, maxForceN: 5000 },
 };
 
 // Fallback compound key for an unset/unrecognized wheel.surface - "normal"

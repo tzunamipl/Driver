@@ -137,6 +137,15 @@ const FAR_UNLOAD_DELAY_TICKS = 3;
 // briefly overlap at the LOD boundary, the coarse mesh loses any z-fight/
 // peek-through against the detailed one instead of flickering on top of it.
 const FAR_Y_OFFSET = -3;
+// A freshly-loaded low-detail (far tier) chunk fades its opacity in from 0
+// to 1 over this many milliseconds instead of snapping straight to fully
+// opaque, so new backdrop tiles ease into view at the edge of the far ring
+// rather than visibly popping in as the player drives.
+const FAR_FADE_IN_MS = 600;
+// Same idea as FAR_FADE_IN_MS, but for freshly-loaded LOW-tier chunks in the
+// detail grid (see DetailLevel.LOW/_loadChunk's fadeIn) - kept as its own
+// constant so the two tiers' fade durations can be tuned independently.
+const TILE_FADE_IN_MS = 600;
 
 // Imagery is fetched at a higher zoom than the elevation/mesh grid and stitched
 // into a mosaic texture, since aerial detail is available at much finer zoom
@@ -600,11 +609,12 @@ export class TerrainManager {
   /**
    * Lower is more urgent: HIGH tiles always jump ahead of MEDIUM/LOW ones,
    * regardless of how long those have been queued. Within the LOW ring,
-   * tiles ahead of the player's current heading (_headingX/_headingZ, see
-   * update()) outrank ones behind it - the player is about to drive toward
-   * the former and away from the latter, so "behind" LOW tiles are pushed
-   * to the very back of the whole queue instead of competing on distance
-   * alone.
+   * urgency now varies continuously with how closely a tile's direction
+   * from the player aligns with their current heading
+   * (_headingX/_headingZ, see update()): tiles straight ahead load first,
+   * tiles off to the side load next, and tiles almost directly behind load
+   * last - rather than the old binary ahead/behind split, so the queue
+   * reads as a smooth front-to-back gradient instead of two flat buckets.
    */
   _queuePriorityRank(tx, ty) {
     const dx = tx - this._centerX;
@@ -612,8 +622,19 @@ export class TerrainManager {
     const level = detailLevelForOffset(dx, dy);
     if (level === DetailLevel.HIGH) return 0;
     if (level === DetailLevel.MEDIUM) return 1;
-    const behindHeading = dx * this._headingX + dy * this._headingZ < 0;
-    return behindHeading ? 3 : 2; // LOW: ahead (2) before behind (3)
+    // LOW ring: map the angle between this tile's direction and the
+    // player's heading to a continuous rank in [2, 4) - cosAngle is 1
+    // straight ahead, 0 directly to either side, -1 directly behind, so
+    // `1 - cosAngle` is 0 (most urgent, ranks just above MEDIUM's 1) ahead,
+    // 1 (mid) to the side, and 2 (least urgent) behind. Falls back to a
+    // neutral "side" rank (3) when the tile is exactly on the center (no
+    // direction) or there's no heading yet (_headingX/_headingZ both 0,
+    // e.g. before the first update() call with a heading).
+    const dist = Math.hypot(dx, dy);
+    const headingMag = Math.hypot(this._headingX, this._headingZ);
+    if (dist === 0 || headingMag === 0) return 3;
+    const cosAngle = (dx * this._headingX + dy * this._headingZ) / (dist * headingMag);
+    return 2 + (1 - cosAngle);
   }
 
   /**
@@ -787,6 +808,20 @@ export class TerrainManager {
       geometry.computeVertexNormals();
 
       const material = new THREE.MeshStandardMaterial({ map: colorTex, roughness: 1 });
+      // Freshly-loaded LOW tiles (the outer ring - see comment above) start
+      // fully transparent and are eased in to opaque by _updateChunkFades()
+      // over TILE_FADE_IN_MS, so they ease into view at the edge of the
+      // detail tier instead of popping in at full opacity the instant their
+      // mesh/texture finish loading. Skipped for HIGH/MEDIUM (expected to
+      // appear immediately around the player, never worth delaying) and for
+      // rebuilds (the old mesh is still fully visible right up to the swap
+      // below, so fading the replacement in from 0 would flash the tile
+      // transparent for no reason).
+      const fadeIn = !rebuild && level === DetailLevel.LOW;
+      if (fadeIn) {
+        material.transparent = true;
+        material.opacity = 0;
+      }
       const mesh = new THREE.Mesh(geometry, material);
       mesh.receiveShadow = true;
       this.scene.add(mesh);
@@ -824,7 +859,20 @@ export class TerrainManager {
           grid.geometry.attributes.instanceStart.data.array.length) *
           4;
 
-      this.chunks.set(key, { mesh, body, border, grid, tx, ty, bytes, level });
+      // fadeStart marks the chunk as still easing in - see
+      // _updateChunkFades(), which clears it back to null once the fade
+      // finishes so steady-state chunks don't keep recomputing opacity.
+      this.chunks.set(key, {
+        mesh,
+        body,
+        border,
+        grid,
+        tx,
+        ty,
+        bytes,
+        level,
+        fadeStart: fadeIn ? performance.now() : null,
+      });
       this.stats.created++;
       // For a rebuild, the old mesh/body were kept fully intact and
       // visible/collidable in the scene up to this point (see the
@@ -865,6 +913,25 @@ export class TerrainManager {
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
     this.stats.removed++;
+  }
+
+  /**
+   * Eases every still-fading detail-tier chunk's material opacity from 0 to
+   * 1 over TILE_FADE_IN_MS - the LOW-ring counterpart of _updateFarFades(),
+   * see _loadChunk's fadeIn for which chunks actually start faded. Called
+   * every frame from update() (ahead of its early-return for an unchanged
+   * center tile) so the fade keeps animating smoothly even on frames where
+   * nothing else streams in/out.
+   */
+  _updateChunkFades() {
+    if (!this.chunks.size) return;
+    const now = performance.now();
+    for (const chunk of this.chunks.values()) {
+      if (chunk.fadeStart == null) continue;
+      const t = Math.min(1, (now - chunk.fadeStart) / TILE_FADE_IN_MS);
+      chunk.mesh.material.opacity = t;
+      if (t >= 1) chunk.fadeStart = null;
+    }
   }
 
   /**
@@ -916,7 +983,17 @@ export class TerrainManager {
       // already hand-tuned to read as a hazy atmosphere-tinted horizon)
       // all the way out, instead of being flattened into the fog color by
       // the 20km far-distance that's meant to target the LOW detail tier.
-      const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, fog: false });
+      // transparent + opacity: 0 so the chunk starts invisible and is eased
+      // in to fully opaque by _updateFarFades() (driven every frame from
+      // update()) instead of snapping straight to visible the instant its
+      // mesh/elevation data finishes loading - see FAR_FADE_IN_MS above.
+      const material = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 1,
+        fog: false,
+        transparent: true,
+        opacity: 0,
+      });
       // Punch the player-centered hole (see holeUniforms comment above) by
       // discarding fragments within holeRadius of the player's local x/z.
       // Vertex local x/z double as world x/z here since far-tier meshes are
@@ -961,7 +1038,10 @@ export class TerrainManager {
       this.scene.add(mesh);
 
       const bytes = (position.array.length * 2 + vertexCount * 2) * 4 + colors.length * 4;
-      this.farChunks.set(key, { mesh, tx, ty, bytes });
+      // fadeStart marks the chunk as still easing in - see
+      // _updateFarFades(), which clears it back to null once the fade
+      // finishes so steady-state chunks don't keep recomputing opacity.
+      this.farChunks.set(key, { mesh, tx, ty, bytes, fadeStart: performance.now() });
       this.farStats.created++;
     } catch (err) {
       console.warn('Far terrain chunk failed to load', tx, ty, err);
@@ -979,6 +1059,25 @@ export class TerrainManager {
     this.farChunks.delete(key);
     this.farPendingRemoval.delete(key);
     this.farStats.removed++;
+  }
+
+  /**
+   * Eases every still-fading far-tier chunk's material opacity from 0 to 1
+   * over FAR_FADE_IN_MS, so new low-detail backdrop tiles appear gently at
+   * the edge of the far ring instead of popping in at full opacity the
+   * instant they're loaded. Called every frame from update() (ahead of its
+   * early-return for an unchanged center tile) so the fade keeps animating
+   * smoothly even on frames where nothing else streams in/out.
+   */
+  _updateFarFades() {
+    if (!this.farChunks.size) return;
+    const now = performance.now();
+    for (const chunk of this.farChunks.values()) {
+      if (chunk.fadeStart == null) continue;
+      const t = Math.min(1, (now - chunk.fadeStart) / FAR_FADE_IN_MS);
+      chunk.mesh.material.opacity = t;
+      if (t >= 1) chunk.fadeStart = null;
+    }
   }
 
   /**
@@ -1006,6 +1105,11 @@ export class TerrainManager {
    * over ones behind (see _queuePriorityRank).
    */
   async update(localX, localZ, awaitAll = false, heading = null) {
+    // Runs every frame regardless of the centerUnchanged early-return below
+    // so newly-loaded far-tier/LOW-ring chunks keep easing in smoothly even
+    // on frames where the player's tile hasn't changed.
+    this._updateFarFades();
+    this._updateChunkFades();
     if (heading) {
       this._headingX = heading.x;
       this._headingZ = heading.z;

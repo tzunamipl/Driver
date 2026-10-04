@@ -10,6 +10,7 @@ import { createHorn } from './lib/horn.js';
 import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
+import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
@@ -213,6 +214,7 @@ const horn = createHorn();
 const jump = createJump({ world });
 const splash = createSplash(scene);
 const tireSmoke = createTireSmoke(scene);
+const terrainDust = createTerrainDust(scene);
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -251,6 +253,7 @@ const mainLoop = createMainLoop({
   jump,
   splash,
   tireSmoke,
+  terrainDust,
   bodyDust,
   remoteCollisions,
   net,

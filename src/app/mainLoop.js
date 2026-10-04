@@ -37,6 +37,7 @@ export function createMainLoop({
   jump,
   splash,
   tireSmoke,
+  terrainDust,
   bodyDust,
   remoteCollisions,
   net,
@@ -257,6 +258,11 @@ export function createMainLoop({
     // above/by wheeledVehicle.js's friction solve), so like splash.js this
     // runs unconditionally - not gated on debugVisualsEnabled.
     tireSmoke.update(frameDelta, currentVehicle, world);
+    // Terrain-dust particles: plain-ground (wheel.surface === 'normal')
+    // counterpart to tireSmoke's paved-road case, gated on the same
+    // wheel.sliding flag (see lib/terrainDust.js) - unconditional like
+    // splash/tireSmoke, not gated on debugVisualsEnabled.
+    terrainDust.update(frameDelta, currentVehicle, world);
     // Chassis body-dust particles: driven by discrete 'collide' events
     // (see app/carManager.js's hookCar) rather than a per-frame
     // grounded check like splash/tireSmoke, so only animate/age already-
