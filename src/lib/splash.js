@@ -1,12 +1,14 @@
 // Simple wheel-splash particle effect: when a grounded wheel is over a
-// water polygon (see waterAreas.js/vectorPolygonLayer.js's classifyAt,
-// which streams regardless of the M-key debug overlay specifically so
-// this can use it), bursts a few small bright-blue "ball" particles
-// outward from that wheel's contact point, with basic gravity so they
-// arc back down like a splash. Deliberately simple - no real fluid sim,
-// just a pooled set of tiny spheres reused round-robin, matching the
-// rest of this game's lightweight gameplay-effect modules (see jump.js/
-// horn.js).
+// water polygon (see waterAreas.js/vectorPolygonLayer.js's classifyAt) or
+// a narrow waterway centerline (see rivers.js/vectorLineLayer.js's
+// containsPoint - streams/canals/ditches too thin to be mapped as filled
+// polygons), both of which stream regardless of the M-key debug overlay
+// specifically so this can use them, bursts a few small bright-blue
+// "ball" particles outward from that wheel's contact point, with basic
+// gravity so they arc back down like a splash. Deliberately simple - no
+// real fluid sim, just a pooled set of tiny spheres reused round-robin,
+// matching the rest of this game's lightweight gameplay-effect modules
+// (see jump.js/horn.js).
 
 import * as THREE from 'three';
 import { isWheelGrounded } from './wheelContact.js';
@@ -75,9 +77,15 @@ export function createSplash(scene) {
    * @param {number} dt - frame delta in seconds.
    * @param {object|null} vehicle - the active RaycastVehicle-like object (see wheeledVehicle.js), or null if no car is active yet.
    * @param {import('cannon-es').World} world
-   * @param {{ classifyAt(x: number, z: number): string|null }|null} waterAreas
+   * @param {{ classifyAt(x: number, z: number): string|null }|null} waterAreas - filled water-body polygons (oceans/lakes/ponds/wide rivers - see waterAreas.js)
+   * @param {{ containsPoint(x: number, z: number): boolean }|null} [streets] - optional road
+   *   layer (see streets.js); when a wheel is over both a road and water (e.g. a bridge), road
+   *   wins and no splash spawns, mirroring terrainSurface.js's classifySurfaceAt priority.
+   * @param {{ containsPoint(x: number, z: number): boolean }|null} [rivers] - narrow waterway
+   *   centerlines (streams/canals/ditches - see rivers.js) that are too thin to be mapped as
+   *   filled polygons in `waterAreas`; a wheel over either counts as water.
    */
-  function update(dt, vehicle, world, waterAreas) {
+  function update(dt, vehicle, world, waterAreas, streets, rivers) {
     // Age/move every live particle regardless of whether a vehicle/water
     // check even runs this frame, so already-spawned splashes keep
     // animating smoothly.
@@ -100,7 +108,7 @@ export function createSplash(scene) {
       p.mesh.scale.setScalar(Math.max(0.05, p.life / PARTICLE_LIFETIME_S));
     }
 
-    if (!vehicle || !world || !waterAreas) return;
+    if (!vehicle || !world || (!waterAreas && !rivers)) return;
     if (wheelTimers.length !== vehicle.wheelInfos.length) {
       wheelTimers = vehicle.wheelInfos.map(() => 0);
     }
@@ -113,7 +121,9 @@ export function createSplash(scene) {
       if (wheelTimers[i] > 0) return;
       if (!isWheelGrounded(world, wheel)) return;
       const pos = wheel.worldTransform.position;
-      if (waterAreas.classifyAt(pos.x, pos.z) !== 'water') return;
+      if (streets?.containsPoint(pos.x, pos.z)) return;
+      const onWater = waterAreas?.classifyAt(pos.x, pos.z) === 'water' || rivers?.containsPoint(pos.x, pos.z);
+      if (!onWater) return;
 
       spawnBurst(pos.x, pos.y - wheel.radius, pos.z, speed);
       const speedFrac = Math.min(1, speed / EMIT_SPEED_FOR_MIN_INTERVAL);

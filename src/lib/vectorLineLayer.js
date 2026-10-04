@@ -86,9 +86,10 @@ const BUILD_TIME_CHECK_INTERVAL = 16;
  *   regardless of the debug overlay's own visibility (mirrors vectorPolygonLayer.js's water data,
  *   which streams unconditionally since its classifyAt also drives splash.js's wheel-on-water
  *   check) - set by streets.js since containsPoint()/road classification now also drives
- *   lib/wheeledVehicle.js's per-surface tyre grip (see surfaceCompounds.js), which must work
- *   whether or not anyone ever opens the M-key debug overlay. Left false (debug-only, the
- *   cheaper default) for rivers.js, which has no equivalent gameplay consumer.
+ *   lib/wheeledVehicle.js's per-surface tyre grip (see surfaceCompounds.js), and by rivers.js
+ *   since its containsPoint() now also drives splash.js's wheel-on-water check for waterway
+ *   centerlines (streams/canals/ditches too narrow to be mapped as filled polygons). Both must
+ *   work whether or not anyone ever opens the M-key debug overlay.
  */
 export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false, alwaysStream = false }) {
   const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - tileZoom);

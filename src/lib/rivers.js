@@ -1,10 +1,13 @@
-// Debug-only visualization of OSM river/waterway centerlines, drawn as
-// wide, ground-hugging blue stripes (sized per waterway class, in
-// real-world meters, same as streets.js's road stripes) hovering just
-// above the terrain. Purely a debug aid for checking where OSM thinks
-// waterways run relative to the loaded terrain/buildings - toggled off
-// the same M key as the rest of debugVisuals.js, never shown during
-// normal driving.
+// Visualization of OSM river/waterway centerlines, drawn as wide,
+// ground-hugging blue stripes (sized per waterway class, in real-world
+// meters, same as streets.js's road stripes) hovering just above the
+// terrain. The fill mesh itself is a debug aid only, toggled off the
+// same M key as the rest of debugVisuals.js, never shown during normal
+// driving - but (like waterAreas.js's polygon fills) the underlying
+// segment data/containsPoint() streams unconditionally (`alwaysStream`,
+// below) so it can also drive lib/splash.js's wheel-on-water check for
+// narrow waterways (streams/canals/ditches) that only exist as OSM
+// centerlines, not filled polygons.
 //
 // Data/rendering plumbing (tile fetch/decode, per-segment DETAIL_ZOOM
 // bucketing, flat ground-quad meshes, streaming) all lives in
@@ -57,4 +60,9 @@ export const RiversManager = createVectorLineLayer({
   classify: classifyWaterway,
   lift: RIVER_LIFT,
   flat: true,
+  // Its containsPoint() now also drives splash.js's wheel-on-water check
+  // (see module doc comment above), so segment data must stream whether
+  // or not the M-key debug overlay is open - mirrors streets.js's reason
+  // for opting in.
+  alwaysStream: true,
 });

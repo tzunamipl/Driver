@@ -245,8 +245,12 @@ export function createMainLoop({
     });
     // Wheel-splash particles: independent of debugVisualsEnabled (see
     // lib/splash.js/vectorPolygonLayer.js's doc comments) so this shows
-    // during normal play, not just with the debug overlay open.
-    splash.update(frameDelta, currentVehicle, world, waterAreas);
+    // during normal play, not just with the debug overlay open. Also
+    // passes streets so a wheel on a bridge road over water (road wins,
+    // per terrainSurface.js's classifySurfaceAt) doesn't splash, and
+    // rivers so narrow waterway centerlines (too thin to be filled
+    // polygons in waterAreas) splash too.
+    splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     // Tyre-smoke particles: reads wheel.sliding/wheel.surface (already set
     // above/by wheeledVehicle.js's friction solve), so like splash.js this
     // runs unconditionally - not gated on debugVisualsEnabled.
@@ -294,13 +298,13 @@ export function createMainLoop({
         // fetch/build last means the cheaper, more immediately important
         // content (ground to drive on, then the debug road/river overlay)
         // is never left waiting behind it. All four stream on the same
-        // tile grid but only actually fetch/build anything once it's their
-        // turn to matter: rivers only while the debug overlay is visible
-        // (see vectorLineLayer.js's update() early-return) - but streets
-        // and waterAreas always fetch/build regardless of that toggle,
-        // since their data also drives per-wheel tyre-grip surface
-        // classification/splash.js's wheel-on-water check respectively
-        // (see vectorLineLayer.js's alwaysStream option doc comment and
+        // tile grid, and all three of streets/rivers/waterAreas always
+        // fetch/build regardless of the M-key debug overlay's own
+        // visibility (buildings.js has no such toggle to begin with),
+        // since their data also drives gameplay: streets' per-wheel
+        // tyre-grip surface classification, and both rivers' and
+        // waterAreas' splash.js wheel-on-water check (see
+        // vectorLineLayer.js's alwaysStream option doc comment and
         // vectorPolygonLayer.js's own doc comment) - and
         // every manager time-slices its own CPU-heavy mesh/physics
         // building across frames (see buildings.js's BUILD_TIME_BUDGET_MS)
