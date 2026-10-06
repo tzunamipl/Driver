@@ -77,7 +77,7 @@ const DEFAULT_WHEEL_OPTIONS = {
   // in the tyre carcass itself), not just a flat drag force. Modelled as
   // Crr(v) = rollingResistance * (1 + rollingResistanceSpeedFactor * |v|)
   // (v in m/s) - 0.02 means Crr roughly doubles by ~50 m/s (180 km/h).
-  rollingResistanceSpeedFactor: 0.02,
+  rollingResistanceSpeedFactor: 0.08,
   rollInfluence: 0.01,
   // Mirrors the old standalone PITCH_INFLUENCE constant in car.js - how
   // much of the forward (accel/brake) impulse's true lever arm survives
@@ -170,6 +170,24 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       suspensionForce: 0,
       isInContact: false,
       sliding: false,
+      // Signed forward-axis slip speed of the tyre's contact patch
+      // relative to the ground (m/s) - zero for a wheel rolling without
+      // slip, nonzero (and sign-flipped vs. the car's own motion) when
+      // the wheel is spinning faster/slower than the car is actually
+      // travelling (wheelspin/lockup), see the computation alongside
+      // deltaRotation below. Consumed by lib/tireSmoke.js/
+      // lib/terrainDust.js to kick dust/smoke out in the direction the
+      // overspinning tyre tread is actually throwing it, not just the
+      // direction the car itself is moving.
+      spinSlipSpeed: 0,
+      // World-space forward direction of this wheel's contact patch (the
+      // same frictionForward computed fresh each applyFriction call
+      // below), persisted so the dust/smoke effects above know which way
+      // "forward" is for this wheel without recomputing the friction
+      // solve themselves. Stays at its last-grounded value while the
+      // wheel is airborne (harmless - callers already gate on
+      // isWheelGrounded).
+      forwardWorld: new CANNON.Vec3(),
       // Ground-surface key (road/water/normal - see surfaceCompounds.js),
       // driven every frame by app/mainLoop.js's classifySurfaceAt call
       // from this wheel's last-known world position; defaults to the
@@ -315,7 +333,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   function applyFriction(wheel, dt) {
     wheel.sliding = false;
     wheel.gripFraction = 0;
-    if (!wheel.isInContact) return;
+    if (!wheel.isInContact) {
+      wheel.spinSlipSpeed = 0;
+      return;
+    }
 
     const groundBody = wheel.raycastResult.body;
     const normal = wheel.raycastResult.hitNormalWorld;
@@ -330,6 +351,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     frictionAxle.normalize();
     normal.cross(frictionAxle, frictionForward);
     frictionForward.normalize();
+    wheel.forwardWorld.copy(frictionForward);
 
     // Per-surface tyre compound (road/water/normal - see
     // surfaceCompounds.js, set every frame on wheel.surface by
@@ -374,14 +396,21 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     // forever (and lose top speed faster than a flat drag force would).
     // Capped at (not solved as) the impulse that would zero the wheel's
     // own forward speed, so it slows the car toward a stop rather than
-    // ever reversing it in one step.
+    // ever reversing it in one step. The per-surface compound's
+    // rollingResistanceMultiplier (surfaceCompounds.js) scales the
+    // vehicle's own rollingResistance the same proportional way
+    // frictionMultiplier scales frictionSlip above, so e.g. water/loose
+    // ground costs every vehicle extra coasting drag without flattening
+    // each vehicle's own tuning (a monster truck's knobbier tyres still
+    // drag more than a rally car's on the same surface).
     if (wheel.rollingResistance > 0) {
       chassisBody.getVelocityAtWorldPoint(hitPoint, velAtPoint1);
       const rollSpeed = frictionForward.dot(velAtPoint1);
       const denom = impulseDenominator(chassisBody, hitPoint, frictionForward);
       if (denom > 1e-9 && rollSpeed !== 0) {
         const stopImpulse = -rollSpeed / denom; // impulse needed to zero rollSpeed
-        const speedDependentCrr = wheel.rollingResistance * (1 + wheel.rollingResistanceSpeedFactor * Math.abs(rollSpeed));
+        const effectiveRollingResistance = wheel.rollingResistance * compound.rollingResistanceMultiplier;
+        const speedDependentCrr = effectiveRollingResistance * (1 + wheel.rollingResistanceSpeedFactor * Math.abs(rollSpeed));
         const maxResistImpulse = speedDependentCrr * wheel.suspensionForce * dt;
         const resistImpulse = Math.sign(stopImpulse) * Math.min(Math.abs(stopImpulse), maxResistImpulse);
         forwardImpulse += resistImpulse;
@@ -444,6 +473,19 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     }
     if (Math.abs(wheel.brake) > Math.abs(wheel.engineForce)) deltaRotation = 0;
     wheel.rotation += deltaRotation;
+
+    // Forward-axis slip speed of the contact patch itself (m/s, signed):
+    // rollSpeed is how fast the *car* is actually moving along the
+    // wheel's forward axis, while (deltaRotation/dt)*radius is how fast
+    // this step's wheel spin says the tyre surface is moving at the
+    // contact patch - added together (not subtracted) since
+    // deltaRotation is defined with the opposite sign convention to
+    // rollSpeed (see the no-slip case above, where it exactly cancels
+    // rollSpeed out to zero). Zero when rolling without slip; nonzero -
+    // and typically large - under wheelspin/lockup, when the free-spin
+    // deltaRotation above no longer tracks the car's actual rollSpeed at
+    // all.
+    wheel.spinSlipSpeed = rollSpeed + (deltaRotation / dt) * wheel.radius;
   }
 
   function updateVehicle(dt) {

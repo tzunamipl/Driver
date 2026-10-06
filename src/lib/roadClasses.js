@@ -33,12 +33,12 @@ function lerpColor(a, b, t) {
 // `widthMeters` values are rough real-world paved widths (incl.
 // shoulders/medians) for that class, used to size the ground stripe.
 const ROAD_CLASS_DEFS = {
-  motorway: { widthMeters: 14 },
-  trunk: { widthMeters: 12 },
-  primary: { widthMeters: 10 },
-  secondary: { widthMeters: 8.5 },
-  tertiary: { widthMeters: 7 },
-  minor: { widthMeters: 6 },
+  motorway: { widthMeters: 28 },
+  trunk: { widthMeters: 24 },
+  primary: { widthMeters: 20 },
+  secondary: { widthMeters: 17 },
+  tertiary: { widthMeters: 14 },
+  minor: { widthMeters: 12 },
   service: { widthMeters: 4 },
   track: { widthMeters: 3 },
   path: { widthMeters: 1.5 },

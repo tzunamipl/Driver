@@ -51,6 +51,15 @@ const HOVER_STIFFNESS = 10000; // N per metre of compression
 const HOVER_DAMPING = 15; // N per (m/s) of vertical closing speed
 const MAX_HOVER_FORCE = 12000;
 const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
+// Engagement band for the ENGINES' repulsors: clearances strictly between
+// these two are a force-free dead zone (see hoverAt's minEngageHeight/
+// maxEngageHeight), clearances at/outside them re-engage the spring, same
+// direction convention as the pod's own band further down. Both default
+// to HOVER_REST_HEIGHT (zero-width band == no dead zone at all) so the
+// engines keep their original single-rest-height behaviour unless these
+// are deliberately spread apart.
+const ENGINE_HOVER_MIN_ENGAGE_HEIGHT = HOVER_REST_HEIGHT;
+const ENGINE_HOVER_MAX_ENGAGE_HEIGHT = HOVER_REST_HEIGHT;
 
 // Per-engine thrust (descriptor.engineThrustForce - see
 // lib/vehicles/podRacer.js) is this chariot's own independent power
@@ -141,6 +150,22 @@ const POD_LINEAR_DAMPING = LINEAR_DAMPING + 0.2;
 const POD_HOVER_STIFFNESS = 1300; // N per metre of compression
 const POD_HOVER_DAMPING = 200; // N per (m/s) of vertical closing speed
 const POD_MAX_HOVER_FORCE = 1600;
+// Unlike the engines (default to a single strict HOVER_REST_HEIGHT via
+// ENGINE_HOVER_MIN_ENGAGE_HEIGHT/MAX_ENGAGE_HEIGHT above), the pod is
+// dead weight dangling off the tether - it's free to drift within its own
+// clearance band (independently tunable from the engines') with its
+// repulsor completely off (zero force either way), only re-engaging once
+// it strays below the min or above the max.
+const POD_HOVER_MIN_ENGAGE_HEIGHT = 1.2;
+const POD_HOVER_MAX_ENGAGE_HEIGHT = 100.00;
+// Extra upward "aerodynamic" lift on the pod, on top of its hover
+// repulsor - proportional to the square of the pod's own forward-
+// component speed (classic lift-grows-with-speed-squared behaviour), so
+// it's negligible standing still/crawling but meaningfully unloads the
+// repulsor (and tether) at speed. N per (m/s)^2 of forward speed; no cap
+// and no minimum-speed threshold - it simply scales continuously from
+// zero.
+const POD_LIFT_COEFFICIENT = 0.08;
 // Inextensible "steel cable" rope from the live centroid of the three
 // engine bodies (see applyTether) to the pod: it can go slack (the pod is
 // free to swing/sag/lag) but once stretched taut to TETHER_MAX_LENGTH it
@@ -156,7 +181,7 @@ const POD_MAX_HOVER_FORCE = 1600;
 // once stretched past restLength + SLACK, so the pod has real room to
 // swing/sag/lag before the cable snaps taut, instead of feeling like it's
 // rigidly bolted on at a fixed distance.
-const TETHER_SLACK = 2.6;
+const TETHER_SLACK = 5.6;
 // Purely cosmetic: how much the (now 3-segment, see podRacer.js's
 // orientTetherChain) tether visibly bows downward once it's slack - i.e.
 // once its real straight-line length (attach point -> pod) is shorter
@@ -164,8 +189,8 @@ const TETHER_SLACK = 2.6;
 // distance (1 metre of cable slack shouldn't droop 1 whole metre - reads
 // as way too loose/cartoonish) and capped so a fully-slack cable still
 // looks like a cable, not a hoop dragging on the ground.
-const TETHER_SAG_FACTOR = 0.35;
-const TETHER_MAX_SAG = 1.1;
+const TETHER_SAG_FACTOR = 0.2;
+const TETHER_MAX_SAG = 1.3;
 
 // --- Cosmetic-only engine/formation orientation ---
 // The engines are simple, symmetric spheres - there is no meaningful
@@ -199,9 +224,27 @@ function buildEngineBody(mass) {
  * so the much-lighter pod (see POD_HOVER_STIFFNESS etc.) can use its own
  * gains instead of the engines' - a spring tuned for one engine's share of
  * the chassis mass would be wildly underdamped/twitchy on a pod that's
- * deliberately only a few kilos.
+ * deliberately only a few kilos. `minEngageHeight`/`maxEngageHeight`
+ * (both default to HOVER_REST_HEIGHT, i.e. no dead zone) mark the ground-
+ * clearance band within which the repulsor is force-free - callers pass
+ * their own pair (ENGINE_HOVER_MIN/MAX_ENGAGE_HEIGHT, POD_HOVER_MIN/
+ * MAX_ENGAGE_HEIGHT) so engines and the pod can each have an
+ * independently-sized (and independently-positioned) dead zone instead of
+ * sharing one.
  */
-function hoverAt(world, worldPos, verticalVelocity, rayFrom, rayTo, rayResult, stiffness, damping, maxForce) {
+function hoverAt(
+  world,
+  worldPos,
+  verticalVelocity,
+  rayFrom,
+  rayTo,
+  rayResult,
+  stiffness,
+  damping,
+  maxForce,
+  minEngageHeight = HOVER_REST_HEIGHT,
+  maxEngageHeight = HOVER_REST_HEIGHT
+) {
   rayFrom.set(worldPos.x, worldPos.y + 0.25, worldPos.z);
   rayTo.set(worldPos.x, worldPos.y - HOVER_MAX_RAY, worldPos.z);
   rayResult.reset();
@@ -213,13 +256,25 @@ function hoverAt(world, worldPos, verticalVelocity, rayFrom, rayTo, rayResult, s
   // ever getting capped once it's low enough to actually see the ground
   // again.
   const clearance = rayResult.hasHit ? worldPos.y - rayResult.hitPointWorld.y : HOVER_MAX_RAY;
-  const compression = HOVER_REST_HEIGHT - clearance;
+  // [minEngageHeight, maxEngageHeight] carves out a no-force band of
+  // clearances - compression is measured from whichever band edge was
+  // crossed (0 while inside the band) rather than always from one exact
+  // rest height, so callers like the pod can free-float across a whole
+  // range of heights instead of being pinned to one, while engines
+  // (both bounds defaulting to HOVER_REST_HEIGHT) keep the original
+  // single-height spring behaviour unchanged unless deliberately spread.
+  let compression = 0;
+  if (clearance < minEngageHeight) {
+    compression = minEngageHeight - clearance;
+  } else if (clearance > maxEngageHeight) {
+    compression = maxEngageHeight - clearance;
+  }
   // Symmetric spring-damper: pushes up when too low (compression > 0, as
   // before) AND pulls down when too high (compression < 0) so the rig
   // can't just keep climbing forever on thrust/momentum alone - a real
-  // repulsor field has a natural rest height it holds station at, not
-  // just a floor it refuses to sink through.
-  const force = THREE.MathUtils.clamp(compression * stiffness - verticalVelocity * damping, -maxForce, maxForce);
+  // repulsor field has a natural rest height (or rest band) it holds
+  // station at/within, not just a floor it refuses to sink through.
+  const force = compression === 0 ? 0 : THREE.MathUtils.clamp(compression * stiffness - verticalVelocity * damping, -maxForce, maxForce);
   return { force, clearance, grounded: clearance < HOVER_REST_HEIGHT + 0.3 };
 }
 
@@ -583,7 +638,19 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     const stepDt = world.dt > 0 ? world.dt : 1 / 60;
 
     engineBodies.forEach((body, i) => {
-      const hover = hoverAt(world, body.position, body.velocity.y, rayFrom, rayTo, rayResult, HOVER_STIFFNESS, HOVER_DAMPING, MAX_HOVER_FORCE);
+      const hover = hoverAt(
+        world,
+        body.position,
+        body.velocity.y,
+        rayFrom,
+        rayTo,
+        rayResult,
+        HOVER_STIFFNESS,
+        HOVER_DAMPING,
+        MAX_HOVER_FORCE,
+        ENGINE_HOVER_MIN_ENGAGE_HEIGHT,
+        ENGINE_HOVER_MAX_ENGAGE_HEIGHT
+      );
       if (hover.force !== 0) {
         scratchForce.set(0, hover.force, 0);
         body.applyForce(scratchForce);
@@ -661,13 +728,25 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
       rayResult,
       POD_HOVER_STIFFNESS,
       POD_HOVER_DAMPING,
-      POD_MAX_HOVER_FORCE
+      POD_MAX_HOVER_FORCE,
+      POD_HOVER_MIN_ENGAGE_HEIGHT,
+      POD_HOVER_MAX_ENGAGE_HEIGHT
     );
     if (podHover.force !== 0) {
       scratchForce.set(0, podHover.force, 0);
       podBody.applyForce(scratchForce);
     }
     anyGrounded = anyGrounded || podHover.grounded;
+    // Extra speed-dependent lift (see POD_LIFT_COEFFICIENT) - uses the
+    // pod's own forward-component speed (its velocity projected onto the
+    // shared heading, not raw/total speed), squared so direction doesn't
+    // matter and it grows sharply once genuinely moving.
+    const podForwardSpeed = podBody.velocity.x * sharedForward.x + podBody.velocity.z * sharedForward.z;
+    const podLiftForce = POD_LIFT_COEFFICIENT * podForwardSpeed * podForwardSpeed;
+    if (podLiftForce !== 0) {
+      scratchForce.set(0, podLiftForce, 0);
+      podBody.applyForce(scratchForce);
+    }
     // The pod (dead weight on the tether) gets the same drag treatment,
     // using the shared heading too - podBody.quaternion is fixedRotation
     // and never updates, so it's not a usable "facing" reference.
@@ -977,6 +1056,14 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     vehicle,
     chassisBody,
     chassisMesh,
+    // The pod's own real, independently-tethered mesh (podGroup -
+    // interpolated 1:1 from podBody/podFacingQuat every frame, see
+    // syncMeshes above) - separate from chassisMesh (which is really the
+    // centre engine's mesh, see that field's own comment above) so camera
+    // views that want to actually mount on the pod itself (see
+    // app/cameraViews/pod.js's `mountPoint: 'pod'`) have a real transform
+    // to attach to, instead of inheriting the centre engine's.
+    podMesh: podGroup,
     wheelMeshes: [],
     syncMeshes,
     snapshotPhysics,

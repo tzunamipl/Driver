@@ -875,6 +875,27 @@
         padding: 5px 6px;
         font-size: 10px;
       }
+      #vehicle-debug-color {
+        display: block;
+        width: 100%;
+        height: 26px;
+        box-sizing: border-box;
+        margin-top: 6px;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        border-radius: 4px;
+        background: transparent;
+        cursor: pointer;
+      }
+      #vehicle-debug-color::-webkit-color-swatch-wrapper { padding: 0; }
+      #vehicle-debug-color::-webkit-color-swatch {
+        border: none;
+        border-radius: 3px;
+      }
+      #vehicle-debug-color::-moz-color-swatch {
+        border: none;
+        border-radius: 3px;
+      }
       /* Car-navigation-style minimap: round, north-up, with a rotating car
          marker, zoom controls, a scale bar, and a place-name/coordinates
          readout above the dial. */
@@ -1336,6 +1357,7 @@
           H &mdash; horn<br />
           J &mdash; jump (hold longer for a higher jump)<br />
           R &mdash; reset car<br />
+          C &mdash; switch camera view<br />
           M &mdash; toggle debug view
           <div class="hud-points">
             Points<br />
@@ -1362,6 +1384,7 @@
           <div class="susp-title">VEHICLE</div>
           <div id="vehicle-debug-tabs"></div>
           <div id="vehicle-debug-list"></div>
+          <input id="vehicle-debug-color" type="color" value="#ffffff" aria-label="Car color" />
         </div>
       </div>
     </div>

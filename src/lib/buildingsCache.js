@@ -125,8 +125,9 @@ async function trimIfNeeded(db) {
  * given zoom. Used as a fallback when a live region fetch fails outright,
  * so previously-seen buildings still render instead of the area staying
  * empty. Returns a Map<tileKey, buildingList> (buildingList entries shaped
- * like { ring, height }, same as a live fetch produces) - empty if the
- * cache is unavailable or nothing was found.
+ * like { ring, height, color }, same as a live fetch produces - `color` is
+ * a plain 0xRRGGBB int or null) - empty if the cache is unavailable or
+ * nothing was found.
  */
 export async function readCachedRegion(zoom, minTx, maxTx, minTy, maxTy) {
   const result = new Map();

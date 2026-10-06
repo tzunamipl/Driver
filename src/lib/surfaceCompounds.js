@@ -11,7 +11,7 @@
 //   effectiveFrictionSlip = frictionSlip * frictionMultiplier + frictionSlipOffset
 //   maxGrip = min(suspensionForce * effectiveFrictionSlip, maxForceN) * dt
 //
-// Three independent knobs per compound:
+// Four independent knobs per compound:
 //   - frictionMultiplier: scales the vehicle's own frictionSlip (mu) -
 //     keeps each vehicle's relative tyre character intact on every
 //     surface instead of flattening every vehicle to one absolute number.
@@ -27,24 +27,35 @@
 //     more traction out of a puddle just because it's pressing down
 //     harder on it. Infinity = no such cap (load alone decides the limit,
 //     same as before this file existed).
+//   - rollingResistanceMultiplier: scales the vehicle's own
+//     rollingResistance (Crr, car.js/vehicles/*.js - see wheeledVehicle.js's
+//     applyFriction() rolling-resistance handling), same proportional
+//     "keep each vehicle's own tuning intact, just nudge it per-surface"
+//     approach as frictionMultiplier - e.g. a soft/loose surface costs
+//     every vehicle extra coasting drag, on top of (not instead of) a
+//     monster truck's already-higher rollingResistance vs. a rally car's.
+//     1.0 = no adjustment.
 export const SURFACE_COMPOUNDS = {
   // Paved OSM roads (lib/terrainSurface.js/lib/streets.js) - the surface
   // every vehicle's own frictionSlip is already tuned against (see car.js's
   // "genuinely sticky tarmac rally tyre" comment), so this is left as a
   // neutral, uncapped, unadjusted baseline.
-  road: { frictionMultiplier: 1.0, frictionSlipOffset: 1.4, maxForceN: Infinity },
+  road: { frictionMultiplier: 3.0, frictionSlipOffset: 1.0, maxForceN: Infinity, rollingResistanceMultiplier: 1.0 },
   // Everything else (open terrain, dirt, grass, off the mapped road
   // network) - the default a wheel is classified as. Even the same tyre
-  // bites a bare/unpaved surface a little less confidently than tarmac.
-  normal: { frictionMultiplier: 0.8, frictionSlipOffset: 0.5, maxForceN: Infinity },
+  // bites a bare/unpaved surface a little less confidently than tarmac,
+  // and loose/uneven ground costs a bit of extra rolling drag too.
+  normal: { frictionMultiplier: 1.5, frictionSlipOffset: 0.5, maxForceN: Infinity, rollingResistanceMultiplier: 4.0 },
   // OSM water polygons (lib/waterAreas.js) - tyres barely bite into open
   // water at all, and what little grip remains shouldn't scale up just
   // because a heavier vehicle is pressing down harder on it, hence the
   // hard force cap stacked on top of the low multiplier. Small negative
   // offset on top of the multiplier so even high-frictionSlip vehicles
   // (sticky race tyres) still lose a bit of fixed grip in water, not just
-  // a percentage of an already-high number.
-  water: { frictionMultiplier: 0.2, frictionSlipOffset: -0.1, maxForceN: 5000 },
+  // a percentage of an already-high number. Rolling resistance climbs
+  // sharply too - wading through water drags on a wheel far more than
+  // rolling over dry ground.
+  water: { frictionMultiplier: 0.5, frictionSlipOffset: -0.1, maxForceN: 5000, rollingResistanceMultiplier: 20.0 },
 };
 
 // Fallback compound key for an unset/unrecognized wheel.surface - "normal"

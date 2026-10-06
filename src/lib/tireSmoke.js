@@ -22,9 +22,9 @@ import { isWheelGrounded } from './wheelContact.js';
 // (all wheels emitting at the fixed interval for a full particle lifetime)
 // so a new puff never has to cut an older, still-visible one short.
 const POOL_SIZE = 64;
-const PARTICLES_PER_EMIT = 2;
-const EMIT_INTERVAL_S = 0.06;
-const PARTICLE_LIFETIME_S = 0.7;
+const PARTICLES_PER_EMIT = 1;
+const EMIT_INTERVAL_S = 0.07;
+const PARTICLE_LIFETIME_S = 0.3;
 // Puff grows over its life (real smoke expands/diffuses as it rises)
 // rather than staying a fixed size like splash.js's splash droplets.
 const START_SCALE = 0.12;
@@ -37,13 +37,38 @@ const BASE_OPACITY = 0.45;
 const RISE_SPEED_MIN = 0.4;
 const RISE_SPEED_MAX = 0.9;
 const JITTER_SPEED = 0.35;
-const DRAG = 0.9; // multiplies velocity each second (exponential decay)
+const DRAG = 0.98; // multiplies velocity each second (exponential decay) - also what gradually stops the inherited chassis velocity below
+// Smoke is kicked up from a moving car's tyre, so it should carry some of
+// the chassis's own momentum rather than spawning dead-still - only
+// partially, so it still reads as smoke billowing from the contact patch
+// rather than being dragged along rigidly.
+const VELOCITY_INHERIT_FRACTION = 0.1;
+// How much of a sliding wheel's own forward-axis spin-slip speed
+// (wheeledVehicle.js's wheel.spinSlipSpeed - the contact patch's slip
+// speed relative to the ground, from the tyre spinning faster/slower
+// than the car is actually travelling) gets added straight to the
+// puff's launch velocity, on top of the chassis-inherited velocity above
+// - e.g. a wheel spinning up from a standing start throws smoke out
+// behind the car instead of just drifting with it. Kept below 1 so this
+// reads as "kicked by the tyre" rather than a literal 1:1 velocity match
+// (customSlidingRotationalSpeed's free-spin speed can be quite large).
+const SPIN_LAUNCH_FRACTION = 0.3;
+// Clamp so an extreme free-spin speed can't fling a puff absurdly far.
+const SPIN_LAUNCH_SPEED_MAX = 15;
 
 const PARTICLE_GEO = new THREE.SphereGeometry(1, 6, 5);
 // Slight grey variation per particle (set once at spawn, not animated) so
 // a burst doesn't read as flat, identical clones.
 const COLOR_MIN = 0x8a8a8a;
 const COLOR_MAX = 0xc2c2c2;
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+// Reused scratch object for the spin-slip velocity passed to spawnPuff
+// each emit (avoids an allocation per puff/per wheel per frame).
+const spinVelocityScratch = { x: 0, z: 0 };
 
 /** Creates the tyre-smoke effect. Call update() once per rendered frame (see app/mainLoop.js). */
 export function createTireSmoke(scene) {
@@ -65,7 +90,11 @@ export function createTireSmoke(scene) {
   // suspensionHud.js's own lazy per-wheel-count rebuild).
   let wheelTimers = [];
 
-  function spawnPuff(x, y, z) {
+  /**
+   * @param {{x: number, y: number, z: number}} [chassisVelocity] - current chassis velocity (m/s), partially inherited so smoke drifts along with the car instead of spawning dead-still.
+   * @param {{x: number, y: number, z: number}} [spinVelocity] - extra velocity (m/s) from the wheel's own forward-axis spin-slip (see wheeledVehicle.js's spinSlipSpeed), added on top so a wheel spinning faster than the car is moving actually launches smoke in that direction instead of just drifting with the chassis.
+   */
+  function spawnPuff(x, y, z, chassisVelocity, spinVelocity) {
     const p = pool[nextSlot];
     nextSlot = (nextSlot + 1) % POOL_SIZE;
     p.life = PARTICLE_LIFETIME_S;
@@ -77,6 +106,14 @@ export function createTireSmoke(scene) {
     const angle = Math.random() * Math.PI * 2;
     const jitter = Math.random() * JITTER_SPEED;
     p.velocity.set(Math.cos(angle) * jitter, RISE_SPEED_MIN + Math.random() * (RISE_SPEED_MAX - RISE_SPEED_MIN), Math.sin(angle) * jitter);
+    if (chassisVelocity) {
+      p.velocity.x += chassisVelocity.x * VELOCITY_INHERIT_FRACTION;
+      p.velocity.z += chassisVelocity.z * VELOCITY_INHERIT_FRACTION;
+    }
+    if (spinVelocity) {
+      p.velocity.x += spinVelocity.x;
+      p.velocity.z += spinVelocity.z;
+    }
   }
 
   /**
@@ -115,8 +152,16 @@ export function createTireSmoke(scene) {
       if (!isWheelGrounded(world, wheel)) return;
 
       const pos = wheel.worldTransform.position;
+      // Spin-slip speed is signed along the wheel's own forward axis
+      // (wheel.forwardWorld) - negative when the tyre is overspinning
+      // forward faster than the car is moving (the common wheelspin
+      // case), which throws smoke out behind the car rather than ahead
+      // of it.
+      const spinSpeed = clamp(wheel.spinSlipSpeed * SPIN_LAUNCH_FRACTION, -SPIN_LAUNCH_SPEED_MAX, SPIN_LAUNCH_SPEED_MAX);
+      spinVelocityScratch.x = wheel.forwardWorld.x * spinSpeed;
+      spinVelocityScratch.z = wheel.forwardWorld.z * spinSpeed;
       for (let n = 0; n < PARTICLES_PER_EMIT; n++) {
-        spawnPuff(pos.x, pos.y - wheel.radius * 0.9, pos.z);
+        spawnPuff(pos.x, pos.y - wheel.radius * 0.9, pos.z, vehicle.chassisBody.velocity, spinVelocityScratch);
       }
       wheelTimers[i] = EMIT_INTERVAL_S;
     });

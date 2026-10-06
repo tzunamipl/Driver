@@ -92,6 +92,69 @@ const MIN_FOOTPRINT_POINTS = 3;
 const MAX_FOOTPRINT_METERS = 500; // building footprints bigger than this are almost certainly bad data for this scale
 
 const BUILDING_COLOR = 0xb8b0a4;
+const DEFAULT_BUILDING_COLOR = new THREE.Color(BUILDING_COLOR);
+
+// OpenMapTiles' building layer carries an optional `colour` field (sourced
+// from OSM's building:colour/roof:colour tags, with OpenMapTiles filling in
+// a generalized default for plenty of untagged buildings too - in practice
+// the large majority of features in a tile have *some* value here) as
+// either a CSS hex string ("#rrggbb"/"#rgb") or a CSS/X11 color keyword
+// ("white", "dark_grey" with an underscore has been seen in the wild too,
+// which isn't a real CSS keyword). Anything that isn't recognized as one
+// of those two forms is treated as "no usable tag data" - same as a
+// missing `colour` field - and falls through to the deterministic grey
+// fallback below, rather than risk THREE.Color logging a warning and
+// silently leaving a stale/wrong color behind.
+const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+const _parsedColorCache = new Map(); // raw `colour` string -> plain 0xRRGGBB int (or null if unrecognized)
+const _colorParseScratch = new THREE.Color();
+const _vertexColorScratch = new THREE.Color();
+
+// For the (still sizable, see above) minority of buildings with no usable
+// `colour` tag, rather than paint every one of them the exact same flat
+// BUILDING_COLOR (visually flat/repetitive at a glance across a whole
+// city block), derive a grey deterministically from the feature's own OSM
+// id - the same building always gets the same shade on every fetch/reload/
+// cache read, but different buildings don't all match each other.
+const FALLBACK_GREY_LIGHT = 0xd8; // single channel, 0-255 - grayscale, so R=G=B
+const FALLBACK_GREY_DARK = 0x58;
+
+// Tiny FNV-1a string hash - good enough spread for "pick a shade" use, not
+// cryptographic; used instead of bitwise ops directly on `id` since OSM
+// way ids comfortably exceed 32 bits (bitwise ops in JS truncate to 32).
+function fnv1aHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Deterministic light-to-dark grey (0xRRGGBB, R=G=B) derived from a stable per-building key (its OSM id, or a tile-local fallback if that's ever missing). */
+function greyFromKey(key) {
+  const t = fnv1aHash(String(key)) / 0xffffffff;
+  const channel = Math.round(FALLBACK_GREY_DARK + t * (FALLBACK_GREY_LIGHT - FALLBACK_GREY_DARK));
+  return channel * 0x010101;
+}
+
+// Returns a plain 0xRRGGBB integer (same representation as BUILDING_COLOR
+// above) rather than a THREE.Color instance - these entries get persisted
+// as-is to IndexedDB (see buildingsCache.js), and a plain number survives
+// that structured-clone round trip unambiguously, whereas a class
+// instance's prototype/methods wouldn't.
+function parseBuildingColor(props) {
+  const raw = props && props.colour;
+  if (typeof raw !== 'string' || !raw) return null;
+  const trimmed = raw.trim();
+  if (_parsedColorCache.has(trimmed)) return _parsedColorCache.get(trimmed);
+  let hex = null;
+  if (HEX_COLOR_RE.test(trimmed) || THREE.Color.NAMES[trimmed.toLowerCase()] !== undefined) {
+    hex = _colorParseScratch.setStyle(trimmed).getHex();
+  }
+  _parsedColorCache.set(trimmed, hex);
+  return hex;
+}
 
 // Per-frame time budget (ms) spent synchronously extruding/physics-building
 // already-fetched buildings into meshes/bodies. A freshly-available region
@@ -220,6 +283,13 @@ async function fetchBuildingTile(tx14, ty14) {
       }));
 
       const height = parseHeightMeters(feature.properties);
+      // Prefer the OSM-tagged/OpenMapTiles-provided colour; fall back to a
+      // deterministic grey derived from the feature's own OSM id (falling
+      // back further to a tile+index key on the rare feature with no id at
+      // all) so an untagged building still always renders the same shade
+      // rather than either a flat uniform grey or something that changes
+      // across reloads - see greyFromKey/parseBuildingColor above.
+      const color = parseBuildingColor(feature.properties) ?? greyFromKey(feature.id != null ? feature.id : `${tx14}_${ty14}_${i}`);
 
       let sumLat = 0;
       let sumLon = 0;
@@ -238,7 +308,7 @@ async function fetchBuildingTile(tx14, ty14) {
         list = [];
         byTile.set(key, list);
       }
-      list.push({ ring, height });
+      list.push({ ring, height, color });
     } catch (err) {
       console.warn('Skipping one malformed building feature', tx14, ty14, err);
     }
@@ -418,7 +488,11 @@ export class BuildingsManager {
     this._queuedKeys = new Set();
     this._inProgressBuilds = new Map(); // key -> build descriptor (see _beginChunkBuild)
     this.material = new THREE.MeshStandardMaterial({
-      color: BUILDING_COLOR,
+      // Per-building color (see parseBuildingColor/BUILDING_COLOR fallback)
+      // comes in as a vertex color attribute baked into the merged tile
+      // geometry in _stepChunkBuild - keep the material's own base color
+      // white so it doesn't tint those colors.
+      vertexColors: true,
       roughness: 0.9,
       // OSM way winding order isn't guaranteed, and ExtrudeGeometry's
       // normals depend on it - render both faces so a reversed-winding
@@ -784,6 +858,23 @@ export class BuildingsManager {
         // space; translate it up to the sampled ground height so the
         // merged-geometry vertices land at the right world Y.
         built.geometry.translate(0, groundY, 0);
+
+        // Per-building vertex colors (see parseBuildingColor/greyFromKey
+        // above), since every tile's buildings get merged into one mesh/
+        // material. `entry.color` is always set for freshly-fetched data
+        // (tag color or deterministic grey fallback); the flat
+        // DEFAULT_BUILDING_COLOR here only covers entries read back from an
+        // older IndexedDB cache written before this field existed.
+        const buildingColor = entry.color == null ? DEFAULT_BUILDING_COLOR : _vertexColorScratch.setHex(entry.color);
+        const vertexCount = built.geometry.attributes.position.count;
+        const colorArray = new Float32Array(vertexCount * 3);
+        for (let v = 0; v < vertexCount; v++) {
+          colorArray[v * 3] = buildingColor.r;
+          colorArray[v * 3 + 1] = buildingColor.g;
+          colorArray[v * 3 + 2] = buildingColor.b;
+        }
+        built.geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+
         build.geometries.push(built.geometry);
       } catch (err) {
         build.skipped++;

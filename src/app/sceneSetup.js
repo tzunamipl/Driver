@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FAR_BASE_COLOR } from '../lib/terrain.js';
+import { FAR_BASE_COLOR, SKY_COLOR } from '../lib/terrain.js';
 
 // Renderer / scene / camera / lighting bootstrap - the pure "rendering
 // environment" concern, isolated from physics, gameplay, and UI so it can
@@ -30,7 +30,7 @@ export function createSceneEnvironment() {
   app.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
+  scene.background = SKY_COLOR.clone();
   // Linear (not exponential) fog: stays fully clear out to 10km - nearby
   // and most of the LOW detail tier reads crisp with no haze at all - then
   // fades LOW detail tiles out between 10km and 20km (LOW_DETAIL_RADIUS's

@@ -34,7 +34,7 @@ const MIN_SPLASH_SPEED = 0.6;
 // never has to serve more than POOL_SIZE concurrent particles.
 const EMIT_INTERVAL_MAX_S = 0.14;
 const EMIT_INTERVAL_MIN_S = 0.05;
-const EMIT_SPEED_FOR_MIN_INTERVAL = 14; // m/s
+const EMIT_SPEED_FOR_MIN_INTERVAL = 1; // m/s
 
 const PARTICLE_GEO = new THREE.SphereGeometry(PARTICLE_RADIUS, 6, 5);
 const PARTICLE_MAT = new THREE.MeshBasicMaterial({ color: PARTICLE_COLOR });

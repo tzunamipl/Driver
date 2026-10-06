@@ -12,6 +12,7 @@ import { createSplash } from './lib/splash.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
+import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/music.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
@@ -41,7 +42,7 @@ import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
-import { createVehicleDebugPicker } from './hud/vehicleDebugPicker.js';
+import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
@@ -163,12 +164,18 @@ const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, b
 
 // ---------- Instant vehicle picker in the debug view (see M-key toggle
 // above); needs net too so switches broadcast to peers like the lobby's
-// picker does on join. ----------
+// picker does on join. Pre-loads any previously saved dev-mode car/color
+// pick (see loadDevCarChoice() in hud/vehicleDebugPicker.js) so the panel
+// shows the right highlight even before the car itself spawns with it. ----------
+const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
 const vehicleDebugPicker = createVehicleDebugPicker({
   carManager,
   net,
   tabsEl: document.getElementById('vehicle-debug-tabs'),
   listEl: document.getElementById('vehicle-debug-list'),
+  colorEl: document.getElementById('vehicle-debug-color'),
+  initialVehicleId: devCarChoice?.vehicleId,
+  initialColor: devCarChoice?.color,
 });
 
 // ---------- Input ----------
@@ -215,6 +222,7 @@ const jump = createJump({ world });
 const splash = createSplash(scene);
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
+const clouds = createClouds(scene);
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -255,6 +263,7 @@ const mainLoop = createMainLoop({
   tireSmoke,
   terrainDust,
   bodyDust,
+  clouds,
   remoteCollisions,
   net,
   input,
@@ -315,8 +324,11 @@ terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
     // Skip the name/color prompt and preview car entirely in dev -
-    // joinRoom() spawns the (only) car and starts the loop itself.
-    lobby.joinRoom('dev_mode', DEFAULT_BODY_COLOR);
+    // joinRoom() spawns the (only) car and starts the loop itself. Joins
+    // with a previously saved car/color pick (devCarChoice, see above) if
+    // there is one, so switching cars/colors via the debug HUD survives a
+    // reload instead of resetting to the default every time.
+    lobby.joinRoom('dev_mode', devCarChoice?.color ?? DEFAULT_BODY_COLOR, devCarChoice?.vehicleId);
     return;
   }
   // If the player already picked a name/color on a previous visit, skip

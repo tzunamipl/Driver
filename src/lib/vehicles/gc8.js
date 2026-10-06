@@ -21,7 +21,7 @@ const ENGINE_POWER_HP = 300;
 // independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
 // ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
 // braking deceleration as before the mass bump (see MASS's comment).
-const BRAKE_FORCE = 6000;
+const BRAKE_FORCE = 600;
 // Chassis weight in kg - the baseline rally car's own independent weight
 // rating. 1500kg matches a real rally-prepped car's curb weight (an
 // earlier 150kg felt unrealistically light/floaty under the world's
@@ -44,7 +44,7 @@ const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
 // steadier, more planted amount of lock once up to speed - still this
 // car's own independent rating, same pattern as ENGINE_POWER_HP/MASS.
 const MAX_STEER_AT_0 = 0.5;
-const MAX_STEER_AT_100 = 0.3;
+const MAX_STEER_AT_100 = 0.4;
 
 const DEFAULT_BODY_COLOR = 0xffffff; // white
 

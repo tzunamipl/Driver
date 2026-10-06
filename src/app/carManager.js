@@ -1,4 +1,4 @@
-import { createCar, createRemoteCar, createNameTag } from '../lib/car.js';
+import { createCar, createRemoteCar } from '../lib/car.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
@@ -15,6 +15,13 @@ import { applyImpactRoll } from './collisions.js';
 export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
+  // The hover rig's separately-tethered pod mesh (see lib/chariot.js's
+  // createChariotVehicle) - undefined for wheeled cars, which have no pod
+  // at all. Exposed via getPodMesh() so camera views that need to mount
+  // on the actual pod (see app/cameraViews/pod.js) can, instead of
+  // inheriting chassisMesh (which, on a chariot, is really the centre
+  // engine's mesh - see that field's own doc comment in lib/chariot.js).
+  let podMesh = null;
   let wheelMeshes = [];
   let syncMeshes = null;
   let snapshotPhysics = null;
@@ -30,7 +37,6 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let dispose = null;
   let localName = '';
   let score = 0;
-  let nameTag = null;
   let currentColor = DEFAULT_BODY_COLOR;
   let currentVehicleId = DEFAULT_VEHICLE_ID;
   const remotes = new Map();
@@ -48,19 +54,17 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP && bodyDust) {
         const contact = event.contact;
         const chassis = nextVehicle.chassisBody;
-        // contact.ri/rj are already lever arms in world orientation from
-        // each body's own center of mass (see applyImpactRoll's own doc
-        // comment above) - add the matching center to get the actual
-        // world-space contact point, whichever side the chassis ended up
-        // on in the pair.
-        const point = contact.bi === chassis ? chassis.position.vadd(contact.ri) : chassis.position.vadd(contact.rj);
-        bodyDust.onGroundContact(point, Math.abs(contact.getImpactVelocityAlongNormal()));
+        // Spawn at the chassis' own center rather than the contact's
+        // corner point (contact.ri/rj land near the box's corners, i.e.
+        // right around where the wheels sit) so the puff visibly comes
+        // from the body itself, not the wheels.
+        bodyDust.onGroundContact(chassis.position, Math.abs(contact.getImpactVelocityAlongNormal()), chassis.velocity);
       }
     });
     pedestrians.bindChassis(nextVehicle.chassisBody, nextVehicle.wheelHitboxBodies ?? []);
-    if (nameTag?.sprite.parent) nameTag.sprite.parent.remove(nameTag.sprite);
-    nameTag = createNameTag(localName, score);
-    mesh.add(nameTag.sprite);
+    // No name tag for the local player's own car: other clients render their
+    // own copy of it via createRemoteCar, so skipping it here only hides it
+    // from this player's own view.
   }
 
   function removeCurrentCar() {
@@ -72,13 +76,14 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     scene.remove(chassisMesh);
     for (const mesh of wheelMeshes) scene.remove(mesh);
     vehicle = null;
+    podMesh = null;
   }
 
   function spawnLocalCar(color, vehicleId) {
     currentColor = color;
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       playerSpawnPos(),
@@ -105,7 +110,35 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     const quaternion = vehicle.chassisBody.quaternion.clone();
     const velocity = vehicle.chassisBody.velocity.clone();
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+      world,
+      scene,
+      position,
+      quaternion,
+      currentColor,
+      currentVehicleId
+    ));
+    vehicle.chassisBody.velocity.copy(velocity);
+    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
+    hookCar(vehicle, chassisMesh);
+  }
+
+  /**
+   * Instantly swaps the local car's body color in place - same position,
+   * heading, velocity and vehicle kind, just a different paint job -
+   * used by the debug view's color picker (see
+   * hud/vehicleDebugPicker.js) so trying out a color mid-drive doesn't
+   * also reset where you are. A no-op before a car exists (nothing to
+   * swap yet; the next spawn just picks it up via currentColor).
+   */
+  function setColor(color) {
+    currentColor = color;
+    if (!vehicle) return;
+    const position = vehicle.chassisBody.position.clone();
+    const quaternion = vehicle.chassisBody.quaternion.clone();
+    const velocity = vehicle.chassisBody.velocity.clone();
+    removeCurrentCar();
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       position,
@@ -121,7 +154,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   /** Spawns the shared "preview" car used before a player has joined a room. */
   function spawnPreviewCar(startPos) {
     removeCurrentCar();
-    ({ vehicle, chassisMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
       world,
       scene,
       startPos,
@@ -156,7 +189,6 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
 
   function addScore(delta) {
     score += delta;
-    nameTag?.set(localName, score);
   }
 
   function setLocalName(name) {
@@ -168,17 +200,22 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     spawnLocalCar,
     spawnPreviewCar,
     setVehicleKind,
+    setColor,
     updateRemotes,
     addScore,
     setLocalName,
     getScore: () => score,
     getLocalName: () => localName,
     getVehicleId: () => currentVehicleId,
+    getColor: () => currentColor,
     // Live accessors - the underlying values are reassigned on
     // (re)spawn, so callers must read these via the getter each frame
     // rather than destructuring once.
     getVehicle: () => vehicle,
     getChassisMesh: () => chassisMesh,
+    // Only non-null for hover vehicles (see podMesh's own doc comment
+    // above) - null for wheeled cars.
+    getPodMesh: () => podMesh,
     getSyncMeshes: () => syncMeshes,
     getSnapshotPhysics: () => snapshotPhysics,
     getReset: () => reset,

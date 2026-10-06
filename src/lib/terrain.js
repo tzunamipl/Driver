@@ -130,7 +130,7 @@ export const FAR_RADIUS_METERS = 120_000; // how far out the low-detail terrain 
 // applied. Defaults to just past the detail tier's own keep radius, but is
 // its own constant (rather than reusing LOW_DETAIL_RADIUS directly) so it
 // can be tuned independently.
-export const FAR_HOLE_RADIUS_TILES = LOW_DETAIL_RADIUS + UNLOAD_MARGIN - 1;
+export const FAR_HOLE_RADIUS_TILES = LOW_DETAIL_RADIUS + UNLOAD_MARGIN - 2;
 const FAR_UNLOAD_MARGIN = 1; // tiles of slack, same purpose as UNLOAD_MARGIN above
 const FAR_UNLOAD_DELAY_TICKS = 3;
 // Nudge the far mesh slightly below the detail tier so where their footprints
@@ -428,31 +428,71 @@ export function circleOffsets(radius) {
   return offsets;
 }
 
-// Coarse elevation -> color ramp used for the far/low-detail tier, standing
-// in for aerial imagery (which isn't fetched at that tier). Purely
-// stylistic: lowland green -> hill brown -> rock grey -> snow cap, all
-// pushed toward blue to read as a hazy, atmosphere-tinted backdrop rather
-// than competing for attention with the full-color detail tier up close.
-const FAR_COLOR_STOPS = [
-  { y: 300, r: 0.22, g: 0.38, b: 0.42 },
-  { y: 900, r: 0.3, g: 0.36, b: 0.48 },
-  { y: 1600, r: 0.42, g: 0.47, b: 0.58 },
-  { y: Infinity, r: 0.82, g: 0.86, b: 0.97 },
-];
-function farElevationColor(y, out) {
-  const stop = FAR_COLOR_STOPS.find((s) => y < s.y) || FAR_COLOR_STOPS[FAR_COLOR_STOPS.length - 1];
-  out.setRGB(stop.r, stop.g, stop.b);
-}
+// Flat color used for the entire far/low-detail backdrop tier, standing in
+// for aerial imagery (which isn't fetched at that tier). Uniform rather than
+// elevation-ramped so it matches the scene fog color exactly (see
+// sceneSetup.js's FOG_COLOR) - the LOW detail tier fades into this same tone
+// at its fog-out distance, so the FAR tier picks up seamlessly right after
+// with no visible color seam at the handoff, regardless of a FAR chunk's
+// elevation (hills/peaks no longer shift toward brown/grey/white).
+export const FAR_BASE_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex();
 
-// Lowland stop of the ramp above, exposed as a flat hex color for things
-// that need a single representative "low-detail background" tone (e.g.
-// scene fog) rather than the full elevation-dependent gradient - most
-// driving happens near this elevation band, so it's the best single match.
-export const FAR_BASE_COLOR = new THREE.Color(
-  FAR_COLOR_STOPS[0].r,
-  FAR_COLOR_STOPS[0].g,
-  FAR_COLOR_STOPS[0].b
-).getHex();
+// Sky color, shared with sceneSetup.js's scene.background so it has a
+// single source of truth (defined here rather than there to avoid a
+// circular import, since sceneSetup.js already imports from this module).
+export const SKY_COLOR = new THREE.Color(0x87ceeb);
+
+// Ground-hugging haze layer, independent of (and layered on top of)
+// scene.fog and the FAR tier's own grazing-angle haze above. Unlike
+// scene.fog (linear-distance only, see sceneSetup.js), this one also fades
+// out with altitude so it reads as a low haze sitting in valleys/plains
+// rather than a uniform distance fog: full strength at/near sea level,
+// completely gone above HAZE_MAX_HEIGHT_METERS so distant peaks poking up
+// through it stay clear and sharp. Distance-wise it starts past the LOW
+// tier's own fog-out (HAZE_START_METERS) and reaches full strength by
+// HAZE_END_METERS, the same radius the FAR backdrop tier itself extends to
+// (FAR_RADIUS_METERS), so it's fully built up by the time the world ends.
+// Applied via onBeforeCompile to every terrain tier's material (see
+// applyGroundHaze below) so it reads consistently across HIGH/MEDIUM/LOW
+// and FAR, even though in practice only FAR chunks are ever far/tall enough
+// to be affected.
+const HAZE_START_METERS = 10_000;
+const HAZE_END_METERS = FAR_RADIUS_METERS;
+const HAZE_MAX_HEIGHT_METERS = 10_000;
+// World Y is relative to the player's spawn elevation (see heightOffset),
+// not literal mean sea level, but it's the closest vertical reference this
+// renderer has and reads the same in practice.
+// Locked to SKY_COLOR (darkened) rather than its own freestanding tint, so
+// the haze reads as "the sky's own color settling into the distance" - a
+// darker ground haze under a brighter sky - instead of an unrelated blue.
+const HAZE_COLOR = SKY_COLOR.clone().multiplyScalar(0.99);
+
+/**
+ * Adds a second world-space haze term to a MeshStandardMaterial's shader via
+ * onBeforeCompile: fades in with view-space distance between
+ * HAZE_START_METERS/HAZE_END_METERS and fades out with world-space altitude
+ * above HAZE_MAX_HEIGHT_METERS (see constants above for the full rationale).
+ * Chainable - safe to call after other onBeforeCompile shader surgery (e.g.
+ * the FAR material's hole-punch/grazing-haze) since it only ever prepends
+ * its own varying/logic ahead of the `#include` token it matches on, which
+ * every injector (including this one) is careful to leave intact.
+ */
+function applyGroundHaze(shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = position.y;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
+    .replace(
+      '#include <opaque_fragment>',
+      `
+      float hazeDist = smoothstep(${HAZE_START_METERS.toFixed(1)}, ${HAZE_END_METERS.toFixed(1)}, length(vViewPosition));
+      float hazeHeight = 1.0 - smoothstep(${(HAZE_MAX_HEIGHT_METERS - 500).toFixed(1)}, ${HAZE_MAX_HEIGHT_METERS.toFixed(1)}, vHazeWorldY);
+      float groundHaze = hazeDist * hazeHeight;
+      outgoingLight = mix(outgoingLight, vec3(${HAZE_COLOR.r.toFixed(3)}, ${HAZE_COLOR.g.toFixed(3)}, ${HAZE_COLOR.b.toFixed(3)}), groundHaze);
+      #include <opaque_fragment>`
+    );
+}
 
 /**
  * Streams real-world terrain (aerial imagery + elevation) as circularly-
@@ -828,6 +868,10 @@ export class TerrainManager {
       geometry.computeVertexNormals();
 
       const material = new THREE.MeshStandardMaterial({ map: colorTex, roughness: 1 });
+      // See applyGroundHaze's doc comment - in practice a no-op here since
+      // HIGH/MEDIUM/LOW tiles never reach HAZE_START_METERS, but applied
+      // uniformly so every terrain tier is covered.
+      material.onBeforeCompile = applyGroundHaze;
       // Freshly-loaded LOW tiles (the outer ring - see comment above) start
       // fully transparent and are eased in to opaque by _updateChunkFades()
       // over TILE_FADE_IN_MS, so they ease into view at the edge of the
@@ -982,8 +1026,12 @@ export class TerrainManager {
       const geometry = new THREE.PlaneGeometry(1, 1, FAR_GRID, FAR_GRID);
       const position = geometry.attributes.position;
       const vertexCount = (FAR_GRID + 1) * (FAR_GRID + 1);
+      // Flat FAR_BASE_COLOR for every vertex (no elevation-based ramp
+      // anymore - see FAR_BASE_COLOR's doc comment) so the whole backdrop
+      // tier is a single uniform tone matching the fog color it fades in
+      // from.
       const colors = new Float32Array(vertexCount * 3);
-      const color = new THREE.Color();
+      const color = new THREE.Color(FAR_BASE_COLOR);
       for (let iy = 0; iy <= FAR_GRID; iy++) {
         for (let ix = 0; ix <= FAR_GRID; ix++) {
           const idx = iy * (FAR_GRID + 1) + ix;
@@ -994,7 +1042,6 @@ export class TerrainManager {
           const { x, z } = latLonToLocal(lat, lon, this.originLat, this.originLon);
           const y = elevGrid ? sampleHeight(elevGrid, u, v) - this.heightOffset : 0;
           position.setXYZ(idx, x, y + FAR_Y_OFFSET, z);
-          farElevationColor(y, color);
           colors[idx * 3] = color.r;
           colors[idx * 3 + 1] = color.g;
           colors[idx * 3 + 2] = color.b;
@@ -1004,11 +1051,11 @@ export class TerrainManager {
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       geometry.computeVertexNormals();
 
-      // fog: false - the FAR backdrop tier is excluded from scene.fog so
-      // it keeps its own elevation-based color ramp (FAR_COLOR_STOPS,
-      // already hand-tuned to read as a hazy atmosphere-tinted horizon)
-      // all the way out, instead of being flattened into the fog color by
-      // the 20km far-distance that's meant to target the LOW detail tier.
+      // fog: false - the FAR backdrop tier is excluded from scene.fog since
+      // it's already a flat FAR_BASE_COLOR matching the fog color (see
+      // above), so applying fog on top would be redundant; this also keeps
+      // it immune to the 20km far-distance that's meant to target the LOW
+      // detail tier.
       // transparent + opacity: 0 so the chunk starts invisible and is eased
       // in to fully opaque by _updateFarFades() (driven every frame from
       // update()) instead of snapping straight to visible the instant its
@@ -1057,6 +1104,9 @@ export class TerrainManager {
             outgoingLight = mix(outgoingLight, outgoingLight + vec3(0.1, 0.14, 0.2), haze * 0.7);
             #include <opaque_fragment>`
           );
+        // Layer the ground-hugging distance+altitude haze on top of the
+        // grazing-angle haze above - see applyGroundHaze's doc comment.
+        applyGroundHaze(shader);
       };
       const mesh = new THREE.Mesh(geometry, material);
       mesh.receiveShadow = false;

@@ -127,10 +127,21 @@ export const SCORE_PER_PEDESTRIAN = 5;
 export const SCORE_PER_CAR_HIT = 3;
 
 // ---------- Camera follow ----------
-export const CAMERA_OFFSET = [0, 30, -20];
-export const CAMERA_LOOKAT_OFFSET = [0, 14, 10];
+// These CAMERA_* constants are the *shared* baseline every camera view
+// (chase/close/cinematic/hood - see app/cameraViews/) falls back to for
+// any parameter it doesn't explicitly override - the same
+// shared-defaults-plus-per-item-overrides split used for vehicles
+// (lib/car.js's DEFAULT_* constants + each lib/vehicles/*.js descriptor)
+// and surface compounds (lib/surfaceCompounds.js). Keeping the common
+// smoothing/behavior tuning here means a single view can change just its
+// camera offset/look-at without having to restate (and risk drifting
+// from) every shared knob below; app/cameraViews/index.js is the
+// registry of distinct per-view descriptors and app/cameraFollow.js does
+// the `view.field ?? SHARED_DEFAULT` merge each frame.
+export const CAMERA_OFFSET = [0, 20, -30];
+export const CAMERA_LOOKAT_OFFSET = [0, 5, 10];
 // Lower = smoother/slower camera pan, so crashes don't whip the camera around.
-export const CAMERA_POSITION_SPEED = 2.5;
+export const CAMERA_POSITION_SPEED = 3;
 export const CAMERA_LOOKAT_SPEED = 50;
 // Raw yaw (from the chassis quaternion) carries small high-frequency noise
 // from suspension/wheel-contact vibration, which gets amplified a lot by
@@ -172,6 +183,22 @@ export const CAMERA_CLOSE_SCALE_AT_MAX_SPEED = 1;
 // scaled by its own settling time before being smoothed, so a constant
 // velocity converges to zero lag. 1 = full compensation, 0 = none.
 export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
+// Tilt the camera up/down slightly to follow steep slopes (climbing a
+// hill) or a steep fall (off a cliff/jump), based on the car's velocity
+// angle (vertical speed vs horizontal speed) - purely cosmetic framing,
+// separate from the no-roll rule which only bans *unintentional* tilt
+// from chassis bumps/rolling.
+// Smoothing rate for the pitch angle (same role as CAMERA_YAW_SPEED) -
+// filters out suspension/bump noise so only sustained climbs/falls tilt
+// the camera, not every pothole.
+export const CAMERA_PITCH_SPEED = 5;
+// Maximum camera tilt (radians, ~12 degrees), applied regardless of how
+// steep/fast the actual fall or climb is - keeps the effect subtle.
+export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
+// Below this horizontal speed (m/s) the velocity angle is too noisy/
+// undefined (e.g. standing still) to derive a pitch from, so the camera
+// levels back out instead.
+export const CAMERA_PITCH_MIN_SPEED = 2;
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
@@ -234,9 +261,16 @@ export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
 // Persists the local car's last known position/orientation/odometer across
 // reloads (see src/lib/carState.js).
 export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
+// Persists the dev-mode debug HUD's last-picked car/color across reloads
+// (see src/hud/vehicleDebugPicker.js) - separate from LOBBY_STORAGE_KEY
+// since dev mode never shows/uses the lobby form itself.
+export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1';
 // Persists a stable, invisible-to-the-player network identity across
 // reloads (see src/lib/playerId.js), so this browser keeps the same
 // "clientId" instead of minting a new one every page load - otherwise
 // every reload would look like a brand-new peer to everyone else (ghost
 // duplicates in the remote-cars list and "who's online" roster).
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1';
+// Persists the last-picked camera view (see app/cameraViews/) across
+// reloads, same pattern as MINIMAP_STORAGE_KEY above.
+export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';

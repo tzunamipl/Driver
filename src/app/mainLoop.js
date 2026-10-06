@@ -39,6 +39,7 @@ export function createMainLoop({
   tireSmoke,
   terrainDust,
   bodyDust,
+  clouds,
   remoteCollisions,
   net,
   input,
@@ -215,7 +216,12 @@ export function createMainLoop({
       }
     }
 
-    cameraFollow(frameDelta, { chassisMesh: currentChassisMesh, vehicle: currentVehicle });
+    cameraFollow(frameDelta, {
+      chassisMesh: currentChassisMesh,
+      podMesh: carManager.getPodMesh(),
+      vehicle: currentVehicle,
+      vehicleId: carManager.getVehicleId(),
+    });
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle);
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, {
@@ -268,6 +274,13 @@ export function createMainLoop({
     // grounded check like splash/tireSmoke, so only animate/age already-
     // spawned puffs here.
     bodyDust.update(frameDelta);
+    // Distant high-altitude clouds: purely cosmetic and independent of
+    // join/debug state like the particle effects above, but needs the
+    // player's current position to know where "the far horizon" currently
+    // is - skipped only in the one frame before the chassis mesh exists.
+    if (currentChassisMesh) {
+      clouds.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z, currentChassisMesh.position.y);
+    }
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
