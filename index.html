@@ -1057,6 +1057,79 @@
         font-size: 10px;
         opacity: 0.8;
       }
+      /* Tachometer: a smaller secondary gauge next to the speedo, for
+         combustion-engine cars (lib/engine.js's rpm/gearbox simulation) -
+         hidden entirely for rigs without one (e.g. the hover chariot, see
+         hud/gauges.js's updateGauges). Sweeps 0 to the vehicle's own
+         redlineRpm, with a fixed red zone painted at the top of the dial
+         (the last bit of any car's sweep is "near redline" regardless of
+         its actual rpm numbers, so this needs no per-vehicle JS). */
+      #tach {
+        width: 120px;
+        height: 120px;
+        display: none;
+      }
+      #tach.visible { display: block; }
+      #tach .gauge-face {
+        background: conic-gradient(
+          from 225deg,
+          transparent 0deg,
+          transparent 152deg,
+          rgba(255, 59, 59, 0.55) 152deg,
+          rgba(255, 59, 59, 0.55) 180deg,
+          transparent 180deg
+        );
+        border-radius: 50%;
+      }
+      #tach .gauge-value {
+        top: 42%;
+        font-size: 26px;
+      }
+      #tach .gauge-label {
+        top: 58%;
+        font-size: 9px;
+      }
+      #tach .gauge-needle {
+        height: 46px;
+        background: #4fc3ff;
+      }
+      /* krpm tick marks + numbers, built in hud/gauges.js (one set per
+         1000rpm up to the vehicle's own redlineRpm). The tick wrapper is
+         inset over the whole dial so its own center is the dial's center,
+         then a plain CSS rotate to its rpm's needle angle (see gauges.js'
+         rpmToDeg) swings the tick line to the right spot on the rim - that
+         works because a tick has no text to keep upright. Labels can't use
+         the same rotate-then-counter-rotate trick (both rotations would
+         share the dial center as their origin and so cancel position along
+         with orientation), so their left/top are instead computed directly
+         in JS from sin/cos and placed upright, un-rotated. */
+      .tach-tick-wrap {
+        position: absolute;
+        inset: 0;
+      }
+      .tach-tick {
+        position: absolute;
+        top: 4%;
+        left: 50%;
+        width: 2px;
+        height: 9%;
+        background: rgba(255, 255, 255, 0.6);
+        border-radius: 1px;
+        transform: translateX(-50%);
+      }
+      .tach-tick.redline {
+        background: #ff5c5c;
+      }
+      .tach-tick-label {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.75);
+        text-shadow: 0 0 3px #000;
+      }
+      .tach-tick-label.redline {
+        color: #ff8080;
+      }
       /* Speedometer is the "main" gauge, sized up from the base .gauge and
          carrying the odometer built into its face (bottom third of the
          dial), like a real car's instrument cluster. */
@@ -1275,6 +1348,13 @@
         }
         #speedo .gauge-value { font-size: 24px; }
         #speedo .gauge-needle { height: 50px; }
+        #tach {
+          width: 86px;
+          height: 86px;
+        }
+        #tach .gauge-value { font-size: 18px; }
+        #tach .gauge-needle { height: 34px; }
+        #tach .tach-tick-label { font-size: 7px; }
         #address-search-toggle {
           display: block;
           position: fixed;
@@ -1428,6 +1508,13 @@
       </div>
     </div>
     <div id="gauges">
+      <div class="gauge" id="tach">
+        <div class="gauge-face"></div>
+        <div class="tach-ticks" id="tach-ticks"></div>
+        <div class="gauge-needle" id="tach-needle"></div>
+        <div class="gauge-value" id="tach-gear">1</div>
+        <div class="gauge-label" id="tach-rpm">0 RPM</div>
+      </div>
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>
         <div class="gauge-needle" id="speedo-needle"></div>

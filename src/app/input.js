@@ -40,9 +40,11 @@ export function createInputController() {
    * Applies current key state to the vehicle's engine/steering/brake, and
    * triggers a car reset on "R". No-ops (and zeroes controls) while the
    * user is typing into a text input, and no-ops entirely if there's no
-   * vehicle yet.
+   * vehicle yet. `dt` (seconds) drives the per-vehicle rpm/gearbox
+   * simulation (lib/engine.js's vehicle.engine.update) - unused by rigs
+   * without one (e.g. the hover chariot).
    */
-  function updateControls(vehicle, reset) {
+  function updateControls(vehicle, reset, dt = 0) {
     if (!vehicle) return;
     // Which wheels get engine force (see lib/car.js's driveWheels doc
     // comment) - defaults to rear-wheel drive for rigs that don't set one
@@ -67,14 +69,14 @@ export function createInputController() {
     // vehicle.engineForce is each vehicle's own independent power
     // characteristic, set per-rig from its descriptor (not from any shared
     // global constant):
-    //  - wheeled cars (lib/car.js's createCar) derive it from
-    //    descriptor.enginePowerHp - an equivalent-bhp rating, so e.g. a
-    //    monster truck can be tuned dramatically more powerful than the
-    //    baseline rally car just by giving it a bigger hp number.
     //  - hover chariots (lib/chariot.js's createChariotVehicle) don't use
     //    this for their actual thrust at all (see
     //    descriptor.engineThrustForce - thrust of one engine) - they leave
     //    this at its default of 1 and only use it as a +-1 throttle sign.
+    //  - wheeled cars (lib/car.js's createCar) instead carry a
+    //    vehicle.engine (lib/engine.js's rpm/gearbox simulation, below) -
+    //    engineForceUnit is only this fallback flat value for rigs that
+    //    don't have one.
     const engineForceUnit = vehicle.engineForce ?? 1;
     // Signed forward speed (vehicle.getForwardSpeed, see lib/car.js) is
     // undefined for rigs without the wheeled RaycastVehicle-style forward
@@ -110,9 +112,25 @@ export function createInputController() {
     const pedalBraking =
       (forward && (movingBackward || forwardBrakeOnly)) ||
       (backward && (movingForward || backwardBrakeOnly));
+    // Dynamic (rpm/gear-dependent) force rating for wheeled cars (see
+    // lib/engine.js) instead of a flat engineForceUnit - direction=0 while
+    // pedal-braking keeps the gearbox from prematurely engaging reverse
+    // mid-stop (reverse is only ever requested once the car's actually
+    // stopped/reversing, same as before), but still advances rpm/gear
+    // state every frame so the tachometer/gear indicator (hud/gauges.js)
+    // keep tracking wheel speed while coasting/braking instead of
+    // freezing. Rigs without a gearbox (vehicle.engine undefined, e.g. the
+    // hover chariot) keep the old flat engineForceUnit unchanged.
+    const engineMagnitude = vehicle.engine
+      ? vehicle.engine.update(dt, {
+          direction: pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
+          throttle: pedalBraking || !(forward || backward) ? 0 : 1,
+          forwardSpeedAbs: Math.abs(forwardSpeed),
+        })
+      : engineForceUnit;
     const engineForce = pedalBraking
       ? 0
-      : (forward ? -engineForceUnit : backward ? engineForceUnit : 0) * forceScale;
+      : (forward ? -engineMagnitude : backward ? engineMagnitude : 0) * forceScale;
     // Spread engineForce across however many wheels this vehicle drives
     // (lib/car.js's driveWheels, defaulting to rear-wheel drive), scaled
     // so the *total* propulsive force stays the same as the original

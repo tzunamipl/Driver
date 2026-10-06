@@ -84,7 +84,7 @@ export function createMainLoop({
     const reset = carManager.getReset();
 
     carManager.getUpdateReset()?.(frameDelta);
-    input.updateControls(vehicle, reset);
+    input.updateControls(vehicle, reset, frameDelta);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // This player's own local (0, 0) origin - equal to the fixed network

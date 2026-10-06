@@ -5,6 +5,7 @@ import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
 import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
+import { createEngineState } from './engine.js';
 import { findGroundY } from './terrain.js';
 import { MAX_STEER } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
@@ -71,7 +72,7 @@ const WHEELS_PER_VEHICLE = 4;
 // Scaled up 10x alongside DEFAULT_CHASSIS_MASS (150kg -> 1500kg) so
 // force/mass - and therefore acceleration - stays exactly what it was
 // before the mass bump.
-const FORCE_PER_HP = 12;
+const FORCE_PER_HP = 18;
 const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;
@@ -381,8 +382,20 @@ export function createCar(
   // Per-vehicle engine power (see app/input.js), as an independent
   // equivalent-bhp rating rather than a multiplier on any shared global
   // force - e.g. a monster-truck-style vehicle can simply carry a bigger
-  // enginePowerHp than the baseline rally car.
+  // enginePowerHp than the baseline rally car. Kept only as a fallback for
+  // rigs without their own gearbox (app/input.js's `vehicle.engineForce ??
+  // 1`, e.g. the hover chariot) now that vehicle.engine (below) is what
+  // actually drives a wheeled car's force each frame.
   vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
+
+  // Rpm/gearbox simulation (lib/engine.js) - each wheeled vehicle's own
+  // torque curve + gear ratios (descriptor.peakTorqueNm/gearRatios/etc,
+  // see lib/vehicles/gc8.js/bigfoot.js), read generically the same way
+  // mass/enginePowerHp/wheelRadius already are. app/input.js calls
+  // vehicle.engine.update() once a frame instead of using a flat force,
+  // and hud/gauges.js reads vehicle.engine.rpm/gear for the tachometer/
+  // gear indicator.
+  vehicle.engine = createEngineState(descriptor, wheelRadius);
 
   // Which wheels (indices into vehicle.wheelInfos/wheelLabels above, so
   // [0,1,2,3] = FL,FR,RL,RR) actually receive engine force - see

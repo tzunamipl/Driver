@@ -66,8 +66,24 @@ const SUSPENSION = {
 const SUSPENSION_FORCE_G = 11;
 // Twice the baseline rally car's engine rating (equivalent bhp - see
 // lib/car.js's hpToEngineForce/DEFAULT_ENGINE_HP), as its own independent
-// number rather than a multiplier on a shared global force constant.
+// number rather than a multiplier on a shared global force constant. Only
+// a fallback flat force now that this truck's real force comes from its
+// torque curve/gearbox (ENGINE_*/GEAR_RATIOS/etc below, read by
+// lib/engine.js).
 const ENGINE_POWER_HP = 600;
+// Rpm-driven torque curve + gearbox (lib/engine.js), standing in for a
+// big, lazy, naturally-aspirated V8 - huge torque low in the rev range
+// (unlike the GC8's turbo four) and a comparatively low redline, driving
+// through a 2-speed automatic (a real monster truck's typical Powerglide-
+// style transmission) and a monster-truck-size axle ratio to multiply
+// that torque up for its oversized tyres (WHEEL_RADIUS above).
+const PEAK_TORQUE_NM = 900;
+const PEAK_TORQUE_RPM = 3400;
+const IDLE_RPM = 700;
+const REDLINE_RPM = 5200;
+const GEAR_RATIOS = [1.82, 1.0];
+const FINAL_DRIVE_RATIO = 6.17;
+const REVERSE_RATIO = 1.82;
 // Chassis weight in kg - a monster truck's huge frame/wheels/roll cage
 // make it noticeably heavier than the baseline rally car (lib/car.js's
 // DEFAULT_CHASSIS_MASS), its own independent weight rating. Scaled 10x
@@ -195,6 +211,13 @@ export default {
   suspension: SUSPENSION,
   suspensionForceG: SUSPENSION_FORCE_G,
   enginePowerHp: ENGINE_POWER_HP,
+  peakTorqueNm: PEAK_TORQUE_NM,
+  peakTorqueRpm: PEAK_TORQUE_RPM,
+  idleRpm: IDLE_RPM,
+  redlineRpm: REDLINE_RPM,
+  gearRatios: GEAR_RATIOS,
+  finalDriveRatio: FINAL_DRIVE_RATIO,
+  reverseRatio: REVERSE_RATIO,
   mass: MASS,
   maxSteerAt0: MAX_STEER_AT_0,
   maxSteerAt100: MAX_STEER_AT_100,

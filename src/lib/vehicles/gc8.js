@@ -13,15 +13,33 @@ import * as THREE from 'three';
 // it doesn't mean hunting through mesh-building boilerplate.
 
 // Baseline rally car engine rating (equivalent bhp - see lib/car.js's
-// hpToEngineForce), independent of every other vehicle's own rating. See
-// lib/car.js's FORCE_PER_HP for the *global* hp->force conversion shared
-// by every wheeled vehicle.
+// hpToEngineForce), independent of every other vehicle's own rating. Only
+// used as a fallback flat force now that this car's real force comes from
+// its torque curve/gearbox (ENGINE_* /GEAR_RATIOS/etc below, read by
+// lib/engine.js) - see lib/car.js's FORCE_PER_HP for the *global*
+// hp->force conversion still shared by any wheeled vehicle without one.
 const ENGINE_POWER_HP = 300;
+// Rpm-driven torque curve + 5-speed gearbox (lib/engine.js), standing in
+// for a 90s turbocharged EJ20 flat-four like the real GC8 WRX/STI's -
+// peak torque a bit lower in the rev range and the redline a bit higher
+// than a big, lazy naturally-aspirated engine would have, reflecting a
+// smaller turbo motor that needs to be kept spinning to make power.
+const PEAK_TORQUE_NM = 350;
+const PEAK_TORQUE_RPM = 4000;
+const IDLE_RPM = 900;
+const REDLINE_RPM = 7000;
+// Real Subaru 5-speed close-ratio rally gearbox ratios (1st-5th) plus the
+// WRX/STI's actual 4.111 final-drive and 3.636 reverse ratios - this
+// car's symmetrical AWD (driveWheels below) already splits that output
+// across all four tyres.
+const GEAR_RATIOS = [3.454, 2.062, 1.481, 1.166, 0.916];
+const FINAL_DRIVE_RATIO = 4.111;
+const REVERSE_RATIO = 3.636;
 // Braking force in Newtons - set explicitly here so its rating stays
 // independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
 // ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
 // braking deceleration as before the mass bump (see MASS's comment).
-const BRAKE_FORCE = 600;
+const BRAKE_FORCE = 400;
 // Chassis weight in kg - the baseline rally car's own independent weight
 // rating. 1500kg matches a real rally-prepped car's curb weight (an
 // earlier 150kg felt unrealistically light/floaty under the world's
@@ -158,6 +176,13 @@ export default {
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
   enginePowerHp: ENGINE_POWER_HP,
+  peakTorqueNm: PEAK_TORQUE_NM,
+  peakTorqueRpm: PEAK_TORQUE_RPM,
+  idleRpm: IDLE_RPM,
+  redlineRpm: REDLINE_RPM,
+  gearRatios: GEAR_RATIOS,
+  finalDriveRatio: FINAL_DRIVE_RATIO,
+  reverseRatio: REVERSE_RATIO,
   brakeForce: BRAKE_FORCE,
   mass: MASS,
   maxSteerAt0: MAX_STEER_AT_0,
