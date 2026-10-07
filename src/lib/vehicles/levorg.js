@@ -6,11 +6,11 @@ const PEAK_TORQUE_RPM = 3500;
 const IDLE_RPM = 900;
 const REDLINE_RPM = 6000;
 const GEAR_RATIOS = [3.56, 2.25, 1.66, 1.12, 0.89, 0.7, 0.62];
-const FINAL_DRIVE_RATIO = 3.111;
+const FINAL_DRIVE_RATIO = 5.111;
 const REVERSE_RATIO = 3.636;
 const BRAKE_FORCE = 210;
 const MASS = 1500;
-const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
+const DRAG_PROFILE = { front: 0.81, side: 3.4, rear: 1.2 };
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.4;
 
