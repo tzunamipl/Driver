@@ -72,7 +72,7 @@ const WHEELS_PER_VEHICLE = 4;
 // Scaled up 10x alongside DEFAULT_CHASSIS_MASS (150kg -> 1500kg) so
 // force/mass - and therefore acceleration - stays exactly what it was
 // before the mass bump.
-const FORCE_PER_HP = 18;
+const FORCE_PER_HP = 22; // 18 is more realistic, 22 for more fun
 const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;

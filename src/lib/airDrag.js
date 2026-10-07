@@ -37,7 +37,7 @@ import * as CANNON from 'cannon-es';
 //   front - multiplier while moving nose-first through the air
 //   rear  - multiplier while moving tail-first (reversing)
 //   side  - multiplier for the broadside (sideways/vertical) component
-export const AIR_DRAG_BASE_COEFFICIENT = 0.3; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
+export const AIR_DRAG_BASE_COEFFICIENT = 0.09; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
 // Was 0.01 - calibrated back when cars had a far lighter chassis mass and
 // a proportionally weaker engine force (see lib/car.js's DEFAULT_CHASSIS_MASS/
 // FORCE_PER_HP history). Those were later scaled up 10x together to give

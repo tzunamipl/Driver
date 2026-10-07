@@ -470,11 +470,17 @@ function buildFootprintGeometry(points, height) {
  * fetchBuildingTile) covering a buffered region around the player.
  */
 export class BuildingsManager {
-  constructor(scene, world, originLat, originLon) {
+  constructor(scene, world, originLat, originLon, terrain) {
     this.scene = scene;
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
+    // Needed to gate each tile's build on terrain.isTileLoaded() (see
+    // update() below) - buildings raycast straight down onto the terrain's
+    // physics body to find ground height (_groundHeightAt), so building a
+    // tile before its terrain tile's body exists yet would always miss and
+    // fall back to y=0, instead of the player's actual spawn height.
+    this.terrain = terrain;
     this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
@@ -1006,7 +1012,14 @@ export class BuildingsManager {
         const tx = centerTx + dx;
         const ty = centerTy + dy;
         const key = this._key(tx, ty);
-        if (!this.chunks.has(key) && !this._inProgressBuilds.has(key) && !this._queuedKeys.has(key)) {
+        // Hold off queueing a tile until its terrain counterpart has
+        // actually finished loading (mesh + physics body) - see this
+        // class's `terrain` field doc comment. Tiles skipped here simply
+        // get re-checked on the next call (this runs every frame), so they
+        // queue themselves the moment terrain catches up instead of ever
+        // building against missing ground.
+        const terrainReady = !this.terrain || this.terrain.isTileLoaded(tx, ty);
+        if (terrainReady && !this.chunks.has(key) && !this._inProgressBuilds.has(key) && !this._queuedKeys.has(key)) {
           this._queuedKeys.add(key);
           this._buildQueue.push({ tx, ty, key });
         }

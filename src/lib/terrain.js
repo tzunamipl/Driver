@@ -459,9 +459,11 @@ export const SKY_COLOR = new THREE.Color(0x87ceeb);
 const HAZE_START_METERS = 10_000;
 const HAZE_END_METERS = FAR_RADIUS_METERS;
 const HAZE_MAX_HEIGHT_METERS = 10_000;
-// World Y is relative to the player's spawn elevation (see heightOffset),
-// not literal mean sea level, but it's the closest vertical reference this
-// renderer has and reads the same in practice.
+// World Y is relative to a fixed baseline elevation sampled once at the
+// app's shared starting origin (see heightOffset / TerrainManager.init()),
+// not literal mean sea level, but since that baseline never moves - even
+// across recenter()/teleports - it's a single common vertical reference
+// every client agrees on, so it reads the same in practice.
 // Locked to SKY_COLOR (darkened) rather than its own freestanding tint, so
 // the haze reads as "the sky's own color settling into the distance" - a
 // darker ground haze under a brighter sky - instead of an unrelated blue.
@@ -535,6 +537,12 @@ export class TerrainManager {
     // would otherwise insert mismatched geometry into the fresh chunk set.
     this._loadEpoch = 0;
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
+    // Set true once heightOffset has been baselined from the app's fixed
+    // starting origin (see init()'s doc comment) - guards against a later
+    // recenter() (teleport) re-baselining it to a different real-world
+    // elevation, which would desync every client's shared vertical
+    // reference ("meters above sea level") from each other.
+    this._heightBaselineSet = false;
     this._lastCenter = null;
     this._centerX = 0;
     this._centerY = 0;
@@ -583,24 +591,40 @@ export class TerrainManager {
   }
 
   /**
-   * Fetches elevation at the origin point and stores it as the height
-   * baseline. If even this single request fails (e.g. a transient API/token
-   * issue), fall back to a zero baseline rather than leaving the app stuck
-   * on the loading screen forever - the world will just be offset from its
-   * "true" elevation rather than unusable.
+   * Fetches elevation at the *very first* origin point (the app's fixed
+   * ORIGIN_LAT/ORIGIN_LON, shared by every client - see main.js) and stores
+   * it as the height baseline, once. If even this single request fails
+   * (e.g. a transient API/token issue), fall back to a zero baseline rather
+   * than leaving the app stuck on the loading screen forever - the world
+   * will just be offset from its "true" elevation rather than unusable.
+   *
+   * recenter() also calls this (to stream in the new origin's chunks), but
+   * must NOT let it touch heightOffset again: every client starts from the
+   * same shared origin, so fixing the baseline there keeps world Y anchored
+   * to one common real-world elevation reference (effectively "meters above
+   * sea level") for every player. If each recenter() re-baselined to
+   * whatever elevation the *current* player happens to be standing on,
+   * different players (or the same player after teleporting) would end up
+   * with their own local y=0 meaning a different real elevation, so shared
+   * ground/other players would render floating above or sunk below the
+   * terrain each client streams in - the local "plane" one player drives on
+   * wouldn't match another's at the same spot.
    */
   async init() {
-    const tx = Math.floor(lon2tileX(this.originLon, DETAIL_ZOOM));
-    const ty = Math.floor(lat2tileY(this.originLat, DETAIL_ZOOM));
-    try {
-      const img = await loadImage(ELEVATION_URL(DETAIL_ZOOM, tx, ty));
-      const grid = decodeElevationTile(img);
-      const u = lon2tileX(this.originLon, DETAIL_ZOOM) - tx;
-      const v = lat2tileY(this.originLat, DETAIL_ZOOM) - ty;
-      this.heightOffset = sampleHeight(grid, u, v);
-    } catch (err) {
-      console.warn('Origin elevation fetch failed, defaulting height baseline to 0', err);
-      this.heightOffset = 0;
+    if (!this._heightBaselineSet) {
+      const tx = Math.floor(lon2tileX(this.originLon, DETAIL_ZOOM));
+      const ty = Math.floor(lat2tileY(this.originLat, DETAIL_ZOOM));
+      try {
+        const img = await loadImage(ELEVATION_URL(DETAIL_ZOOM, tx, ty));
+        const grid = decodeElevationTile(img);
+        const u = lon2tileX(this.originLon, DETAIL_ZOOM) - tx;
+        const v = lat2tileY(this.originLat, DETAIL_ZOOM) - ty;
+        this.heightOffset = sampleHeight(grid, u, v);
+      } catch (err) {
+        console.warn('Origin elevation fetch failed, defaulting height baseline to 0', err);
+        this.heightOffset = 0;
+      }
+      this._heightBaselineSet = true;
     }
     await this.update(0, 0, true);
   }

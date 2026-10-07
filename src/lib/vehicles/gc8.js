@@ -18,7 +18,7 @@ import * as THREE from 'three';
 // its torque curve/gearbox (ENGINE_* /GEAR_RATIOS/etc below, read by
 // lib/engine.js) - see lib/car.js's FORCE_PER_HP for the *global*
 // hp->force conversion still shared by any wheeled vehicle without one.
-const ENGINE_POWER_HP = 300;
+const ENGINE_POWER_HP = 211;
 // Rpm-driven torque curve + 5-speed gearbox (lib/engine.js), standing in
 // for a 90s turbocharged EJ20 flat-four like the real GC8 WRX/STI's -
 // peak torque a bit lower in the rev range and the redline a bit higher
@@ -39,12 +39,12 @@ const REVERSE_RATIO = 3.636;
 // independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
 // ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
 // braking deceleration as before the mass bump (see MASS's comment).
-const BRAKE_FORCE = 400;
+const BRAKE_FORCE = 250;
 // Chassis weight in kg - the baseline rally car's own independent weight
 // rating. 1500kg matches a real rally-prepped car's curb weight (an
 // earlier 150kg felt unrealistically light/floaty under the world's
 // real-world gravity - see app/physicsSetup.js).
-const MASS = 1500;
+const MASS = 1300;
 // See lib/airDrag.js - a real, tapered car nose cuts through the air more
 // easily than its flat-ish tail (plus the roof spoiler kicking up a bit
 // more turbulence reversing into the air), and its flank is by far the
