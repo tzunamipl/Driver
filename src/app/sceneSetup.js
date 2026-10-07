@@ -9,7 +9,8 @@ import { FAR_BASE_COLOR, SKY_COLOR } from '../lib/terrain.js';
 // color (its lowland elevation-ramp stop, see terrain.js FAR_BASE_COLOR)
 // rather than the LOW tier's debug HUD color, so fogged-out tiles visually
 // fade/"fall into" the same tone the low-detail backdrop already uses.
-const FOG_COLOR = FAR_BASE_COLOR;
+//const FOG_COLOR = FAR_BASE_COLOR; // Solution binded to FAR terrain
+const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex(); // Hardcoded solution
 
 /**
  * Builds the renderer, scene, and camera and mounts the renderer's canvas

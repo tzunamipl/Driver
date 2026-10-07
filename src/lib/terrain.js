@@ -435,7 +435,7 @@ export function circleOffsets(radius) {
 // at its fog-out distance, so the FAR tier picks up seamlessly right after
 // with no visible color seam at the handoff, regardless of a FAR chunk's
 // elevation (hills/peaks no longer shift toward brown/grey/white).
-export const FAR_BASE_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex();
+export const FAR_BASE_COLOR = new THREE.Color(0.37, 0.61, 0.57).getHex();
 
 // Sky color, shared with sceneSetup.js's scene.background so it has a
 // single source of truth (defined here rather than there to avoid a
