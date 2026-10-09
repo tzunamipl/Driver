@@ -11,7 +11,7 @@ const REVERSE_RATIO = 3.636;
 const BRAKE_FORCE = 170;
 const MASS = 1500;
 const DRAG_PROFILE = { front: 0.81, side: 3.4, rear: 1.2 };
-const STEER_SPEED_D = 0.01
+const STEER_SPEED_D = 0.005
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.4;
 

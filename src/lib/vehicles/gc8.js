@@ -61,7 +61,7 @@ const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
 // at highway speed would snap the tail out, so this tapers down to a
 // steadier, more planted amount of lock once up to speed - still this
 // car's own independent rating, same pattern as ENGINE_POWER_HP/MASS.
-const STEER_SPEED_D = 0.01
+const STEER_SPEED_D = 0.005
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.4;
 

@@ -339,6 +339,8 @@ export function createCar(
 
   vehicle.addToWorld(world);
 
+  vehicle.vehicleType = descriptor.vehicleType
+
   // Labels for hud/suspensionHud.js's generic per-wheel bars, in the same
   // order as vehicle.wheelInfos (see wheelPositions above).
   vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];

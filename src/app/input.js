@@ -165,9 +165,20 @@ export function createInputController() {
     const speed = (left || right) ? steerSpeedD : steerReturnSpeed;
     const delta = targetSteer - steerValue;
 
-    steerValue += Math.sign(delta) * Math.min(Math.abs(delta), speed);
+    console.log(vehicle.vehicleType);
+    console.log(vehicle.maxSteerAt0);
+    console.log(vehicle.steerSpeedD);
+    console.log(steerValue);
+
+    if (vehicle.vehicleType === 'hover') {
+      steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
+    } else {
+      steerValue += Math.sign(delta) * Math.min(Math.abs(delta), speed);
+    }
+
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
+
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
     // vehicle.brakeForce is each vehicle's own independent brake strength
