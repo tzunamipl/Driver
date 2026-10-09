@@ -47,20 +47,23 @@ import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
-  radius: 0.4,
   directionLocal: new CANNON.Vec3(0, -1, 0),
   axleLocal: new CANNON.Vec3(-1, 0, 0),
   chassisConnectionPointLocal: new CANNON.Vec3(0, 0, 0),
-  suspensionStiffness: 35,
-  suspensionRestLength: 0.55,
-  maxSuspensionTravel: 0.35,
   // car.js computes its own mass-derived value (see DEFAULT_SUSPENSION_FORCE_G
   // there) and every current vehicle descriptor gets one - this is only a
   // fallback for callers that don't go through car.js at all.
   maxSuspensionForce: 1e6,
-  dampingCompression: 5.92,
-  dampingRelaxation: 8.87,
-  frictionSlip: 1.6, // mu - see car.js's matching comment for why not 5
+  // Tyre friction coefficient (mu, see wheeledVehicle.js's
+  // maxGrip = suspensionForce * dt * frictionSlip) - 1.6 matches a
+  // genuinely sticky tarmac rally tyre. The old value of 5 was an
+  // unrealistic "super-glue" grip level (real tyres top out around
+  // 1.3-1.8, even race slicks) that - combined with the old uncapped
+  // suspension-force spikes on hard impacts (see maxSuspensionForce
+  // above) - let a single frame's tyre grip budget fully cancel a car's
+  // entire sideways momentum on landing, reading as an instant,
+  // unrealistic snap back upright/straight instead of a visible slide.
+  frictionSlip: 1.6,
   // Rolling resistance coefficient (dimensionless, Crr at near-zero speed)
   // - a real tyre constantly loses a little energy to deformation at the
   // contact patch, so it never coasts forever even with the engine off and
@@ -78,13 +81,13 @@ const DEFAULT_WHEEL_OPTIONS = {
   // Crr(v) = rollingResistance * (1 + rollingResistanceSpeedFactor * |v|)
   // (v in m/s) - 0.02 means Crr roughly doubles by ~50 m/s (180 km/h).
   rollingResistanceSpeedFactor: 0.08,
-  rollInfluence: 0.01,
+  rollInfluence: 0.09,
   // Mirrors the old standalone PITCH_INFLUENCE constant in car.js - how
   // much of the forward (accel/brake) impulse's true lever arm survives
   // when applied, the same trick rollInfluence already does for the
   // sideways impulse. Small values resist nose-up/down "wheelie" pitch
   // without killing straight-line acceleration itself.
-  pitchInfluence: 0.05,
+  pitchInfluence: 0.65,
   customSlidingRotationalSpeed: -30,
   useCustomSlidingRotationalSpeed: false,
 };
@@ -521,3 +524,4 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
 
   return vehicle;
 }
+

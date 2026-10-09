@@ -39,7 +39,7 @@ const REVERSE_RATIO = 3.636;
 // independent of other vehicles' (e.g. bigfoot.js's stronger brakes) like
 // ENGINE_POWER_HP/MASS. Scaled 10x alongside MASS below to keep the same
 // braking deceleration as before the mass bump (see MASS's comment).
-const BRAKE_FORCE = 250;
+const BRAKE_FORCE = 211;
 // Chassis weight in kg - the baseline rally car's own independent weight
 // rating. 1500kg matches a real rally-prepped car's curb weight (an
 // earlier 150kg felt unrealistically light/floaty under the world's
@@ -61,8 +61,23 @@ const DRAG_PROFILE = { front: 0.85, side: 2.4, rear: 1.2 };
 // at highway speed would snap the tail out, so this tapers down to a
 // steadier, more planted amount of lock once up to speed - still this
 // car's own independent rating, same pattern as ENGINE_POWER_HP/MASS.
+const STEER_SPEED_D = 0.01
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.4;
+
+const WHEEL_RADIUS = 0.35;
+const SUSPENSION_FORCE_G = 8;
+const SUSPENSION = {
+  suspensionStiffness: 45,
+  suspensionRestLength: 0.4,
+  maxSuspensionTravel: 0.2,
+  rollingResistance: 0.015,
+  frictionSlip: 1.6,
+  dampingRelaxation: 8.87,
+  dampingCompression: 5.95,
+  rollInfluence: 0.07,
+  pitchInfluence: 0.55,
+};
 
 const DEFAULT_BODY_COLOR = 0xffffff; // white
 
@@ -175,6 +190,9 @@ export default {
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
+  wheelRadius: WHEEL_RADIUS,
+  suspension: SUSPENSION,
+  suspensionForceG: SUSPENSION_FORCE_G,
   enginePowerHp: ENGINE_POWER_HP,
   peakTorqueNm: PEAK_TORQUE_NM,
   peakTorqueRpm: PEAK_TORQUE_RPM,
@@ -185,6 +203,7 @@ export default {
   reverseRatio: REVERSE_RATIO,
   brakeForce: BRAKE_FORCE,
   mass: MASS,
+  steerSpeedD: STEER_SPEED_D,
   maxSteerAt0: MAX_STEER_AT_0,
   maxSteerAt100: MAX_STEER_AT_100,
   dragProfile: DRAG_PROFILE,

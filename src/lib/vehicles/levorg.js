@@ -8,11 +8,26 @@ const REDLINE_RPM = 6000;
 const GEAR_RATIOS = [3.56, 2.25, 1.66, 1.12, 0.89, 0.7, 0.62];
 const FINAL_DRIVE_RATIO = 5.111;
 const REVERSE_RATIO = 3.636;
-const BRAKE_FORCE = 210;
+const BRAKE_FORCE = 170;
 const MASS = 1500;
 const DRAG_PROFILE = { front: 0.81, side: 3.4, rear: 1.2 };
+const STEER_SPEED_D = 0.01
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.4;
+
+const WHEEL_RADIUS = 0.4;
+const SUSPENSION_FORCE_G = 8;
+const SUSPENSION = {
+  suspensionStiffness: 35,
+  suspensionRestLength: 0.35,
+  maxSuspensionTravel: 0.15,
+  rollingResistance: 0.015,
+  frictionSlip: 1.6,
+  dampingRelaxation: 6.87,
+  dampingCompression: 4.95,
+  rollInfluence: 0.08,
+  pitchInfluence: 0.65,
+};
 
 const DEFAULT_BODY_COLOR = 0xffffff; // white
 
@@ -813,6 +828,9 @@ export default {
   category: 'cars',
   defaultColor: DEFAULT_BODY_COLOR,
   buildBody,
+  wheelRadius: WHEEL_RADIUS,
+  suspension: SUSPENSION,
+  suspensionForceG: SUSPENSION_FORCE_G,
   enginePowerHp: ENGINE_POWER_HP,
   peakTorqueNm: PEAK_TORQUE_NM,
   peakTorqueRpm: PEAK_TORQUE_RPM,
@@ -823,6 +841,7 @@ export default {
   reverseRatio: REVERSE_RATIO,
   brakeForce: BRAKE_FORCE,
   mass: MASS,
+  steerSpeedD: STEER_SPEED_D,
   maxSteerAt0: MAX_STEER_AT_0,
   maxSteerAt100: MAX_STEER_AT_100,
   dragProfile: DRAG_PROFILE,

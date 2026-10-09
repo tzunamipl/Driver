@@ -45,6 +45,7 @@ export const ORIGIN_LON = 17.0385;
 export const DEFAULT_BODY_COLOR = 0xffffff;
 
 // ---------- Controls ----------
+export const STEER_SPEED = 0.01
 export const MAX_STEER = 0.5;
 // Flat brake force (Newtons) applied at each wheel/engine when the
 // handbrake is held, shared by every vehicle regardless of its own engine

@@ -1,118 +1,33 @@
-// Vehicle definition: "Bigfoot" monster truck - a boxy pickup cab + bed,
-// roll cage, flame decals on the hood, and dramatically larger wheels than
-// every other vehicle (see wheelRadius below, read by lib/car.js's
-// createCar/createRemoteCar). Self-contained visuals only, same shape as
-// every other descriptor (see ./gc8.js for the baseline) so it slots into
-// the shared wheeled-car rig for free - the only things that make it feel
-// like a monster truck instead of a reskinned sedan are its three physics
-// overrides below (wheelRadius, suspension, enginePowerHp), all read
-// generically by lib/car.js/app/input.js.
-
 import * as THREE from 'three';
 
-// === Tunable parameters (read generically by lib/car.js/app/input.js -
-// see the matching descriptor fields at the bottom of this file) ===
-// Keeping every physics/power knob for this vehicle up here in one place,
-// instead of scattered through the body-geometry code below, so retuning
-// it doesn't mean hunting through mesh-building boilerplate.
-
-// Oversized wheels (baseline rally car is 0.4) - still a hallmark of a
-// monster truck, but toned down from an earlier, comically huge 1.1 so
-// the truck doesn't look like it's riding on tractor tires.
-const WHEEL_RADIUS = 0.75;
-// Soft, longer-travel suspension than the baseline rally car (so it can
-// soak up monster-truck-size drops/jumps without bottoming out) but still
-// proportioned like an actual suspension rather than most of a meter of
-// travel. restLength/maxTravel scale down with the smaller WHEEL_RADIUS
-// above (same restLength:radius and travel:restLength ratios as before),
-// keeping the suspension proportioned to the truck's new, smaller tires
-// instead of floating them absurdly high.
-const SUSPENSION = {
-  // Stiffness 10 sagged ~0.245m under its own resting weight (same
-  // static-sag math as the baseline car, independent of mass) - stiffer
-  // 20 halves that to a more realistic ~0.12m while staying softer than
-  // the baseline rally car's stiffness 35, since a monster truck's
-  // suspension is still meant to be noticeably softer/longer-travel.
-  // Damping scaled up by the same sqrt(stiffness) ratio to preserve the
-  // original damping ratio/settle behavior. (Sag depends only on
-  // stiffness/mass, not restLength/radius, so this didn't need to change
-  // when the wheels got smaller.)
-  suspensionStiffness: 20,
-  suspensionRestLength: 0.75,
-  maxSuspensionTravel: 0.4,
-  // Knobby, oversized off-road tyres deform/scrub more than the baseline
-  // rally car's road tyres, so they have noticeably higher rolling
-  // resistance at any speed (car.js's rollingResistance default is 0.015)
-  // - this is the low-speed base value; it still grows with speed the
-  // same way via wheeledVehicle.js's rollingResistanceSpeedFactor default.
-  rollingResistance: 0.03,
-  // Knobby off-road tyres grip dry tarmac less confidently than the
-  // baseline rally car's road tyres (car.js's frictionSlip default is 1.6)
-  // - lower, so this truck wheelspins a bit more readily under its own
-  // huge 600hp (thematically fitting for a monster truck) and slides even
-  // more easily than the baseline car on a hard landing.
-  frictionSlip: 1.3,
-  // Scaled from the baseline rally car's (now less underdamped, see
-  // car.js) 8.87/5.92 by the same sqrt(stiffness) ratio as before
-  // (sqrt(20/35) ~= 0.756), to keep the same damping ratio/settle feel.
-  dampingRelaxation: 6.71,
-  dampingCompression: 4.48,
-};
-// How many g's of static per-wheel load this truck's suspension can push
-// before car.js caps it (see DEFAULT_SUSPENSION_FORCE_G there) - raised
-// from the baseline rally car's 8g since a monster truck is specifically
-// built for huge jumps/landings and needs more headroom before its tyres
-// run out of grip budget and slide instead.
-const SUSPENSION_FORCE_G = 11;
-// Twice the baseline rally car's engine rating (equivalent bhp - see
-// lib/car.js's hpToEngineForce/DEFAULT_ENGINE_HP), as its own independent
-// number rather than a multiplier on a shared global force constant. Only
-// a fallback flat force now that this truck's real force comes from its
-// torque curve/gearbox (ENGINE_*/GEAR_RATIOS/etc below, read by
-// lib/engine.js).
-const ENGINE_POWER_HP = 600;
-// Rpm-driven torque curve + gearbox (lib/engine.js), standing in for a
-// big, lazy, naturally-aspirated V8 - huge torque low in the rev range
-// (unlike the GC8's turbo four) and a comparatively low redline, driving
-// through a 2-speed automatic (a real monster truck's typical Powerglide-
-// style transmission) and a monster-truck-size axle ratio to multiply
-// that torque up for its oversized tyres (WHEEL_RADIUS above).
-const PEAK_TORQUE_NM = 900;
-const PEAK_TORQUE_RPM = 3400;
+const ENGINE_POWER_HP = 800;
+const PEAK_TORQUE_NM = 2000;
+const PEAK_TORQUE_RPM = 3000;
 const IDLE_RPM = 700;
 const REDLINE_RPM = 5200;
-const GEAR_RATIOS = [1.82, 1.0];
+const GEAR_RATIOS = [2.22, 1.62, 1.0];
 const FINAL_DRIVE_RATIO = 6.17;
 const REVERSE_RATIO = 1.82;
-// Chassis weight in kg - a monster truck's huge frame/wheels/roll cage
-// make it noticeably heavier than the baseline rally car (lib/car.js's
-// DEFAULT_CHASSIS_MASS), its own independent weight rating. Scaled 10x
-// alongside the baseline car's mass bump (150kg -> 1500kg) to stay real-
-// world-ish while keeping the same relative weight vs. the GC8.
 const MASS = 2600;
-// Heavier than the baseline rally car (see MASS above), so it needs
-// proportionally stronger brakes (lib/car.js's DEFAULT_BRAKE_FORCE) to
-// pull up in a comparable distance rather than needing much longer to
-// stop just because it's carrying more weight. Scaled 10x alongside mass.
-const BRAKE_FORCE = 52000;
-// See lib/airDrag.js - a tall, boxy truck is draggy from every angle
-// (unlike the GC8's tapered nose), especially broadside-on. Raised
-// substantially higher than the GC8's multipliers (not just proportioned
-// the same as before airDrag.js's base-coefficient rebalance) - this
-// truck's double engine force would otherwise let it out-top-speed the
-// much more slippery GC8, when a real monster truck's huge frontal area/
-// open wheel wells/knobby tires mean it tops out well below a rally car
-// despite having far more power.
+const BRAKE_FORCE = 160;
 const DRAG_PROFILE = { front: 4.6, side: 9.9, rear: 5.7 };
-// Speed-sensitive steering lock (radians, see app/input.js's effective-
-// steer lerp between these two): how far the front wheels turn at a dead
-// stop (maxSteerAt0) versus at 100 km/h (maxSteerAt100) and above. This
-// truck's tall, top-heavy chassis (see MASS/SUSPENSION above) is far more
-// flip-prone on a sudden hard turn at speed than the baseline rally car,
-// so its highway-speed lock is cut down even further - this truck's own
-// independent rating, same pattern as ENGINE_POWER_HP/BRAKE_FORCE.
+const STEER_SPEED_D = 0.01
 const MAX_STEER_AT_0 = 0.5;
 const MAX_STEER_AT_100 = 0.12;
+
+const WHEEL_RADIUS = 0.75;
+const SUSPENSION_FORCE_G = 11;
+const SUSPENSION = {
+  suspensionStiffness: 15,
+  suspensionRestLength: 0.85,
+  maxSuspensionTravel: 0.6,
+  rollingResistance: 0.03,
+  frictionSlip: 1.3,
+  dampingRelaxation: 2.71,
+  dampingCompression: 0.48,
+  rollInfluence: 0.11,
+  pitchInfluence: 0.75,
+};
 
 const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
 
@@ -218,9 +133,10 @@ export default {
   gearRatios: GEAR_RATIOS,
   finalDriveRatio: FINAL_DRIVE_RATIO,
   reverseRatio: REVERSE_RATIO,
+  brakeForce: BRAKE_FORCE,
   mass: MASS,
+  steerSpeedD: STEER_SPEED_D,
   maxSteerAt0: MAX_STEER_AT_0,
   maxSteerAt100: MAX_STEER_AT_100,
-  brakeForce: BRAKE_FORCE,
   dragProfile: DRAG_PROFILE,
 };
