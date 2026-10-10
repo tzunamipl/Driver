@@ -68,6 +68,7 @@ export default {
   gearRatios: GEAR_RATIOS,
   finalDriveRatio: FINAL_DRIVE_RATIO,
   reverseRatio: REVERSE_RATIO,
+  shiftDurationS: 1.8,
   brakeForce: BRAKE_FORCE,
   mass: MASS,
   steerSpeedD: STEER_SPEED_D,

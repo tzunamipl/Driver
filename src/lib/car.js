@@ -153,8 +153,9 @@ function buildRallyWheel(radius, parent) {
   const tireWidth = radius * 0.95;
   const rimWidth = tireWidth * 0.85;
 
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 20);
-  tireGeo.rotateZ(Math.PI / 2);
+  const tireGeo = new THREE.TorusGeometry(radius * 0.82, radius * 0.18, 6, 8);
+  tireGeo.scale(1, 1, 3);
+  tireGeo.rotateY(Math.PI / 2);
   const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
