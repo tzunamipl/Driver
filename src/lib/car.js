@@ -159,37 +159,32 @@ function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
   const tyreHeight = tyreWidth * profile/100;
   const wheelSize = rimSizeCm / 2 + tyreHeight;
 
+  const tyreGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tyreGeo1.scale(1, 1, tyreWallScale);
+  tyreGeo1.translate(0, 0, tyreWidth / 2);
+  tyreGeo1.rotateY(Math.PI / 2);
 
+  const tyreGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tyreGeo2.scale(1, 1, tyreWallScale);
+  tyreGeo2.translate(0, 0, tyreWidth / 2);
+  tyreGeo2.rotateY(-Math.PI / 2);
 
-  //const tireGeo = new THREE.TorusGeometry(rimSizeCm / 2 + tyreHeight, tyreHeight, 4, 7);
-  //tireGeo.scale(1, 1, tyreWidth / tyreHeight);
-  //tireGeo.rotateY(Math.PI / 2);
-
-  const tireGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
-  tireGeo1.scale(1, 1, tyreWallScale);
-  tireGeo1.translate(0, 0, tyreWidth / 2);
-  tireGeo1.rotateY(Math.PI / 2);
-
-  const tireGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
-  tireGeo2.scale(1, 1, tyreWallScale);
-  tireGeo2.translate(0, 0, tyreWidth / 2);
-  tireGeo2.rotateY(-Math.PI / 2);
-
-  const cylinderGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
-  cylinderGeo.rotateZ(Math.PI / 2);
+  const cylinderGeo1 = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
+  cylinderGeo1.rotateZ(Math.PI / 2);
 
   const tireMat = new THREE.MeshStandardMaterial({
     color: 0x1a1a1a,
-    roughness: 0.9
+    roughness: 0.9,
+    side: THREE.DoubleSide
   });
 
-  group.add(new THREE.Mesh(tireGeo1, tireMat));
-  group.add(new THREE.Mesh(tireGeo2, tireMat));
-  group.add(new THREE.Mesh(cylinderGeo, tireMat));
+  group.add(new THREE.Mesh(tyreGeo1, tireMat));
+  group.add(new THREE.Mesh(tyreGeo2, tireMat));
+  group.add(new THREE.Mesh(cylinderGeo1, tireMat));
 
-  const tireGeo = mergeGeometries([tireGeo1, tireGeo2, cylinderGeo]);
+  const tyreGeo = mergeGeometries([tyreGeo1, tyreGeo2, cylinderGeo1]);
 
-  const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
+  const tire = new THREE.Mesh(tyreGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
