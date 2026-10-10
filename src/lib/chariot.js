@@ -45,7 +45,7 @@ import { orientStrut, orientTetherChain } from './vehicles/podRacer.js';
 // Everything still uses simple sphere hitboxes per the "simple solids for
 // graphics and hitboxes for now" brief.
 
-const HOVER_REST_HEIGHT = 6.15;
+const HOVER_REST_HEIGHT = 4.15;
 const HOVER_MAX_RAY = HOVER_REST_HEIGHT * 3;
 const HOVER_STIFFNESS = 50000; // N per metre of compression
 const HOVER_DAMPING = 2500; // N per (m/s) of vertical closing speed

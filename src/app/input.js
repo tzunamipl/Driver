@@ -155,25 +155,29 @@ export function createInputController() {
     // tapers the lock, not just driving forward fast.
     const speedKmh = Math.abs(forwardSpeed) * 3.6;
     const steerSpeedT = Math.min(speedKmh / 100, 1);
-    const steerSpeedD = vehicle.steerSpeedD ?? STEER_SPEED;
     const steerReturnSpeed = vehicle.steerSpeedD * 4 ?? STEER_SPEED * 4;
     const maxSteerAt0 = vehicle.maxSteerAt0 ?? MAX_STEER;
     const maxSteerAt100 = vehicle.maxSteerAt100 ?? MAX_STEER;
     const effectiveMaxSteer = maxSteerAt0 + (maxSteerAt100 - maxSteerAt0) * steerSpeedT;
 
-    const targetSteer = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
-    const speed = (left || right) ? steerSpeedD : steerReturnSpeed;
-    const delta = targetSteer - steerValue;
-
-    console.log(vehicle.vehicleType);
-    console.log(vehicle.maxSteerAt0);
-    console.log(vehicle.steerSpeedD);
-    console.log(steerValue);
-
     if (vehicle.vehicleType === 'hover') {
       steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
     } else {
-      steerValue += Math.sign(delta) * Math.min(Math.abs(delta), speed);
+      const steerSpeedD = vehicle.steerSpeedD ?? STEER_SPEED;
+      const targetSteer = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
+
+      const directionChanged =
+          steerValue !== 0 &&
+          targetSteer !== 0 &&
+          Math.sign(steerValue) !== Math.sign(targetSteer);
+
+      const speed = directionChanged
+          ? steerReturnSpeed
+          : (left || right) ? steerSpeedD : steerReturnSpeed;
+
+      const delta = targetSteer - steerValue;
+      const maxStep = speed * dt * 120;
+      steerValue += Math.sign(delta) * Math.min(Math.abs(delta), maxStep);
     }
 
     vehicle.setSteeringValue(steerValue, 0);

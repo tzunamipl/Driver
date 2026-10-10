@@ -322,9 +322,6 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass 
     // (registered via this factory) deviate from those defaults.
     engineThrustForce: engineThrustForce ?? ENGINE_THRUST_FORCE,
     mass: mass ?? MASS,
-    steerSpeedD: 0.1,
-    maxSteerAt0: 0.1,
-    maxSteerAt100: 0.1,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
     buildIndependentRig: (scene, color) => buildIndependentRig(scene, color, engineCount),
     dragProfile: DRAG_PROFILE,
