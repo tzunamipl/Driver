@@ -290,7 +290,7 @@ export function createCar(
   // defaults below, letting one vehicle (bigger wheels, softer/longer-travel
   // suspension, etc) differ from the rest without forking the whole rig.
   const suspensionOverrides = descriptor.suspension ?? {};
-  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
+  const wheelRadius = (descriptor.rimSize * 2.54 / 200 + descriptor.tyre / 1000 * descriptor.profile / 100) ?? WHEEL_RADIUS;
   // See DEFAULT_SUSPENSION_FORCE_G above - this vehicle's own independent
   // "how many g's of load can the suspension push before it's capped"
   // rating (lib/vehicles/bigfoot.js raises it for its monster-truck-sized

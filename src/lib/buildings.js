@@ -897,8 +897,8 @@ export class BuildingsManager {
     if (geometries.length) {
       const merged = mergeGeometries(geometries, false);
       mesh = new THREE.Mesh(merged, this.material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
       this.scene.add(mesh);
       for (const g of geometries) g.dispose();
     }
