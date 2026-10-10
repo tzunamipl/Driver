@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as CANNON from 'cannon-es';
 import { getVehicle, DEFAULT_VEHICLE_ID } from './vehicles/index.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
@@ -152,17 +153,41 @@ function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
   const group = new THREE.Group();
   const rimSizeCm = rimSizeIn * 2.54 / 100;
   const tyreWidth = tyre / 1000;
-  const rimWidth = tyreWidth * 0.95;
+  const rimWidth = tyreWidth * 1.1;
   const tyreHeight = tyreWidth * profile/100;
+  const wheelSize = rimSizeCm / 2 + tyreHeight * 2;
 
-  const tireGeo = new THREE.TorusGeometry(rimSizeCm / 2 + tyreHeight, tyreHeight, 6, 8);
-  tireGeo.scale(1, 1, tyreWidth / tyreHeight);
-  tireGeo.rotateY(Math.PI / 2);
+  //const tireGeo = new THREE.TorusGeometry(rimSizeCm / 2 + tyreHeight, tyreHeight, 4, 7);
+  //tireGeo.scale(1, 1, tyreWidth / tyreHeight);
+  //tireGeo.rotateY(Math.PI / 2);
+
+  const tireGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight, tyreHeight, 4, 8);
+  tireGeo1.translate(0, 0, tyreWidth / 2);
+  tireGeo1.rotateY(Math.PI / 2);
+
+  const tireGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight, tyreHeight, 4, 8);
+  tireGeo2.translate(0, 0, tyreWidth / 2);
+  tireGeo2.rotateY(-Math.PI / 2);
+
+  const cylinderGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, 8, 1, true);
+  cylinderGeo.rotateZ(Math.PI / 2);
+
+  const tireMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1a,
+    roughness: 0.9
+  });
+
+  group.add(new THREE.Mesh(tireGeo1, tireMat));
+  group.add(new THREE.Mesh(tireGeo2, tireMat));
+  group.add(new THREE.Mesh(cylinderGeo, tireMat));
+
+  const tireGeo = mergeGeometries([tireGeo1, tireGeo2, cylinderGeo]);
+
   const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, 8);
+  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, 5);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
