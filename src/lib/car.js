@@ -150,26 +150,32 @@ function buildCarHullPrism(hull, halfHeight) {
  * proportionally chunkier tire instead of a comparatively thin disc.
  */
 function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
+  const segments = 8;
+  const tyreWallScale = 0.3
   const group = new THREE.Group();
   const rimSizeCm = rimSizeIn * 2.54 / 100;
   const tyreWidth = tyre / 1000;
-  const rimWidth = tyreWidth * 1.1;
+  const rimWidth = tyreWidth * 0.95;
   const tyreHeight = tyreWidth * profile/100;
-  const wheelSize = rimSizeCm / 2 + tyreHeight * 2;
+  const wheelSize = rimSizeCm / 2 + tyreHeight;
+
+
 
   //const tireGeo = new THREE.TorusGeometry(rimSizeCm / 2 + tyreHeight, tyreHeight, 4, 7);
   //tireGeo.scale(1, 1, tyreWidth / tyreHeight);
   //tireGeo.rotateY(Math.PI / 2);
 
-  const tireGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight, tyreHeight, 4, 8);
+  const tireGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tireGeo1.scale(1, 1, tyreWallScale);
   tireGeo1.translate(0, 0, tyreWidth / 2);
   tireGeo1.rotateY(Math.PI / 2);
 
-  const tireGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight, tyreHeight, 4, 8);
+  const tireGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tireGeo2.scale(1, 1, tyreWallScale);
   tireGeo2.translate(0, 0, tyreWidth / 2);
   tireGeo2.rotateY(-Math.PI / 2);
 
-  const cylinderGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, 8, 1, true);
+  const cylinderGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
   cylinderGeo.rotateZ(Math.PI / 2);
 
   const tireMat = new THREE.MeshStandardMaterial({
@@ -187,7 +193,7 @@ function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, 5);
+  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, segments);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;

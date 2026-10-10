@@ -16,7 +16,7 @@ export default {
     suspensionRestLength: 0.37,
     maxSuspensionTravel: 0.20,
     rollingResistance: 0.017,
-    frictionSlip: 1.8,
+    frictionSlip: 1.0,
     dampingRelaxation: 5.87,
     dampingCompression: 3.95,
     rollInfluence: 0.08,
