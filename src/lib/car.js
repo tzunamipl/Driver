@@ -72,7 +72,7 @@ const WHEELS_PER_VEHICLE = 4;
 // Scaled up 10x alongside DEFAULT_CHASSIS_MASS (150kg -> 1500kg) so
 // force/mass - and therefore acceleration - stays exactly what it was
 // before the mass bump.
-const FORCE_PER_HP = 22; // 18 is more realistic, 22 for more fun
+const FORCE_PER_HP = 18; // 18 is more realistic, 22 for more fun
 const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;
@@ -183,12 +183,12 @@ function buildRallyWheel(radius, parent) {
  * nothing in common with wheel suspension/friction.
  */
 export function createCar(
-  world,
-  THREE_scene,
-  startPosition = new CANNON.Vec3(0, 1, 0),
-  startQuaternion = new CANNON.Quaternion(0, 0, 0, 1),
-  color = DEFAULT_BODY_COLOR,
-  vehicleId = DEFAULT_VEHICLE_ID
+    world,
+    THREE_scene,
+    startPosition = new CANNON.Vec3(0, 1, 0),
+    startQuaternion = new CANNON.Quaternion(0, 0, 0, 1),
+    color = DEFAULT_BODY_COLOR,
+    vehicleId = DEFAULT_VEHICLE_ID
 ) {
   const descriptor = getVehicle(vehicleId);
   if (descriptor.vehicleType === 'hover') {
@@ -228,12 +228,12 @@ export function createCar(
     for (const sy of [-1, 1]) {
       for (const sz of [-1, 1]) {
         chassisBody.addShape(
-          new CANNON.Sphere(hitboxRadius),
-          new CANNON.Vec3(
-            sx * (chassisWidth / 2 - hitboxRadius),
-            sy * (chassisHeight / 2 - hitboxRadius),
-            sz * (chassisLength / 2 - hitboxRadius)
-          )
+            new CANNON.Sphere(hitboxRadius),
+            new CANNON.Vec3(
+                sx * (chassisWidth / 2 - hitboxRadius),
+                sy * (chassisHeight / 2 - hitboxRadius),
+                sz * (chassisLength / 2 - hitboxRadius)
+            )
         );
       }
     }
@@ -281,43 +281,7 @@ export function createCar(
     // damping ratio (same bounciness/settle behavior as before, just stiffer).
     suspensionStiffness: 35,
     suspensionRestLength: 0.55,
-    // Tyre friction coefficient (mu, see wheeledVehicle.js's
-    // maxGrip = suspensionForce * dt * frictionSlip) - 1.6 matches a
-    // genuinely sticky tarmac rally tyre. The old value of 5 was an
-    // unrealistic "super-glue" grip level (real tyres top out around
-    // 1.3-1.8, even race slicks) that - combined with the old uncapped
-    // suspension-force spikes on hard impacts (see maxSuspensionForce
-    // above) - let a single frame's tyre grip budget fully cancel a car's
-    // entire sideways momentum on landing, reading as an instant,
-    // unrealistic snap back upright/straight instead of a visible slide.
-    frictionSlip: 1.6,
-    // Rolling resistance coefficient (Crr at low speed, see
-    // wheeledVehicle.js) - the baseline rally car's road tyres on asphalt.
-    // Per-vehicle descriptors (e.g. lib/vehicles/bigfoot.js's knobbier
-    // off-road tyres) can raise or lower this independently via
-    // descriptor.suspension, same as frictionSlip/suspensionStiffness
-    // above. rollingResistanceSpeedFactor (how fast Crr grows with speed)
-    // is likewise overridable but left at wheeledVehicle.js's default here
-    // since road vs. off-road tyres differ mainly in their base Crr, not
-    // how sharply it climbs with speed.
-    rollingResistance: 0.015,
-    // Damping ratio = damping / (2*sqrt(stiffness)); critical damping here
-    // is 2*sqrt(35) ~= 11.83. The old values (2.62/3.74, ratios ~0.22/0.32)
-    // were well under 1 (underdamped), so every bump/landing kept the
-    // spring oscillating for a beat or two instead of settling - read as
-    // the chassis feeling bouncy/springy on ground contact. Raised to
-    // ratios ~0.75/0.5 (rebound damped harder than compression, same as a
-    // real shock) so the suspension absorbs a hit and settles promptly
-    // instead of bouncing back.
-    dampingRelaxation: 8.87,
-    dampingCompression: 5.92,
-    // Derived from this vehicle's own mass/suspensionForceG above (see the
-    // DEFAULT_SUSPENSION_FORCE_G comment) rather than a flat number, so it
-    // scales automatically with chassisMass and stays a realistic cap
-    // (instead of a huge flat ceiling that let hard-landing suspension
-    // spikes translate into unrealistically sticky tyre grip).
     maxSuspensionForce,
-    rollInfluence: 0.01,
     axleLocal: new CANNON.Vec3(-1, 0, 0),
     chassisConnectionPointLocal: new CANNON.Vec3(1, 0, 1),
     // Real suspension travel is a handful of inches, not most of a meter -
@@ -375,6 +339,8 @@ export function createCar(
 
   vehicle.addToWorld(world);
 
+  vehicle.vehicleType = descriptor.vehicleType
+
   // Labels for hud/suspensionHud.js's generic per-wheel bars, in the same
   // order as vehicle.wheelInfos (see wheelPositions above).
   vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];
@@ -426,6 +392,7 @@ export function createCar(
   // Falls back to the shared MAX_STEER constant for both ends, so a
   // descriptor that doesn't set these keeps today's flat, speed-
   // independent lock unchanged.
+  vehicle.steerSpeedD = descriptor.steerSpeedD ?? 0.1;
   vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
   vehicle.maxSteerAt100 = descriptor.maxSteerAt100 ?? MAX_STEER;
 
@@ -439,9 +406,9 @@ export function createCar(
   // opposite engine force (as slow as accelerating), instead of actually
   // braking at vehicle.brakeForce like a real brake pedal.
   const forwardAxisLocal = new CANNON.Vec3(
-    vehicle.indexForwardAxis === 0 ? 1 : 0,
-    vehicle.indexForwardAxis === 1 ? 1 : 0,
-    vehicle.indexForwardAxis === 2 ? 1 : 0
+      vehicle.indexForwardAxis === 0 ? 1 : 0,
+      vehicle.indexForwardAxis === 1 ? 1 : 0,
+      vehicle.indexForwardAxis === 2 ? 1 : 0
   );
   const forwardAxisWorldScratch = new CANNON.Vec3();
   vehicle.getForwardSpeed = () => {
@@ -513,9 +480,9 @@ export function createCar(
   const inertiaHalfExtents = new CANNON.Vec3(axleWidth, groundDrop, wheelFront - wheelBack);
   CANNON.Box.calculateInertia(inertiaHalfExtents, chassisBody.mass, chassisBody.inertia);
   chassisBody.invInertia.set(
-    chassisBody.inertia.x > 0 ? 1 / chassisBody.inertia.x : 0,
-    chassisBody.inertia.y > 0 ? 1 / chassisBody.inertia.y : 0,
-    chassisBody.inertia.z > 0 ? 1 / chassisBody.inertia.z : 0
+      chassisBody.inertia.x > 0 ? 1 / chassisBody.inertia.x : 0,
+      chassisBody.inertia.y > 0 ? 1 / chassisBody.inertia.y : 0,
+      chassisBody.inertia.z > 0 ? 1 / chassisBody.inertia.z : 0
   );
   chassisBody.updateInertiaWorld(true);
 
@@ -589,9 +556,9 @@ export function createCar(
       for (const sz of [-1, 1]) {
         const sphereMesh = new THREE.Mesh(new THREE.SphereGeometry(hitboxRadius, 8, 6), hitboxMaterial);
         sphereMesh.position.set(
-          sx * (chassisWidth / 2 - hitboxRadius),
-          sy * (chassisHeight / 2 - hitboxRadius),
-          sz * (chassisLength / 2 - hitboxRadius)
+            sx * (chassisWidth / 2 - hitboxRadius),
+            sy * (chassisHeight / 2 - hitboxRadius),
+            sz * (chassisLength / 2 - hitboxRadius)
         );
         sphereMesh.visible = false;
         sphereMesh.renderOrder = 999;
@@ -851,3 +818,4 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
 
   return { setPose, setAppearance, dispose };
 }
+

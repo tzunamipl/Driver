@@ -7,6 +7,6 @@
 export default {
   id: 'close',
   label: 'Close Chase',
-  offset: [0, 10, -16],
+  offset: [0, 6, -11],
   lookAtOffset: [0, 4, 8],
 };

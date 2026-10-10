@@ -1,4 +1,4 @@
-import { MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
 
 // Keyboard input: reads raw key state and translates it into vehicle
 // control calls each frame. Isolated from the main loop so control
@@ -17,6 +17,10 @@ export function createInputController() {
   // Ignore keydowns while a text field (e.g. the address search box) is
   // focused, so typing there never reaches game controls. keyup always
   // runs so a key released after the field loses focus doesn't get stuck.
+
+  // For gradual, not instant steering
+  let steerValue = 0;
+
   window.addEventListener('keydown', (e) => {
     if (isTypingInField()) return;
     keys.add(e.code);
@@ -151,13 +155,34 @@ export function createInputController() {
     // tapers the lock, not just driving forward fast.
     const speedKmh = Math.abs(forwardSpeed) * 3.6;
     const steerSpeedT = Math.min(speedKmh / 100, 1);
+    const steerReturnSpeed = vehicle.steerSpeedD * 4 ?? STEER_SPEED * 4;
     const maxSteerAt0 = vehicle.maxSteerAt0 ?? MAX_STEER;
     const maxSteerAt100 = vehicle.maxSteerAt100 ?? MAX_STEER;
     const effectiveMaxSteer = maxSteerAt0 + (maxSteerAt100 - maxSteerAt0) * steerSpeedT;
 
-    const steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
+    if (vehicle.vehicleType === 'hover') {
+      steerValue = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
+    } else {
+      const steerSpeedD = vehicle.steerSpeedD ?? STEER_SPEED;
+      const targetSteer = left ? effectiveMaxSteer : right ? -effectiveMaxSteer : 0;
+
+      const directionChanged =
+          steerValue !== 0 &&
+          targetSteer !== 0 &&
+          Math.sign(steerValue) !== Math.sign(targetSteer);
+
+      const speed = directionChanged
+          ? steerReturnSpeed
+          : (left || right) ? steerSpeedD : steerReturnSpeed;
+
+      const delta = targetSteer - steerValue;
+      const maxStep = speed * dt * 120;
+      steerValue += Math.sign(delta) * Math.min(Math.abs(delta), maxStep);
+    }
+
     vehicle.setSteeringValue(steerValue, 0);
     vehicle.setSteeringValue(steerValue, 1);
+
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
     // vehicle.brakeForce is each vehicle's own independent brake strength

@@ -45,11 +45,11 @@ import { orientStrut, orientTetherChain } from './vehicles/podRacer.js';
 // Everything still uses simple sphere hitboxes per the "simple solids for
 // graphics and hitboxes for now" brief.
 
-const HOVER_REST_HEIGHT = 3.15;
+const HOVER_REST_HEIGHT = 4.15;
 const HOVER_MAX_RAY = HOVER_REST_HEIGHT * 3;
-const HOVER_STIFFNESS = 10000; // N per metre of compression
-const HOVER_DAMPING = 15; // N per (m/s) of vertical closing speed
-const MAX_HOVER_FORCE = 12000;
+const HOVER_STIFFNESS = 50000; // N per metre of compression
+const HOVER_DAMPING = 2500; // N per (m/s) of vertical closing speed
+const MAX_HOVER_FORCE = 1200000;
 const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
 // Engagement band for the ENGINES' repulsors: clearances strictly between
 // these two are a force-free dead zone (see hoverAt's minEngageHeight/
@@ -59,7 +59,7 @@ const HOVER_RAYCAST_MASK = GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP;
 // engines keep their original single-rest-height behaviour unless these
 // are deliberately spread apart.
 const ENGINE_HOVER_MIN_ENGAGE_HEIGHT = HOVER_REST_HEIGHT;
-const ENGINE_HOVER_MAX_ENGAGE_HEIGHT = HOVER_REST_HEIGHT;
+const ENGINE_HOVER_MAX_ENGAGE_HEIGHT = 100;
 
 // Per-engine thrust (descriptor.engineThrustForce - see
 // lib/vehicles/podRacer.js) is this chariot's own independent power
@@ -110,7 +110,7 @@ const DEFAULT_CHASSIS_MASS = 110;
 // term) - each body is a simple, symmetric sphere, so there's nothing
 // meaningful to apply rotational coupling to; see the cosmetic-only
 // orientation handling below instead.
-const POWER_COUPLING_STIFFNESS = 500; // N per metre of stretch/compression
+const POWER_COUPLING_STIFFNESS = 50000; // N per metre of stretch/compression
 // Progressive term on top of the linear spring above - force grows with
 // the *cube* of stretch, so it's negligible at small stretch (the normal
 // operating range, where a soft linear spring already holds formation and
@@ -126,7 +126,7 @@ const POWER_COUPLING_DAMPING = 6000000; // N per (m/s) of closing/separating spe
 // Raised alongside the progressive term above - the old, lower cap would
 // just saturate the extra force at large stretch, defeating the point of
 // making the spring stiffer out there.
-const POWER_COUPLING_MAX_FORCE = 2400;
+const POWER_COUPLING_MAX_FORCE = 84000;
 
 // --- Pod + tether tuning ---
 // Deliberately tiny next to the ~110kg of engines (split across 3 of
@@ -136,7 +136,7 @@ const POWER_COUPLING_MAX_FORCE = 2400;
 // lighter pod and barely any on the engines whenever their invMass ratio
 // is this lopsided, which is exactly "the pod's mass shouldn't affect the
 // engines" without needing any special-cased exemption.
-const POD_MASS = 4;
+const POD_MASS = 250;
 // Slightly stronger drag than the engines' own LINEAR_DAMPING (above) -
 // the pod is dead weight dangling off the tether, not something actively
 // held in formation by a spring, so it needs a bit more of its own drag
@@ -147,9 +147,9 @@ const POD_LINEAR_DAMPING = LINEAR_DAMPING + 0.2;
 // those are tuned for one ~37kg engine's share of mass, and would make a
 // ~4kg pod's hover wildly twitchy/overpowered (same absolute force, far
 // less mass to resist it).
-const POD_HOVER_STIFFNESS = 1300; // N per metre of compression
+const POD_HOVER_STIFFNESS = 6300; // N per metre of compression
 const POD_HOVER_DAMPING = 200; // N per (m/s) of vertical closing speed
-const POD_MAX_HOVER_FORCE = 1600;
+const POD_MAX_HOVER_FORCE = 5600;
 // Unlike the engines (default to a single strict HOVER_REST_HEIGHT via
 // ENGINE_HOVER_MIN_ENGAGE_HEIGHT/MAX_ENGAGE_HEIGHT above), the pod is
 // dead weight dangling off the tether - it's free to drift within its own
@@ -157,7 +157,7 @@ const POD_MAX_HOVER_FORCE = 1600;
 // repulsor completely off (zero force either way), only re-engaging once
 // it strays below the min or above the max.
 const POD_HOVER_MIN_ENGAGE_HEIGHT = 1.2;
-const POD_HOVER_MAX_ENGAGE_HEIGHT = 100.00;
+const POD_HOVER_MAX_ENGAGE_HEIGHT = 400.00;
 // Extra upward "aerodynamic" lift on the pod, on top of its hover
 // repulsor - proportional to the square of the pod's own forward-
 // component speed (classic lift-grows-with-speed-squared behaviour), so
@@ -165,7 +165,7 @@ const POD_HOVER_MAX_ENGAGE_HEIGHT = 100.00;
 // repulsor (and tether) at speed. N per (m/s)^2 of forward speed; no cap
 // and no minimum-speed threshold - it simply scales continuously from
 // zero.
-const POD_LIFT_COEFFICIENT = 0.08;
+const POD_LIFT_COEFFICIENT = 0.4;
 // Inextensible "steel cable" rope from the live centroid of the three
 // engine bodies (see applyTether) to the pod: it can go slack (the pod is
 // free to swing/sag/lag) but once stretched taut to TETHER_MAX_LENGTH it
@@ -181,7 +181,7 @@ const POD_LIFT_COEFFICIENT = 0.08;
 // once stretched past restLength + SLACK, so the pod has real room to
 // swing/sag/lag before the cable snaps taut, instead of feeling like it's
 // rigidly bolted on at a fixed distance.
-const TETHER_SLACK = 5.6;
+const TETHER_SLACK = 7.1;
 // Purely cosmetic: how much the (now 3-segment, see podRacer.js's
 // orientTetherChain) tether visibly bows downward once it's slack - i.e.
 // once its real straight-line length (attach point -> pod) is shorter
@@ -190,7 +190,7 @@ const TETHER_SLACK = 5.6;
 // as way too loose/cartoonish) and capped so a fully-slack cable still
 // looks like a cable, not a hoop dragging on the ground.
 const TETHER_SAG_FACTOR = 0.2;
-const TETHER_MAX_SAG = 1.3;
+const TETHER_MAX_SAG = 2.3;
 
 // --- Cosmetic-only engine/formation orientation ---
 // The engines are simple, symmetric spheres - there is no meaningful
@@ -1050,6 +1050,7 @@ export function createChariotVehicle(world, THREE_scene, startPosition, startQua
     // which read as "the edge engines clip through obstacles together,
     // independently of the middle one".
     tunnelGuardBodies: engineBodies,
+    vehicleType: descriptor.vehicleType
   };
 
   return {
