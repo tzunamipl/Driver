@@ -148,19 +148,21 @@ function buildCarHullPrism(hull, halfHeight) {
  * so a bigger-wheeled vehicle (e.g. lib/vehicles/bigfoot.js) reads as a
  * proportionally chunkier tire instead of a comparatively thin disc.
  */
-function buildRallyWheel(radius, parent) {
+function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
   const group = new THREE.Group();
-  const tireWidth = radius * 0.95;
-  const rimWidth = tireWidth * 0.85;
+  const rimSizeCm = rimSizeIn * 2.54 / 100;
+  const tyreWidth = tyre / 1000;
+  const rimWidth = tyreWidth * 0.95;
+  const tyreHeight = tyreWidth * profile/100;
 
-  const tireGeo = new THREE.TorusGeometry(radius * 0.82, radius * 0.18, 6, 8);
-  tireGeo.scale(1, 1, 3);
+  const tireGeo = new THREE.TorusGeometry(rimSizeCm / 2 + tyreHeight, tyreHeight, 6, 8);
+  tireGeo.scale(1, 1, tyreWidth / tyreHeight);
   tireGeo.rotateY(Math.PI / 2);
   const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, rimWidth, 8);
+  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, 8);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
@@ -572,7 +574,7 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
 
-  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(wheelOptions.radius, THREE_scene));
+  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, THREE_scene));
 
   // --- Fixed-step physics / variable-rate render decoupling ---
   // world.step() advances the simulation in discrete FIXED_STEP chunks, but
@@ -773,7 +775,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     [axleWidth, wheelAttachY, -1.3],
   ];
   const wheelMeshes = wheelLocals.map(([x, y, z]) => {
-    const wheel = buildRallyWheel(wheelRadius, group);
+    const wheel = buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, group);
     wheel.position.set(x, y, z);
     wheel.rotation.order = 'YXZ';
     return wheel;

@@ -7,6 +7,9 @@ export default {
   defaultColor: 0xffffff, // white
   buildBody,
   wheelRadius: 0.4,
+  rimSize: 18,
+  tyre: 225,
+  profile: 35,
   suspension: {
     suspensionStiffness: 35,
     suspensionRestLength: 0.35,
