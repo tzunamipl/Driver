@@ -6,6 +6,7 @@
 // pick it up automatically.
 
 import gc8 from './gc8.js';
+import gl from './gl.js';
 import levorg from './levorg.js';
 import podRacer from './podRacer.js';
 import bigfoot from './bigfoot.js';
@@ -21,7 +22,7 @@ export const CATEGORIES = [
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [gc8, levorg, podRacer, bigfoot];
+export const VEHICLES = [gc8, gl, levorg, podRacer, bigfoot];
 
 export const DEFAULT_VEHICLE_ID = bigfoot.id;
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as CANNON from 'cannon-es';
 import { getVehicle, DEFAULT_VEHICLE_ID } from './vehicles/index.js';
 import { CHASSIS_MATERIAL, createNameTag } from './vehicleShared.js';
@@ -148,18 +149,46 @@ function buildCarHullPrism(hull, halfHeight) {
  * so a bigger-wheeled vehicle (e.g. lib/vehicles/bigfoot.js) reads as a
  * proportionally chunkier tire instead of a comparatively thin disc.
  */
-function buildRallyWheel(radius, parent) {
+function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
+  const segments = 8;
+  const tyreWallScale = 0.3
   const group = new THREE.Group();
-  const tireWidth = radius * 0.95;
-  const rimWidth = tireWidth * 0.85;
+  const rimSizeCm = rimSizeIn * 2.54 / 100;
+  const tyreWidth = tyre / 1000;
+  const rimWidth = tyreWidth * 0.95;
+  const tyreHeight = tyreWidth * profile/100;
+  const wheelSize = rimSizeCm / 2 + tyreHeight;
 
-  const tireGeo = new THREE.CylinderGeometry(radius, radius, tireWidth, 20);
-  tireGeo.rotateZ(Math.PI / 2);
-  const tire = new THREE.Mesh(tireGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
+  const tyreGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tyreGeo1.scale(1, 1, tyreWallScale);
+  tyreGeo1.translate(0, 0, tyreWidth / 2);
+  tyreGeo1.rotateY(Math.PI / 2);
+
+  const tyreGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  tyreGeo2.scale(1, 1, tyreWallScale);
+  tyreGeo2.translate(0, 0, tyreWidth / 2);
+  tyreGeo2.rotateY(-Math.PI / 2);
+
+  const cylinderGeo1 = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
+  cylinderGeo1.rotateZ(Math.PI / 2);
+
+  const tireMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1a,
+    roughness: 0.9,
+    side: THREE.DoubleSide
+  });
+
+  group.add(new THREE.Mesh(tyreGeo1, tireMat));
+  group.add(new THREE.Mesh(tyreGeo2, tireMat));
+  group.add(new THREE.Mesh(cylinderGeo1, tireMat));
+
+  const tyreGeo = mergeGeometries([tyreGeo1, tyreGeo2, cylinderGeo1]);
+
+  const tire = new THREE.Mesh(tyreGeo, new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }));
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(radius * 0.6, radius * 0.6, rimWidth, 8);
+  const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, segments);
   rimGeo.rotateZ(Math.PI / 2);
   const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
@@ -261,7 +290,7 @@ export function createCar(
   // defaults below, letting one vehicle (bigger wheels, softer/longer-travel
   // suspension, etc) differ from the rest without forking the whole rig.
   const suspensionOverrides = descriptor.suspension ?? {};
-  const wheelRadius = descriptor.wheelRadius ?? WHEEL_RADIUS;
+  const wheelRadius = (descriptor.rimSize * 2.54 / 200 + descriptor.tyre / 1000 * descriptor.profile / 100) ?? WHEEL_RADIUS;
   // See DEFAULT_SUSPENSION_FORCE_G above - this vehicle's own independent
   // "how many g's of load can the suspension push before it's capped"
   // rating (lib/vehicles/bigfoot.js raises it for its monster-truck-sized
@@ -571,7 +600,7 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
 
-  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(wheelOptions.radius, THREE_scene));
+  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, THREE_scene));
 
   // --- Fixed-step physics / variable-rate render decoupling ---
   // world.step() advances the simulation in discrete FIXED_STEP chunks, but
@@ -772,7 +801,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     [axleWidth, wheelAttachY, -1.3],
   ];
   const wheelMeshes = wheelLocals.map(([x, y, z]) => {
-    const wheel = buildRallyWheel(wheelRadius, group);
+    const wheel = buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, group);
     wheel.position.set(x, y, z);
     wheel.rotation.order = 'YXZ';
     return wheel;

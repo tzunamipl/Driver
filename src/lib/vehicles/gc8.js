@@ -7,6 +7,9 @@ export default {
   defaultColor: 0xffffff, // white
   buildBody,
   wheelRadius: 0.35,
+  rimSize: 17,
+  tyre: 225,
+  profile: 35,
   suspension: {
     suspensionStiffness: 45,
     suspensionRestLength: 0.4,
@@ -27,7 +30,8 @@ export default {
   gearRatios: [3.454, 2.062, 1.481, 1.166, 0.916],
   finalDriveRatio: 4.111,
   reverseRatio: 3.636,
-  brakeForce: 211,
+  shiftDurationS: 0.6,
+  brakeForce: 180,
   mass: 1300,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,

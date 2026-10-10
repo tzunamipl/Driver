@@ -95,6 +95,7 @@ export function createEngineState(descriptor, wheelRadius) {
     gearRatios: descriptor.gearRatios ?? DEFAULT_ENGINE_PROFILE.gearRatios,
     finalDriveRatio: descriptor.finalDriveRatio ?? DEFAULT_ENGINE_PROFILE.finalDriveRatio,
     reverseRatio: descriptor.reverseRatio ?? DEFAULT_ENGINE_PROFILE.reverseRatio,
+    shiftDurationS: descriptor.shiftDurationS,
   };
 
   const engine = {
@@ -142,10 +143,10 @@ export function createEngineState(descriptor, wheelRadius) {
     // see its pedalBraking/brake-only-latch handling).
     if (direction === -1 && engine.gear !== 0) {
       engine.gear = 0;
-      engine.shiftTimer = SHIFT_DURATION_S;
+      engine.shiftTimer = profile.shiftDurationS;
     } else if (direction === 1 && engine.gear === 0) {
       engine.gear = 1;
-      engine.shiftTimer = SHIFT_DURATION_S;
+      engine.shiftTimer = profile.shiftDurationS;
     }
 
     const wheelAngularSpeed = Math.max(0, forwardSpeedAbs) / wheelRadius; // rad/s
@@ -164,7 +165,7 @@ export function createEngineState(descriptor, wheelRadius) {
     if (engine.gear >= 1 && engine.shiftTimer <= 0) {
       if (engine.rpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) {
         engine.gear++;
-        engine.shiftTimer = SHIFT_DURATION_S;
+        engine.shiftTimer = profile.shiftDurationS;
       } else if (engine.gear > 1) {
         const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
         const lowerRpm = wheelAngularSpeed * lowerRatio * profile.finalDriveRatio * RAD_S_TO_RPM;
@@ -173,12 +174,12 @@ export function createEngineState(descriptor, wheelRadius) {
           lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION
         ) {
           engine.gear--;
-          engine.shiftTimer = SHIFT_DURATION_S;
+          engine.shiftTimer = profile.shiftDurationS;
         }
       }
     }
 
-    const inTorqueCut = engine.shiftTimer > SHIFT_DURATION_S * (1 - SHIFT_TORQUE_CUT_FRACTION);
+    const inTorqueCut = engine.shiftTimer > profile.shiftDurationS * (1 - SHIFT_TORQUE_CUT_FRACTION);
     const clampedThrottle = direction === 0 ? 0 : Math.max(0, throttle);
     const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(engine.rpm, profile) * clampedThrottle;
     const totalDrivetrainForce =
