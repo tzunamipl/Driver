@@ -19,7 +19,7 @@ export default {
     frictionSlip: 1.9,
     dampingRelaxation: 6.87,
     dampingCompression: 4.95,
-    rollInfluence: 0.15,
+    rollInfluence: 0.25,
     pitchInfluence: 0.65,
   },
   suspensionForceG: 8,

@@ -73,7 +73,7 @@ const WHEELS_PER_VEHICLE = 4;
 // Scaled up 10x alongside DEFAULT_CHASSIS_MASS (150kg -> 1500kg) so
 // force/mass - and therefore acceleration - stays exactly what it was
 // before the mass bump.
-const FORCE_PER_HP = 18; // 18 is more realistic, 22 for more fun
+const FORCE_PER_HP = 0 // 18 is more realistic, 22 for more fun
 const DEFAULT_ENGINE_HP = 100; // baseline rally car's rating
 function hpToEngineForce(hp) {
   return hp * FORCE_PER_HP;
@@ -87,7 +87,7 @@ function hpToEngineForce(hp) {
 // brakes instead of fighting the same braking force as the baseline car.
 // Also scaled 10x alongside DEFAULT_CHASSIS_MASS (see above) to keep the
 // same braking deceleration as before the mass bump.
-const DEFAULT_BRAKE_FORCE = 30000; // baseline rally car's rating
+const DEFAULT_BRAKE_FORCE = 100; // baseline rally car's rating
 
 
 /**
@@ -381,7 +381,7 @@ export function createCar(
   // rigs without their own gearbox (app/input.js's `vehicle.engineForce ??
   // 1`, e.g. the hover chariot) now that vehicle.engine (below) is what
   // actually drives a wheeled car's force each frame.
-  vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp ?? DEFAULT_ENGINE_HP);
+  vehicle.engineForce = hpToEngineForce(descriptor.enginePowerHp);
 
   // Rpm/gearbox simulation (lib/engine.js) - each wheeled vehicle's own
   // torque curve + gear ratios (descriptor.peakTorqueNm/gearRatios/etc,

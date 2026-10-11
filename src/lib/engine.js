@@ -17,6 +17,7 @@
 // Gearbox/clutch energy losses - a real manual gearbox + open differential
 // typically loses ~8-12% of engine torque before it reaches the tyres.
 const DRIVETRAIN_EFFICIENCY = 0.9;
+const DRIVETRAIN_EFFICIENCY_MODIFIER = 0.88;
 // How fast the simulated rpm needle chases the value implied by current
 // wheel speed/gear (simulated flywheel inertia), in "fraction of the gap
 // closed per second" - high enough to feel responsive, low enough that a
@@ -183,7 +184,7 @@ export function createEngineState(descriptor, wheelRadius) {
     const clampedThrottle = direction === 0 ? 0 : Math.max(0, throttle);
     const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(engine.rpm, profile) * clampedThrottle;
     const totalDrivetrainForce =
-      (engineTorqueNm * ratio * profile.finalDriveRatio * DRIVETRAIN_EFFICIENCY) / wheelRadius;
+      (engineTorqueNm * ratio * profile.finalDriveRatio * DRIVETRAIN_EFFICIENCY * DRIVETRAIN_EFFICIENCY_MODIFIER) / wheelRadius;
 
     // Halved before returning: app/input.js's per-wheel split
     // (perWheelEngineForce = engineForce * 2/driveWheels.length) assumes

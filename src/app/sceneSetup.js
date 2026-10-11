@@ -73,7 +73,7 @@ export function createSceneEnvironment() {
 export function createLighting(scene) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.2));
   const sun = new THREE.DirectionalLight(0xffffff, 3.2);
-  const SUN_OFFSET = new THREE.Vector3(0, 30, 30);
+  const SUN_OFFSET = new THREE.Vector3(0, 15, 30);
   sun.position.copy(SUN_OFFSET);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
