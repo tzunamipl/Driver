@@ -47,7 +47,7 @@ const MAX_SPAWN_ATTEMPTS = 10;
 // simple elongated "streak" shape instead of a sphere - cheap and avoids
 // needing any actual cloud texture/shader.
 const CLOUD_GEOMETRY = new THREE.SphereGeometry(3, 8, 6);
-const CLOUD_COLOR = 0xf5f7fa;
+const CLOUD_COLOR = 0xC5D8F0;
 // Fixed world-space yaw every cloud's long axis is stretched along (see
 // spawnCloud below) - shared by all clouds so they all read as elongated
 // in the same direction, rather than each pointing a random way.

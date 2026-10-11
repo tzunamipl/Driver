@@ -45,7 +45,7 @@ export const SURFACE_COMPOUNDS = {
   // network) - the default a wheel is classified as. Even the same tyre
   // bites a bare/unpaved surface a little less confidently than tarmac,
   // and loose/uneven ground costs a bit of extra rolling drag too.
-  normal: { frictionMultiplier: 1.2, frictionSlipOffset: 0.5, maxForceN: Infinity, rollingResistanceMultiplier: 4.0 },
+  normal: { frictionMultiplier: 1.2, frictionSlipOffset: 0.5, maxForceN: Infinity, rollingResistanceMultiplier: 2.0 },
   // OSM water polygons (lib/waterAreas.js) - tyres barely bite into open
   // water at all, and what little grip remains shouldn't scale up just
   // because a heavier vehicle is pressing down harder on it, hence the
@@ -55,7 +55,7 @@ export const SURFACE_COMPOUNDS = {
   // a percentage of an already-high number. Rolling resistance climbs
   // sharply too - wading through water drags on a wheel far more than
   // rolling over dry ground.
-  water: { frictionMultiplier: 1.0, frictionSlipOffset: 0.0, maxForceN: Infinity, rollingResistanceMultiplier: 15.0 },
+  water: { frictionMultiplier: 1.0, frictionSlipOffset: 0.0, maxForceN: Infinity, rollingResistanceMultiplier: 8.0 },
 };
 
 // Fallback compound key for an unset/unrecognized wheel.surface - "normal"
