@@ -28,7 +28,7 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
     const parts = [];
     const add = (geometry, material, x, y, z) => {
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, y, z);
+        mesh.position.set(x, y+0.2, z);
         mesh.castShadow = true;
         parts.push(mesh);
         return mesh;

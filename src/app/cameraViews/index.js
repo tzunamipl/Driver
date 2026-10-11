@@ -20,11 +20,12 @@ import close from './close.js';
 import far from './far.js';
 import hood from './hood.js';
 import rearSide from './rearSide.js';
+import side from './side.js';
 import pod from './pod.js';
 
 // Every selectable camera view, in cycle order (the order "C" steps
 // through them).
-export const CAMERA_VIEWS = [chase, close, far, hood, rearSide, pod];
+export const CAMERA_VIEWS = [chase, close, far, hood, rearSide, side, pod];
 
 export const DEFAULT_CAMERA_VIEW_ID = chase.id;
 

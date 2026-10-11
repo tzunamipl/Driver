@@ -39,7 +39,7 @@ export function buildBody(
             new THREE.BoxGeometry(w, h, d),
             material
         );
-        mesh.position.set(x, y, z);
+        mesh.position.set(x, y+0.2, z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         group.add(mesh);
