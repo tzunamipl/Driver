@@ -2,16 +2,17 @@ import { buildBody } from './geometry/rally.js';
 
 export default {
   id: 'rally',
-  name: 'RAlly',
+  name: 'Rally',
   category: 'misc',
   defaultColor: 0xffffff, // white
+  rimColor: 0xF5F5F5,
   buildBody,
   rimSize: 17,
   tyre: 305,
   profile: 35,
   suspension: {
     suspensionStiffness: 50,
-    suspensionRestLength: 0.0,
+    suspensionRestLength: 0.2,
     maxSuspensionTravel: 0.6,
     rollingResistance: 0.015,
     frictionSlip: 1.6,

@@ -5,6 +5,7 @@ export default {
   name: 'GC8',
   category: 'cars',
   defaultColor: 0xffffff, // white
+  rimColor: 0xcda434,
   buildBody,
   wheelRadius: 0.35,
   rimSize: 17,

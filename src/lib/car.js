@@ -149,7 +149,7 @@ function buildCarHullPrism(hull, halfHeight) {
  * so a bigger-wheeled vehicle (e.g. lib/vehicles/bigfoot.js) reads as a
  * proportionally chunkier tire instead of a comparatively thin disc.
  */
-function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
+function buildRallyWheel(rimSizeIn, tyre, profile, rimColor, parent) {
   const segments = 8;
   const tyreWallScale = 0.3
   const group = new THREE.Group();
@@ -159,12 +159,12 @@ function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
   const tyreHeight = tyreWidth * profile/100;
   const wheelSize = rimSizeCm / 2 + tyreHeight;
 
-  const tyreGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  const tyreGeo1 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 4, segments);
   tyreGeo1.scale(1, 1, tyreWallScale);
   tyreGeo1.translate(0, 0, tyreWidth / 2);
   tyreGeo1.rotateY(Math.PI / 2);
 
-  const tyreGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 3, segments);
+  const tyreGeo2 = new THREE.TorusGeometry(wheelSize - tyreHeight / 2, tyreHeight / 2, 4, segments);
   tyreGeo2.scale(1, 1, tyreWallScale);
   tyreGeo2.translate(0, 0, tyreWidth / 2);
   tyreGeo2.rotateY(-Math.PI / 2);
@@ -190,7 +190,7 @@ function buildRallyWheel(rimSizeIn, tyre, profile, parent) {
 
   const rimGeo = new THREE.CylinderGeometry(rimSizeCm / 2, rimSizeCm / 2, rimWidth, segments);
   rimGeo.rotateZ(Math.PI / 2);
-  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0xcda434, metalness: 0.8, roughness: 0.35 }));
+  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: rimColor, metalness: 0.8, roughness: 0.35 }));
   rim.castShadow = true;
   group.add(rim);
 
@@ -600,7 +600,7 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
 
-  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, THREE_scene));
+  const wheelMeshes = wheelPositions.map(() => buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, descriptor.rimColor, THREE_scene));
 
   // --- Fixed-step physics / variable-rate render decoupling ---
   // world.step() advances the simulation in discrete FIXED_STEP chunks, but
@@ -801,7 +801,7 @@ export function createRemoteCar(THREE_scene, color = DEFAULT_BODY_COLOR, name = 
     [axleWidth, wheelAttachY, -1.3],
   ];
   const wheelMeshes = wheelLocals.map(([x, y, z]) => {
-    const wheel = buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, group);
+    const wheel = buildRallyWheel(descriptor.rimSize, descriptor.tyre, descriptor.profile, descriptor.rimColor, group);
     wheel.position.set(x, y, z);
     wheel.rotation.order = 'YXZ';
     return wheel;

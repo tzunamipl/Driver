@@ -5,6 +5,7 @@ export default {
   name: 'Levorg',
   category: 'cars',
   defaultColor: 0xffffff, // white
+  rimColor: 0xcda434,
   buildBody,
   wheelRadius: 0.4,
   rimSize: 18,

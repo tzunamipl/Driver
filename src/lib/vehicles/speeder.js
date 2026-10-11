@@ -5,6 +5,7 @@ export default {
   name: 'Speeder',
   category: 'misc',
   defaultColor: 0xffffff, // white
+  rimColor: 0xFF0000,
   buildBody,
   rimSize: 20,
   tyre: 355,

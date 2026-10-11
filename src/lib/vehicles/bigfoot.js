@@ -25,8 +25,8 @@ const SUSPENSION = {
   frictionSlip: 1.3,
   dampingRelaxation: 2.71,
   dampingCompression: 0.48,
-  rollInfluence: 0.11,
-  pitchInfluence: 0.75,
+  rollInfluence: 0.13,
+  pitchInfluence: 0.6,
 };
 
 const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
@@ -56,10 +56,11 @@ export default {
   name: 'Bigfoot Monster Truck',
   category: 'misc',
   defaultColor: DEFAULT_BODY_COLOR,
+  rimColor: 0x404040,
   buildBody,
   wheelRadius: WHEEL_RADIUS,
-  rimSize: 16,
-  tyre: 405,
+  rimSize: 18,
+  tyre: 555,
   profile: 75,
   suspension: SUSPENSION,
   suspensionForceG: SUSPENSION_FORCE_G,
