@@ -24,6 +24,7 @@ export function createMainLoop({
   camera,
   renderer,
   sun,
+  sunDisc,
   SUN_OFFSET,
   terrain,
   buildings,
@@ -289,6 +290,7 @@ export function createMainLoop({
       sun.position.copy(SUN_OFFSET).add(currentChassisMesh.position);
       sun.target.position.copy(currentChassisMesh.position);
       sun.target.updateMatrixWorld();
+      sunDisc.position.copy(SUN_OFFSET).multiplyScalar(5000).add(currentChassisMesh.position);
 
       // Stream terrain/buildings chunks in/out as the car moves (cheap
       // no-op if the player is still inside the currently-loaded tile) -

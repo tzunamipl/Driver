@@ -71,19 +71,27 @@ export function createSceneEnvironment() {
  * so its shadow frustum keeps up as the car drives away from spawn.
  */
 export function createLighting(scene) {
-  scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
   const sun = new THREE.DirectionalLight(0xffffff, 3.2);
-  const SUN_OFFSET = new THREE.Vector3(0, 15, 30);
+  const SUN_OFFSET = new THREE.Vector3(0, 7, 30);
   sun.position.copy(SUN_OFFSET);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -50;
-  sun.shadow.camera.right = 50;
-  sun.shadow.camera.top = 50;
-  sun.shadow.camera.bottom = -50;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -25;
+  sun.shadow.camera.right = 25;
+  sun.shadow.camera.top = 25;
+  sun.shadow.camera.bottom = -25;
   sun.shadow.camera.near = 10;
   sun.shadow.camera.far = 100;
   scene.add(sun);
   scene.add(sun.target);
-  return { sun, SUN_OFFSET };
+
+  const sunDisc = new THREE.Mesh(
+      new THREE.SphereGeometry(8000, 6, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffee88, fog: false, })
+  );
+  sunDisc.position.copy(SUN_OFFSET);
+  scene.add(sunDisc);
+
+  return { sun, sunDisc, SUN_OFFSET };
 }

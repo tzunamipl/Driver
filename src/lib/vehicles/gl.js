@@ -29,7 +29,7 @@ export default {
   idleRpm: 900,
   redlineRpm: 6000,
   gearRatios: [3.454, 2.062, 1.481, 1.166, 0.916],
-  finalDriveRatio: 4.7,
+  finalDriveRatio: 4.3,
   reverseRatio: 3.636,
   shiftDurationS: 0.9,
   brakeForce: 110,

@@ -64,11 +64,13 @@ export function createClouds(scene) {
     // One material per cloud (not shared) so each can fade in/out
     // independently, same tradeoff the other particle-ish effects in this
     // folder make (see bodyDust.js/tireSmoke.js).
-    const material = new THREE.MeshBasicMaterial({
+    const material = new THREE.MeshStandardMaterial({
       color: CLOUD_COLOR,
-      transparent: true,
+      transparent: false,
       opacity: 0,
       depthWrite: false,
+      roughness: 1,
+      metalness: 0,
       // Clouds live far beyond scene.fog's own fog-out distance (see
       // sceneSetup.js) - without this they'd always render fully
       // fog-tinted/invisible no matter how close the player drives,

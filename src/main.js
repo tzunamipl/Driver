@@ -55,7 +55,7 @@ import { createLobby } from './ui/lobby.js';
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
-const { sun, SUN_OFFSET } = createLighting(scene);
+const { sun, sunDisc, SUN_OFFSET } = createLighting(scene);
 
 // ---------- Physics world ----------
 const world = createPhysicsWorld();
@@ -248,6 +248,7 @@ const mainLoop = createMainLoop({
   camera,
   renderer,
   sun,
+  sunDisc,
   SUN_OFFSET,
   terrain,
   buildings,
