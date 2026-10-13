@@ -72,6 +72,31 @@ const spinVelocityScratch = { x: 0, z: 0 };
 
 /** Creates the tyre-smoke effect. Call update() once per rendered frame (see app/mainLoop.js). */
 export function createTireSmoke(scene) {
+  // Audio
+  const audioContext = new AudioContext();
+
+  const oscillators = [
+    { freq: 700,  type: 'sine',     gain: 0.01 },
+    { freq: 900, type: 'triangle', gain: 0.008 },
+    { freq: 1500, type: 'sawtooth', gain: 0.003 },
+  ];
+
+  for (const o of oscillators) {
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    osc.type = o.type;
+    osc.frequency.value = o.freq;
+    gain.gain.value = 0;
+
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.start();
+
+    o.osc = osc;
+    o.gainNode = gain;
+  }
+
   const pool = [];
   for (let i = 0; i < POOL_SIZE; i++) {
     // One material per pooled particle (not shared) since each fades its
@@ -138,6 +163,38 @@ export function createTireSmoke(scene) {
       const t = 1 - p.life / PARTICLE_LIFETIME_S;
       p.mesh.scale.setScalar(START_SCALE + (END_SCALE - START_SCALE) * t);
       p.material.opacity = BASE_OPACITY * (1 - t);
+    }
+
+    // Audio
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+
+    let maxSlip = 0;
+
+    if (vehicle && world) {
+      for (const wheel of vehicle.wheelInfos) {
+        if (wheel.sliding && wheel.surface === 'road') {
+          maxSlip = Math.max(maxSlip, 1);
+        }
+      }
+    }
+
+    for (const o of oscillators) {
+      const now = audioContext.currentTime;
+      const variation = Math.sin((now + (Math.random() - 0.5)) * 10) * 100;
+
+      o.osc.frequency.setTargetAtTime(
+          o.freq + variation,
+          now,
+          0.03
+      );
+
+      o.gainNode.gain.setTargetAtTime(
+          maxSlip * o.gain * (0.8 + 0.2 * Math.sin(now * 18)),
+          now,
+          0.05
+      );
     }
 
     if (!vehicle || !world) return;

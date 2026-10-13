@@ -12,7 +12,7 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
-export function createInputController() {
+export function createInputController(engineAudio) {
   const keys = new Set();
   // Ignore keydowns while a text field (e.g. the address search box) is
   // focused, so typing there never reaches game controls. keyup always
@@ -132,6 +132,12 @@ export function createInputController() {
           forwardSpeedAbs: Math.abs(forwardSpeed),
         })
       : engineForceUnit;
+
+    // Audio
+    const rpm = vehicle.engine?.rpm ?? 100;
+    const throttle = forward ? 1 : 0;
+    engineAudio.update(rpm, throttle);
+
     const engineForce = pedalBraking
       ? 0
       : (forward ? -engineMagnitude : backward ? engineMagnitude : 0) * forceScale;

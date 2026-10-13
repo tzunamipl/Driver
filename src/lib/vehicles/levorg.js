@@ -23,6 +23,7 @@ export default {
     pitchInfluence: 0.65,
   },
   suspensionForceG: 8,
+  engine: 'v4',
   enginePowerHp: 172,
   peakTorqueNm: 250,
   peakTorqueRpm: 3500,

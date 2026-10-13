@@ -14,6 +14,7 @@ import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/music.js';
+import { createEngineAudio } from './lib/engineAudio.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
@@ -109,6 +110,15 @@ Object.assign(loadingEl.style, {
 });
 document.body.appendChild(loadingEl);
 
+// ---------- Audio ----------
+const engineAudio = createEngineAudio(camera, [
+  { freq: 6, pitchD: 10, pitchT: 4, variation: 30, vibration: 0.4, vibrationT: 1 },
+  { freq: 15, pitchD: 0, pitchT: 8, variation: 10, vibration: -0.6, vibrationT: 2 },
+  //{ freq: 17, pitchD: 2, pitchT: 30, variation: 6, vibration: 0.6, vibrationT: 2 },
+  //{ freq: 20, pitchD: 3, pitchT: 30, variation: 5, vibration: 0.5, vibrationT: 4 },
+  { freq: 30, pitchD: 2, pitchT: 10, variation: 20, vibration: 0.1, vibrationT: 0.1 },
+]);
+
 // ---------- Networking ----------
 // Reuse the same clientId across reloads (see lib/playerId.js) so this
 // browser doesn't show up as a fresh duplicate peer every time the page
@@ -179,7 +189,7 @@ const vehicleDebugPicker = createVehicleDebugPicker({
 });
 
 // ---------- Input ----------
-const input = createInputController();
+const input = createInputController(engineAudio);
 const collapsibleHud = setupCollapsibleHud();
 setupTouchControls(input.keys);
 

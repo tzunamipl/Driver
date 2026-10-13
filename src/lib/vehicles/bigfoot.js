@@ -64,6 +64,7 @@ export default {
   profile: 75,
   suspension: SUSPENSION,
   suspensionForceG: SUSPENSION_FORCE_G,
+  engine: 'v8',
   enginePowerHp: ENGINE_POWER_HP,
   peakTorqueNm: PEAK_TORQUE_NM,
   peakTorqueRpm: PEAK_TORQUE_RPM,
