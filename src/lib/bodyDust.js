@@ -61,6 +61,29 @@ const PARTICLE_GEO = new THREE.SphereGeometry(1, 6, 5);
 const COLOR_MIN = 0x8a7352;
 const COLOR_MAX = 0xc2a775;
 
+// Audio
+
+const audioCtx = new AudioContext();
+
+function playImpactSound(speed) {
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(100, now);
+  osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+
+  gain.gain.setValueAtTime(Math.min(speed / 15, 0.8), now);
+  gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start(now);
+  osc.stop(now + 0.15);
+}
+
 /** Creates the chassis body-dust effect. Call update() once per rendered frame (see app/mainLoop.js). */
 export function createBodyDust(scene) {
   const pool = [];
@@ -120,6 +143,7 @@ export function createBodyDust(scene) {
     const speedFrac = Math.min(1, (impactSpeed - MIN_IMPACT_SPEED) / (IMPACT_SPEED_FOR_MAX_BURST - MIN_IMPACT_SPEED));
     const endScale = END_SCALE_MIN + (END_SCALE_MAX - END_SCALE_MIN) * speedFrac;
     spawnPuff(point.x, point.y, point.z, endScale, chassisVelocity);
+    playImpactSound(impactSpeed);
     rearmTimer = EMIT_INTERVAL_S;
   }
 

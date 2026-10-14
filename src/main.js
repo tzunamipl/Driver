@@ -112,11 +112,11 @@ document.body.appendChild(loadingEl);
 
 // ---------- Audio ----------
 const engineAudio = createEngineAudio(camera, [
-  { freq: 6, pitchD: 10, pitchT: 4, variation: 30, vibration: 0.4, vibrationT: 1 },
-  { freq: 15, pitchD: 0, pitchT: 8, variation: 10, vibration: -0.6, vibrationT: 2 },
-  //{ freq: 17, pitchD: 2, pitchT: 30, variation: 6, vibration: 0.6, vibrationT: 2 },
-  //{ freq: 20, pitchD: 3, pitchT: 30, variation: 5, vibration: 0.5, vibrationT: 4 },
-  { freq: 30, pitchD: 2, pitchT: 10, variation: 20, vibration: 0.1, vibrationT: 0.1 },
+  //{ freq: 5, pitchD: 1, pitchT: 5, variation: 10, vibration: 0.3, vibrationT: 0.1 },
+  { freq: 10, pitchD: 4, pitchT: 10, variation: 20, vibration: 0, vibrationT: 0 },
+  { freq: 20, pitchD: 0, pitchT: 0, variation: 20, vibration: 0, vibrationT: 0 },
+  //{ freq: 30, pitchD: 20, pitchT: 1, variation: 5, vibration: 0.5, vibrationT: 4 },
+  //{ freq: 20, pitchD: 40, pitchT: 1, variation: 20, vibration: 0.0, vibrationT: 0.1 },
 ]);
 
 // ---------- Networking ----------
