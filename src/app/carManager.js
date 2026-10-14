@@ -21,6 +21,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let stabilityAssistCallback = null;
   // Rig-specific cleanup for extra bodies/meshes (chariot); optional.
   let dispose = null;
+  let shiftRigOrigin = null;
   let localName = '';
   let score = 0;
   let currentColor = DEFAULT_BODY_COLOR;
@@ -61,7 +62,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     currentColor = color;
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin } = createCar(
       world,
       scene,
       playerSpawnPos(),
@@ -81,7 +82,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     const quaternion = vehicle.chassisBody.quaternion.clone();
     const velocity = vehicle.chassisBody.velocity.clone();
     removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin } = createCar(
       world,
       scene,
       position,
@@ -102,7 +103,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     const quaternion = vehicle.chassisBody.quaternion.clone();
     const velocity = vehicle.chassisBody.velocity.clone();
     removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin } = createCar(
       world,
       scene,
       position,
@@ -118,7 +119,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   /** Spawns the shared "preview" car used before a player has joined a room. */
   function spawnPreviewCar(startPos) {
     removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose } = createCar(
+    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin } = createCar(
       world,
       scene,
       startPos,
@@ -149,6 +150,21 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     }
   }
 
+  /**
+   * Floating-origin shift for local-car state outside the physics bodies and
+   * scene objects (shifted generically by floatingOrigin.js).
+   */
+  function shiftOrigin(dx, dz) {
+    shiftRigOrigin?.(dx, dz);
+    for (const wheel of vehicle?.wheelInfos ?? []) {
+      for (const p of [wheel.worldTransform?.position, wheel.connectionPointWorld, wheel.raycastResult?.hitPointWorld]) {
+        if (!p) continue;
+        p.x -= dx;
+        p.z -= dz;
+      }
+    }
+  }
+
   function addScore(delta) {
     score += delta;
   }
@@ -164,6 +180,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     setVehicleKind,
     setColor,
     updateRemotes,
+    shiftOrigin,
     addScore,
     setLocalName,
     getScore: () => score,

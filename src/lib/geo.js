@@ -1,5 +1,8 @@
 // lat/lon <-> slippy tiles, and lat/lon <-> local flat metres around an
-// origin (equirectangular; <1% error at driving-area scale).
+// origin (equirectangular; <1% error at driving-area scale). The east-west
+// scale comes from `scaleLat` (default: the origin's latitude). The mapping
+// is affine in lat/lon, so moving the origin with scaleLat kept is an exact
+// translation - what the floating origin relies on.
 
 const EARTH_RADIUS = 6378137; // WGS84 equatorial radius, meters
 
@@ -25,31 +28,40 @@ export function tileY2lat(y, zoom) {
 }
 
 /** lat/lon -> local metres (x = east, z = south) relative to the origin. */
-export function latLonToLocal(lat, lon, originLat, originLon) {
-  const originLatRad = (originLat * Math.PI) / 180;
+export function latLonToLocal(lat, lon, originLat, originLon, scaleLat = originLat) {
+  const scaleLatRad = (scaleLat * Math.PI) / 180;
   const dLat = ((lat - originLat) * Math.PI) / 180;
   const dLon = ((lon - originLon) * Math.PI) / 180;
-  const x = dLon * Math.cos(originLatRad) * EARTH_RADIUS;
+  const x = dLon * Math.cos(scaleLatRad) * EARTH_RADIUS;
   const z = -dLat * EARTH_RADIUS;
   return { x, z };
 }
 
 /** Inverse of latLonToLocal. */
-export function localToLatLon(x, z, originLat, originLon) {
-  const originLatRad = (originLat * Math.PI) / 180;
+export function localToLatLon(x, z, originLat, originLon, scaleLat = originLat) {
+  const scaleLatRad = (scaleLat * Math.PI) / 180;
   const lat = originLat + (-z / EARTH_RADIUS) * (180 / Math.PI);
-  const lon = originLon + (x / (EARTH_RADIUS * Math.cos(originLatRad))) * (180 / Math.PI);
+  const lon = originLon + (x / (EARTH_RADIUS * Math.cos(scaleLatRad))) * (180 / Math.PI);
   return { lat, lon };
 }
 
 /**
- * Re-expresses local (x, z) from one origin relative to another (via
- * lat/lon) - network origin vs a teleported view origin. No-op if equal.
+ * Re-expresses local (x, z) from one frame in another (via lat/lon) -
+ * network frame vs this player's view frame. No-op if equal.
  */
-export function remapLocalOrigin(x, z, fromOriginLat, fromOriginLon, toOriginLat, toOriginLon) {
-  if (fromOriginLat === toOriginLat && fromOriginLon === toOriginLon) return { x, z };
-  const { lat, lon } = localToLatLon(x, z, fromOriginLat, fromOriginLon);
-  return latLonToLocal(lat, lon, toOriginLat, toOriginLon);
+export function remapLocalOrigin(
+  x,
+  z,
+  fromOriginLat,
+  fromOriginLon,
+  toOriginLat,
+  toOriginLon,
+  fromScaleLat = fromOriginLat,
+  toScaleLat = toOriginLat
+) {
+  if (fromOriginLat === toOriginLat && fromOriginLon === toOriginLon && fromScaleLat === toScaleLat) return { x, z };
+  const { lat, lon } = localToLatLon(x, z, fromOriginLat, fromOriginLon, fromScaleLat);
+  return latLonToLocal(lat, lon, toOriginLat, toOriginLon, toScaleLat);
 }
 
 /** Ground edge length (m) of a tile at `zoom` and latitude (shrinks by cos(lat)). */

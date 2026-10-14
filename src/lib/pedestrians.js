@@ -41,7 +41,11 @@ const LEG_GEO = new THREE.BoxGeometry(0.14, 0.3, 0.14);
 
 const feetOffset = new THREE.Vector3();
 
-export function createPedestrians(scene, world, groundGroup) {
+/**
+ * `frame` ({ toNetwork, fromNetwork }, see app/viewFrame.js) keeps the cell
+ * grid in the shared network frame, whatever this player's view frame is.
+ */
+export function createPedestrians(scene, world, groundGroup, frame = null) {
   world.addContactMaterial(
     new CANNON.ContactMaterial(PED_MATERIAL, GROUND_MATERIAL, { friction: 0.85, restitution: 0.22 })
   );
@@ -191,15 +195,17 @@ export function createPedestrians(scene, world, groundGroup) {
     nextScan = now + SCAN_INTERVAL_MS;
 
     const spawnR2 = SPAWN_RADIUS_M * SPAWN_RADIUS_M;
-    const minIx = Math.floor((x - SPAWN_RADIUS_M) / CELL_M);
-    const maxIx = Math.floor((x + SPAWN_RADIUS_M) / CELL_M);
-    const minIz = Math.floor((z - SPAWN_RADIUS_M) / CELL_M);
-    const maxIz = Math.floor((z + SPAWN_RADIUS_M) / CELL_M);
+    const net = frame ? frame.toNetwork(x, z) : { x, z };
+    const minIx = Math.floor((net.x - SPAWN_RADIUS_M) / CELL_M);
+    const maxIx = Math.floor((net.x + SPAWN_RADIUS_M) / CELL_M);
+    const minIz = Math.floor((net.z - SPAWN_RADIUS_M) / CELL_M);
+    const maxIz = Math.floor((net.z + SPAWN_RADIUS_M) / CELL_M);
     for (let ix = minIx; ix <= maxIx; ix++) {
       for (let iz = minIz; iz <= maxIz; iz++) {
         const id = `ped:${ix}:${iz}`;
         if (killed.has(id) || peds.has(id) || !cellHasPed(ix, iz)) continue;
-        const point = pointInCell(ix, iz);
+        const netPoint = pointInCell(ix, iz);
+        const point = frame ? frame.fromNetwork(netPoint.x, netPoint.z) : netPoint;
         const dx = point.x - x;
         const dz = point.z - z;
         if (dx * dx + dz * dz > spawnR2) continue;

@@ -18,6 +18,7 @@ import {
   hitboxMesh,
   liftedResetPosition,
   resetLiftProgress,
+  shiftPoints,
   uprightQuaternion,
 } from './vehicleShared.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
@@ -361,6 +362,15 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
     }
   }
 
+  /** Floating-origin shift of interpolation and reset state (bodies/meshes move generically). */
+  function shiftOrigin(dx, dz) {
+    shiftPoints([...prevPos, ...currPos, prevPodPos, currPodPos], dx, dz);
+    if (liftAnim) {
+      for (const anim of liftAnim.engines) shiftPoints([anim.startPos, anim.targetPos], dx, dz);
+      shiftPoints([liftAnim.podStartPos, liftAnim.podTargetPos], dx, dz);
+    }
+  }
+
   function dispose() {
     for (const body of engineBodies) if (body !== chassisBody) world.removeBody(body);
     for (const mesh of engineMeshes) if (mesh !== chassisMesh) scene.remove(mesh);
@@ -396,6 +406,7 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
     setHitboxVisible,
     stabilityAssistCallback,
     dispose,
+    shiftOrigin,
   };
 }
 

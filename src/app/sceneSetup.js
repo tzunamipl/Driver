@@ -1,11 +1,9 @@
 import * as THREE from 'three';
-import { FAR_BASE_COLOR, SKY_COLOR } from '../lib/terrain.js';
+import { SKY_COLOR } from '../lib/terrain.js';
 
 // Renderer, scene, camera and lights.
 
-// Fog matches FAR_BASE_COLOR so LOW tiles fade into the far backdrop.
-//const FOG_COLOR = FAR_BASE_COLOR; // Solution binded to FAR terrain
-const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex(); // Hardcoded solution
+const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex();
 
 /** Builds renderer/scene/camera, mounts the canvas in #app; returns them plus resize(). */
 export function createSceneEnvironment() {
@@ -20,8 +18,8 @@ export function createSceneEnvironment() {
 
   const scene = new THREE.Scene();
   scene.background = SKY_COLOR.clone();
-  // Linear fog: clear to 10 km, LOW tiles fully fogged by 20 km. The far
-  // tier and the sky opt out.
+  // Linear fog for non-terrain objects; terrain and sky opt out (terrain
+  // has its own distance haze, see terrain.js).
   const FOG_NEAR_METERS = 6_000;
   const FOG_FAR_METERS = 13_000;
   scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR_METERS, FOG_FAR_METERS);
@@ -30,7 +28,7 @@ export function createSceneEnvironment() {
     70,
     window.innerWidth / window.innerHeight,
     0.1,
-    // Far plane must exceed FAR_RADIUS_METERS or the far tier is culled.
+    // Far plane must exceed FAR_RADIUS_METERS or distant terrain is culled.
     160_000
   );
   camera.position.set(0, 5, -8);

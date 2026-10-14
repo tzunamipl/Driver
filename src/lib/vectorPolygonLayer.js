@@ -104,7 +104,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
     }
 
     _buildItem(entry, byStyleKey) {
-      const toLocal = (p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon);
+      const toLocal = (p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon, this.scaleLat);
       const outerPts = entry.outer.map(toLocal);
       if (outerPts.length < MIN_RING_POINTS) return;
 
@@ -137,6 +137,10 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       this._bucket(byStyleKey, entry.style, () => ({ geometries: [] })).geometries.push(geometry);
     }
 
+    _shiftBucket({ geometries }, dx, dz) {
+      for (const g of geometries) g.translate(-dx, 0, -dz);
+    }
+
     _makeMesh({ geometries, style }) {
       if (!geometries.length) return null;
       const merged = geometries.length > 1 ? mergeGeometries(geometries, false) : geometries[0];
@@ -149,7 +153,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
      * or null. Independent of mesh build/visibility.
      */
     classifyAt(x, z) {
-      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon);
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
       for (const entry of this._itemsNear(lat, lon)) {
         if (!pointInLatLonRing(lat, lon, entry.outer)) continue;
         if (entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole))) continue;

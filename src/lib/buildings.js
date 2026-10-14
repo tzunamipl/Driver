@@ -267,6 +267,7 @@ export class BuildingsManager {
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
+    this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
     // Tiles wait for their terrain tile: ground height comes from raycasting its body.
     this.terrain = terrain;
     this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
@@ -479,7 +480,7 @@ export class BuildingsManager {
       sinceCheck++;
       const entry = list[build.index++];
       try {
-        const points = entry.ring.map((p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon));
+        const points = entry.ring.map((p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon, this.scaleLat));
         const built = buildFootprintGeometry(points, entry.height);
         if (!built) continue;
 
@@ -629,6 +630,20 @@ export class BuildingsManager {
     this._generation++;
     this.originLat = lat;
     this.originLon = lon;
+    this.scaleLat = lat;
+  }
+
+  /**
+   * Floating-origin shift by (dx, dz): scene objects and bodies were already
+   * translated by the caller; partial builds' geometry (not in the scene yet)
+   * is moved here.
+   */
+  shiftOrigin(lat, lon, dx, dz) {
+    this.originLat = lat;
+    this.originLon = lon;
+    for (const build of this._inProgressBuilds.values()) {
+      for (const g of build.geometries) g.translate(-dx, 0, -dz);
+    }
   }
 
   /**

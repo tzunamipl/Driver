@@ -61,8 +61,8 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     }
 
     _buildItem(seg, byStyleKey) {
-      const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon);
-      const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon);
+      const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
+      const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
       const ay = this._groundHeightAt(a.x, a.z) + lift;
       const by = this._groundHeightAt(b.x, b.z) + lift;
       const { positions } = this._bucket(byStyleKey, seg.style, () => ({ positions: [] }));
@@ -89,6 +89,13 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       );
     }
 
+    _shiftBucket({ positions }, dx, dz) {
+      for (let i = 0; i < positions.length; i += 3) {
+        positions[i] -= dx;
+        positions[i + 2] -= dz;
+      }
+    }
+
     _makeMesh(bucket) {
       if (flat) {
         const geometry = new BufferGeometry();
@@ -107,10 +114,10 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
      */
     containsPoint(x, z) {
       if (!flat) return false;
-      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon);
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
       for (const seg of this._itemsNear(lat, lon)) {
-        const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon);
-        const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon);
+        const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
+        const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
         const abx = b.x - a.x;
         const abz = b.z - a.z;
         const lenSq = abx * abx + abz * abz;

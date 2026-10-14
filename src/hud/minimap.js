@@ -1,4 +1,4 @@
-import { lon2tileX, lat2tileY, localToLatLon, tileSizeMeters } from '../lib/geo.js';
+import { lon2tileX, lat2tileY, tileSizeMeters } from '../lib/geo.js';
 import { computeHeadingDeg } from '../lib/heading.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
@@ -397,9 +397,10 @@ export function createMinimapHud() {
     pruneCache();
   }
 
-  function update(chassisMesh, origin, remotePoses = []) {
-    if (!chassisMesh || !origin) return;
-    const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, origin.lat, origin.lon);
+  /** `viewFrame`: see app/viewFrame.js. */
+  function update(chassisMesh, viewFrame, remotePoses = []) {
+    if (!chassisMesh || !viewFrame) return;
+    const { lat, lon } = viewFrame.toLatLon(chassisMesh.position.x, chassisMesh.position.z);
     const headingDeg = computeHeadingDeg(chassisMesh);
     const carX = chassisMesh.position.x;
     const carZ = chassisMesh.position.z;

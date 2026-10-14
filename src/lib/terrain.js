@@ -1,276 +1,50 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import {
-  lon2tileX,
-  lat2tileY,
-  tileX2lon,
-  tileY2lat,
-  latLonToLocal,
-  localToLatLon,
-  tileSizeMeters,
-} from './geo.js';
+import { lon2tileX, lat2tileY, localToLatLon, latLonToLocal, tileX2lon, tileY2lat, tileSizeMeters } from './geo.js';
+import { loadTileData } from './terrain/tileLoader.js';
+import { buildTileGeometry, buildTileDebugLines, geometryFromGridMesh } from './terrain/tileMesh.js';
+import { sampleHeight } from './terrain/surfaceGrid.js';
+import { roadBedBorderPx } from './terrain/roadBed.js';
 
-// Free, keyless aerial imagery (also used by the minimap).
-export const AERIAL_URL = (z, x, y) =>
-  `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
-
-// AWS Terrarium elevation tiles. Must use the virtual-hosted-style bucket
-// URL: the path-style one returns no CORS headers, tainting the canvas.
-const ELEVATION_URL = (z, x, y) =>
-  `https://elevation-tiles-prod.s3.amazonaws.com/terrarium/${z}/${x}/${y}.png`;
-
-// Two tiers, both selected in a circle around the player with delayed unload:
-//   - detail: aerial-textured mesh (+ physics for HIGH/MEDIUM), split into
-//     HIGH (3x3 around the player), MEDIUM (to DETAIL_RADIUS) and LOW (an
-//     outer terrain-only ring to LOW_DETAIL_RADIUS: coarser mesh, no physics);
-//   - far: coarse, untextured, physics-less backdrop to FAR_RADIUS_METERS.
-// Other streamers (buildings, vector overlays) align to DETAIL_ZOOM and use
-// DETAIL_RADIUS / HIGH_DETAIL_RADIUS; the LOW ring is terrain-only.
+// Terrain is one quadtree of Web Mercator tiles around the player: ROOT_ZOOM
+// tiles out to FAR_RADIUS_METERS, refined down to DETAIL_ZOOM next to the
+// car. A tile splits while the player is within SPLIT_DISTANCE of its own
+// width, so on-screen detail stays roughly even with ~100-200 tiles in all.
+// The DETAIL_RADIUS circle of DETAIL_ZOOM tiles (which buildings and vector
+// overlays align to) is always fully split and gets physics + sharper
+// imagery; HIGH is the 3x3 block within it. A tile is only hidden once
+// whatever replaces it has loaded, so splits/merges never leave holes.
+// DETAIL_ZOOM tiles are built in the worker on a fine grid with OSM roads
+// carved in as a raised bed (terrain/detailSurface.js, terrain/roadBed.js).
 
 export const DETAIL_ZOOM = 15; // ~600-800m tiles at mid latitudes
-const DETAIL_GRID = 16; // mesh subdivisions per tile edge
+const DETAIL_CELLS = 256; // ~3 m cells across a DETAIL_ZOOM tile (mesh and physics Heightfield), fine enough for road beds
+const DETAIL_LINE_STRIDE = 16; // debug grid lines every this many detail cells
+const DETAIL_SKIRT_DEPTH = 16; // metres; coarse neighbours still leave big cracks
+// Coarser tiles by zoom, finest first: [minZoom, grid]. Far tiles are hazed, so they get fewer vertices.
+const COARSE_GRIDS = [
+  [13, 16], // ~1.5-3 km tiles
+  [11, 8], // ~6-12 km
+  [0, 4], // ~25-150 km
+];
 export const DETAIL_RADIUS = 2; // tiles
-export const UNLOAD_MARGIN = 1; // tiles of slack before unloading
+export const UNLOAD_MARGIN = 1; // tiles of slack before unloading (other streamers)
 export const HIGH_DETAIL_RADIUS = 1; // square, i.e. the 3x3 block
-export const LOW_DETAIL_RADIUS = DETAIL_RADIUS + 15;
-const LOW_DETAIL_GRID = Math.max(1, Math.round(DETAIL_GRID / 4)); // 1/16 the vertices
 export const DetailLevel = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
 
-/** DetailLevel of a tile at (dx, dy) from the player's tile. */
+/** DetailLevel of a DETAIL_ZOOM tile at (dx, dy) from the player's tile. */
 export function detailLevelForOffset(dx, dy) {
   if (Math.abs(dx) <= HIGH_DETAIL_RADIUS && Math.abs(dy) <= HIGH_DETAIL_RADIUS) return DetailLevel.HIGH;
   if (inCircle(dx, dy, DETAIL_RADIUS)) return DetailLevel.MEDIUM;
   return DetailLevel.LOW;
 }
 
-// Used by the debug stats HUD grid (terrainStatsHud.js).
-export const DETAIL_LEVEL_COLORS = {
-  [DetailLevel.HIGH]: 0x39ff14, // bright green
-  [DetailLevel.MEDIUM]: 0x2e8b22, // medium green
-  [DetailLevel.LOW]: 0x6f8f6a, // desaturated green/"green-grey"
-};
-
-
 // Rounds circle selection out a bit so small radii don't look spiky.
 const CIRCLE_SLACK = 0.5;
 
-// Out-of-range chunks wait this many update() ticks before unloading
-// (absorbs boundary flicker; shown as "removing" in the debug HUD).
+// Out-of-range chunks of other streamers wait this many update() ticks
+// before unloading (absorbs boundary flicker).
 export const UNLOAD_DELAY_TICKS = 3;
-
-const FAR_ZOOM = 11; // tiles tens of km across
-const FAR_GRID = 11;
-export const FAR_RADIUS_METERS = 120_000;
-// Radius of the hole cut in the far tier around the player (so it never
-// overlaps the detail tier), in DETAIL_ZOOM tiles.
-export const FAR_HOLE_RADIUS_TILES = LOW_DETAIL_RADIUS + UNLOAD_MARGIN - 2;
-const FAR_UNLOAD_MARGIN = 1;
-const FAR_UNLOAD_DELAY_TICKS = 3;
-const FAR_Y_OFFSET = -3; // sits below the detail tier so it loses any z-fight
-const FAR_FADE_IN_MS = 600;
-const TILE_FADE_IN_MS = 600; // LOW-ring fade-in
-
-// Imagery is fetched at a higher zoom than the mesh and stitched into a
-// mosaic, since that's what makes the ground look sharp up close.
-const AERIAL_ZOOM_BOOST = 2; // 4x4 child tiles = 1024x1024 texture per chunk
-const AERIAL_TILE_SIZE = 256;
-
-// Terrain-only collision group, for ground raycasts that ignore vehicles.
-export const GROUND_COLLISION_GROUP = 2;
-export const GROUND_MATERIAL = new CANNON.Material('ground');
-
-const _groundRayFrom = new CANNON.Vec3();
-const _groundRayTo = new CANNON.Vec3();
-const _groundRayResult = new CANNON.RaycastResult();
-// Tall enough to find the surface even from a body sunk deep underground.
-export const GROUND_SEARCH_HEIGHT = 5000;
-
-/** Terrain surface y at (x, z), or null if no chunk is loaded there. */
-export function findGroundY(world, x, z) {
-  _groundRayFrom.set(x, GROUND_SEARCH_HEIGHT, z);
-  _groundRayTo.set(x, -GROUND_SEARCH_HEIGHT, z);
-  _groundRayResult.reset();
-  world.raycastClosest(
-    _groundRayFrom,
-    _groundRayTo,
-    { collisionFilterMask: GROUND_COLLISION_GROUP },
-    _groundRayResult
-  );
-  return _groundRayResult.hasHit ? _groundRayResult.hitPointWorld.y : null;
-}
-
-function loadImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load ${url}`));
-    img.src = url;
-  });
-}
-
-function decodeElevationTile(img) {
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  const { data } = ctx.getImageData(0, 0, img.width, img.height);
-  return { data, width: img.width, height: img.height };
-}
-
-function sampleHeight({ data, width, height }, u, v) {
-  const px = Math.min(width - 1, Math.max(0, Math.round(u * (width - 1))));
-  const py = Math.min(height - 1, Math.max(0, Math.round(v * (height - 1))));
-  const idx = (py * width + px) * 4;
-  const r = data[idx];
-  const g = data[idx + 1];
-  const b = data[idx + 2];
-  // Terrarium decoding formula (Mapzen): (R*256 + G + B/256) - 32768.
-  return r * 256 + g + b / 256 - 32768;
-}
-
-/**
- * One texture for tile (z, x, y), stitched from its child tiles at
- * z + zoomBoost. Failed child tiles are left blank. LOW tiles pass 0.
- */
-async function loadAerialTexture(z, x, y, zoomBoost = AERIAL_ZOOM_BOOST) {
-  const n = 2 ** zoomBoost;
-  const zz = z + zoomBoost;
-  const size = n * AERIAL_TILE_SIZE;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  const loads = [];
-  for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) {
-      const cx = x * n + i;
-      const cy = y * n + j;
-      loads.push(
-        loadImage(AERIAL_URL(zz, cx, cy))
-          .then((img) => ctx.drawImage(img, i * AERIAL_TILE_SIZE, j * AERIAL_TILE_SIZE))
-          .catch(() => {}) // leave that quadrant blank on failure
-      );
-    }
-  }
-  await Promise.all(loads);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/** Rough memory estimate of a chunk (texture + vertex/index buffers + physics copy), for the debug HUD. */
-function estimateChunkBytes(textureImage, positions, indices, hasPhysics = true) {
-  const texBytes = (textureImage.width || 0) * (textureImage.height || 0) * 4;
-  const vertexCount = positions.length / 3;
-  const physicsFactor = hasPhysics ? 2 : 1; // Trimesh keeps its own copy
-  const meshBytes = (positions.length * physicsFactor + vertexCount * 2) * 4;
-  const indexBytes = indices.length * 4 * physicsFactor;
-  return texBytes + meshBytes + indexBytes;
-}
-
-// Debug tile lines, lifted along vertex normals to avoid z-fighting; the
-// border sits above the grid. Fat lines (LineMaterial) because WebGL
-// ignores `linewidth` on basic lines; they need the viewport resolution.
-const BORDER_LIFT = 0.15;
-const GRID_LIFT = 0.1;
-const BORDER_COLOR = 0xffe14d;
-const GRID_COLOR = 0xffe14d;
-const BORDER_LINEWIDTH = 3; // px
-const GRID_LINEWIDTH = 1.25; // px
-const borderMaterial = new LineMaterial({
-  color: BORDER_COLOR,
-  linewidth: BORDER_LINEWIDTH,
-  transparent: true,
-  opacity: 0.85,
-});
-const gridMaterial = new LineMaterial({
-  color: GRID_COLOR,
-  linewidth: GRID_LINEWIDTH,
-  transparent: true,
-  opacity: 0.25,
-});
-function updateLineResolution() {
-  borderMaterial.resolution.set(window.innerWidth, window.innerHeight);
-  gridMaterial.resolution.set(window.innerWidth, window.innerHeight);
-}
-updateLineResolution();
-window.addEventListener('resize', updateLineResolution);
-
-/** Line loop around the perimeter of a displaced tile plane. */
-function buildTileBorder(geometry, grid) {
-  const position = geometry.attributes.position;
-  const normal = geometry.attributes.normal;
-  const perimeter = [];
-  for (let ix = 0; ix <= grid; ix++) perimeter.push(ix); // top edge, iy = 0, left -> right
-  for (let iy = 1; iy <= grid; iy++) perimeter.push(iy * (grid + 1) + grid); // right edge, top -> bottom
-  for (let ix = grid - 1; ix >= 0; ix--) perimeter.push(grid * (grid + 1) + ix); // bottom edge, right -> left
-  for (let iy = grid - 1; iy >= 1; iy--) perimeter.push(iy * (grid + 1)); // left edge, bottom -> top
-
-  // One independent segment per consecutive vertex pair (wrapping).
-  const segments = new Float32Array(perimeter.length * 6);
-  for (let i = 0; i < perimeter.length; i++) {
-    const a = perimeter[i];
-    const b = perimeter[(i + 1) % perimeter.length];
-    segments[i * 6] = position.getX(a) + normal.getX(a) * BORDER_LIFT;
-    segments[i * 6 + 1] = position.getY(a) + normal.getY(a) * BORDER_LIFT;
-    segments[i * 6 + 2] = position.getZ(a) + normal.getZ(a) * BORDER_LIFT;
-    segments[i * 6 + 3] = position.getX(b) + normal.getX(b) * BORDER_LIFT;
-    segments[i * 6 + 4] = position.getY(b) + normal.getY(b) * BORDER_LIFT;
-    segments[i * 6 + 5] = position.getZ(b) + normal.getZ(b) * BORDER_LIFT;
-  }
-
-  const borderGeometry = new LineSegmentsGeometry();
-  borderGeometry.setPositions(segments);
-  return new LineSegments2(borderGeometry, borderMaterial);
-}
-
-/** Lines along every (deduplicated) triangle edge of a tile mesh. */
-function buildTileGrid(geometry) {
-  const position = geometry.attributes.position;
-  const normal = geometry.attributes.normal;
-  const index = geometry.index.array;
-
-  const seen = new Set();
-  const segmentList = [];
-  const pushEdge = (a, b) => {
-    const key = a < b ? `${a}_${b}` : `${b}_${a}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    segmentList.push(a, b);
-  };
-  for (let i = 0; i < index.length; i += 3) {
-    const a = index[i];
-    const b = index[i + 1];
-    const c = index[i + 2];
-    pushEdge(a, b);
-    pushEdge(b, c);
-    pushEdge(c, a);
-  }
-
-  const segments = new Float32Array(segmentList.length * 3);
-  for (let i = 0; i < segmentList.length; i++) {
-    const idx = segmentList[i];
-    segments[i * 3] = position.getX(idx) + normal.getX(idx) * GRID_LIFT;
-    segments[i * 3 + 1] = position.getY(idx) + normal.getY(idx) * GRID_LIFT;
-    segments[i * 3 + 2] = position.getZ(idx) + normal.getZ(idx) * GRID_LIFT;
-  }
-
-  const gridGeometry = new LineSegmentsGeometry();
-  gridGeometry.setPositions(segments);
-  return new LineSegments2(gridGeometry, gridMaterial);
-}
 
 /** True if (dx, dy) falls within a circle of the given radius, in tile units. */
 export function inCircle(dx, dy, radius) {
@@ -291,108 +65,144 @@ export function circleOffsets(radius) {
   return offsets;
 }
 
-// Uniform far-tier colour, equal to the fog colour (sceneSetup.js) so the
-// LOW tier fogs out into it with no seam.
-export const FAR_BASE_COLOR = new THREE.Color(0.37, 0.61, 0.57).getHex();
+const DETAIL_OFFSETS = circleOffsets(DETAIL_RADIUS);
+const DETAIL_BOX = Math.max(...DETAIL_OFFSETS.map(({ dx }) => Math.abs(dx))); // square bound of DETAIL_OFFSETS
+
+export const FAR_RADIUS_METERS = 120_000;
+const ROOT_ZOOM = 8; // ~100-150 km tiles
+const SPLIT_DISTANCE = 1.0; // in the tile's own widths, from the player to the tile's nearest point
+// Imagery is fetched at a higher zoom than the mesh and stitched into a mosaic.
+const DETAIL_AERIAL_BOOST = 2; // 4x4 child tiles = 1024px texture
+const NEAR_AERIAL_BOOST = 1; // 2x2 = 512px, for tiles from NEAR_AERIAL_MIN_ZOOM up
+const NEAR_AERIAL_MIN_ZOOM = 13; // coarser tiles are far and hazed: one native 256px tile
+const MAX_CONCURRENT_LOADS = 6; // ~the browser's per-host connection limit
+const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) that re-runs selection
+const HIDDEN_TILE_LINGER_MS = 8000; // keeps tiles around for back-and-forth driving
+const UNLOAD_CHECK_INTERVAL_MS = 500;
+const FAILED_RETRY_MS = 10_000;
+const SKIRT_DEPTH_CELLS = 0.3; // skirt depth in the tile's grid cells (+2 m)
+const STATS_GRID_RADIUS = 6; // debug HUD grid, in DETAIL_ZOOM tiles
+
+// Terrain-only collision group, for ground raycasts that ignore vehicles.
+export const GROUND_COLLISION_GROUP = 2;
+export const GROUND_MATERIAL = new CANNON.Material('ground');
+
+const _groundRayFrom = new CANNON.Vec3();
+const _groundRayTo = new CANNON.Vec3();
+const _groundRayResult = new CANNON.RaycastResult();
+// Covers Earth's full relief (ocean trench to Everest) relative to the origin
+// baseline, so a teleport anywhere still finds the ground.
+export const GROUND_SEARCH_HEIGHT = 20000;
+
+/** Terrain surface y at (x, z), or null if no physics tile is loaded there. */
+export function findGroundY(world, x, z) {
+  _groundRayFrom.set(x, GROUND_SEARCH_HEIGHT, z);
+  _groundRayTo.set(x, -GROUND_SEARCH_HEIGHT, z);
+  _groundRayResult.reset();
+  world.raycastClosest(
+    _groundRayFrom,
+    _groundRayTo,
+    { collisionFilterMask: GROUND_COLLISION_GROUP },
+    _groundRayResult
+  );
+  return _groundRayResult.hasHit ? _groundRayResult.hitPointWorld.y : null;
+}
 
 // Sky colour; lives here because sceneSetup.js already imports this module.
 export const SKY_COLOR = new THREE.Color(0x87ceeb);
 
-// Ground haze on top of scene.fog: grows with distance (HAZE_START..END)
-// and fades out with altitude above HAZE_MAX_HEIGHT, so peaks poke through.
-// Applied to every terrain material; in practice only FAR chunks reach it.
-const HAZE_START_METERS = 10_000;
-const HAZE_END_METERS = FAR_RADIUS_METERS;
+// Terrain skips scene.fog and uses this aerial-perspective haze instead:
+// exponential with distance, fading out with altitude so peaks poke through,
+// and complete by FAR_RADIUS_METERS so the square edge of the tiles vanishes.
+const HAZE_DISTANCE_METERS = 40_000; // e-folding distance
+const HAZE_EDGE_START_METERS = FAR_RADIUS_METERS * 0.8;
 const HAZE_MAX_HEIGHT_METERS = 10_000; // world y (relative to the fixed origin baseline)
 const HAZE_COLOR = SKY_COLOR.clone().multiplyScalar(0.99);
 
-/** onBeforeCompile hook adding the ground haze; chainable with other injections. */
+/** onBeforeCompile hook adding the ground haze (one shared program for every tile). */
 function applyGroundHaze(shader) {
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = position.y;');
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
     .replace(
       '#include <opaque_fragment>',
       `
-      float hazeDist = smoothstep(${HAZE_START_METERS.toFixed(1)}, ${HAZE_END_METERS.toFixed(1)}, length(vViewPosition));
+      float hazeDist = length(vViewPosition);
       float hazeHeight = 1.0 - smoothstep(${(HAZE_MAX_HEIGHT_METERS - 500).toFixed(1)}, ${HAZE_MAX_HEIGHT_METERS.toFixed(1)}, vHazeWorldY);
-      float groundHaze = hazeDist * hazeHeight;
+      float groundHaze = max(
+        (1.0 - exp(-hazeDist / ${HAZE_DISTANCE_METERS.toFixed(1)})) * hazeHeight,
+        smoothstep(${HAZE_EDGE_START_METERS.toFixed(1)}, ${FAR_RADIUS_METERS.toFixed(1)}, hazeDist)
+      );
       outgoingLight = mix(outgoingLight, vec3(${HAZE_COLOR.r.toFixed(3)}, ${HAZE_COLOR.g.toFixed(3)}, ${HAZE_COLOR.b.toFixed(3)}), groundHaze);
       #include <opaque_fragment>`
     );
 }
 
+function tileKey(z, x, y) {
+  return `${z}/${x}/${y}`;
+}
+
 /**
- * Streams real-world terrain as Web Mercator tile chunks around the player
- * (see the tier overview at the top). HIGH/MEDIUM chunks get a Trimesh body
- * built from the exact render vertices, so collision matches visuals.
+ * Streams the terrain quadtree around the player (see the overview at the
+ * top). Loads run in a worker, up to MAX_CONCURRENT_LOADS at once, best
+ * priority first. Physics tiles get a Heightfield on the same nodes as the
+ * render mesh (same diagonals too), so collision matches visuals. `baseline` is where world y=0
+ * is sampled (defaults to the origin).
  */
 export class TerrainManager {
-  constructor(scene, world, originLat, originLon) {
+  constructor(scene, world, originLat, originLon, baseline = { lat: originLat, lon: originLon }) {
     this.scene = scene;
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
-    this.chunks = new Map(); // key -> { mesh, body, border, grid, tx, ty, bytes, level, fadeStart }
-    this.pending = new Set(); // keys being fetched/built right now
-    this.pendingRemoval = new Map(); // key -> ticks before unload
-    // Detail chunks load strictly one at a time via a priority queue (see
-    // _pumpQueue). _queueWaiters holds resolvers for queued/in-flight keys.
-    this._loadQueue = []; // [{ tx, ty, key, rebuild? }]
-    this._queueWaiters = new Map(); // key -> Array<() => void>
-    this._pumping = false;
-    // Bumped by recenter() so in-flight loads for the old origin bail out.
-    this._loadEpoch = 0;
+    this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
+    this._baseline = baseline;
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
     this._heightBaselineSet = false; // see init()
-    this._lastCenter = null;
-    this._centerX = 0;
-    this._centerY = 0;
-    // Player heading (local XZ) for LOW-ring queue priority; 0 = no bias.
-    this._headingX = 0;
-    this._headingZ = 0;
-    this.stats = { created: 0, removed: 0 };
     this.bordersVisible = true;
 
-    this.farChunks = new Map(); // key -> { mesh, tx, ty, bytes, fadeStart }
-    this.farPending = new Set();
-    this.farPendingRemoval = new Map();
-    this.farStats = { created: 0, removed: 0 };
-    this._lastFarCenter = null;
-    this._farCenterX = 0;
-    this._farCenterY = 0;
-    this.farRadiusTiles = FAR_RADIUS_METERS / tileSizeMeters(FAR_ZOOM, originLat);
+    this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, lines, aerialBoost, texBytes, meshBytes, hiddenSince }
+    this._loadedBelow = new Map(); // key -> number of loaded tiles strictly inside it
+    this.loading = new Map(); // key -> job in flight
+    this._failedAt = new Map(); // key -> time of the last failed load
+    this._leaves = []; // desired leaves: [{ z, x, y, key, distMeters, dirX, dirY, detail, covered }]
+    this._leafKeys = new Set();
+    this._visible = new Set();
+    this._detailWaiters = [];
+    // Bumped by recenter() so in-flight loads for the old origin bail out.
+    this._loadEpoch = 0;
 
-    // Far tiles are far bigger than the detail area, so tile exclusion
-    // can't keep them from under the player: the far shader discards a
-    // circle around the player instead. Uniforms are shared by all far chunks.
-    const holeRadiusMeters = FAR_HOLE_RADIUS_TILES * tileSizeMeters(DETAIL_ZOOM, originLat);
-    this.holeUniforms = {
-      center: { value: new THREE.Vector2(0, 0) },
-      radiusSq: { value: holeRadiusMeters * holeRadiusMeters },
-    };
+    this._lat = originLat;
+    this._lon = originLon;
+    this._lastSelect = null; // DETAIL_ZOOM fractional tile coords of the last selection
+    this._centerX = 0;
+    this._centerY = 0;
+    // Player heading (local XZ) for load priority; 0 = no bias.
+    this._headingX = 0;
+    this._headingZ = 0;
+    this._lastUnloadCheck = 0;
+    this.stats = { detail: { created: 0, removed: 0 }, coarse: { created: 0, removed: 0 } };
   }
 
   /**
    * Samples the height baseline once, at the app's fixed shared origin, so
    * world y means the same real elevation for every client (recenter()
    * must not re-baseline). Falls back to 0 on fetch failure. Then loads the
-   * initial detail batch.
+   * initial physics footprint.
    */
   async init() {
     if (!this._heightBaselineSet) {
-      const tx = Math.floor(lon2tileX(this.originLon, DETAIL_ZOOM));
-      const ty = Math.floor(lat2tileY(this.originLat, DETAIL_ZOOM));
-      try {
-        const img = await loadImage(ELEVATION_URL(DETAIL_ZOOM, tx, ty));
-        const grid = decodeElevationTile(img);
-        const u = lon2tileX(this.originLon, DETAIL_ZOOM) - tx;
-        const v = lat2tileY(this.originLat, DETAIL_ZOOM) - ty;
-        this.heightOffset = sampleHeight(grid, u, v);
-      } catch (err) {
-        console.warn('Origin elevation fetch failed, defaulting height baseline to 0', err);
+      const fx = lon2tileX(this._baseline.lon, DETAIL_ZOOM);
+      const fy = lat2tileY(this._baseline.lat, DETAIL_ZOOM);
+      const tx = Math.floor(fx);
+      const ty = Math.floor(fy);
+      const { elev } = await loadTileData({ z: DETAIL_ZOOM, x: tx, y: ty });
+      if (elev?.heights) {
+        this.heightOffset = sampleHeight(elev, fx - tx, fy - ty);
+      } else {
+        console.warn('Origin elevation fetch failed, defaulting height baseline to 0', elev?.error);
         this.heightOffset = 0;
       }
       this._heightBaselineSet = true;
@@ -400,586 +210,575 @@ export class TerrainManager {
     await this.update(0, 0, true);
   }
 
-  _key(tx, ty) {
-    return `${tx}_${ty}`;
-  }
-
-  /** True once a tile's mesh is built - for the debug stats HUD. */
+  /** True once a DETAIL_ZOOM tile's mesh is built - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
-    return this.chunks.has(this._key(tx, ty));
+    return this.tiles.has(tileKey(DETAIL_ZOOM, tx, ty));
   }
 
   /**
    * Teleport support: tears everything down and streams a fresh set around
    * a new lat/lon origin (the flat local projection is only accurate near
-   * its origin). Resolves once the initial batch is loaded.
+   * its origin). Resolves once the physics footprint is loaded.
    */
   async recenter(lat, lon) {
     this._loadEpoch++; // invalidate in-flight loads first
-    for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
-    for (const key of Array.from(this.farChunks.keys())) this._unloadFarChunk(key);
-    this.pending.clear();
-    this.pendingRemoval.clear();
-    this.farPending.clear();
-    this.farPendingRemoval.clear();
+    for (const tile of Array.from(this.tiles.values())) this._disposeTile(tile);
+    this.loading.clear();
+    this._failedAt.clear();
+    this._leaves = [];
+    this._leafKeys.clear();
+    this._visible = new Set();
+    this._lastSelect = null;
     // Resolve outstanding waiters so an awaitAll update() never hangs.
-    this._loadQueue = [];
-    for (const waiters of this._queueWaiters.values()) waiters.forEach((resolve) => resolve());
-    this._queueWaiters.clear();
-    this._lastCenter = null;
-    this._centerX = 0;
-    this._centerY = 0;
-    this._lastFarCenter = null;
-    this._farCenterX = 0;
-    this._farCenterY = 0;
+    const waiters = this._detailWaiters;
+    this._detailWaiters = [];
+    waiters.forEach((resolve) => resolve());
 
     this.originLat = lat;
     this.originLon = lon;
-    this.farRadiusTiles = FAR_RADIUS_METERS / tileSizeMeters(FAR_ZOOM, lat);
-    const holeRadiusMeters = FAR_HOLE_RADIUS_TILES * tileSizeMeters(DETAIL_ZOOM, lat);
-    this.holeUniforms.radiusSq.value = holeRadiusMeters * holeRadiusMeters;
-
+    this.scaleLat = lat;
     await this.init();
   }
 
   /**
-   * Queue priority, lower = sooner: HIGH 0, MEDIUM 1, LOW in [2, 4) by
-   * angle from the player's heading (ahead first, behind last; 3 if unknown).
+   * Floating-origin shift: the caller has already translated every scene
+   * object and physics body; only the projection origin moves here.
    */
-  _queuePriorityRank(tx, ty) {
-    const dx = tx - this._centerX;
-    const dy = ty - this._centerY;
-    const level = detailLevelForOffset(dx, dy);
-    if (level === DetailLevel.HIGH) return 0;
-    if (level === DetailLevel.MEDIUM) return 1;
-    const dist = Math.hypot(dx, dy);
-    const headingMag = Math.hypot(this._headingX, this._headingZ);
-    if (dist === 0 || headingMag === 0) return 3;
-    const cosAngle = (dx * this._headingX + dy * this._headingZ) / (dist * headingMag);
-    return 2 + (1 - cosAngle);
+  shiftOrigin(lat, lon) {
+    this.originLat = lat;
+    this.originLon = lon;
   }
 
-  /** Queues (tx, ty) once; resolves when it's loaded. Safe to call every tick. */
-  _enqueueLoad(tx, ty) {
-    const key = this._key(tx, ty);
-    if (this.chunks.has(key)) return Promise.resolve();
-    let waiters = this._queueWaiters.get(key);
-    if (!waiters) {
-      waiters = [];
-      this._queueWaiters.set(key, waiters);
-      this._loadQueue.push({ tx, ty, key });
+  _isPhysicsTile(z, x, y) {
+    return z === DETAIL_ZOOM && inCircle(x - this._centerX, y - this._centerY, DETAIL_RADIUS);
+  }
+
+  /** Rebuilds the desired leaf set for the current player position. */
+  _select() {
+    const lat = this._lat;
+    const lon = this._lon;
+    const px = [];
+    const py = [];
+    const sizeMeters = [];
+    for (let z = ROOT_ZOOM; z <= DETAIL_ZOOM; z++) {
+      px[z] = lon2tileX(lon, z);
+      py[z] = lat2tileY(lat, z);
+      sizeMeters[z] = tileSizeMeters(z, lat);
     }
-    const promise = new Promise((resolve) => waiters.push(resolve));
-    this._pumpQueue();
-    return promise;
+    const cx = this._centerX;
+    const cy = this._centerY;
+
+    const leaves = [];
+    const visit = (z, x, y) => {
+      const n = 2 ** z;
+      if (x < 0 || y < 0 || x >= n || y >= n) return;
+      // Distance (in this tile's widths) from the player to the tile's nearest point.
+      const dx = Math.max(x - px[z], 0, px[z] - (x + 1));
+      const dy = Math.max(y - py[z], 0, py[z] - (y + 1));
+      const dist = Math.hypot(dx, dy);
+      if (dist * sizeMeters[z] > FAR_RADIUS_METERS) return;
+      if (z < DETAIL_ZOOM) {
+        const s = 2 ** (DETAIL_ZOOM - z);
+        const coversPhysics =
+          x * s <= cx + DETAIL_BOX && (x + 1) * s > cx - DETAIL_BOX && y * s <= cy + DETAIL_BOX && (y + 1) * s > cy - DETAIL_BOX;
+        if (dist < SPLIT_DISTANCE || coversPhysics) {
+          visit(z + 1, 2 * x, 2 * y);
+          visit(z + 1, 2 * x + 1, 2 * y);
+          visit(z + 1, 2 * x, 2 * y + 1);
+          visit(z + 1, 2 * x + 1, 2 * y + 1);
+          return;
+        }
+      }
+      leaves.push({
+        z,
+        x,
+        y,
+        key: tileKey(z, x, y),
+        distMeters: dist * sizeMeters[z],
+        dirX: x + 0.5 - px[z],
+        dirY: y + 0.5 - py[z],
+        detail: this._isPhysicsTile(z, x, y),
+        covered: false,
+      });
+    };
+
+    const r = FAR_RADIUS_METERS / sizeMeters[ROOT_ZOOM];
+    for (let y = Math.floor(py[ROOT_ZOOM] - r); y <= Math.floor(py[ROOT_ZOOM] + r); y++) {
+      for (let x = Math.floor(px[ROOT_ZOOM] - r); x <= Math.floor(px[ROOT_ZOOM] + r); x++) {
+        visit(ROOT_ZOOM, x, y);
+      }
+    }
+    this._leaves = leaves;
+    this._leafKeys = new Set(leaves.map((leaf) => leaf.key));
+  }
+
+  /** Loaded tiles that fully cover (z, x, y), pushed to `out`; false if there's a gap. */
+  _collectCover(z, x, y, out) {
+    const key = tileKey(z, x, y);
+    if (this.tiles.has(key)) {
+      out.push(key);
+      return true;
+    }
+    if (z >= DETAIL_ZOOM || !this._loadedBelow.get(key)) return false;
+    for (let j = 0; j < 2; j++) {
+      for (let i = 0; i < 2; i++) {
+        if (!this._collectCover(z + 1, 2 * x + i, 2 * y + j, out)) return false;
+      }
+    }
+    return true;
+  }
+
+  _loadedAncestor(z, x, y) {
+    for (let zz = z - 1, xx = x >> 1, yy = y >> 1; zz >= ROOT_ZOOM; zz--, xx >>= 1, yy >>= 1) {
+      const key = tileKey(zz, xx, yy);
+      if (this.tiles.has(key)) return key;
+    }
+    return null;
+  }
+
+  _hasVisibleAncestor(tile, visible) {
+    return this._ancestorKeys(tile).some((key) => visible.has(key));
+  }
+
+  _ancestorKeys({ z, x, y }) {
+    const keys = [];
+    for (let zz = z - 1, xx = x >> 1, yy = y >> 1; zz >= ROOT_ZOOM; zz--, xx >>= 1, yy >>= 1) {
+      keys.push(tileKey(zz, xx, yy));
+    }
+    return keys;
   }
 
   /**
-   * Queues a rebuild of a loaded tile at its new detail level (MEDIUM<->LOW).
-   * The old mesh/body stay live until the replacement is ready (no gap).
+   * Picks what to draw: each desired leaf if loaded, else loaded finer tiles
+   * that fully cover it, else its nearest loaded ancestor. Then syncs mesh
+   * visibility, debug lines and physics bodies.
    */
-  _enqueueRebuild(tx, ty) {
-    const key = this._key(tx, ty);
-    let waiters = this._queueWaiters.get(key);
-    if (!waiters) {
-      waiters = [];
-      this._queueWaiters.set(key, waiters);
-      this._loadQueue.push({ tx, ty, key, rebuild: true });
+  _updateDisplay() {
+    const visible = new Set();
+    for (const leaf of this._leaves) {
+      leaf.covered = true;
+      if (this.tiles.has(leaf.key)) {
+        visible.add(leaf.key);
+        continue;
+      }
+      const cover = [];
+      if (this._collectCover(leaf.z, leaf.x, leaf.y, cover)) {
+        cover.forEach((key) => visible.add(key));
+        continue;
+      }
+      const ancestor = this._loadedAncestor(leaf.z, leaf.x, leaf.y);
+      if (ancestor) visible.add(ancestor);
+      else leaf.covered = false;
     }
-    const promise = new Promise((resolve) => waiters.push(resolve));
-    this._pumpQueue();
-    return promise;
+    // A shown ancestor (standing in for a leaf still loading) hides its descendants.
+    for (const key of visible) {
+      if (this._hasVisibleAncestor(this.tiles.get(key), visible)) visible.delete(key);
+    }
+
+    const now = performance.now();
+    for (const tile of this.tiles.values()) {
+      const show = visible.has(tile.key);
+      tile.mesh.visible = show;
+      if (show) tile.hiddenSince = null;
+      else if (tile.hiddenSince == null) tile.hiddenSince = now;
+      this._syncDebugLines(tile);
+      this._syncBody(tile);
+    }
+    this._visible = visible;
+  }
+
+  _syncDebugLines(tile) {
+    const want = this.bordersVisible && tile.mesh.visible;
+    if (want && !tile.lines) {
+      tile.lines = buildTileDebugLines(tile.surface, 2 ** (DETAIL_ZOOM - tile.z));
+      tile.lines.border.position.copy(tile.mesh.position);
+      tile.lines.grid.position.copy(tile.mesh.position);
+      this.scene.add(tile.lines.border, tile.lines.grid);
+    }
+    if (tile.lines) {
+      tile.lines.border.visible = want;
+      tile.lines.grid.visible = want;
+    }
+  }
+
+  /** Physics only on the DETAIL_RADIUS circle (kept even while an ancestor is drawn in its place). */
+  _syncBody(tile) {
+    const want = this._isPhysicsTile(tile.z, tile.x, tile.y) && !!tile.heightfield;
+    if (want && !tile.body) {
+      // Heightfield is data[x][y] with local y pointing north once rotated
+      // upright, so it's anchored at the south-west node.
+      const { heights, cols, rows, elementSize } = tile.heightfield;
+      const data = [];
+      for (let c = 0; c < cols; c++) {
+        const column = new Array(rows);
+        for (let k = 0; k < rows; k++) column[k] = heights[(rows - 1 - k) * cols + c];
+        data.push(column);
+      }
+      const shape = new CANNON.Heightfield(data, { elementSize });
+      shape.collisionFilterGroup = GROUND_COLLISION_GROUP;
+      const body = new CANNON.Body({ mass: 0, material: GROUND_MATERIAL });
+      body.position.set(tile.mesh.position.x, 0, tile.mesh.position.z + (rows - 1) * elementSize);
+      body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+      body.collisionFilterGroup = GROUND_COLLISION_GROUP;
+      body.addShape(shape);
+      this.world.addBody(body);
+      tile.body = body;
+    } else if (!want && tile.body) {
+      this.world.removeBody(tile.body);
+      tile.body = null;
+    }
   }
 
   /**
-   * Drains the queue one tile at a time, always picking the current best
-   * priority (recomputed per pick, so it follows the moving player).
-   * Re-entrant calls are no-ops.
+   * Lower = sooner: HIGH, then MEDIUM physics tiles, then their imagery
+   * upgrades, then holes (coarse first, so the view fills fast), then
+   * refinements by distance with tiles behind the player counted farther.
    */
-  async _pumpQueue() {
-    if (this._pumping) return;
-    this._pumping = true;
-    try {
-      let next;
-      while ((next = this._dequeueNext())) {
-        const { tx, ty, key, rebuild } = next;
-        // Waiters stay registered during the load so new callers for an
-        // in-flight tile join them instead of re-queueing it.
-        if (
-          (!rebuild && this.chunks.has(key)) ||
-          !inCircle(tx - this._centerX, ty - this._centerY, LOW_DETAIL_RADIUS)
-        ) {
-          this._resolveQueueWaiters(key);
-          continue;
-        }
-        await this._loadChunk(tx, ty, rebuild);
-        this._resolveQueueWaiters(key);
-      }
-    } finally {
-      this._pumping = false;
+  _jobScore(leaf, kind) {
+    if (leaf.detail) {
+      if (kind === 'texture') return 2e9 + leaf.distMeters;
+      const level = detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY);
+      return (level === DetailLevel.HIGH ? 0 : 1e9) + leaf.distMeters;
     }
+    if (!leaf.covered) return 3e9 + leaf.z * 1e7 + leaf.distMeters;
+    const dirLen = Math.hypot(leaf.dirX, leaf.dirY);
+    const headingLen = Math.hypot(this._headingX, this._headingZ);
+    const cos =
+      dirLen && headingLen ? (leaf.dirX * this._headingX + leaf.dirY * this._headingZ) / (dirLen * headingLen) : 0;
+    return 4e9 + leaf.distMeters * (1 + 0.5 * (1 - cos));
   }
 
-  _resolveQueueWaiters(key) {
-    const waiters = this._queueWaiters.get(key);
-    this._queueWaiters.delete(key);
-    waiters?.forEach((resolve) => resolve());
-  }
-
-  /** Removes and returns the best (lowest rank, then nearest) queue entry, or null. */
-  _dequeueNext() {
-    let bestIdx = -1;
-    let bestRank = Infinity;
-    let bestDistSq = Infinity;
-    for (let i = 0; i < this._loadQueue.length; i++) {
-      const { tx, ty } = this._loadQueue[i];
-      const rank = this._queuePriorityRank(tx, ty);
-      const dx = tx - this._centerX;
-      const dy = ty - this._centerY;
-      const distSq = dx * dx + dy * dy;
-      if (rank < bestRank || (rank === bestRank && distSq < bestDistSq)) {
-        bestRank = rank;
-        bestDistSq = distSq;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx === -1) return null;
-    return this._loadQueue.splice(bestIdx, 1)[0];
-  }
-
-  async _loadChunk(tx, ty, rebuild = false) {
-    const key = this._key(tx, ty);
-    if ((this.chunks.has(key) && !rebuild) || this.pending.has(key)) return;
-    const oldChunk = rebuild ? this.chunks.get(key) : null; // replaced only once the new one is ready
-    const epoch = this._loadEpoch;
-    this.pending.add(key);
-    try {
-      // LOW: quarter-density mesh, single native aerial tile, no physics.
-      const level = detailLevelForOffset(tx - this._centerX, ty - this._centerY);
-      const gridRes = level === DetailLevel.LOW ? LOW_DETAIL_GRID : DETAIL_GRID;
-      const aerialZoomBoost = level === DetailLevel.LOW ? 0 : undefined;
-
-      // Elevation failure -> flat patch (safer than a hole to fall through).
-      const [colorTex, elevImg] = await Promise.all([
-        loadAerialTexture(DETAIL_ZOOM, tx, ty, aerialZoomBoost),
-        loadImage(ELEVATION_URL(DETAIL_ZOOM, tx, ty)).catch((err) => {
-          console.warn('Detail chunk elevation fetch failed, using flat fallback', tx, ty, err);
-          return null;
-        }),
-      ]);
-      const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
-
-      if (epoch !== this._loadEpoch) return; // recentered meanwhile
-
-      const geometry = new THREE.PlaneGeometry(1, 1, gridRes, gridRes);
-      const position = geometry.attributes.position;
-      for (let iy = 0; iy <= gridRes; iy++) {
-        for (let ix = 0; ix <= gridRes; ix++) {
-          const idx = iy * (gridRes + 1) + ix;
-          const u = ix / gridRes;
-          const v = iy / gridRes;
-          const lon = tileX2lon(tx + u, DETAIL_ZOOM);
-          const lat = tileY2lat(ty + v, DETAIL_ZOOM);
-          const { x, z } = latLonToLocal(lat, lon, this.originLat, this.originLon);
-          const y = elevGrid ? sampleHeight(elevGrid, u, v) - this.heightOffset : 0;
-          position.setXYZ(idx, x, y, z);
-        }
-      }
-      position.needsUpdate = true;
-      geometry.computeVertexNormals();
-
-      const material = new THREE.MeshStandardMaterial({ map: colorTex, roughness: 1 });
-      material.onBeforeCompile = applyGroundHaze;
-      // New LOW tiles fade in (_updateChunkFades); not rebuilds, whose old
-      // mesh is still visible until the swap.
-      const fadeIn = !rebuild && level === DetailLevel.LOW;
-      if (fadeIn) {
-        material.transparent = true;
-        material.opacity = 0;
-      }
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-
-      // Debug lines: tile border + mesh triangle edges.
-      const border = buildTileBorder(geometry, gridRes);
-      border.visible = this.bordersVisible;
-      this.scene.add(border);
-      const grid = buildTileGrid(geometry);
-      grid.visible = this.bordersVisible;
-      this.scene.add(grid);
-
-      // Trimesh from the same world-space vertices as the mesh.
-      let body = null;
-      if (level !== DetailLevel.LOW) {
-        const vertices = Array.from(position.array);
-        const indices = Array.from(geometry.index.array);
-        const shape = new CANNON.Trimesh(vertices, indices);
-        body = new CANNON.Body({ mass: 0, material: GROUND_MATERIAL });
-        body.collisionFilterGroup = GROUND_COLLISION_GROUP;
-        body.addShape(shape);
-        this.world.addBody(body);
-      }
-
-      const bytes =
-        estimateChunkBytes(colorTex.image, position.array, geometry.index.array, level !== DetailLevel.LOW) +
-        (border.geometry.attributes.instanceStart.data.array.length +
-          grid.geometry.attributes.instanceStart.data.array.length) *
-          4;
-
-      this.chunks.set(key, {
-        mesh,
-        body,
-        border,
-        grid,
-        tx,
-        ty,
-        bytes,
-        level,
-        fadeStart: fadeIn ? performance.now() : null,
-      });
-      this.stats.created++;
-      if (oldChunk) {
-        this._disposeChunkResources(oldChunk);
-        this.stats.removed++;
-      }
-    } catch (err) {
-      console.warn('Terrain chunk failed to load', tx, ty, err);
-    } finally {
-      this.pending.delete(key);
-    }
-  }
-
-  /** Frees a chunk's render/physics resources (no bookkeeping). Line materials are shared, never disposed. */
-  _disposeChunkResources(chunk) {
-    this.scene.remove(chunk.mesh);
-    chunk.mesh.geometry.dispose();
-    chunk.mesh.material.map?.dispose();
-    chunk.mesh.material.dispose();
-    this.scene.remove(chunk.border);
-    chunk.border.geometry.dispose();
-    this.scene.remove(chunk.grid);
-    chunk.grid.geometry.dispose();
-    if (chunk.body) this.world.removeBody(chunk.body);
-  }
-
-  _unloadChunk(key) {
-    const chunk = this.chunks.get(key);
-    if (!chunk) return;
-    this._disposeChunkResources(chunk);
-    this.chunks.delete(key);
-    this.pendingRemoval.delete(key);
-    this.stats.removed++;
-  }
-
-  /** Eases fading LOW chunks to opaque over TILE_FADE_IN_MS; runs every frame. */
-  _updateChunkFades() {
-    if (!this.chunks.size) return;
+  _nextJob() {
     const now = performance.now();
-    for (const chunk of this.chunks.values()) {
-      if (chunk.fadeStart == null) continue;
-      const t = Math.min(1, (now - chunk.fadeStart) / TILE_FADE_IN_MS);
-      chunk.mesh.material.opacity = t;
-      if (t >= 1) chunk.fadeStart = null;
+    let best = null;
+    let bestScore = Infinity;
+    for (const leaf of this._leaves) {
+      if (this.loading.has(leaf.key)) continue;
+      const tile = this.tiles.get(leaf.key);
+      let kind;
+      if (!tile) {
+        const failedAt = this._failedAt.get(leaf.key);
+        if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
+        kind = 'tile';
+      } else if (leaf.detail && tile.aerialBoost < DETAIL_AERIAL_BOOST) {
+        kind = 'texture';
+      } else {
+        continue;
+      }
+      const score = this._jobScore(leaf, kind);
+      if (score < bestScore) {
+        bestScore = score;
+        best = { ...leaf, kind };
+      }
+    }
+    return best;
+  }
+
+  _pump() {
+    while (this.loading.size < MAX_CONCURRENT_LOADS) {
+      const job = this._nextJob();
+      if (!job) return;
+      this._runJob(job);
     }
   }
 
-  /** Far chunk: elevation-only coarse mesh, flat colour, no physics; flat on fetch failure. */
-  async _loadFarChunk(tx, ty) {
-    const key = this._key(tx, ty);
-    if (this.farChunks.has(key) || this.farPending.has(key)) return;
+  async _runJob(job) {
+    const { z, x, y, key } = job;
     const epoch = this._loadEpoch;
-    this.farPending.add(key);
+    this.loading.set(key, job);
     try {
-      const elevImg = await loadImage(ELEVATION_URL(FAR_ZOOM, tx, ty)).catch((err) => {
-        console.warn('Far chunk elevation fetch failed, using flat fallback', tx, ty, err);
-        return null;
-      });
-      const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
+      if (job.kind === 'texture') {
+        const { bitmap } = await loadTileData({ z, x, y, elevation: false, aerialBoost: DETAIL_AERIAL_BOOST });
+        const tile = this.tiles.get(key);
+        if (epoch !== this._loadEpoch || !tile || !bitmap) {
+          bitmap?.close();
+          return;
+        }
+        this._setTileTexture(tile, bitmap, DETAIL_AERIAL_BOOST);
+        return;
+      }
 
-      if (epoch !== this._loadEpoch) return; // recentered meanwhile
-
-      const geometry = new THREE.PlaneGeometry(1, 1, FAR_GRID, FAR_GRID);
-      const position = geometry.attributes.position;
-      const vertexCount = (FAR_GRID + 1) * (FAR_GRID + 1);
-      const colors = new Float32Array(vertexCount * 3);
-      const color = new THREE.Color(FAR_BASE_COLOR);
-      for (let iy = 0; iy <= FAR_GRID; iy++) {
-        for (let ix = 0; ix <= FAR_GRID; ix++) {
-          const idx = iy * (FAR_GRID + 1) + ix;
-          const u = ix / FAR_GRID;
-          const v = iy / FAR_GRID;
-          const lon = tileX2lon(tx + u, FAR_ZOOM);
-          const lat = tileY2lat(ty + v, FAR_ZOOM);
-          const { x, z } = latLonToLocal(lat, lon, this.originLat, this.originLon);
-          const y = elevGrid ? sampleHeight(elevGrid, u, v) - this.heightOffset : 0;
-          position.setXYZ(idx, x, y + FAR_Y_OFFSET, z);
-          colors[idx * 3] = color.r;
-          colors[idx * 3 + 1] = color.g;
-          colors[idx * 3 + 2] = color.b;
+      const aerialBoost = job.detail ? DETAIL_AERIAL_BOOST : z >= NEAR_AERIAL_MIN_ZOOM ? NEAR_AERIAL_BOOST : 0;
+      const detail = z === DETAIL_ZOOM ? this._detailParams(x, y) : null;
+      const elevationBorder = detail ? roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256) : 0;
+      const { elev, bitmap, surface } = await loadTileData({ z, x, y, elevationBorder, aerialBoost, detail });
+      if (epoch !== this._loadEpoch || this.tiles.has(key)) {
+        bitmap?.close();
+        return;
+      }
+      const heights = detail ? (surface && elev?.ok ? surface : null) : elev?.heights ? elev : null;
+      if (detail && !surface) {
+        console.warn('Terrain detail surface failed', z, x, y, elev?.error);
+        this._failedAt.set(key, performance.now());
+        bitmap?.close();
+        return;
+      }
+      if (!heights) {
+        // Physics tiles fall back to flat (safer than a hole to fall
+        // through); others retry later while an ancestor stands in.
+        console.warn('Terrain elevation fetch failed', z, x, y, elev?.error);
+        if (!job.detail) {
+          this._failedAt.set(key, performance.now());
+          bitmap?.close();
+          return;
         }
       }
-      position.needsUpdate = true;
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      geometry.computeVertexNormals();
-
-      // No fog (already the fog colour). Starts transparent and fades in
-      // via _updateFarFades.
-      const material = new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 1,
-        fog: false,
-        transparent: true,
-        opacity: 0,
-      });
-      // Discard fragments inside the player hole (mesh has no transform, so
-      // local x/z are world x/z), add grazing-angle haze, then ground haze.
-      material.onBeforeCompile = (shader) => {
-        shader.uniforms.uHoleCenter = this.holeUniforms.center;
-        shader.uniforms.uHoleRadiusSq = this.holeUniforms.radiusSq;
-        shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec2 vHoleXZ;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHoleXZ = position.xz;');
-        shader.fragmentShader = shader.fragmentShader
-          .replace(
-            '#include <common>',
-            '#include <common>\nvarying vec2 vHoleXZ;\nuniform vec2 uHoleCenter;\nuniform float uHoleRadiusSq;'
-          )
-          .replace(
-            '#include <clipping_planes_fragment>',
-            '#include <clipping_planes_fragment>\nif (dot(vHoleXZ - uHoleCenter, vHoleXZ - uHoleCenter) < uHoleRadiusSq) discard;'
-          )
-          // Surfaces seen edge-on (distant plains) get a cool haze tint.
-          .replace(
-            '#include <opaque_fragment>',
-            `
-            float facing = abs(dot(normalize(vNormal), normalize(vViewPosition)));
-            float haze = 1.0 - facing;
-            outgoingLight = mix(outgoingLight, outgoingLight + vec3(0.1, 0.14, 0.2), haze * 0.7);
-            #include <opaque_fragment>`
-          );
-        applyGroundHaze(shader);
-      };
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.receiveShadow = false;
-      mesh.castShadow = false;
-      this.scene.add(mesh);
-
-      const bytes = (position.array.length * 2 + vertexCount * 2) * 4 + colors.length * 4;
-      this.farChunks.set(key, { mesh, tx, ty, bytes, fadeStart: performance.now() });
-      this.farStats.created++;
+      if (detail) this._addDetailTile(job, surface, bitmap, aerialBoost);
+      else this._addTile(job, heights, bitmap, aerialBoost);
     } catch (err) {
-      console.warn('Far terrain chunk failed to load', tx, ty, err);
+      console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
-      this.farPending.delete(key);
+      if (this.loading.get(key) === job) this.loading.delete(key);
+      if (epoch === this._loadEpoch) {
+        this._updateDisplay();
+        this._resolveDetailWaiters();
+        this._pump();
+      }
     }
   }
 
-  _unloadFarChunk(key) {
-    const chunk = this.farChunks.get(key);
-    if (!chunk) return;
-    this.scene.remove(chunk.mesh);
-    chunk.mesh.geometry.dispose();
-    chunk.mesh.material.dispose();
-    this.farChunks.delete(key);
-    this.farPendingRemoval.delete(key);
-    this.farStats.removed++;
+  /** Worker parameters for a DETAIL_ZOOM tile's surface: its size in the local frame. */
+  _detailParams(x, y) {
+    const z = DETAIL_ZOOM;
+    const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
+    const se = latLonToLocal(tileY2lat(y + 1, z), tileX2lon(x + 1, z), this.originLat, this.originLon, this.scaleLat);
+    return {
+      widthMeters: se.x - nw.x,
+      heightMeters: se.z - nw.z,
+      cells: DETAIL_CELLS,
+      heightOffset: this.heightOffset,
+      skirtDepth: DETAIL_SKIRT_DEPTH,
+    };
   }
 
-  /** Eases fading far chunks to opaque over FAR_FADE_IN_MS; runs every frame. */
-  _updateFarFades() {
-    if (!this.farChunks.size) return;
-    const now = performance.now();
-    for (const chunk of this.farChunks.values()) {
-      if (chunk.fadeStart == null) continue;
-      const t = Math.min(1, (now - chunk.fadeStart) / FAR_FADE_IN_MS);
-      chunk.mesh.material.opacity = t;
-      if (t >= 1) chunk.fadeStart = null;
+  /** Detail tile from the worker's surface: positions are relative to the NW corner. */
+  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield }, bitmap, aerialBoost) {
+    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows, { lineStride: DETAIL_LINE_STRIDE, nwse: true });
+    const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
+    const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, bitmap, aerialBoost);
+    tile.heightfield = heightfield;
+  }
+
+  _addTile({ z, x, y, key }, elev, bitmap, aerialBoost) {
+    const grid = COARSE_GRIDS.find(([minZoom]) => z >= minZoom)[1];
+    const cellMeters = tileSizeMeters(z, this.originLat) / grid;
+    const { geometry, anchor, surface } = buildTileGeometry({
+      z,
+      x,
+      y,
+      grid,
+      elev,
+      heightOffset: this.heightOffset,
+      originLat: this.originLat,
+      originLon: this.originLon,
+      scaleLat: this.scaleLat,
+      skirtDepth: cellMeters * SKIRT_DEPTH_CELLS + 2,
+    });
+    this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, bitmap, aerialBoost);
+  }
+
+  _createTileMesh({ z, x, y, key }, geometry, surface, anchor, bitmap, aerialBoost) {
+    const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
+    material.onBeforeCompile = applyGroundHaze;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.receiveShadow = z === DETAIL_ZOOM; // the shadow frustum only spans metres around the car
+    mesh.position.set(anchor.x, anchor.y, anchor.z);
+    mesh.matrixAutoUpdate = false; // never moves
+    mesh.updateMatrix();
+    mesh.visible = false; // _updateDisplay decides
+    this.scene.add(mesh);
+
+    let meshBytes = 0;
+    for (const attr of Object.values(geometry.attributes)) meshBytes += attr.array.byteLength;
+    meshBytes += geometry.index.array.byteLength;
+
+    const tile = {
+      key,
+      z,
+      x,
+      y,
+      mesh,
+      surface,
+      heightfield: null, // DETAIL_ZOOM only
+      body: null,
+      lines: null,
+      aerialBoost: 0,
+      texBytes: 0,
+      meshBytes,
+      hiddenSince: performance.now(),
+    };
+    this._setTileTexture(tile, bitmap, aerialBoost);
+    this.tiles.set(key, tile);
+    for (const k of this._ancestorKeys(tile)) this._loadedBelow.set(k, (this._loadedBelow.get(k) || 0) + 1);
+    this._failedAt.delete(key);
+    this.stats[z === DETAIL_ZOOM ? 'detail' : 'coarse'].created++;
+    return tile;
+  }
+
+  /** Swaps in a texture from `bitmap` (none: untextured); the bitmap is freed once on the GPU. */
+  _setTileTexture(tile, bitmap, aerialBoost) {
+    const material = tile.mesh.material;
+    const old = material.map;
+    if (bitmap) {
+      const tex = new THREE.Texture(bitmap);
+      tex.flipY = false; // ignored for ImageBitmap anyway; UVs account for it
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.onUpdate = () => bitmap.close();
+      tex.needsUpdate = true;
+      material.map = tex;
+      tile.texBytes = Math.round(bitmap.width * bitmap.height * 4 * (4 / 3)); // + mipmaps
+      if (!old) material.needsUpdate = true;
+    }
+    if (old && old !== material.map) {
+      old.image?.close?.();
+      old.dispose();
+    }
+    tile.aerialBoost = aerialBoost;
+  }
+
+  _disposeTile(tile) {
+    this.scene.remove(tile.mesh);
+    tile.mesh.geometry.dispose();
+    const map = tile.mesh.material.map;
+    if (map) {
+      map.image?.close?.(); // if never uploaded
+      map.dispose();
+    }
+    tile.mesh.material.dispose();
+    if (tile.lines) {
+      this.scene.remove(tile.lines.border, tile.lines.grid);
+      tile.lines.border.geometry.dispose();
+      tile.lines.grid.geometry.dispose();
+    }
+    if (tile.body) this.world.removeBody(tile.body);
+    this.tiles.delete(tile.key);
+    for (const k of this._ancestorKeys(tile)) {
+      const count = (this._loadedBelow.get(k) || 0) - 1;
+      if (count > 0) this._loadedBelow.set(k, count);
+      else this._loadedBelow.delete(k);
+    }
+    this.stats[tile.z === DETAIL_ZOOM ? 'detail' : 'coarse'].removed++;
+  }
+
+  /** Drops tiles that are neither drawn nor wanted, after HIDDEN_TILE_LINGER_MS. */
+  _unloadStale(now) {
+    for (const tile of Array.from(this.tiles.values())) {
+      if (tile.hiddenSince == null || this._leafKeys.has(tile.key)) continue;
+      if (now - tile.hiddenSince > HIDDEN_TILE_LINGER_MS) this._disposeTile(tile);
     }
   }
 
-  /** Toggles debug tile lines on current and future chunks. */
+  _allPhysicsLoaded() {
+    for (const { dx, dy } of DETAIL_OFFSETS) {
+      if (!this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy))?.body) return false;
+    }
+    return true;
+  }
+
+  _resolveDetailWaiters() {
+    if (!this._detailWaiters.length || !this._allPhysicsLoaded()) return;
+    const waiters = this._detailWaiters;
+    this._detailWaiters = [];
+    waiters.forEach((resolve) => resolve());
+  }
+
+  /** Toggles debug tile lines on current and future tiles. */
   setBordersVisible(visible) {
     this.bordersVisible = visible;
-    for (const chunk of this.chunks.values()) {
-      chunk.border.visible = visible;
-      chunk.grid.visible = visible;
-    }
+    for (const tile of this.tiles.values()) this._syncDebugLines(tile);
   }
 
   /**
-   * Streams both tiers around (localX, localZ). awaitAll blocks until the
-   * HIGH/MEDIUM footprint is loaded (LOW and far are fire-and-forget).
-   * `heading` {x, z} (unnormalized) prioritizes LOW tiles ahead.
+   * Streams the quadtree around (localX, localZ); cheap when the player
+   * hasn't moved much. awaitAll blocks until the physics footprint is
+   * loaded. `heading` {x, z} (unnormalized) prioritizes tiles ahead.
    */
   async update(localX, localZ, awaitAll = false, heading = null) {
-    // Every frame, even when the centre tile is unchanged:
-    this._updateFarFades();
-    this._updateChunkFades();
     if (heading) {
       this._headingX = heading.x;
       this._headingZ = heading.z;
     }
-    this.holeUniforms.center.value.set(localX, localZ);
-
-    const { lat, lon } = localToLatLon(localX, localZ, this.originLat, this.originLon);
-
-    const centerX = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
-    const centerY = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
-    this._centerX = centerX;
-    this._centerY = centerY;
-
-    const farCenterX = Math.floor(lon2tileX(lon, FAR_ZOOM));
-    const farCenterY = Math.floor(lat2tileY(lat, FAR_ZOOM));
-    this._farCenterX = farCenterX;
-    this._farCenterY = farCenterY;
-
-    const key = `${centerX}_${centerY}`;
-    const farKey = `${farCenterX}_${farCenterY}`;
-    const centerUnchanged = this._lastCenter === key && this._lastFarCenter === farKey;
-    if (!awaitAll && centerUnchanged) return;
-    this._lastCenter = key;
-    this._lastFarCenter = farKey;
-
-    const wanted = [];
-    for (const { dx, dy } of circleOffsets(LOW_DETAIL_RADIUS)) {
-      const promise = this._enqueueLoad(centerX + dx, centerY + dy);
-      if (inCircle(dx, dy, DETAIL_RADIUS)) wanted.push(promise);
-    }
-    for (const { dx, dy } of circleOffsets(this.farRadiusTiles)) {
-      this._loadFarChunk(farCenterX + dx, farCenterY + dy);
-    }
-    if (awaitAll) await Promise.all(wanted);
-
-    // Stage out-of-range chunks for delayed removal; rescue returning ones.
-    const keepRadius = LOW_DETAIL_RADIUS + UNLOAD_MARGIN;
-    for (const [k, chunk] of this.chunks) {
-      const farAway = !inCircle(chunk.tx - centerX, chunk.ty - centerY, keepRadius);
-      if (farAway) {
-        if (!this.pendingRemoval.has(k)) this.pendingRemoval.set(k, UNLOAD_DELAY_TICKS);
-      } else {
-        this.pendingRemoval.delete(k);
-      }
-
-      // Crossing MEDIUM<->LOW changes mesh density and physics presence,
-      // so rebuild (via the queue); HIGH<->MEDIUM is just a relabel.
-      const newLevel = detailLevelForOffset(chunk.tx - centerX, chunk.ty - centerY);
-      if ((newLevel === DetailLevel.LOW) !== (chunk.level === DetailLevel.LOW) && !farAway) {
-        this._enqueueRebuild(chunk.tx, chunk.ty);
-        continue;
-      }
-      chunk.level = newLevel;
+    const { lat, lon } = localToLatLon(localX, localZ, this.originLat, this.originLon, this.scaleLat);
+    this._lat = lat;
+    this._lon = lon;
+    const fx = lon2tileX(lon, DETAIL_ZOOM);
+    const fy = lat2tileY(lat, DETAIL_ZOOM);
+    const cx = Math.floor(fx);
+    const cy = Math.floor(fy);
+    const moved =
+      !this._lastSelect ||
+      cx !== this._centerX ||
+      cy !== this._centerY ||
+      Math.hypot(fx - this._lastSelect.fx, fy - this._lastSelect.fy) > RESELECT_DISTANCE_TILES;
+    if (moved || awaitAll) {
+      this._centerX = cx;
+      this._centerY = cy;
+      this._lastSelect = { fx, fy };
+      this._select();
+      this._updateDisplay();
+      this._pump();
     }
 
-    // Drop queued (not rebuild) entries that drifted out of range meanwhile.
-    if (this._loadQueue.length) {
-      this._loadQueue = this._loadQueue.filter((entry) => {
-        if (entry.rebuild) return true;
-        const stillWanted = inCircle(entry.tx - centerX, entry.ty - centerY, keepRadius);
-        if (!stillWanted) this._resolveQueueWaiters(entry.key);
-        return stillWanted;
-      });
+    const now = performance.now();
+    if (now - this._lastUnloadCheck > UNLOAD_CHECK_INTERVAL_MS) {
+      this._lastUnloadCheck = now;
+      this._unloadStale(now);
     }
 
-    for (const [k, ticksLeft] of this.pendingRemoval) {
-      if (ticksLeft <= 1) {
-        this._unloadChunk(k); // also clears it from pendingRemoval
-      } else {
-        this.pendingRemoval.set(k, ticksLeft - 1);
-      }
-    }
-
-    const farKeepRadius = this.farRadiusTiles + FAR_UNLOAD_MARGIN;
-    for (const [k, chunk] of this.farChunks) {
-      const farAway = !inCircle(chunk.tx - farCenterX, chunk.ty - farCenterY, farKeepRadius);
-      if (farAway) {
-        if (!this.farPendingRemoval.has(k)) this.farPendingRemoval.set(k, FAR_UNLOAD_DELAY_TICKS);
-      } else {
-        this.farPendingRemoval.delete(k);
-      }
-    }
-    for (const [k, ticksLeft] of this.farPendingRemoval) {
-      if (ticksLeft <= 1) {
-        this._unloadFarChunk(k);
-      } else {
-        this.farPendingRemoval.set(k, ticksLeft - 1);
-      }
+    if (awaitAll && !this._allPhysicsLoaded()) {
+      await new Promise((resolve) => this._detailWaiters.push(resolve));
     }
   }
 
   /**
-   * Debug HUD snapshot: counts, memory estimate, and a grid of detail tiles
-   * (loaded/pending/removing/empty + level) around the player. The grid
-   * grows to include tracked tiles up to maxStrayRadius; farther ones are
-   * only counted as `stray`. Far tier is reported as totals only.
+   * Debug HUD snapshot: DETAIL_ZOOM tiles ("detail") and coarser ones
+   * ("far"), plus a grid of DETAIL_ZOOM cells around the player.
    */
   getStats() {
-    let memoryBytes = 0;
-    for (const chunk of this.chunks.values()) memoryBytes += chunk.bytes || 0;
-    let farMemoryBytes = 0;
-    for (const chunk of this.farChunks.values()) farMemoryBytes += chunk.bytes || 0;
-
-    // "Pending" = in flight or still queued.
-    const pendingKeys = new Set([...this.pending, ...this._queueWaiters.keys()]);
-
-    const keepRadius = LOW_DETAIL_RADIUS + UNLOAD_MARGIN;
-    const maxStrayRadius = keepRadius + 5; // keeps the HUD grid bounded
-    let minDx = -keepRadius;
-    let maxDx = keepRadius;
-    let minDy = -keepRadius;
-    let maxDy = keepRadius;
-    let stray = 0;
-    const allKeys = new Set([...this.chunks.keys(), ...pendingKeys, ...this.pendingRemoval.keys()]);
-    for (const k of allKeys) {
-      const [tx, ty] = k.split('_').map(Number);
-      const dx = tx - this._centerX;
-      const dy = ty - this._centerY;
-      if (Math.abs(dx) > maxStrayRadius || Math.abs(dy) > maxStrayRadius) {
-        stray++;
-        continue;
-      }
-      if (dx < minDx) minDx = dx;
-      if (dx > maxDx) maxDx = dx;
-      if (dy < minDy) minDy = dy;
-      if (dy > maxDy) maxDy = dy;
+    const buckets = {
+      detail: { loaded: 0, pending: 0, pendingRemoval: 0, memoryBytes: 0 },
+      far: { loaded: 0, pending: 0, pendingRemoval: 0, memoryBytes: 0 },
+    };
+    for (const tile of this.tiles.values()) {
+      const b = tile.z === DETAIL_ZOOM ? buckets.detail : buckets.far;
+      b.loaded++;
+      if (!this._visible.has(tile.key)) b.pendingRemoval++;
+      b.memoryBytes += tile.texBytes + tile.meshBytes;
+      if (tile.body) b.memoryBytes += tile.heightfield.heights.length * 8; // JS number arrays
+    }
+    for (const leaf of this._leaves) {
+      if (!this.tiles.has(leaf.key)) (leaf.z === DETAIL_ZOOM ? buckets.detail : buckets.far).pending++;
     }
 
     const grid = [];
-    for (let dy = minDy; dy <= maxDy; dy++) {
+    for (let dy = -STATS_GRID_RADIUS; dy <= STATS_GRID_RADIUS; dy++) {
       const row = [];
-      for (let dx = minDx; dx <= maxDx; dx++) {
+      for (let dx = -STATS_GRID_RADIUS; dx <= STATS_GRID_RADIUS; dx++) {
         const tx = this._centerX + dx;
         const ty = this._centerY + dy;
-        const k = this._key(tx, ty);
+        const key = tileKey(DETAIL_ZOOM, tx, ty);
         let state = 'empty';
-        if (this.pendingRemoval.has(k)) state = 'removing';
-        else if (this.chunks.has(k)) state = 'loaded';
-        else if (pendingKeys.has(k)) state = 'pending';
+        if (this._visible.has(key)) state = 'loaded';
+        else if (this._leafKeys.has(key)) state = 'pending';
+        else if (this.tiles.has(key)) state = 'removing';
         row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy) });
       }
       grid.push(row);
     }
 
     return {
-      loaded: this.chunks.size,
-      pending: pendingKeys.size,
-      pendingRemoval: this.pendingRemoval.size,
-      created: this.stats.created,
-      removed: this.stats.removed,
-      memoryBytes,
+      ...buckets.detail,
+      created: this.stats.detail.created,
+      removed: this.stats.detail.removed,
       center: { tx: this._centerX, ty: this._centerY },
-      radius: keepRadius,
-      gridCenter: { row: -minDy, col: -minDx }, // player's cell (shifts if grid grew asymmetrically)
+      radius: STATS_GRID_RADIUS,
+      gridCenter: { row: STATS_GRID_RADIUS, col: STATS_GRID_RADIUS },
       grid,
-      stray, // tracked tiles beyond maxStrayRadius, not drawn
-      far: {
-        loaded: this.farChunks.size,
-        pending: this.farPending.size,
-        pendingRemoval: this.farPendingRemoval.size,
-        created: this.farStats.created,
-        removed: this.farStats.removed,
-        memoryBytes: farMemoryBytes,
-      },
+      stray: 0,
+      far: { ...buckets.far, created: this.stats.coarse.created, removed: this.stats.coarse.removed },
     };
   }
 }

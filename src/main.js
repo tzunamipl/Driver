@@ -2,7 +2,7 @@ import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
-import { remapLocalOrigin } from './lib/geo.js';
+import { localToLatLon } from './lib/geo.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
@@ -46,6 +46,8 @@ import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
+import { createViewFrame } from './app/viewFrame.js';
+import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createLobby } from './ui/lobby.js';
 
 // ---------- Composition root ----------
@@ -55,19 +57,32 @@ import { createLobby } from './ui/lobby.js';
 const { renderer, scene, camera } = createSceneEnvironment();
 const { sun, sunDisc, SUN_OFFSET } = createLighting(scene);
 
+// ---------- View frame ----------
+// Resume where the previous session left off (lib/carState.js).
+const savedCarState = loadCarState();
+
+// The saved pose is in the network frame. Far from ORIGIN (e.g. after a
+// teleport), start the view frame at the car instead, as a teleport does;
+// from then on floatingOrigin.js keeps local coordinates small.
+const VIEW_REBASE_DISTANCE_METERS = 2000;
+const initialViewOrigin =
+  savedCarState && Math.hypot(savedCarState.x, savedCarState.z) > VIEW_REBASE_DISTANCE_METERS
+    ? localToLatLon(savedCarState.x, savedCarState.z, ORIGIN_LAT, ORIGIN_LON)
+    : { lat: ORIGIN_LAT, lon: ORIGIN_LON };
+const viewFrame = createViewFrame(initialViewOrigin.lat, initialViewOrigin.lon);
+
 // ---------- Physics world ----------
 const world = createPhysicsWorld();
 const remoteCollisions = createRemoteCollisions(world);
-const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
+const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP, viewFrame);
 const balls = createBalls(scene, world);
 const noticeHud = createNoticeHud();
 const preventGroundTunneling = createGroundTunnelGuard(
   world,
   () => {
-    // Game start position in the current view frame (changes after a
-    // teleport); where the ground guard rescues a body with no terrain.
-    const { lat, lon } = addressSearch.getCurrentOrigin();
-    return remapLocalOrigin(0, 0, ORIGIN_LAT, ORIGIN_LON, lat, lon);
+    // Game start position in the current view frame; where the ground
+    // guard rescues a body with no terrain.
+    return viewFrame.fromNetwork(0, 0);
   },
   () =>
     noticeHud.show(
@@ -78,11 +93,15 @@ const buildingTunnelGuard = createBuildingTunnelGuard(world);
 const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 
 // ---------- Real-world terrain + 3D buildings (streamed) ----------
-const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const streets = new StreetsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const rivers = new RiversManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const waterAreas = new WaterAreasManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+// Height baseline stays at ORIGIN so world y matches across clients.
+const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, {
+  lat: ORIGIN_LAT,
+  lon: ORIGIN_LON,
+});
+const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -117,13 +136,15 @@ const net = createNet({ clientId: loadOrCreatePlayerId() });
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 
-// Resume where the previous session left off (lib/carState.js).
-const savedCarState = loadCarState();
-
 function playerSpawnPos() {
-  if (savedCarState) return new CANNON.Vec3(savedCarState.x, savedCarState.y, savedCarState.z);
+  // Saved pose and START_POS are both network-frame positions.
+  if (savedCarState) {
+    const { x, z } = viewFrame.fromNetwork(savedCarState.x, savedCarState.z);
+    return new CANNON.Vec3(x, savedCarState.y, z);
+  }
   const offset = net.spawnOffset();
-  return new CANNON.Vec3(START_POS.x + offset.x, START_POS.y, START_POS.z + offset.z);
+  const { x, z } = viewFrame.fromNetwork(START_POS.x + offset.x, START_POS.z + offset.z);
+  return new CANNON.Vec3(x, START_POS.y, z);
 }
 
 function playerSpawnQuat() {
@@ -181,13 +202,14 @@ createVersionBadge();
 
 // ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({
+  world,
   terrain,
   buildings,
   streets,
   rivers,
   waterAreas,
   carManager,
-  origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
+  viewFrame,
   isJoined: () => lobby.isJoined(),
 });
 
@@ -216,6 +238,7 @@ setupGameplayProps({
   net,
   carManager,
   scoreToast,
+  viewFrame,
 });
 const scoring = createScoring({
   world,
@@ -223,6 +246,16 @@ const scoring = createScoring({
   onJumpScore: (points) => scoreToast.push(points, 'jump'),
   onAirtimeUpdate: (points) => airtimeHud.update(points),
   onAirtimeEnd: () => airtimeHud.hide(),
+});
+
+// ---------- Floating origin ----------
+const floatingOrigin = createFloatingOrigin({
+  scene,
+  world,
+  camera,
+  viewFrame,
+  streamers: [terrain, buildings, streets, rivers, waterAreas],
+  parts: [carManager, cameraFollow, gaugesHud, scoring],
 });
 
 // ---------- Main loop ----------
@@ -266,6 +299,8 @@ const mainLoop = createMainLoop({
   buildingTunnelGuard,
   preventBuildingEmbedding,
   scoring,
+  viewFrame,
+  floatingOrigin,
   isJoined: () => lobby.isJoined(),
 });
 

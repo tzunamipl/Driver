@@ -279,6 +279,11 @@ export function createCameraFollow(camera) {
     camera.up.set(0, 1, 0);
   };
 
+  /** Floating-origin shift (camera.position itself is moved by the caller). */
+  updateCamera.shiftOrigin = (dx, dz) => {
+    smoothedLookAt.x -= dx;
+    smoothedLookAt.z -= dz;
+  };
   updateCamera.cycleView = cycleView;
   updateCamera.setView = setView;
   updateCamera.getViewId = () => viewId;

@@ -83,6 +83,14 @@ export function liftedResetPosition(world, body, lift) {
   return target;
 }
 
+/** Floating-origin shift: moves world-space points (Vector3/Vec3) by (-dx, 0, -dz). */
+export function shiftPoints(points, dx, dz) {
+  for (const p of points) {
+    p.x -= dx;
+    p.z -= dz;
+  }
+}
+
 /** Wireframe material for debug hitbox meshes (drawn on top). */
 export function createHitboxMaterial() {
   return new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, depthTest: false });

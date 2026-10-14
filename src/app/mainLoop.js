@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/geo.js';
+import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 
@@ -50,6 +50,8 @@ export function createMainLoop({
   buildingTunnelGuard,
   preventBuildingEmbedding,
   scoring,
+  viewFrame,
+  floatingOrigin,
   isJoined,
 }) {
   let lastTime = performance.now();
@@ -71,6 +73,10 @@ export function createMainLoop({
     const frameDelta = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
 
+    // First, so everything below sees one consistent frame. Not during a
+    // teleport: the view frame has already moved but the car hasn't.
+    if (!addressSearch.isTeleporting()) floatingOrigin.update(carManager.getVehicle()?.chassisBody.position);
+
     const vehicle = carManager.getVehicle();
     const chassisMesh = carManager.getChassisMesh();
     const reset = carManager.getReset();
@@ -79,13 +85,13 @@ export function createMainLoop({
     input.updateControls(vehicle, reset, frameDelta);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
-    // Remote poses use the fixed network origin; remap them into this
-    // player's view origin (differs only after a personal teleport), and
-    // remap our own pose back before publishing.
-    const { lat: viewOriginLat, lon: viewOriginLon } = addressSearch.getCurrentOrigin();
+    // Network messages use the fixed network frame; remap them into this
+    // player's view frame (viewFrame.js), and ours back before publishing.
     function toViewFrame(pose) {
-      const { x, z } = remapLocalOrigin(pose.x, pose.z, ORIGIN_LAT, ORIGIN_LON, viewOriginLat, viewOriginLon);
-      return { ...pose, x, z };
+      return { ...pose, ...viewFrame.fromNetwork(pose.x, pose.z) };
+    }
+    function toNetworkFrame(pose) {
+      return { ...pose, ...viewFrame.toNetwork(pose.x, pose.z) };
     }
 
     const remotePoses = isJoined() ? net.remotePoses(now).map(toViewFrame) : [];
@@ -95,7 +101,9 @@ export function createMainLoop({
 
     // Fixed-size steps (accumulator) + interpolated rendering: a varying
     // substep count per frame would show as jitter.
-    accumulator += frameDelta;
+    // Paused during a teleport: the old ground is gone and the new one is
+    // still loading, so the ground guard would rescue the car to the start.
+    if (!addressSearch.isTeleporting()) accumulator += frameDelta;
     let substeps = 0;
     while (accumulator >= FIXED_STEP && substeps < MAX_SUBSTEPS) {
       buildingTunnelGuard.beforeStep(carManager.getVehicle());
@@ -130,7 +138,7 @@ export function createMainLoop({
     if (isJoined() && currentChassisMesh && currentVehicle) {
       if (!input.isTyping()) {
         const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
-        if (shot) net.publishProps({ type: 'shot', ...shot });
+        if (shot) net.publishProps({ type: 'shot', ...toNetworkFrame(shot) });
       }
       scoring.update(frameDelta, currentChassisMesh, currentVehicle);
       pedestrians.updatePopulation(
@@ -140,14 +148,7 @@ export function createMainLoop({
       );
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
-      const { x: netX, z: netZ } = remapLocalOrigin(
-        currentChassisMesh.position.x,
-        currentChassisMesh.position.z,
-        viewOriginLat,
-        viewOriginLon,
-        ORIGIN_LAT,
-        ORIGIN_LON
-      );
+      const { x: netX, z: netZ } = viewFrame.toNetwork(currentChassisMesh.position.x, currentChassisMesh.position.z);
       net.publishPose({
         x: netX,
         y: currentChassisMesh.position.y,
@@ -163,7 +164,7 @@ export function createMainLoop({
       });
       if (now >= nextBallSend) {
         nextBallSend = now + 100;
-        for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
+        for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...toNetworkFrame(pose) });
       }
       carManager.updateRemotes(frameDelta, remotePoses);
 
@@ -201,8 +202,7 @@ export function createMainLoop({
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
-      viewOriginLat,
-      viewOriginLon,
+      viewFrame,
     });
     // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
@@ -245,11 +245,9 @@ export function createMainLoop({
         });
 
         // Same DETAIL_ZOOM tile centre as TerrainManager computes.
-        const { lat: carLat, lon: carLon } = localToLatLon(
+        const { lat: carLat, lon: carLon } = viewFrame.toLatLon(
           currentChassisMesh.position.x,
-          currentChassisMesh.position.z,
-          viewOriginLat,
-          viewOriginLon
+          currentChassisMesh.position.z
         );
         const tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
         const tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
@@ -264,7 +262,7 @@ export function createMainLoop({
       // Lift a car found inside a building onto its roof.
       preventBuildingEmbedding(currentVehicle);
 
-      minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon }, remotePoses);
+      minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
 
     renderer.render(scene, camera);

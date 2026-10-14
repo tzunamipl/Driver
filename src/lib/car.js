@@ -10,6 +10,7 @@ import {
   createNameTag,
   liftedResetPosition,
   resetLiftProgress,
+  shiftPoints,
   uprightQuaternion,
 } from './vehicleShared.js';
 import { createChariotVehicle, createRemoteChariot } from './chariot.js';
@@ -264,6 +265,12 @@ export function createCar(
     }
   }
 
+  /** Floating-origin shift of the state carManager's generic body/scene shift can't see. */
+  function shiftOrigin(dx, dz) {
+    shiftPoints([prevChassisPos, currChassisPos, ...prevWheelPos, ...currWheelPos], dx, dz);
+    if (liftAnim) shiftPoints([liftAnim.startPos, liftAnim.targetPos], dx, dz);
+  }
+
   /** Removes the extras carManager's generic cleanup doesn't know about. */
   function dispose() {
     world.removeEventListener('preStep', syncWheelHitboxes);
@@ -282,6 +289,7 @@ export function createCar(
     setHitboxVisible,
     stabilityAssistCallback,
     dispose,
+    shiftOrigin,
   };
 }
 

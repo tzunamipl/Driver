@@ -1,6 +1,5 @@
 import { DIRECTIONS, STATS_UPDATE_INTERVAL } from '../config.js';
 import { computeHeadingDeg, headingDirection } from '../lib/heading.js';
-import { localToLatLon } from '../lib/geo.js';
 
 // Debug-only streaming stats HUD (memory + tile map); skipped when off.
 
@@ -48,7 +47,7 @@ export function createTerrainStatsHud() {
 
   function updateTerrainStats(
     delta,
-    { terrain, buildings, streets, rivers, waterAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewOriginLat, viewOriginLon }
+    { terrain, buildings, streets, rivers, waterAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame }
   ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
@@ -76,16 +75,16 @@ export function createTerrainStatsHud() {
     // Copyable coordinates in the network frame (same as carState.js);
     // elevation adds the terrain height baseline back.
     let coordsText = '';
-    if (Number.isFinite(viewOriginLat) && Number.isFinite(viewOriginLon)) {
-      const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, viewOriginLat, viewOriginLon);
+    if (viewFrame) {
+      const { lat, lon } = viewFrame.toLatLon(chassisMesh.position.x, chassisMesh.position.z);
       const elevation = chassisMesh.position.y + terrain.heightOffset;
       coordsText = `${lat.toFixed(6)}, ${lon.toFixed(6)} \u2022 ${elevation.toFixed(1)} m asl`;
     }
     const textLines = [
       'TERRAIN',
       `fps: ${fps.toFixed(0)}`,
-      `detail: ${s.loaded} loaded  ${s.pending} loading  ${s.pendingRemoval} removing`,
-      `far:    ${s.far.loaded} loaded  ${s.far.pending} loading  ${s.far.pendingRemoval} removing`,
+      `detail: ${s.loaded} loaded  ${s.pending} loading  ${s.pendingRemoval} hidden`,
+      `coarse: ${s.far.loaded} loaded  ${s.far.pending} loading  ${s.far.pendingRemoval} hidden`,
       `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
       `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
       `ahead: ${aheadTx},${aheadTy}`,
@@ -132,7 +131,7 @@ export function createTerrainStatsHud() {
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.medium}"></span>medium detail</span>` +
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.low}"></span>low detail</span>` +
       `<span><span class="swatch" style="background:${PENDING_COLOR}"></span>pending/planned</span>` +
-      `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>removing</span>` +
+      `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>hidden</span>` +
       `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
       `<span>${dir.arrow} you</span>` +
       `</div>`;

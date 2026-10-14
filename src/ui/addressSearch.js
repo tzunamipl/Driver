@@ -1,5 +1,5 @@
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
-import { DETAIL_ZOOM } from '../lib/terrain.js';
+import { DETAIL_ZOOM, findGroundY } from '../lib/terrain.js';
 import { CAN_CHANGE_LOCATION } from '../config.js';
 
 // Address search + personal teleport via Nominatim (keyless). Purely
@@ -9,8 +9,8 @@ import { CAN_CHANGE_LOCATION } from '../config.js';
 const NOMINATIM_URL = (q) =>
   `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
 
-// Drop-in height at the destination (same as the initial spawn).
-const TELEPORT_LOCAL_POS = { x: 0, y: 3, z: 0 };
+// Drop-in height above the destination ground (same as the initial spawn).
+const TELEPORT_DROP_HEIGHT = 3;
 
 async function geocodeAddress(query) {
   const res = await fetch(NOMINATIM_URL(query), {
@@ -24,20 +24,17 @@ async function geocodeAddress(query) {
 
 /**
  * @param {object} deps
+ * @param {import('cannon-es').World} deps.world
  * @param {import('../lib/terrain.js').TerrainManager} deps.terrain
  * @param {import('../lib/buildings.js').BuildingsManager} deps.buildings
  * @param {import('../lib/streets.js').StreetsManager} [deps.streets]
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('./carManager.js').ReturnType} deps.carManager
- * @param {{lat: number, lon: number}} deps.origin - initial spawn origin
+ * @param {ReturnType<import('../app/viewFrame.js').createViewFrame>} deps.viewFrame - moved on teleport
  * @param {() => boolean} deps.isJoined
  */
-export function createAddressSearch({ terrain, buildings, streets, rivers, waterAreas, carManager, origin, isJoined }) {
-  // Lat/lon this player's local (0, 0) currently represents; read each
-  // frame for streaming, the minimap and remote-pose remapping.
-  let currentOriginLat = origin.lat;
-  let currentOriginLon = origin.lon;
+export function createAddressSearch({ world, terrain, buildings, streets, rivers, waterAreas, carManager, viewFrame, isJoined }) {
 
   const addressForm = document.getElementById('address-search');
   const addressToggle = document.getElementById('address-search-toggle');
@@ -80,8 +77,7 @@ export function createAddressSearch({ terrain, buildings, streets, rivers, water
       if (streets) streets.recenter(lat, lon);
       if (rivers) rivers.recenter(lat, lon);
       if (waterAreas) waterAreas.recenter(lat, lon);
-      currentOriginLat = lat;
-      currentOriginLon = lon;
+      viewFrame.set(lat, lon);
       await buildings.update(
         Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
         Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
@@ -108,9 +104,11 @@ export function createAddressSearch({ terrain, buildings, streets, rivers, water
           true
         );
       }
-      // Position only, so the heading is kept.
+      // Position only, so the heading is kept. World y is relative to the
+      // shared origin's elevation, so drop relative to the ground here.
+      const groundY = findGroundY(world, 0, 0) ?? 0;
       const reset = carManager.getReset();
-      if (reset) reset(TELEPORT_LOCAL_POS);
+      if (reset) reset({ x: 0, y: groundY + TELEPORT_DROP_HEIGHT, z: 0 });
       setAddressStatus(`Teleported to "${query}"`);
       setTimeout(() => setAddressStatus(''), 3000);
     } finally {
@@ -141,7 +139,6 @@ export function createAddressSearch({ terrain, buildings, streets, rivers, water
   });
 
   return {
-    getCurrentOrigin: () => ({ lat: currentOriginLat, lon: currentOriginLon }),
     awaitOriginChain: () => teleportChain,
     // True during a teleport; mainLoop skips its own streaming meanwhile.
     isTeleporting: () => teleporting,
