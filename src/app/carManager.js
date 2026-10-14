@@ -5,22 +5,12 @@ import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
 import { DEFAULT_BODY_COLOR } from '../config.js';
 import { applyImpactRoll } from './collisions.js';
 
-// Owns the local car's lifecycle (spawn/respawn/despawn) plus the roster of
-// remote players' cars. Bridges physics (car body), rendering (meshes/name
-// tags), gameplay (pedestrian binding, score), and networking (remote pose
-// sync) - kept as one module since spawning/despawning a car inherently
-// touches all of those, but exposes a narrow API so callers (main loop,
-// lobby, address search) don't need to know the wiring details.
+// Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
 export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
-  // The hover rig's separately-tethered pod mesh (see lib/chariot.js's
-  // createChariotVehicle) - undefined for wheeled cars, which have no pod
-  // at all. Exposed via getPodMesh() so camera views that need to mount
-  // on the actual pod (see app/cameraViews/pod.js) can, instead of
-  // inheriting chassisMesh (which, on a chariot, is really the centre
-  // engine's mesh - see that field's own doc comment in lib/chariot.js).
+  // Chariot pod mesh (null for wheeled cars), for the pod camera view.
   let podMesh = null;
   let wheelMeshes = [];
   let syncMeshes = null;
@@ -29,11 +19,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let updateReset = null;
   let setCarHitboxVisible = null;
   let stabilityAssistCallback = null;
-  // Only set for vehicle kinds that own extra bodies/meshes beyond the one
-  // chassisBody/chassisMesh pair this module cleans up generically below
-  // (currently just the hover rig's separately-tethered pod - see
-  // lib/chariot.js). undefined for wheeled cars, so `dispose?.()` safely
-  // no-ops for those.
+  // Rig-specific cleanup for extra bodies/meshes (chariot); optional.
   let dispose = null;
   let localName = '';
   let score = 0;
@@ -47,24 +33,16 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
         applyImpactRoll(nextVehicle.chassisBody, event.contact);
         return;
       }
-      // Chassis-vs-ground contact: kick up a dust puff at the contact
-      // point, scaled by how hard the body actually hit (see
-      // lib/bodyDust.js) - gentle rests/settles (e.g. parking) don't
-      // reach bodyDust's own MIN_IMPACT_SPEED floor.
+      // Ground contact: body dust scaled by impact speed.
       if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP && bodyDust) {
         const contact = event.contact;
         const chassis = nextVehicle.chassisBody;
-        // Spawn at the chassis' own center rather than the contact's
-        // corner point (contact.ri/rj land near the box's corners, i.e.
-        // right around where the wheels sit) so the puff visibly comes
-        // from the body itself, not the wheels.
+        // From the chassis centre, so it reads as the body, not the wheels.
         bodyDust.onGroundContact(chassis.position, Math.abs(contact.getImpactVelocityAlongNormal()), chassis.velocity);
       }
     });
     pedestrians.bindChassis(nextVehicle.chassisBody, nextVehicle.wheelHitboxBodies ?? []);
-    // No name tag for the local player's own car: other clients render their
-    // own copy of it via createRemoteCar, so skipping it here only hides it
-    // from this player's own view.
+    // No name tag on our own car (others render their own copy).
   }
 
   function removeCurrentCar() {
@@ -95,14 +73,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     hookCar(vehicle, chassisMesh);
   }
 
-  /**
-   * Instantly swaps the local car's vehicle kind in place - same position,
-   * heading and velocity, just a different body/mesh underneath - used by
-   * the debug view's vehicle picker (see hud/vehicleDebugPicker.js) so
-   * trying out a vehicle mid-drive doesn't also reset where you are. A
-   * no-op before a car exists (nothing to swap yet; the next spawn just
-   * picks it up via currentVehicleId).
-   */
+  /** Swaps the vehicle kind in place (same pose and velocity); debug picker. */
   function setVehicleKind(vehicleId) {
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     if (!vehicle) return;
@@ -123,14 +94,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     hookCar(vehicle, chassisMesh);
   }
 
-  /**
-   * Instantly swaps the local car's body color in place - same position,
-   * heading, velocity and vehicle kind, just a different paint job -
-   * used by the debug view's color picker (see
-   * hud/vehicleDebugPicker.js) so trying out a color mid-drive doesn't
-   * also reset where you are. A no-op before a car exists (nothing to
-   * swap yet; the next spawn just picks it up via currentColor).
-   */
+  /** Swaps the body colour in place; debug picker. */
   function setColor(color) {
     currentColor = color;
     if (!vehicle) return;
@@ -164,9 +128,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     hookCar(vehicle, chassisMesh);
   }
 
-  // `poses` is already fetched (and remapped into this player's own local
-  // view frame - see app/mainLoop.js's toViewFrame) by the caller once per
-  // frame, so this doesn't hit the network layer itself.
+  // `poses` are already remapped into the view frame by mainLoop.
   function updateRemotes(dt, poses) {
     const seen = new Set();
     for (const pose of poses) {
@@ -208,13 +170,9 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     getLocalName: () => localName,
     getVehicleId: () => currentVehicleId,
     getColor: () => currentColor,
-    // Live accessors - the underlying values are reassigned on
-    // (re)spawn, so callers must read these via the getter each frame
-    // rather than destructuring once.
+    // Getters: values change on (re)spawn, so read them every frame.
     getVehicle: () => vehicle,
     getChassisMesh: () => chassisMesh,
-    // Only non-null for hover vehicles (see podMesh's own doc comment
-    // above) - null for wheeled cars.
     getPodMesh: () => podMesh,
     getSyncMeshes: () => syncMeshes,
     getSnapshotPhysics: () => snapshotPhysics,

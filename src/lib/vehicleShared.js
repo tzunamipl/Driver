@@ -1,19 +1,12 @@
-// Small shared pieces used by both lib/car.js (wheeled vehicles) and
-// lib/chariot.js (hover vehicles) - kept in their own file specifically so
-// neither of those two files needs to import the other (car.js dispatches
-// to chariot.js for "hover" vehicle kinds - see car.js's createCar/
-// createRemoteCar - so chariot.js importing back from car.js would be a
-// circular import).
+// Pieces shared by the wheeled (car.js) and hover (chariot.js) rigs. Lives
+// apart from both so chariot.js needn't import car.js (which imports it).
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { findGroundY } from './terrain.js';
 
-// Shared CANNON.Material tagging every vehicle's chassis collision shapes,
-// so main.js can pair it with BUILDING_MATERIAL/GROUND_MATERIAL (see
-// app/physicsSetup.js) in dedicated ContactMaterials - lower friction than
-// the world default so a glancing hit against a wall slides/bounces off
-// instead of grabbing and stopping the vehicle dead. Re-exported from
-// car.js for every existing call site that already imports it from there.
+// Tags every vehicle's collision shapes; physicsSetup.js pairs it with
+// ground/building materials (low friction so wall hits slide, not stick).
 export const CHASSIS_MATERIAL = new CANNON.Material('chassis');
 
 function makeNameSprite(name, score = 0) {
@@ -58,4 +51,83 @@ export function createNameTag(name, score = 0) {
   }
 
   return { sprite, set };
+}
+
+/** How long a reset eases the vehicle up into its upright pose. */
+export const RESET_LIFT_DURATION_S = 0.6;
+
+/** Ease-out progress (0..1) of a reset lift after `elapsed` seconds. */
+export function resetLiftProgress(elapsed) {
+  const t = Math.min(elapsed / RESET_LIFT_DURATION_S, 1);
+  return { t, eased: 1 - (1 - t) * (1 - t) };
+}
+
+/** Body's current heading (yaw) with roll/pitch zeroed. */
+export function uprightQuaternion(body) {
+  const euler = new CANNON.Vec3();
+  body.quaternion.toEuler(euler);
+  const upright = new CANNON.Quaternion();
+  upright.setFromEuler(0, euler.y, 0);
+  return upright;
+}
+
+/**
+ * In-place reset target: `lift` metres above the higher of the body's
+ * position and the terrain under it (recovers vehicles stuck underground).
+ */
+export function liftedResetPosition(world, body, lift) {
+  const target = body.position.clone();
+  const groundY = findGroundY(world, target.x, target.z);
+  if (groundY !== null && groundY > target.y) target.y = groundY;
+  target.y += lift;
+  return target;
+}
+
+/** Wireframe material for debug hitbox meshes (drawn on top). */
+export function createHitboxMaterial() {
+  return new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, depthTest: false });
+}
+
+/** Hidden, on-top debug mesh for a hitbox. */
+export function hitboxMesh(geometry, material) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.visible = false;
+  mesh.renderOrder = 999;
+  return mesh;
+}
+
+/**
+ * Appearance/teardown for a remote (visual-only) vehicle whose body is
+ * `group` coloured through `bodyMat`; adds `group` to the scene.
+ */
+export function createRemoteShell(scene, group, bodyMat, color, name, score) {
+  const nameTag = createNameTag(name, score);
+  group.add(nameTag.sprite);
+  scene.add(group);
+  let currentColor = color;
+
+  function setAppearance(nextColor, nextName, nextScore = 0) {
+    if (nextColor !== currentColor) {
+      currentColor = nextColor;
+      bodyMat.color.set(nextColor);
+    }
+    nameTag.set(nextName, nextScore);
+  }
+
+  function dispose() {
+    scene.remove(group);
+    const materials = new Set();
+    const geometries = new Set();
+    group.traverse((obj) => {
+      if (obj.geometry) geometries.add(obj.geometry);
+      if (obj.material) {
+        materials.add(obj.material);
+        if (obj.material.map) obj.material.map.dispose();
+      }
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  }
+
+  return { setAppearance, dispose };
 }

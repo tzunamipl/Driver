@@ -1,26 +1,12 @@
-// Single source of truth for OSM road-class ("transportation" layer
-// `class` field, see https://openmaptiles.org/schema/#transportation)
-// render parameters, used by streets.js to draw the debug road overlay.
-// Keeping every class's parameters here (instead of scattered through
-// streets.js/vectorLineLayer.js) means adding a new parameter (e.g. an
-// opacity or dash pattern) is a one-line change per class rather than a
-// plumbing change.
-//
-// `widthMeters` is a real-world stripe width (drawn via LineMaterial's
-// `worldUnits` mode - see vectorLineLayer.js - so a motorway reads as an
-// actually-wide stripe on the ground rather than just a thicker line on
-// screen), loosely modeled on typical paved width including
-// shoulders/medians for that class; it's a debug-visualization aid, not a
-// survey-accurate figure.
+// Road style per OpenMapTiles transportation `class` for the streets
+// overlay. widthMeters is a rough real paved width (incl. shoulders),
+// drawn as a flat ground stripe and used for road surface detection.
 
-// Main hierarchy, ordered most -> least important. `color` is linearly
-// interpolated between RED (first/most important) and GREY (last/least
-// important) based on each class's position in this list; `widthMeters`
-// is set explicitly per class below.
+// Most -> least important; colour runs red -> grey along this list.
 const RED = [0xff, 0x1a, 0x1a];
 const GREY = [0x8a, 0x8a, 0x8a];
 
-/** Linear-interpolates two [r, g, b] (0-255) triples at `t` (0..1) into a single 0xRRGGBB int. */
+/** Lerps two [r, g, b] (0-255) triples into a 0xRRGGBB int. */
 function lerpColor(a, b, t) {
   const r = Math.round(a[0] + (b[0] - a[0]) * t);
   const g = Math.round(a[1] + (b[1] - a[1]) * t);
@@ -28,10 +14,7 @@ function lerpColor(a, b, t) {
   return (r << 16) | (g << 8) | bl;
 }
 
-// Per-class parameters. Add new parameters here (not in streets.js) so
-// every class picks up a sensible default and call sites stay untouched.
-// `widthMeters` values are rough real-world paved widths (incl.
-// shoulders/medians) for that class, used to size the ground stripe.
+// Per-class parameters (add new ones here).
 const ROAD_CLASS_DEFS = {
   motorway: { widthMeters: 28 },
   trunk: { widthMeters: 24 },
@@ -45,14 +28,9 @@ const ROAD_CLASS_DEFS = {
 };
 export const ROAD_HIERARCHY = Object.keys(ROAD_CLASS_DEFS);
 
-// Narrowest a stripe is allowed to render, regardless of class/
-// under-construction shrinkage - thin enough to still read as "minor",
-// but never so thin it vanishes into a hairline.
 const MIN_STRIPE_WIDTH = 1;
 
-// `*_construction` variants (roads mid-build) reuse their finished
-// class's style, just narrower, so they're still visually distinguishable
-// as "not actually driveable yet".
+// `*_construction` classes: the finished class's style, narrower.
 const CONSTRUCTION_WIDTH_FACTOR = 0.6;
 
 export const ROAD_CLASSES = {};
@@ -64,22 +42,14 @@ ROAD_HIERARCHY.forEach((cls, i) => {
   };
 });
 
-// Special-purpose road classes that don't fit the main importance
-// hierarchy - styled the same as the nearest-equivalent tier above
-// (grey/thin "minor infrastructure" look) rather than getting their own
-// slot in the red->grey gradient.
+// Special-purpose classes styled like the minor tier.
 ROAD_CLASSES.busway = ROAD_CLASSES.bus_guideway = ROAD_CLASSES.service;
 ROAD_CLASSES.raceway = ROAD_CLASSES.tertiary;
 
-// Not a road at all (a shipping line) - not meaningful for a "streets" debug view.
+// Shipping lines aren't roads.
 export const SKIP_CLASSES = new Set(['ferry']);
 
-/**
- * Maps one vector-tile feature's properties to a render style
- * ({key, color, width} in meters), or null if the feature isn't a
- * recognized road class. `_construction` suffixed classes resolve to
- * their finished class's style, narrowed by CONSTRUCTION_WIDTH_FACTOR.
- */
+/** Feature props -> { key, color, width (m) }, or null if not a road class. */
 export function classifyRoad(props) {
   let cls = props?.class;
   if (!cls || SKIP_CLASSES.has(cls)) return null;

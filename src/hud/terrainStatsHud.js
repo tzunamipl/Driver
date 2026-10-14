@@ -2,49 +2,29 @@ import { DIRECTIONS, STATS_UPDATE_INTERVAL } from '../config.js';
 import { computeHeadingDeg, headingDirection } from '../lib/heading.js';
 import { localToLatLon } from '../lib/geo.js';
 
-// Terrain/buildings streaming stats HUD (memory usage + tile streaming
-// map). Debug-only overlay; disabled outright when debug visuals are off
-// so its (relatively expensive) DOM rebuild never runs during normal play.
+// Debug-only streaming stats HUD (memory + tile map); skipped when off.
 
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Per-tile loading progress is shown as a square split by both diagonals
-// into 4 triangles (one per loaded asset - see quadrantBackground below),
-// each one yellow (not loaded yet) until its asset actually finishes
-// building, then switching to green (the same detail-level green as
-// before, just filled in one quadrant at a time instead of all at once).
-// A cell that hasn't even got terrain yet stays flat yellow (the
-// 'pending' state below, no quadrants) - only once terrain exists does
-// the cell start showing (and filling in) its quadrant breakdown,
-// mirroring the real load order (terrain, then roads/rivers, then
-// buildings - see mainLoop.js).
+// A tile with terrain loaded shows 4 triangles (terrain / streets /
+// water / buildings), each yellow until that layer is built, then green.
 const PENDING_COLOR = '#ffc107';
 const TERRAIN_DETAIL_COLORS = { high: '#39ff14', medium: '#2e8b22', low: '#6f8f6a' };
 
 /**
- * Builds a CSS conic-gradient splitting a cell into 4 triangles (top/
- * right/bottom/left, via a -45deg-rotated 4-stop conic-gradient - the
- * standard trick for an "X"-divided square) representing terrain/streets/
- * rivers/buildings respectively. Each quadrant is yellow until its asset
- * finishes loading, then switches to the cell's detail-level green -
- * streets/rivers only ever load for HIGH-detail tiles, and buildings only
- * loads out to MEDIUM (i.e. terrain.js's DETAIL_RADIUS - LOW tiles are a
- * terrain-only outer ring, see terrain.js's DetailLevel doc comment), so
- * for any tile those quadrants will never actually load on, they're
- * treated as already "complete" rather than permanently stuck yellow for
- * content that will never be fetched there.
+ * conic-gradient "X" split of a cell into 4 quadrants. Layers that never
+ * load on this tile's detail level (streets/water: HIGH only, buildings:
+ * up to MEDIUM) count as complete.
  */
 function quadrantBackground(cell, buildings, streets, rivers, waterAreas) {
   const doneColor = TERRAIN_DETAIL_COLORS[cell.level] || TERRAIN_DETAIL_COLORS.medium;
   const isHigh = cell.level === 'high';
   const isLow = cell.level === 'low';
   const streetsDone = isHigh ? !!streets?.isTileLoaded?.(cell.tx, cell.ty) : true;
-  // Both rivers.js (waterway centerlines) and waterAreas.js (water
-  // polygons) are "the water debug overlay" from this HUD's perspective -
-  // folded into one quadrant rather than growing the 4-quadrant layout.
+  // Rivers + water polygons share one quadrant.
   const riversDone = isHigh
     ? !!rivers?.isTileLoaded?.(cell.tx, cell.ty) && !!waterAreas?.isTileLoaded?.(cell.tx, cell.ty)
     : true;
@@ -93,13 +73,8 @@ export function createTerrainStatsHud() {
 
     const b = buildings.getStats();
     const pedCount = pedestrians?.getCount ? pedestrians.getCount() : null;
-    // Selectable (copy/paste-able) coordinates for bug reports / manually
-    // navigating elsewhere - computed in the *network* frame (same frame
-    // carState.js persists, independent of any personal teleport) so a
-    // pasted value stays meaningful even after reloading. Elevation is the
-    // real-world height above sea level - chassisMesh.position.y is
-    // relative to the origin's height baseline (see terrain.js's
-    // heightOffset), so that baseline is added back in.
+    // Copyable coordinates in the network frame (same as carState.js);
+    // elevation adds the terrain height baseline back.
     let coordsText = '';
     if (Number.isFinite(viewOriginLat) && Number.isFinite(viewOriginLon)) {
       const { lat, lon } = localToLatLon(chassisMesh.position.x, chassisMesh.position.z, viewOriginLat, viewOriginLon);
@@ -142,11 +117,7 @@ export function createTerrainStatsHud() {
               const cellState = isPlayer ? 'loaded' : cell.state;
               const classes = ['ts-cell', cellState];
               if (isPlayer) classes.push('player');
-              // Once terrain itself is loaded (including the player's own
-              // tile, which is always loaded by definition), replace the
-              // flat per-state background with the 4-quadrant progress
-              // indicator (see quadrantBackground) showing terrain/roads/
-              // rivers/buildings loading progress for that specific tile.
+              // Terrain loaded: show the per-layer quadrant progress.
               const style =
                 cellState === 'loaded' ? ` style="background:${quadrantBackground(cell, buildings, streets, rivers, waterAreas)}"` : '';
               const glyph = isPlayer ? dir.arrow : '';

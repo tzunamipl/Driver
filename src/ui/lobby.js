@@ -3,9 +3,7 @@ import { clearCarState } from '../lib/carState.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 
-// Remembers the player's name/color/vehicle pick across reloads so they
-// don't have to re-enter it every time. Cleared via the "Reset saved info"
-// help-menu button (resetSavedChoices below).
+// Saved name/colour/vehicle pick (cleared by "Reset saved info").
 function loadSavedChoices() {
   try {
     const raw = localStorage.getItem(LOBBY_STORAGE_KEY);
@@ -22,33 +20,22 @@ function saveChoices(name, color, vehicleId) {
   try {
     localStorage.setItem(LOBBY_STORAGE_KEY, JSON.stringify({ name, color, vehicleId }));
   } catch {
-    // Storage unavailable (private browsing, quota, etc.) - not persisting
-    // is a harmless degradation, so silently ignore.
+    // Storage unavailable: just don't persist.
   }
 }
 
-// Lobby UI: name/color/vehicle picker form, join flow (connects to the
-// shared room if enabled, then spawns the local car), and the small
-// network-status indicator. Isolated from the main loop - once `onJoined`
-// fires, the rest of the app takes over per-frame updates.
+// Lobby: name/colour/vehicle form, join flow and network status.
 
 /**
  * @param {object} deps
  * @param {ReturnType<typeof import('../lib/net.js').createNet>} deps.net
  * @param {import('../app/carManager.js').ReturnType} deps.carManager
- * @param {(color: number, vehicleId: string) => void} deps.onJoined - called
- *   once the player has joined (room connected, if applicable) and the
- *   local car should be spawned with the chosen color/vehicle.
- * @param {() => void} [deps.onReset] - called after a mid-drive re-pick
- *   (see applyLivePick() below) has respawned the local car, so the caller
- *   can re-sync anything that mirrors the car's color/vehicle outside this
- *   module (e.g. the debug vehicle picker).
+ * @param {(color: number, vehicleId: string) => void} deps.onJoined - spawn the car after joining.
+ * @param {() => void} [deps.onReset] - after a mid-drive re-pick respawned the car.
  */
 export function createLobby({ net, carManager, onJoined, onReset, originChain }) {
   const lobbyEl = document.getElementById('lobby');
-  // Dev mode skips the name/color prompt entirely (see joinRoom() below)
-  // and drives as "dev_mode" in the default blue - hide the prompt so it
-  // never flashes on screen.
+  // Dev mode never shows the prompt (see joinRoom).
   if (IS_DEV_MODE) lobbyEl.style.display = 'none';
   const lobbyForm = document.getElementById('lobby-form');
   const lobbyName = document.getElementById('lobby-name');
@@ -61,16 +48,10 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
 
   let joined = false;
 
-  // ---- Vehicle picker (tabs by category + list of vehicles in that
-  // category) - see ui/vehiclePicker.js/lib/vehicles/index.js. Built
-  // dynamically rather than hardcoded in index.html so adding a new
-  // vehicle/category later needs no HTML changes.
+  // ---- Vehicle picker (category tabs + list), built from the registry.
   const vehiclePicker = createVehiclePicker({ tabsEl: vehicleTabsEl, listEl: vehicleListEl });
 
-  // Prefill the form with a previously saved name/color/vehicle, if any,
-  // and hide the prompt immediately so it never flashes on screen -
-  // tryAutoJoin() (called once terrain is ready) will join with these
-  // straight away.
+  // Prefill a saved pick and hide the prompt; tryAutoJoin uses it.
   const saved = loadSavedChoices();
   if (saved) {
     lobbyName.value = saved.name;
@@ -121,10 +102,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     onJoined(color, vehicleId);
   }
 
-  // Re-picking mid-drive (via the "Reset saved name/color" help-menu
-  // button below, which re-opens this same form) doesn't need to
-  // reconnect to the room - already connected - it just applies the new
-  // name/color/vehicle live and re-hides the form.
+  // Re-pick while already joined: apply live, no reconnect.
   function applyLivePick(name, color, vehicleId) {
     carManager.setLocalName(name.slice(0, 16));
     carManager.spawnLocalCar(color, vehicleId);
@@ -165,11 +143,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     vehiclePicker.select(DEFAULT_VEHICLE_ID);
   }
 
-  // Help-menu button: clears the remembered name/color and re-opens the
-  // name/color/vehicle picker (blanked out) so the player can choose
-  // fresh ones, instead of silently snapping back to defaults. Submitting
-  // the form again (lobbyForm's submit handler above) then applies the
-  // new pick live via applyLivePick() since the player is already joined.
+  // Help-menu reset: clear the saved pick and reopen a blank form.
   const resetChoicesBtn = document.getElementById('hud-reset-choices');
   resetChoicesBtn?.addEventListener('click', () => {
     resetSavedChoices();
@@ -188,10 +162,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
       lobbyJoin.disabled = false;
     },
     resetSavedChoices,
-    // Skips the name/color prompt entirely when a previous choice was
-    // saved - called from main.js once terrain is ready, mirroring the
-    // dev-mode auto-join below. Returns whether it auto-joined so the
-    // caller can fall back to showing the prompt otherwise.
+    // Auto-join with a saved pick; returns whether it did.
     tryAutoJoin: () => {
       if (!saved) return false;
       joinRoom(saved.name, selectedColor(), vehiclePicker.getSelectedId());

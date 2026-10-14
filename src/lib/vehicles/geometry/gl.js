@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DEFAULT_BODY_COLOR } from '../../../config.js';
 
 export function buildBody(
     chassisWidth,

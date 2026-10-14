@@ -49,10 +49,7 @@ import { createAddressSearch } from './ui/addressSearch.js';
 import { createLobby } from './ui/lobby.js';
 
 // ---------- Composition root ----------
-// This file only wires modules together in the right order; all actual
-// logic (physics, terrain/buildings streaming, camera, HUD, input,
-// networking UI, gameplay) lives in ./app, ./hud, ./ui, and ./lib - see
-// those folders to work on a specific concern without touching this file.
+// Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
@@ -67,16 +64,8 @@ const noticeHud = createNoticeHud();
 const preventGroundTunneling = createGroundTunnelGuard(
   world,
   () => {
-    // The network/world origin, remapped into *this* player's current local
-    // frame (see mainLoop.js's toViewFrame for the same remap applied to
-    // remote poses) - i.e. "wherever the game's own starting location is,
-    // expressed in local scene coordinates right now". Computed fresh on
-    // every call (rather than once) since a personal teleport (see
-    // ui/addressSearch.js) changes that mapping at runtime; this is what the
-    // ground-tunnel guard rescues a body to if it's stuck somewhere with no
-    // terrain data at all (e.g. a teleport destination outside the map's
-    // coverage), since the player's *current* position is exactly the place
-    // that's already proven to have no ground.
+    // Game start position in the current view frame (changes after a
+    // teleport); where the ground guard rescues a body with no terrain.
     const { lat, lon } = addressSearch.getCurrentOrigin();
     return remapLocalOrigin(0, 0, ORIGIN_LAT, ORIGIN_LON, lat, lon);
   },
@@ -120,23 +109,15 @@ const engineAudio = createEngineAudio(camera, [
 ]);
 
 // ---------- Networking ----------
-// Reuse the same clientId across reloads (see lib/playerId.js) so this
-// browser doesn't show up as a fresh duplicate peer every time the page
-// is refreshed.
+// Stable clientId across reloads, so a refresh isn't a new peer.
 const net = createNet({ clientId: loadOrCreatePlayerId() });
 
 // ---------- Car spawn point ----------
-// Start a few meters back along -Z (opposite of the car's forward +Z). Y is
-// a small drop height above the (roughly zeroed) terrain at the origin;
-// gravity settles it onto the real ground once the chunk physics bodies
-// are loaded.
+// A few metres back from the origin, dropped onto the terrain.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 
-// If the player was somewhere else when they last reloaded, resume there
-// instead of always restarting at the world origin (see lib/carState.js).
-// Read once at startup - it reflects wherever the *previous* session left
-// off, not anything from this one.
+// Resume where the previous session left off (lib/carState.js).
 const savedCarState = loadCarState();
 
 function playerSpawnPos() {
@@ -166,17 +147,11 @@ const debugVisuals = createDebugVisualsToggle(
 );
 
 // ---------- Car + remote players ----------
-// Created ahead of carManager (rather than alongside splash/tireSmoke
-// below) since carManager's chassisBody 'collide' listener needs it
-// immediately on first spawn.
+// Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene);
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
-// ---------- Instant vehicle picker in the debug view (see M-key toggle
-// above); needs net too so switches broadcast to peers like the lobby's
-// picker does on join. Pre-loads any previously saved dev-mode car/color
-// pick (see loadDevCarChoice() in hud/vehicleDebugPicker.js) so the panel
-// shows the right highlight even before the car itself spawns with it. ----------
+// ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
 const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
 const vehicleDebugPicker = createVehicleDebugPicker({
   carManager,
@@ -310,40 +285,26 @@ const lobby = createLobby({
     vehicleDebugPicker.syncFromCar();
     addressSearch.setUiEnabled(true);
     startLoopOnce();
-    // Only start the help/players auto-fold timers once the player has
-    // actually joined (name/color picked) - starting them at page load
-    // would risk folding the help panel away while they're still on the
-    // lobby form (see hud/collapsible.js).
+    // Start the HUD auto-fold timers only after joining.
     collapsibleHud.startAutoFold();
   },
   onReset() {
-    // applyLivePick() in lobby.js already respawned the car with the
-    // newly-picked color/vehicle - just re-sync the debug view's vehicle
-    // picker so it doesn't disagree with the new choice.
+    // lobby.js already respawned the car; just sync the debug picker.
     vehicleDebugPicker.syncFromCar();
   },
 });
 
 // ---------- Startup ----------
-// Load the initial terrain around the spawn point before starting the sim,
-// so the car never falls through an unloaded world. Buildings stream in
-// via the same per-frame animate() call once the car exists - not awaited
-// here, since building tiles are slower/less critical than the aerial/
-// elevation tile sources and terrain-only is enough to safely start
-// driving.
+// Load initial terrain before starting, so the car can't fall through.
+// Buildings stream in from the main loop.
 terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
-    // Skip the name/color prompt and preview car entirely in dev -
-    // joinRoom() spawns the (only) car and starts the loop itself. Joins
-    // with a previously saved car/color pick (devCarChoice, see above) if
-    // there is one, so switching cars/colors via the debug HUD survives a
-    // reload instead of resetting to the default every time.
+    // Dev: skip the lobby and join with the saved debug pick, if any.
     lobby.joinRoom('dev_mode', devCarChoice?.color ?? DEFAULT_BODY_COLOR, devCarChoice?.vehicleId);
     return;
   }
-  // If the player already picked a name/color on a previous visit, skip
-  // the prompt entirely and join straight away with those saved choices.
+  // Returning player: join straight away with the saved name/colour.
   if (lobby.tryAutoJoin()) return;
   lobby.enableJoinButton();
   lobby.setStatus('Enter your name and pick a color.');

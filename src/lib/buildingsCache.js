@@ -1,25 +1,11 @@
-// Persistent (IndexedDB) local cache for OSM building footprints, so that
-// once a tile's buildings have been fetched from Overpass at least once,
-// they keep showing up on future visits even if Overpass is temporarily
-// unreachable (it's a free, best-effort public API with no uptime
-// guarantee - see the long comment atop buildings.js). This is purely a
-// fallback data source: BuildingsManager always prefers a fresh network
-// fetch, and only reads from here when that fetch fails outright.
-//
-// Keyed by the same absolute Web Mercator tile coordinates (z/tx/ty) used
-// to bucket buildings in buildings.js - those are independent of wherever
-// the car's local-origin currently is, so cached tiles remain valid across
-// recenter()s and app restarts alike.
+// IndexedDB fallback cache of building tiles, keyed by absolute z/tx/ty
+// (valid across recenters and sessions). Read only when a live fetch fails.
 
 const DB_NAME = 'driver-buildings-cache';
 const DB_VERSION = 1;
 const STORE = 'tiles';
 
-// Rough cap on how many tiles' worth of building data we keep on disk
-// indefinitely - without this, driving around a lot over many sessions
-// would grow IndexedDB usage without bound. When exceeded, the oldest
-// (by last-written time) entries are trimmed. Generous enough to cover a
-// large driving session's worth of tiles.
+// Cap on stored tiles; oldest (by write time) are trimmed beyond it.
 const MAX_CACHED_TILES = 20000;
 const TRIM_TO_TILES = 18000; // trim down to this many when the cap is hit, so trimming isn't triggered every single write
 
@@ -61,12 +47,7 @@ function openDb() {
   return dbPromise;
 }
 
-/**
- * Writes a batch of freshly-fetched tiles' building lists to the cache.
- * Fire-and-forget from the caller's perspective (returns a promise but
- * failures are swallowed - a cache write failing should never affect
- * live rendering).
- */
+/** Writes fetched tiles to the cache; failures are swallowed. */
 export async function cacheTiles(zoom, byTile) {
   try {
     const db = await openDb();
@@ -121,13 +102,8 @@ async function trimIfNeeded(db) {
 }
 
 /**
- * Reads every cached tile within [minTx..maxTx] x [minTy..maxTy] at the
- * given zoom. Used as a fallback when a live region fetch fails outright,
- * so previously-seen buildings still render instead of the area staying
- * empty. Returns a Map<tileKey, buildingList> (buildingList entries shaped
- * like { ring, height, color }, same as a live fetch produces - `color` is
- * a plain 0xRRGGBB int or null) - empty if the cache is unavailable or
- * nothing was found.
+ * Cached tiles within the tile range at `zoom`: Map<tileKey, [{ ring,
+ * height, color }]>; empty if unavailable.
  */
 export async function readCachedRegion(zoom, minTx, maxTx, minTy, maxTy) {
   const result = new Map();

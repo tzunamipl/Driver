@@ -13,89 +13,40 @@ import {
   tileSizeMeters,
 } from './geo.js';
 
-// Free, no-API-key worldwide aerial imagery. Exported so other consumers
-// (e.g. the minimap HUD) can pull the same tile source without duplicating
-// the URL scheme.
+// Free, keyless aerial imagery (also used by the minimap).
 export const AERIAL_URL = (z, x, y) =>
   `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
 
-// Elevation: AWS Terrarium tiles (Mapzen's open elevation dataset, mirrored
-// as a public S3 bucket by the Registry of Open Data on AWS). Free, no API
-// key/rate limit. Must be requested via the *virtual-hosted-style* bucket
-// URL (`<bucket>.s3.amazonaws.com/...`) rather than the path-style URL
-// (`s3.amazonaws.com/<bucket>/...`) - only the former actually returns
-// `Access-Control-Allow-Origin` on GET responses (verified directly; the
-// path-style URL returns 200 but with no CORS headers at all, which taints
-// the canvas and breaks getImageData()).
+// AWS Terrarium elevation tiles. Must use the virtual-hosted-style bucket
+// URL: the path-style one returns no CORS headers, tainting the canvas.
 const ELEVATION_URL = (z, x, y) =>
   `https://elevation-tiles-prod.s3.amazonaws.com/terrarium/${z}/${x}/${y}.png`;
 
-// ---------------------------------------------------------------------------
-// Two-tier level of detail:
-//   - "detail" tier: full-res aerial imagery + mesh + physics collision, kept
-//     loaded in a small circular radius around the player (~2 tiles).
-//   - "far" tier: a much coarser, texture-less backdrop (elevation-only,
-//     vertex-colored, no physics) that extends the visible horizon out to
-//     FAR_RADIUS_METERS so the world doesn't visibly end a few km out.
-// Both tiers select tiles in a circle (not a square) around the player, and
-// stage removals a few ticks before actually unloading to avoid thrashing.
-// ---------------------------------------------------------------------------
+// Two tiers, both selected in a circle around the player with delayed unload:
+//   - detail: aerial-textured mesh (+ physics for HIGH/MEDIUM), split into
+//     HIGH (3x3 around the player), MEDIUM (to DETAIL_RADIUS) and LOW (an
+//     outer terrain-only ring to LOW_DETAIL_RADIUS: coarser mesh, no physics);
+//   - far: coarse, untextured, physics-less backdrop to FAR_RADIUS_METERS.
+// Other streamers (buildings, vector overlays) align to DETAIL_ZOOM and use
+// DETAIL_RADIUS / HIGH_DETAIL_RADIUS; the LOW ring is terrain-only.
 
-// DETAIL_ZOOM/DETAIL_RADIUS/UNLOAD_MARGIN/UNLOAD_DELAY_TICKS/circleOffsets/
-// inCircle are exported (below their definitions) so other streamed-content
-// managers (e.g. BuildingsManager) can align their own tile grid exactly
-// with the detail tier's footprint instead of duplicating these constants.
-export const DETAIL_ZOOM = 15; // ~600-800m tiles at mid latitudes; safe worldwide coverage for both sources
-const DETAIL_GRID = 16; // heightmap/mesh resolution per tile edge (GRID+1 vertices)
-export const DETAIL_RADIUS = 2; // circular load radius (in tiles) for the fully-detailed tier
-export const UNLOAD_MARGIN = 1; // extra tiles of slack before unloading, to avoid load/unload thrashing
-
-// ---------------------------------------------------------------------------
-// Sub-tier detail level: *within* the detail tier's loaded footprint above,
-// each tile is additionally tagged HIGH/MEDIUM/LOW so extra-expensive
-// content (currently streets.js/rivers.js's debug overlays) only has to be
-// fetched/rendered for the handful of tiles immediately around the player,
-// not the whole detail tier:
-//   - HIGH: the 3x3 block of tiles centered on the player's current tile
-//     (the player's own tile plus its 8 neighbors).
-//   - MEDIUM: every other tile currently loaded within DETAIL_RADIUS (i.e.
-//     the same footprint buildings.js/vectorPolygonLayer.js/
-//     vectorLineLayer.js key their own loading off today).
-//   - LOW: an extra outer ring, out to LOW_DETAIL_RADIUS, loaded *only* by
-//     this file's TerrainManager (terrain mesh + aerial texture) - every
-//     other DETAIL_RADIUS-aligned streamer (buildings/streets/rivers/water
-//     overlays) is intentionally unaffected and keeps ignoring tiles out
-//     here, same as it always has.
-// Exported (with the color ramp below) so streets.js/rivers.js can mirror
-// the HIGH-only footprint instead of duplicating this radius, and so
-// debugVisuals/terrain border coloring stay in sync with whatever actually
-// gets the extra detail.
-// ---------------------------------------------------------------------------
-export const HIGH_DETAIL_RADIUS = 1; // tiles (square, i.e. the 3x3 block) - see above
-// Extra terrain-only ring beyond MEDIUM's DETAIL_RADIUS footprint. Kept as
-// its own constant (rather than growing DETAIL_RADIUS itself) so every
-// other DETAIL_RADIUS-aligned system keeps its existing footprint exactly
-// as-is - see doc comment above.
+export const DETAIL_ZOOM = 15; // ~600-800m tiles at mid latitudes
+const DETAIL_GRID = 16; // mesh subdivisions per tile edge
+export const DETAIL_RADIUS = 2; // tiles
+export const UNLOAD_MARGIN = 1; // tiles of slack before unloading
+export const HIGH_DETAIL_RADIUS = 1; // square, i.e. the 3x3 block
 export const LOW_DETAIL_RADIUS = DETAIL_RADIUS + 15;
-// LOW tiles render at 1/16th of the normal mesh's vertex/triangle count.
-// A PlaneGeometry's vertex count is (grid+1)^2, which scales with grid^2
-// for grid >> 1, so quartering the per-edge subdivision count (1/4^2 =
-// 1/16 the area) cuts the total vertex/triangle count to 1/16th.
-const LOW_DETAIL_GRID = Math.max(1, Math.round(DETAIL_GRID / 4));
+const LOW_DETAIL_GRID = Math.max(1, Math.round(DETAIL_GRID / 4)); // 1/16 the vertices
 export const DetailLevel = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
 
-/** Classifies a tile offset (dx, dy from the current center tile) into a DetailLevel - see the doc comment above. */
+/** DetailLevel of a tile at (dx, dy) from the player's tile. */
 export function detailLevelForOffset(dx, dy) {
   if (Math.abs(dx) <= HIGH_DETAIL_RADIUS && Math.abs(dy) <= HIGH_DETAIL_RADIUS) return DetailLevel.HIGH;
   if (inCircle(dx, dy, DETAIL_RADIUS)) return DetailLevel.MEDIUM;
   return DetailLevel.LOW;
 }
 
-// Tile detail-level color ramp - a bright/medium/desaturated green ramp so
-// a tile's current detail level reads at a glance. Not used for the 3D
-// scene's tile borders (those stay a plain yellow, see borderMaterial
-// below) - instead consumed by the debug stats HUD's tile grid
-// (terrainStatsHud.js) via getStats()'s per-cell `level` field.
+// Used by the debug stats HUD grid (terrainStatsHud.js).
 export const DETAIL_LEVEL_COLORS = {
   [DetailLevel.HIGH]: 0x39ff14, // bright green
   [DetailLevel.MEDIUM]: 0x2e8b22, // medium green
@@ -103,83 +54,41 @@ export const DETAIL_LEVEL_COLORS = {
 };
 
 
-// A tile is "in" a circular radius R if dx^2+dy^2 <= (R + CIRCLE_SLACK)^2.
-// The slack rounds the selection out a bit past a mathematically strict
-// circle so the shape doesn't look overly sparse/spiky at small radii, while
-// still culling the square's far corners (the whole point of going circular).
+// Rounds circle selection out a bit so small radii don't look spiky.
 const CIRCLE_SLACK = 0.5;
 
-// Chunks that fall outside the keep radius aren't unloaded immediately -
-// they're staged for a few update() ticks first (see `pendingRemoval`).
-// This absorbs brief in/out flicker at the radius boundary and gives the
-// stats/debug map below a real "planned to be removed" state to display,
-// instead of tiles disappearing in the same tick they're flagged.
+// Out-of-range chunks wait this many update() ticks before unloading
+// (absorbs boundary flicker; shown as "removing" in the debug HUD).
 export const UNLOAD_DELAY_TICKS = 3;
 
-// Far/low-detail tier: no aerial imagery fetch (would be blurry at this zoom
-// anyway and multiplies request count), no physics body (the player is
-// always within the detail tier's footprint, so far chunks are never driven
-// on), and a much coarser mesh. Zoom is deliberately low so covering
-// FAR_RADIUS_METERS only needs a few dozen chunks instead of thousands.
-const FAR_ZOOM = 11; // ~body of tile is tens of km across at mid latitudes
-const FAR_GRID = 11; // low mesh resolution per tile edge - it's a distant backdrop
-export const FAR_RADIUS_METERS = 120_000; // how far out the low-detail terrain extends
-// Real-world radius (in tiles, at DETAIL_ZOOM) of the circular "hole" cut out
-// of the far tier so it never overlaps the detail tier - see the
-// TerrainManager constructor below for how this is converted to meters and
-// applied. Defaults to just past the detail tier's own keep radius, but is
-// its own constant (rather than reusing LOW_DETAIL_RADIUS directly) so it
-// can be tuned independently.
+const FAR_ZOOM = 11; // tiles tens of km across
+const FAR_GRID = 11;
+export const FAR_RADIUS_METERS = 120_000;
+// Radius of the hole cut in the far tier around the player (so it never
+// overlaps the detail tier), in DETAIL_ZOOM tiles.
 export const FAR_HOLE_RADIUS_TILES = LOW_DETAIL_RADIUS + UNLOAD_MARGIN - 2;
-const FAR_UNLOAD_MARGIN = 1; // tiles of slack, same purpose as UNLOAD_MARGIN above
+const FAR_UNLOAD_MARGIN = 1;
 const FAR_UNLOAD_DELAY_TICKS = 3;
-// Nudge the far mesh slightly below the detail tier so where their footprints
-// briefly overlap at the LOD boundary, the coarse mesh loses any z-fight/
-// peek-through against the detailed one instead of flickering on top of it.
-const FAR_Y_OFFSET = -3;
-// A freshly-loaded low-detail (far tier) chunk fades its opacity in from 0
-// to 1 over this many milliseconds instead of snapping straight to fully
-// opaque, so new backdrop tiles ease into view at the edge of the far ring
-// rather than visibly popping in as the player drives.
+const FAR_Y_OFFSET = -3; // sits below the detail tier so it loses any z-fight
 const FAR_FADE_IN_MS = 600;
-// Same idea as FAR_FADE_IN_MS, but for freshly-loaded LOW-tier chunks in the
-// detail grid (see DetailLevel.LOW/_loadChunk's fadeIn) - kept as its own
-// constant so the two tiers' fade durations can be tuned independently.
-const TILE_FADE_IN_MS = 600;
+const TILE_FADE_IN_MS = 600; // LOW-ring fade-in
 
-// Imagery is fetched at a higher zoom than the elevation/mesh grid and stitched
-// into a mosaic texture, since aerial detail is available at much finer zoom
-// than terrain-rgb (which is effectively flat past ~15) and imagery resolution
-// is what makes the ground look sharp up close.
-const AERIAL_ZOOM_BOOST = 2; // 2 levels = 4x4 child tiles = 1024x1024 texture per chunk
+// Imagery is fetched at a higher zoom than the mesh and stitched into a
+// mosaic, since that's what makes the ground look sharp up close.
+const AERIAL_ZOOM_BOOST = 2; // 4x4 child tiles = 1024x1024 texture per chunk
 const AERIAL_TILE_SIZE = 256;
 
-// Dedicated collision group for terrain bodies so other code (e.g. the
-// anti-tunneling ground raycast in main.js) can raycast against only the
-// ground, ignoring the car's own chassis/wheel shapes.
+// Terrain-only collision group, for ground raycasts that ignore vehicles.
 export const GROUND_COLLISION_GROUP = 2;
-// Shared so the ball can register a bouncy contact without changing how
-// the chassis meets the ground (that pair still uses the world default).
 export const GROUND_MATERIAL = new CANNON.Material('ground');
 
 const _groundRayFrom = new CANNON.Vec3();
 const _groundRayTo = new CANNON.Vec3();
 const _groundRayResult = new CANNON.RaycastResult();
-// Tall enough to find the terrain surface under/over a body regardless of
-// how far it's ended up from it (e.g. a car that's somehow sunk well
-// underground - see lib/car.js's reset(), which anchors its lift target to
-// this instead of a fixed offset from the car's own, possibly-underground,
-// current position).
+// Tall enough to find the surface even from a body sunk deep underground.
 export const GROUND_SEARCH_HEIGHT = 5000;
 
-/**
- * Finds the terrain surface's y at a given (x, z) by casting a tall ray
- * straight down through that whole column - independent of any particular
- * body's current position, so it works even when that body has ended up
- * far below (or above) the real surface. Returns null if no terrain chunk
- * is loaded there yet (e.g. a spot this player's TerrainManager hasn't
- * streamed in).
- */
+/** Terrain surface y at (x, z), or null if no chunk is loaded there. */
 export function findGroundY(world, x, z) {
   _groundRayFrom.set(x, GROUND_SEARCH_HEIGHT, z);
   _groundRayTo.set(x, -GROUND_SEARCH_HEIGHT, z);
@@ -225,14 +134,8 @@ function sampleHeight({ data, width, height }, u, v) {
 }
 
 /**
- * Builds a single high-resolution texture for one (z, x, y) chunk by fetching
- * a grid of child tiles at z + zoomBoost and stitching them into one canvas.
- * Individual child tile failures (e.g. no coverage at that zoom in a given
- * area) are left blank rather than failing the whole chunk. `zoomBoost`
- * defaults to AERIAL_ZOOM_BOOST (the normal HIGH/MEDIUM mosaic); LOW tiles
- * pass 0 instead (see _loadChunk) for a single native-resolution tile - both
- * a 16x cheaper fetch (1 request instead of 16) and a lower-res bitmap to
- * match their coarser mesh.
+ * One texture for tile (z, x, y), stitched from its child tiles at
+ * z + zoomBoost. Failed child tiles are left blank. LOW tiles pass 0.
  */
 async function loadAerialTexture(z, x, y, zoomBoost = AERIAL_ZOOM_BOOST) {
   const n = 2 ** zoomBoost;
@@ -267,48 +170,25 @@ async function loadAerialTexture(z, x, y, zoomBoost = AERIAL_ZOOM_BOOST) {
   return tex;
 }
 
-/**
- * Rough estimate of the GPU/CPU memory a loaded chunk holds onto: the aerial
- * texture's decoded RGBA pixels, the mesh's position/normal/uv vertex
- * buffers, its index buffer, and the physics Trimesh's own copies of the
- * vertex/index data. Not exact (driver/GPU overhead varies), but good enough
- * for a "is this leaking?" memory readout.
- */
+/** Rough memory estimate of a chunk (texture + vertex/index buffers + physics copy), for the debug HUD. */
 function estimateChunkBytes(textureImage, positions, indices, hasPhysics = true) {
   const texBytes = (textureImage.width || 0) * (textureImage.height || 0) * 4;
   const vertexCount = positions.length / 3;
-  // position + normal (3 floats each) + uv (2 floats), 4 bytes/float, x2 for
-  // the Trimesh's own copy of vertices/indices in CANNON - only applies
-  // when a physics body actually exists (LOW tiles skip it, see
-  // _loadChunk).
-  const physicsFactor = hasPhysics ? 2 : 1;
+  const physicsFactor = hasPhysics ? 2 : 1; // Trimesh keeps its own copy
   const meshBytes = (positions.length * physicsFactor + vertexCount * 2) * 4;
   const indexBytes = indices.length * 4 * physicsFactor;
   return texBytes + meshBytes + indexBytes;
 }
 
-// Tiny lift applied to the boundary/grid lines along each vertex's normal,
-// so the lines sit just above the terrain surface instead of z-fighting
-// with it (a flat Y offset would float off the surface on steep slopes).
-// The grid uses a slightly smaller lift than the border so the (bolder,
-// brighter) perimeter line always renders on top where the two would
-// otherwise coincide (e.g. along a tile's own edge).
+// Debug tile lines, lifted along vertex normals to avoid z-fighting; the
+// border sits above the grid. Fat lines (LineMaterial) because WebGL
+// ignores `linewidth` on basic lines; they need the viewport resolution.
 const BORDER_LIFT = 0.15;
 const GRID_LIFT = 0.1;
 const BORDER_COLOR = 0xffe14d;
 const GRID_COLOR = 0xffe14d;
-
-// Regular THREE.Line(Basic)Material's `linewidth` is silently ignored by
-// almost every platform's WebGL backend (ANGLE/ES only exposes 1px lines
-// regardless of what's requested), so both the tile border and the tile
-// geometry (polygon) lines below use the "fat lines" addon instead
-// (LineSegments2/LineSegmentsGeometry/LineMaterial), which fakes width by
-// expanding each segment into a screen-space-aligned quad. That requires a
-// `resolution` uniform tracking the viewport in CSS pixels, kept in sync
-// here via a dedicated resize listener rather than plumbing the renderer
-// size through from main.js/sceneSetup.js.
-const BORDER_LINEWIDTH = 3; // px - bold outline around each tile
-const GRID_LINEWIDTH = 1.25; // px - subtle mesh/polygon lines within a tile
+const BORDER_LINEWIDTH = 3; // px
+const GRID_LINEWIDTH = 1.25; // px
 const borderMaterial = new LineMaterial({
   color: BORDER_COLOR,
   linewidth: BORDER_LINEWIDTH,
@@ -328,13 +208,7 @@ function updateLineResolution() {
 updateLineResolution();
 window.addEventListener('resize', updateLineResolution);
 
-/**
- * Builds a closed loop of fat line segments tracing the outer edge of a
- * tile's displaced plane geometry, so adjacent chunks are visually
- * distinguishable in the 3D view. Walks the perimeter vertices (already
- * elevation-displaced) in order and nudges each one up along its vertex
- * normal.
- */
+/** Line loop around the perimeter of a displaced tile plane. */
 function buildTileBorder(geometry, grid) {
   const position = geometry.attributes.position;
   const normal = geometry.attributes.normal;
@@ -344,9 +218,7 @@ function buildTileBorder(geometry, grid) {
   for (let ix = grid - 1; ix >= 0; ix--) perimeter.push(grid * (grid + 1) + ix); // bottom edge, right -> left
   for (let iy = grid - 1; iy >= 1; iy--) perimeter.push(iy * (grid + 1)); // left edge, bottom -> top
 
-  // Fat-line segments are independent (start,end) pairs rather than a
-  // connected strip, so each consecutive perimeter vertex pair (wrapping
-  // back to the first) becomes its own segment.
+  // One independent segment per consecutive vertex pair (wrapping).
   const segments = new Float32Array(perimeter.length * 6);
   for (let i = 0; i < perimeter.length; i++) {
     const a = perimeter[i];
@@ -364,12 +236,7 @@ function buildTileBorder(geometry, grid) {
   return new LineSegments2(borderGeometry, borderMaterial);
 }
 
-/**
- * Builds fat line segments tracing every triangle edge of a tile's
- * displaced plane geometry (its actual render polygons), so the mesh
- * density/shape is visible in the 3D view alongside the bolder perimeter
- * border. Each shared edge between two triangles is only emitted once.
- */
+/** Lines along every (deduplicated) triangle edge of a tile mesh. */
 function buildTileGrid(geometry) {
   const position = geometry.attributes.position;
   const normal = geometry.attributes.normal;
@@ -411,11 +278,7 @@ export function inCircle(dx, dy, radius) {
   return dx * dx + dy * dy <= r * r;
 }
 
-/**
- * List of (dx, dy) tile offsets within `radius` tiles of the origin,
- * shaped like a circle rather than a square (see inCircle), sorted nearest
- * first so closer tiles are requested/populated ahead of far ones.
- */
+/** Tile offsets within `radius` (circular), nearest first. */
 export function circleOffsets(radius) {
   const ceil = Math.ceil(radius + CIRCLE_SLACK);
   const offsets = [];
@@ -428,57 +291,22 @@ export function circleOffsets(radius) {
   return offsets;
 }
 
-// Flat color used for the entire far/low-detail backdrop tier, standing in
-// for aerial imagery (which isn't fetched at that tier). Uniform rather than
-// elevation-ramped so it matches the scene fog color exactly (see
-// sceneSetup.js's FOG_COLOR) - the LOW detail tier fades into this same tone
-// at its fog-out distance, so the FAR tier picks up seamlessly right after
-// with no visible color seam at the handoff, regardless of a FAR chunk's
-// elevation (hills/peaks no longer shift toward brown/grey/white).
+// Uniform far-tier colour, equal to the fog colour (sceneSetup.js) so the
+// LOW tier fogs out into it with no seam.
 export const FAR_BASE_COLOR = new THREE.Color(0.37, 0.61, 0.57).getHex();
 
-// Sky color, shared with sceneSetup.js's scene.background so it has a
-// single source of truth (defined here rather than there to avoid a
-// circular import, since sceneSetup.js already imports from this module).
+// Sky colour; lives here because sceneSetup.js already imports this module.
 export const SKY_COLOR = new THREE.Color(0x87ceeb);
 
-// Ground-hugging haze layer, independent of (and layered on top of)
-// scene.fog and the FAR tier's own grazing-angle haze above. Unlike
-// scene.fog (linear-distance only, see sceneSetup.js), this one also fades
-// out with altitude so it reads as a low haze sitting in valleys/plains
-// rather than a uniform distance fog: full strength at/near sea level,
-// completely gone above HAZE_MAX_HEIGHT_METERS so distant peaks poking up
-// through it stay clear and sharp. Distance-wise it starts past the LOW
-// tier's own fog-out (HAZE_START_METERS) and reaches full strength by
-// HAZE_END_METERS, the same radius the FAR backdrop tier itself extends to
-// (FAR_RADIUS_METERS), so it's fully built up by the time the world ends.
-// Applied via onBeforeCompile to every terrain tier's material (see
-// applyGroundHaze below) so it reads consistently across HIGH/MEDIUM/LOW
-// and FAR, even though in practice only FAR chunks are ever far/tall enough
-// to be affected.
+// Ground haze on top of scene.fog: grows with distance (HAZE_START..END)
+// and fades out with altitude above HAZE_MAX_HEIGHT, so peaks poke through.
+// Applied to every terrain material; in practice only FAR chunks reach it.
 const HAZE_START_METERS = 10_000;
 const HAZE_END_METERS = FAR_RADIUS_METERS;
-const HAZE_MAX_HEIGHT_METERS = 10_000;
-// World Y is relative to a fixed baseline elevation sampled once at the
-// app's shared starting origin (see heightOffset / TerrainManager.init()),
-// not literal mean sea level, but since that baseline never moves - even
-// across recenter()/teleports - it's a single common vertical reference
-// every client agrees on, so it reads the same in practice.
-// Locked to SKY_COLOR (darkened) rather than its own freestanding tint, so
-// the haze reads as "the sky's own color settling into the distance" - a
-// darker ground haze under a brighter sky - instead of an unrelated blue.
+const HAZE_MAX_HEIGHT_METERS = 10_000; // world y (relative to the fixed origin baseline)
 const HAZE_COLOR = SKY_COLOR.clone().multiplyScalar(0.99);
 
-/**
- * Adds a second world-space haze term to a MeshStandardMaterial's shader via
- * onBeforeCompile: fades in with view-space distance between
- * HAZE_START_METERS/HAZE_END_METERS and fades out with world-space altitude
- * above HAZE_MAX_HEIGHT_METERS (see constants above for the full rationale).
- * Chainable - safe to call after other onBeforeCompile shader surgery (e.g.
- * the FAR material's hole-punch/grazing-haze) since it only ever prepends
- * its own varying/logic ahead of the `#include` token it matches on, which
- * every injector (including this one) is careful to leave intact.
- */
+/** onBeforeCompile hook adding the ground haze; chainable with other injections. */
 function applyGroundHaze(shader) {
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
@@ -497,19 +325,9 @@ function applyGroundHaze(shader) {
 }
 
 /**
- * Streams real-world terrain (aerial imagery + elevation) as circularly-
- * selected chunks aligned to Web Mercator map tiles, loading/unloading
- * around a moving player position, at two tiers (each internally split
- * further by DetailLevel, see above):
- *
- *  - "detail" tier: aerial-textured mesh kept loaded out to
- *    LOW_DETAIL_RADIUS tiles of the player. The inner DETAIL_RADIUS tiles
- *    (HIGH/MEDIUM) get a full-res mesh plus a matching Cannon-es Trimesh
- *    physics body (built from the exact same vertices, so visuals and
- *    collision are always perfectly aligned); the extra outer LOW ring
- *    gets a quarter-density mesh and no physics body (see _loadChunk).
- *  - "far" tier: a coarse, texture-less, physics-less backdrop extending
- *    the visible horizon out to FAR_RADIUS_METERS.
+ * Streams real-world terrain as Web Mercator tile chunks around the player
+ * (see the tier overview at the top). HIGH/MEDIUM chunks get a Trimesh body
+ * built from the exact render vertices, so collision matches visuals.
  */
 export class TerrainManager {
   constructor(scene, world, originLat, originLon) {
@@ -517,72 +335,39 @@ export class TerrainManager {
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
-    this.chunks = new Map(); // key -> { mesh, body, border, grid, tx, ty, bytes }
-    this.pending = new Set(); // keys currently being fetched (planned to be created)
-    this.pendingRemoval = new Map(); // key -> ticks remaining before actual unload
-    // Detail-tier chunks are loaded strictly one at a time (never more than
-    // one in-flight fetch/mesh-build at once), via a priority queue rather
-    // than firing every wanted tile off concurrently - see _enqueueLoad/
-    // _pumpQueue. `_loadQueue` holds not-yet-started requests; `_queueWaiters`
-    // maps each queued/in-flight key to the resolver(s) for whoever's
-    // awaiting that specific tile (update()'s `wanted` list for awaitAll).
-    this._loadQueue = []; // [{ tx, ty, key }]
+    this.chunks = new Map(); // key -> { mesh, body, border, grid, tx, ty, bytes, level, fadeStart }
+    this.pending = new Set(); // keys being fetched/built right now
+    this.pendingRemoval = new Map(); // key -> ticks before unload
+    // Detail chunks load strictly one at a time via a priority queue (see
+    // _pumpQueue). _queueWaiters holds resolvers for queued/in-flight keys.
+    this._loadQueue = []; // [{ tx, ty, key, rebuild? }]
     this._queueWaiters = new Map(); // key -> Array<() => void>
-    this._pumping = false; // whether the queue-draining loop is currently running
-    // Bumped on every recenter() so any _loadChunk/_loadFarChunk fetch that
-    // was already in flight for the *old* origin - e.g. the queue pump
-    // mid-await on a fetch when recenter() is called by the teleport flow -
-    // can tell its origin has since changed and bail out instead of
-    // resuming with stale tx/ty but the new originLat/originLon, which
-    // would otherwise insert mismatched geometry into the fresh chunk set.
+    this._pumping = false;
+    // Bumped by recenter() so in-flight loads for the old origin bail out.
     this._loadEpoch = 0;
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
-    // Set true once heightOffset has been baselined from the app's fixed
-    // starting origin (see init()'s doc comment) - guards against a later
-    // recenter() (teleport) re-baselining it to a different real-world
-    // elevation, which would desync every client's shared vertical
-    // reference ("meters above sea level") from each other.
-    this._heightBaselineSet = false;
+    this._heightBaselineSet = false; // see init()
     this._lastCenter = null;
     this._centerX = 0;
     this._centerY = 0;
-    // Player heading (local-space forward direction, XZ only), used to
-    // split the LOW-detail ring's queue priority into "ahead" vs "behind"
-    // (see _queuePriorityRank). Zero until update() is first called with a
-    // heading, which just makes every LOW tile rank as "ahead" - a neutral
-    // fallback rather than a bias in either direction.
+    // Player heading (local XZ) for LOW-ring queue priority; 0 = no bias.
     this._headingX = 0;
     this._headingZ = 0;
-    // Lifetime counters for the debug/stats HUD.
     this.stats = { created: 0, removed: 0 };
-    // Whether newly-created chunks show their perimeter border by default;
-    // toggled at runtime via setBordersVisible().
     this.bordersVisible = true;
 
-    // Far/low-detail tier state, mirroring the detail-tier fields above but
-    // tracked separately since the two run on independent tile grids/zooms.
-    this.farChunks = new Map(); // key -> { mesh, tx, ty, bytes }
+    this.farChunks = new Map(); // key -> { mesh, tx, ty, bytes, fadeStart }
     this.farPending = new Set();
     this.farPendingRemoval = new Map();
     this.farStats = { created: 0, removed: 0 };
     this._lastFarCenter = null;
     this._farCenterX = 0;
     this._farCenterY = 0;
-    // How many FAR_ZOOM tiles it takes to reach FAR_RADIUS_METERS at this
-    // latitude; computed once since the play area's latitude range is small
-    // enough that tile ground-size doesn't meaningfully change.
     this.farRadiusTiles = FAR_RADIUS_METERS / tileSizeMeters(FAR_ZOOM, originLat);
 
-    // Far-tier tiles are tens of km across (far coarser than the ~1-3km the
-    // detail tier actually covers), so tile-level exclusion alone can't keep
-    // them out from directly under/around the player - the whole huge tile
-    // the player stands on would otherwise render right through the
-    // detailed mesh. Instead, cut a circular "hole" out of the far tier's
-    // fragment shader, centered on the player's current local position and
-    // sized just past the detail tier's real-world keep radius, so the two
-    // tiers never occupy the same ground at once regardless of far-tile
-    // size. Shared uniform objects: every far chunk's material references
-    // the same objects, so updating `.value` here updates all of them.
+    // Far tiles are far bigger than the detail area, so tile exclusion
+    // can't keep them from under the player: the far shader discards a
+    // circle around the player instead. Uniforms are shared by all far chunks.
     const holeRadiusMeters = FAR_HOLE_RADIUS_TILES * tileSizeMeters(DETAIL_ZOOM, originLat);
     this.holeUniforms = {
       center: { value: new THREE.Vector2(0, 0) },
@@ -591,24 +376,10 @@ export class TerrainManager {
   }
 
   /**
-   * Fetches elevation at the *very first* origin point (the app's fixed
-   * ORIGIN_LAT/ORIGIN_LON, shared by every client - see main.js) and stores
-   * it as the height baseline, once. If even this single request fails
-   * (e.g. a transient API/token issue), fall back to a zero baseline rather
-   * than leaving the app stuck on the loading screen forever - the world
-   * will just be offset from its "true" elevation rather than unusable.
-   *
-   * recenter() also calls this (to stream in the new origin's chunks), but
-   * must NOT let it touch heightOffset again: every client starts from the
-   * same shared origin, so fixing the baseline there keeps world Y anchored
-   * to one common real-world elevation reference (effectively "meters above
-   * sea level") for every player. If each recenter() re-baselined to
-   * whatever elevation the *current* player happens to be standing on,
-   * different players (or the same player after teleporting) would end up
-   * with their own local y=0 meaning a different real elevation, so shared
-   * ground/other players would render floating above or sunk below the
-   * terrain each client streams in - the local "plane" one player drives on
-   * wouldn't match another's at the same spot.
+   * Samples the height baseline once, at the app's fixed shared origin, so
+   * world y means the same real elevation for every client (recenter()
+   * must not re-baseline). Falls back to 0 on fetch failure. Then loads the
+   * initial detail batch.
    */
   async init() {
     if (!this._heightBaselineSet) {
@@ -633,37 +404,25 @@ export class TerrainManager {
     return `${tx}_${ty}`;
   }
 
-  /** True once a tile's terrain mesh/physics have actually been built - used by the debug stats HUD's per-tile progress indicator. */
+  /** True once a tile's mesh is built - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
     return this.chunks.has(this._key(tx, ty));
   }
 
   /**
-   * Re-centers the whole terrain system on a new lat/lon origin - used to
-   * "teleport" the car to an arbitrary searched address. The local flat-
-   * meters projection (see geo.js) is only accurate near its origin, so
-   * jumping far away isn't done by just moving the car in the old local
-   * space; instead every current chunk (detail + far tiers) is torn down
-   * and a fresh set is streamed in around (0, 0) local coordinates at the
-   * new origin, exactly like the initial `init()` call. Resolves once the
-   * new origin's initial chunk batch has loaded.
+   * Teleport support: tears everything down and streams a fresh set around
+   * a new lat/lon origin (the flat local projection is only accurate near
+   * its origin). Resolves once the initial batch is loaded.
    */
   async recenter(lat, lon) {
-    // Invalidate any load(s) already in flight for the old origin *first* -
-    // see _loadEpoch's comment - so a queue pump currently awaiting a fetch
-    // (or a concurrently in-flight _loadFarChunk) recognizes it's stale and
-    // bails out as soon as that await resolves, rather than going on to add
-    // old-origin tile data to the freshly-cleared chunk maps below.
-    this._loadEpoch++;
+    this._loadEpoch++; // invalidate in-flight loads first
     for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
     for (const key of Array.from(this.farChunks.keys())) this._unloadFarChunk(key);
     this.pending.clear();
     this.pendingRemoval.clear();
     this.farPending.clear();
     this.farPendingRemoval.clear();
-    // Drop the old origin's load queue entirely (its tile coordinates are
-    // meaningless at the new origin) but resolve any outstanding waiters
-    // first so a previous update()'s awaitAll Promise.all never hangs.
+    // Resolve outstanding waiters so an awaitAll update() never hangs.
     this._loadQueue = [];
     for (const waiters of this._queueWaiters.values()) waiters.forEach((resolve) => resolve());
     this._queueWaiters.clear();
@@ -684,14 +443,8 @@ export class TerrainManager {
   }
 
   /**
-   * Lower is more urgent: HIGH tiles always jump ahead of MEDIUM/LOW ones,
-   * regardless of how long those have been queued. Within the LOW ring,
-   * urgency now varies continuously with how closely a tile's direction
-   * from the player aligns with their current heading
-   * (_headingX/_headingZ, see update()): tiles straight ahead load first,
-   * tiles off to the side load next, and tiles almost directly behind load
-   * last - rather than the old binary ahead/behind split, so the queue
-   * reads as a smooth front-to-back gradient instead of two flat buckets.
+   * Queue priority, lower = sooner: HIGH 0, MEDIUM 1, LOW in [2, 4) by
+   * angle from the player's heading (ahead first, behind last; 3 if unknown).
    */
   _queuePriorityRank(tx, ty) {
     const dx = tx - this._centerX;
@@ -699,14 +452,6 @@ export class TerrainManager {
     const level = detailLevelForOffset(dx, dy);
     if (level === DetailLevel.HIGH) return 0;
     if (level === DetailLevel.MEDIUM) return 1;
-    // LOW ring: map the angle between this tile's direction and the
-    // player's heading to a continuous rank in [2, 4) - cosAngle is 1
-    // straight ahead, 0 directly to either side, -1 directly behind, so
-    // `1 - cosAngle` is 0 (most urgent, ranks just above MEDIUM's 1) ahead,
-    // 1 (mid) to the side, and 2 (least urgent) behind. Falls back to a
-    // neutral "side" rank (3) when the tile is exactly on the center (no
-    // direction) or there's no heading yet (_headingX/_headingZ both 0,
-    // e.g. before the first update() call with a heading).
     const dist = Math.hypot(dx, dy);
     const headingMag = Math.hypot(this._headingX, this._headingZ);
     if (dist === 0 || headingMag === 0) return 3;
@@ -714,14 +459,7 @@ export class TerrainManager {
     return 2 + (1 - cosAngle);
   }
 
-  /**
-   * Requests that (tx, ty) be loaded, enforcing a single in-flight load at
-   * a time across the whole detail tier (see _pumpQueue) instead of firing
-   * every wanted tile's fetch off concurrently. Returns a promise that
-   * resolves once that specific tile is loaded (already-loaded tiles
-   * resolve immediately). Safe to call repeatedly for the same tile every
-   * update() tick - a tile already queued/loaded is never queued twice.
-   */
+  /** Queues (tx, ty) once; resolves when it's loaded. Safe to call every tick. */
   _enqueueLoad(tx, ty) {
     const key = this._key(tx, ty);
     if (this.chunks.has(key)) return Promise.resolve();
@@ -737,13 +475,8 @@ export class TerrainManager {
   }
 
   /**
-   * Like _enqueueLoad, but for a tile that's already loaded and just needs
-   * its mesh/physics rebuilt at a new detail level (MEDIUM<->LOW crossing,
-   * see update()). Unlike _enqueueLoad this doesn't bail out early when
-   * `chunks.has(key)` - that's expected to be true here - and _loadChunk
-   * keeps the old mesh/body visible/collidable until the new one has
-   * actually finished loading, so the tile never has a visible gap where
-   * nothing is rendered while its replacement streams in.
+   * Queues a rebuild of a loaded tile at its new detail level (MEDIUM<->LOW).
+   * The old mesh/body stay live until the replacement is ready (no gap).
    */
   _enqueueRebuild(tx, ty) {
     const key = this._key(tx, ty);
@@ -759,17 +492,9 @@ export class TerrainManager {
   }
 
   /**
-   * Drains _loadQueue strictly one tile at a time - never starts a second
-   * _loadChunk before the previous one has fully finished (fetch + mesh/
-   * physics build) - picking, on every iteration, the queued tile with the
-   * best current priority (see _queuePriorityRank) and, among ties, the
-   * one nearest the player (so a HIGH tile queued just now still jumps
-   * ahead of a MEDIUM/LOW tile that's been waiting far longer, and the
-   * player's own center tile - distance 0, always HIGH - loads first).
-   * Priority is recomputed on every pick rather than frozen at enqueue
-   * time, so a tile's urgency stays current even if the player moves while
-   * it's still waiting in line. Re-entrant calls while already draining
-   * are no-ops - only one drain loop ever runs.
+   * Drains the queue one tile at a time, always picking the current best
+   * priority (recomputed per pick, so it follows the moving player).
+   * Re-entrant calls are no-ops.
    */
   async _pumpQueue() {
     if (this._pumping) return;
@@ -778,17 +503,8 @@ export class TerrainManager {
       let next;
       while ((next = this._dequeueNext())) {
         const { tx, ty, key, rebuild } = next;
-        // Note: _queueWaiters[key] is deliberately *not* cleared yet here -
-        // it stays registered for the whole fetch/build below, so a tile
-        // that's already in-flight (removed from _loadQueue, i.e. no
-        // longer "waiting in line", but not finished loading yet) is
-        // recognized by _enqueueLoad and attaches its new caller to the
-        // same waiter list instead of pushing a duplicate queue entry for
-        // a tile that's already being worked on.
-        // For a rebuild, `chunks.has(key)` is expected to already be true
-        // (the old mesh is kept on screen until the replacement is ready),
-        // so that check is skipped - only drop it if the tile has drifted
-        // out of range while it was waiting in line.
+        // Waiters stay registered during the load so new callers for an
+        // in-flight tile join them instead of re-queueing it.
         if (
           (!rebuild && this.chunks.has(key)) ||
           !inCircle(tx - this._centerX, ty - this._centerY, LOW_DETAIL_RADIUS)
@@ -804,14 +520,13 @@ export class TerrainManager {
     }
   }
 
-  /** Resolves and clears every caller currently waiting on `key` via _enqueueLoad. */
   _resolveQueueWaiters(key) {
     const waiters = this._queueWaiters.get(key);
     this._queueWaiters.delete(key);
     waiters?.forEach((resolve) => resolve());
   }
 
-  /** Removes and returns the highest-priority (lowest rank, then nearest) entry from _loadQueue, or null if empty. */
+  /** Removes and returns the best (lowest rank, then nearest) queue entry, or null. */
   _dequeueNext() {
     let bestIdx = -1;
     let bestRank = Infinity;
@@ -835,30 +550,16 @@ export class TerrainManager {
   async _loadChunk(tx, ty, rebuild = false) {
     const key = this._key(tx, ty);
     if ((this.chunks.has(key) && !rebuild) || this.pending.has(key)) return;
-    // For a rebuild this is the mesh/body being replaced - kept alive and
-    // in the scene until the new one is fully ready (see below), instead
-    // of being torn down upfront and leaving a visible gap.
-    const oldChunk = rebuild ? this.chunks.get(key) : null;
+    const oldChunk = rebuild ? this.chunks.get(key) : null; // replaced only once the new one is ready
     const epoch = this._loadEpoch;
     this.pending.add(key);
     try {
-      // LOW tiles (the outer ring beyond MEDIUM's DETAIL_RADIUS footprint,
-      // see DetailLevel doc comment) get a quarter-density mesh and skip
-      // the physics body entirely - the player is never expected to
-      // actually drive this far out, so a Trimesh body out here would just
-      // be wasted CPU/memory.
+      // LOW: quarter-density mesh, single native aerial tile, no physics.
       const level = detailLevelForOffset(tx - this._centerX, ty - this._centerY);
       const gridRes = level === DetailLevel.LOW ? LOW_DETAIL_GRID : DETAIL_GRID;
-      // LOW also gets a much lower-res aerial bitmap - a single native
-      // tile (zoomBoost 0) instead of the normal 4x4 mosaic - to match its
-      // coarser mesh and cut its fetch cost 16x (1 request instead of 16).
       const aerialZoomBoost = level === DetailLevel.LOW ? 0 : undefined;
 
-      // Elevation failures (e.g. a rejected/rate-limited API request) are
-      // tolerated with a flat fallback rather than dropping the whole
-      // chunk - a flat patch of ground is much safer than a hole the car
-      // could physically fall through, and it self-heals next time the
-      // chunk streams back in range and the fetch happens to succeed.
+      // Elevation failure -> flat patch (safer than a hole to fall through).
       const [colorTex, elevImg] = await Promise.all([
         loadAerialTexture(DETAIL_ZOOM, tx, ty, aerialZoomBoost),
         loadImage(ELEVATION_URL(DETAIL_ZOOM, tx, ty)).catch((err) => {
@@ -868,11 +569,7 @@ export class TerrainManager {
       ]);
       const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
 
-      // The origin may have moved on to a new recenter() while the fetches
-      // above were in flight (see _loadEpoch) - tx/ty are meaningless in
-      // the new origin's local space, so bail out instead of building and
-      // inserting mismatched geometry into the fresh chunk set.
-      if (epoch !== this._loadEpoch) return;
+      if (epoch !== this._loadEpoch) return; // recentered meanwhile
 
       const geometry = new THREE.PlaneGeometry(1, 1, gridRes, gridRes);
       const position = geometry.attributes.position;
@@ -892,19 +589,9 @@ export class TerrainManager {
       geometry.computeVertexNormals();
 
       const material = new THREE.MeshStandardMaterial({ map: colorTex, roughness: 1 });
-      // See applyGroundHaze's doc comment - in practice a no-op here since
-      // HIGH/MEDIUM/LOW tiles never reach HAZE_START_METERS, but applied
-      // uniformly so every terrain tier is covered.
       material.onBeforeCompile = applyGroundHaze;
-      // Freshly-loaded LOW tiles (the outer ring - see comment above) start
-      // fully transparent and are eased in to opaque by _updateChunkFades()
-      // over TILE_FADE_IN_MS, so they ease into view at the edge of the
-      // detail tier instead of popping in at full opacity the instant their
-      // mesh/texture finish loading. Skipped for HIGH/MEDIUM (expected to
-      // appear immediately around the player, never worth delaying) and for
-      // rebuilds (the old mesh is still fully visible right up to the swap
-      // below, so fading the replacement in from 0 would flash the tile
-      // transparent for no reason).
+      // New LOW tiles fade in (_updateChunkFades); not rebuilds, whose old
+      // mesh is still visible until the swap.
       const fadeIn = !rebuild && level === DetailLevel.LOW;
       if (fadeIn) {
         material.transparent = true;
@@ -914,11 +601,7 @@ export class TerrainManager {
       mesh.receiveShadow = true;
       this.scene.add(mesh);
 
-      // Visual boundary: a bold line loop traced around the tile's
-      // perimeter so adjacent chunks are distinguishable at a glance in the
-      // 3D view, plus fainter/thinner lines along every triangle edge of
-      // the tile's actual render geometry (its polygons). Both are part of
-      // the debug visuals, so they respect the current toggle state.
+      // Debug lines: tile border + mesh triangle edges.
       const border = buildTileBorder(geometry, gridRes);
       border.visible = this.bordersVisible;
       this.scene.add(border);
@@ -926,10 +609,7 @@ export class TerrainManager {
       grid.visible = this.bordersVisible;
       this.scene.add(grid);
 
-      // Physics: Trimesh built from the exact same vertices/indices as the
-      // visual mesh (both live in world space, body at identity transform),
-      // so collision can never drift out of alignment with what's rendered.
-      // Skipped for LOW tiles - see comment above.
+      // Trimesh from the same world-space vertices as the mesh.
       let body = null;
       if (level !== DetailLevel.LOW) {
         const vertices = Array.from(position.array);
@@ -947,9 +627,6 @@ export class TerrainManager {
           grid.geometry.attributes.instanceStart.data.array.length) *
           4;
 
-      // fadeStart marks the chunk as still easing in - see
-      // _updateChunkFades(), which clears it back to null once the fade
-      // finishes so steady-state chunks don't keep recomputing opacity.
       this.chunks.set(key, {
         mesh,
         body,
@@ -962,11 +639,6 @@ export class TerrainManager {
         fadeStart: fadeIn ? performance.now() : null,
       });
       this.stats.created++;
-      // For a rebuild, the old mesh/body were kept fully intact and
-      // visible/collidable in the scene up to this point (see the
-      // rebuild-handling block in update()) - only now that the
-      // replacement is actually ready do we tear the old one down, so the
-      // tile is never visibly empty while its new mesh streams in.
       if (oldChunk) {
         this._disposeChunkResources(oldChunk);
         this.stats.removed++;
@@ -978,7 +650,7 @@ export class TerrainManager {
     }
   }
 
-  /** Tears down a chunk's Three.js/Cannon-es resources, without touching `this.chunks`/stats bookkeeping - shared by _unloadChunk and the rebuild swap in _loadChunk. */
+  /** Frees a chunk's render/physics resources (no bookkeeping). Line materials are shared, never disposed. */
   _disposeChunkResources(chunk) {
     this.scene.remove(chunk.mesh);
     chunk.mesh.geometry.dispose();
@@ -988,9 +660,6 @@ export class TerrainManager {
     chunk.border.geometry.dispose();
     this.scene.remove(chunk.grid);
     chunk.grid.geometry.dispose();
-    // Note: border/grid materials are shared LineMaterial instances (see
-    // module scope above) so they're intentionally never disposed here.
-    // chunk.body is null for LOW tiles (see _loadChunk) - no physics to tear down.
     if (chunk.body) this.world.removeBody(chunk.body);
   }
 
@@ -1003,14 +672,7 @@ export class TerrainManager {
     this.stats.removed++;
   }
 
-  /**
-   * Eases every still-fading detail-tier chunk's material opacity from 0 to
-   * 1 over TILE_FADE_IN_MS - the LOW-ring counterpart of _updateFarFades(),
-   * see _loadChunk's fadeIn for which chunks actually start faded. Called
-   * every frame from update() (ahead of its early-return for an unchanged
-   * center tile) so the fade keeps animating smoothly even on frames where
-   * nothing else streams in/out.
-   */
+  /** Eases fading LOW chunks to opaque over TILE_FADE_IN_MS; runs every frame. */
   _updateChunkFades() {
     if (!this.chunks.size) return;
     const now = performance.now();
@@ -1022,14 +684,7 @@ export class TerrainManager {
     }
   }
 
-  /**
-   * Loads one far/low-detail chunk: elevation only (no aerial imagery
-   * fetch), a coarse displaced-plane mesh with elevation-ramp vertex
-   * colors, and no physics body - this tier is purely a distant backdrop.
-   * An elevation fetch failure falls back to a flat patch (y=0) instead of
-   * dropping the chunk entirely, so a rejected/rate-limited tile just
-   * leaves a flat-looking patch of horizon rather than a visible gap.
-   */
+  /** Far chunk: elevation-only coarse mesh, flat colour, no physics; flat on fetch failure. */
   async _loadFarChunk(tx, ty) {
     const key = this._key(tx, ty);
     if (this.farChunks.has(key) || this.farPending.has(key)) return;
@@ -1042,18 +697,11 @@ export class TerrainManager {
       });
       const elevGrid = elevImg ? decodeElevationTile(elevImg) : null;
 
-      // See _loadChunk's matching check - bail out if recenter() moved the
-      // origin on while the fetch above was in flight, instead of building
-      // this old-origin tile into the fresh far-chunk set.
-      if (epoch !== this._loadEpoch) return;
+      if (epoch !== this._loadEpoch) return; // recentered meanwhile
 
       const geometry = new THREE.PlaneGeometry(1, 1, FAR_GRID, FAR_GRID);
       const position = geometry.attributes.position;
       const vertexCount = (FAR_GRID + 1) * (FAR_GRID + 1);
-      // Flat FAR_BASE_COLOR for every vertex (no elevation-based ramp
-      // anymore - see FAR_BASE_COLOR's doc comment) so the whole backdrop
-      // tier is a single uniform tone matching the fog color it fades in
-      // from.
       const colors = new Float32Array(vertexCount * 3);
       const color = new THREE.Color(FAR_BASE_COLOR);
       for (let iy = 0; iy <= FAR_GRID; iy++) {
@@ -1075,15 +723,8 @@ export class TerrainManager {
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       geometry.computeVertexNormals();
 
-      // fog: false - the FAR backdrop tier is excluded from scene.fog since
-      // it's already a flat FAR_BASE_COLOR matching the fog color (see
-      // above), so applying fog on top would be redundant; this also keeps
-      // it immune to the 20km far-distance that's meant to target the LOW
-      // detail tier.
-      // transparent + opacity: 0 so the chunk starts invisible and is eased
-      // in to fully opaque by _updateFarFades() (driven every frame from
-      // update()) instead of snapping straight to visible the instant its
-      // mesh/elevation data finishes loading - see FAR_FADE_IN_MS above.
+      // No fog (already the fog colour). Starts transparent and fades in
+      // via _updateFarFades.
       const material = new THREE.MeshStandardMaterial({
         vertexColors: true,
         roughness: 1,
@@ -1091,10 +732,8 @@ export class TerrainManager {
         transparent: true,
         opacity: 0,
       });
-      // Punch the player-centered hole (see holeUniforms comment above) by
-      // discarding fragments within holeRadius of the player's local x/z.
-      // Vertex local x/z double as world x/z here since far-tier meshes are
-      // added to the scene with no transform.
+      // Discard fragments inside the player hole (mesh has no transform, so
+      // local x/z are world x/z), add grazing-angle haze, then ground haze.
       material.onBeforeCompile = (shader) => {
         shader.uniforms.uHoleCenter = this.holeUniforms.center;
         shader.uniforms.uHoleRadiusSq = this.holeUniforms.radiusSq;
@@ -1110,16 +749,7 @@ export class TerrainManager {
             '#include <clipping_planes_fragment>',
             '#include <clipping_planes_fragment>\nif (dot(vHoleXZ - uHoleCenter, vHoleXZ - uHoleCenter) < uHoleRadiusSq) discard;'
           )
-          // Grazing-angle haze: faces whose normal sits closer to perpendicular
-          // to the view direction (i.e. the surface itself is closer to
-          // parallel with the view - a distant plain stretching toward the
-          // horizon) get brightened with a cool blue tint, mimicking
-          // atmospheric haze; faces pointed straight at the camera stay at
-          // their base color. `vNormal`/`vViewPosition` are varyings the
-          // standard material shader already provides, so this is just one
-          // extra dot product and a mix per fragment - free on top of the
-          // existing per-pixel lighting, and this mesh is low-poly to begin
-          // with (FAR_GRID is coarse).
+          // Surfaces seen edge-on (distant plains) get a cool haze tint.
           .replace(
             '#include <opaque_fragment>',
             `
@@ -1128,8 +758,6 @@ export class TerrainManager {
             outgoingLight = mix(outgoingLight, outgoingLight + vec3(0.1, 0.14, 0.2), haze * 0.7);
             #include <opaque_fragment>`
           );
-        // Layer the ground-hugging distance+altitude haze on top of the
-        // grazing-angle haze above - see applyGroundHaze's doc comment.
         applyGroundHaze(shader);
       };
       const mesh = new THREE.Mesh(geometry, material);
@@ -1138,9 +766,6 @@ export class TerrainManager {
       this.scene.add(mesh);
 
       const bytes = (position.array.length * 2 + vertexCount * 2) * 4 + colors.length * 4;
-      // fadeStart marks the chunk as still easing in - see
-      // _updateFarFades(), which clears it back to null once the fade
-      // finishes so steady-state chunks don't keep recomputing opacity.
       this.farChunks.set(key, { mesh, tx, ty, bytes, fadeStart: performance.now() });
       this.farStats.created++;
     } catch (err) {
@@ -1161,14 +786,7 @@ export class TerrainManager {
     this.farStats.removed++;
   }
 
-  /**
-   * Eases every still-fading far-tier chunk's material opacity from 0 to 1
-   * over FAR_FADE_IN_MS, so new low-detail backdrop tiles appear gently at
-   * the edge of the far ring instead of popping in at full opacity the
-   * instant they're loaded. Called every frame from update() (ahead of its
-   * early-return for an unchanged center tile) so the fade keeps animating
-   * smoothly even on frames where nothing else streams in/out.
-   */
+  /** Eases fading far chunks to opaque over FAR_FADE_IN_MS; runs every frame. */
   _updateFarFades() {
     if (!this.farChunks.size) return;
     const now = performance.now();
@@ -1180,10 +798,7 @@ export class TerrainManager {
     }
   }
 
-  /**
-   * Toggles the perimeter border lines and per-polygon geometry lines on
-   * all currently-loaded chunks (and future ones).
-   */
+  /** Toggles debug tile lines on current and future chunks. */
   setBordersVisible(visible) {
     this.bordersVisible = visible;
     for (const chunk of this.chunks.values()) {
@@ -1193,30 +808,18 @@ export class TerrainManager {
   }
 
   /**
-   * Ensures chunks around (localX, localZ) are loaded, and unloads chunks
-   * that have fallen far enough outside the load radius. Both the detail
-   * and far tiers are driven from the same call, each on its own tile grid.
-   * Pass `await` (via awaitAll=true) to block until the initial detail-tier
-   * batch is ready - the far tier is always fire-and-forget (see below) so
-   * its many more tiles never delay spawning. `heading`, if given, is the
-   * player's current local-space forward direction as {x, z} (only the
-   * sign of its dot product with a tile offset matters, so it need not be
-   * normalized) - used to prioritize LOW-ring tiles ahead of the player
-   * over ones behind (see _queuePriorityRank).
+   * Streams both tiers around (localX, localZ). awaitAll blocks until the
+   * HIGH/MEDIUM footprint is loaded (LOW and far are fire-and-forget).
+   * `heading` {x, z} (unnormalized) prioritizes LOW tiles ahead.
    */
   async update(localX, localZ, awaitAll = false, heading = null) {
-    // Runs every frame regardless of the centerUnchanged early-return below
-    // so newly-loaded far-tier/LOW-ring chunks keep easing in smoothly even
-    // on frames where the player's tile hasn't changed.
+    // Every frame, even when the centre tile is unchanged:
     this._updateFarFades();
     this._updateChunkFades();
     if (heading) {
       this._headingX = heading.x;
       this._headingZ = heading.z;
     }
-    // Keep the far-tier hole centered on the player every call, even when
-    // the tile grid below hasn't changed - otherwise the hole would only
-    // move in DETAIL_ZOOM-tile-sized jumps instead of tracking smoothly.
     this.holeUniforms.center.value.set(localX, localZ);
 
     const { lat, lon } = localToLatLon(localX, localZ, this.originLat, this.originLon);
@@ -1241,26 +844,14 @@ export class TerrainManager {
     const wanted = [];
     for (const { dx, dy } of circleOffsets(LOW_DETAIL_RADIUS)) {
       const promise = this._enqueueLoad(centerX + dx, centerY + dy);
-      // Only the MEDIUM/HIGH footprint (DETAIL_RADIUS) is worth blocking
-      // spawn on - the extra LOW ring beyond it is a coarse, physics-less
-      // backdrop extension (see DetailLevel doc comment above), so like the
-      // far tier below it streams in fire-and-forget instead.
       if (inCircle(dx, dy, DETAIL_RADIUS)) wanted.push(promise);
     }
-    // Far-tier chunks are a distant, non-collidable backdrop - never worth
-    // blocking spawn on. Kick them off without joining `wanted`/awaitAll so
-    // the (potentially dozens of) far tiles stream in after the detail tier
-    // (and thus after the car can safely spawn) instead of delaying it.
     for (const { dx, dy } of circleOffsets(this.farRadiusTiles)) {
       this._loadFarChunk(farCenterX + dx, farCenterY + dy);
     }
     if (awaitAll) await Promise.all(wanted);
 
-    // Cleanup pass: chunks outside keepRadius are staged into
-    // `pendingRemoval` with a tick countdown rather than unloaded on the
-    // spot. Anything that drifts back inside the radius before its
-    // countdown expires (e.g. the player briefly reverses) is rescued and
-    // kept loaded, avoiding pointless reload/unload thrashing at the edge.
+    // Stage out-of-range chunks for delayed removal; rescue returning ones.
     const keepRadius = LOW_DETAIL_RADIUS + UNLOAD_MARGIN;
     for (const [k, chunk] of this.chunks) {
       const farAway = !inCircle(chunk.tx - centerX, chunk.ty - centerY, keepRadius);
@@ -1270,41 +861,17 @@ export class TerrainManager {
         this.pendingRemoval.delete(k);
       }
 
-      // The player has just moved to a new center tile (we're past the
-      // centerUnchanged early-return above), so every already-loaded
-      // tile's HIGH/MEDIUM/LOW detail level may have shifted too. Unlike a
-      // HIGH<->MEDIUM shift (just a HUD label change, same mesh either
-      // way), crossing the MEDIUM<->LOW boundary means the chunk's actual
-      // mesh resolution/physics-body presence are now wrong for its new
-      // level (see _loadChunk) - force an immediate rebuild rather than
-      // just relabeling, so a tile that just became driveable (LOW ->
-      // MEDIUM) doesn't sit there with no collision body under the car.
+      // Crossing MEDIUM<->LOW changes mesh density and physics presence,
+      // so rebuild (via the queue); HIGH<->MEDIUM is just a relabel.
       const newLevel = detailLevelForOffset(chunk.tx - centerX, chunk.ty - centerY);
       if ((newLevel === DetailLevel.LOW) !== (chunk.level === DetailLevel.LOW) && !farAway) {
-        // Re-request via the same priority queue as everything else (not
-        // a direct _loadChunk call) so this rebuild still respects the
-        // one-at-a-time/priority-order rule instead of sneaking in an
-        // extra concurrent fetch. Unlike a plain reload, the old mesh/body
-        // are deliberately *not* torn down here - _enqueueRebuild keeps
-        // them fully visible/collidable until the replacement has
-        // actually finished loading (see _loadChunk), so the tile never
-        // flashes empty while streaming in its new detail level.
         this._enqueueRebuild(chunk.tx, chunk.ty);
         continue;
       }
       chunk.level = newLevel;
     }
 
-    // Also prune not-yet-loaded queue entries that have already drifted
-    // out to this same keepRadius while waiting their turn (e.g. a LOW
-    // tile pushed to the back of the queue for being behind the player's
-    // heading, see _queuePriorityRank, while the player kept driving
-    // away). Without this they'd sit queued until finally dequeued,
-    // fetched and built, only to be immediately staged for removal the
-    // moment they finish loading - wasted work for a tile that's already
-    // unwanted. Rebuild entries are skipped: those belong to a tile
-    // that's still loaded and already handled by the farAway/pendingRemoval
-    // bookkeeping above.
+    // Drop queued (not rebuild) entries that drifted out of range meanwhile.
     if (this._loadQueue.length) {
       this._loadQueue = this._loadQueue.filter((entry) => {
         if (entry.rebuild) return true;
@@ -1341,19 +908,10 @@ export class TerrainManager {
   }
 
   /**
-   * Snapshot of current memory/streaming state for a debug HUD: counts of
-   * loaded/pending/staged-for-removal chunks, lifetime created/removed
-   * totals, an estimated byte footprint of everything currently loaded, and
-   * a "map" grid tagging every detail-tier tile tracked in any state
-   * (loaded / pending-create / pending-remove) as loaded / pending /
-   * removing / empty, centered on the player. The grid's bounding box is
-   * grown (beyond the normal `keepRadius` window) to cover every tracked
-   * tile, not just ones near the player - a stray tile loaded somewhere
-   * else (e.g. a bug racing a recenter() call - see mainLoop.js) would
-   * otherwise silently fall outside a fixed-size window and inflate the
-   * loaded/created counts above with no visual trace of where it went.
-   * Far-tier totals are reported as aggregate counts only (its footprint
-   * is far too large to usefully render as a HUD grid).
+   * Debug HUD snapshot: counts, memory estimate, and a grid of detail tiles
+   * (loaded/pending/removing/empty + level) around the player. The grid
+   * grows to include tracked tiles up to maxStrayRadius; farther ones are
+   * only counted as `stray`. Far tier is reported as totals only.
    */
   getStats() {
     let memoryBytes = 0;
@@ -1361,22 +919,11 @@ export class TerrainManager {
     let farMemoryBytes = 0;
     for (const chunk of this.farChunks.values()) farMemoryBytes += chunk.bytes || 0;
 
-    // "Pending" for HUD purposes covers both the one tile actually being
-    // fetched/built right now (this.pending) and every tile still waiting
-    // its turn in the one-at-a-time priority queue (_queueWaiters) - from
-    // the HUD's perspective both are just "not loaded yet, but planned".
+    // "Pending" = in flight or still queued.
     const pendingKeys = new Set([...this.pending, ...this._queueWaiters.keys()]);
 
     const keepRadius = LOW_DETAIL_RADIUS + UNLOAD_MARGIN;
-    // Stray tiles (see doc comment above) can in principle land arbitrarily
-    // far from the player - e.g. a chunk left behind by a teleport - and
-    // widening the grid to always cover them would make the HUD panel grow
-    // without bound (observed: a single far-away stray tile blew the grid
-    // up to cover the whole screen). Cap how far the *rendered* grid will
-    // stretch to accommodate strays; anything further out is still counted
-    // (see `stray` below) but shown as a number in the text summary instead
-    // of inflating the grid itself.
-    const maxStrayRadius = keepRadius + 5;
+    const maxStrayRadius = keepRadius + 5; // keeps the HUD grid bounded
     let minDx = -keepRadius;
     let maxDx = keepRadius;
     let minDy = -keepRadius;
@@ -1408,11 +955,6 @@ export class TerrainManager {
         if (this.pendingRemoval.has(k)) state = 'removing';
         else if (this.chunks.has(k)) state = 'loaded';
         else if (pendingKeys.has(k)) state = 'pending';
-        // `level` (HIGH/MEDIUM/LOW, see DetailLevel above) is reported for
-        // every cell regardless of load state, so the HUD can shade a cell
-        // by its detail tier as soon as it's loaded (debugVisuals' M-key
-        // view) - this is purely a HUD affordance and is unrelated to the
-        // 3D scene's tile borders, which stay a plain yellow.
         row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy) });
       }
       grid.push(row);
@@ -1427,16 +969,9 @@ export class TerrainManager {
       memoryBytes,
       center: { tx: this._centerX, ty: this._centerY },
       radius: keepRadius,
-      // Grid indices of the player's own (center) cell - usually equal to
-      // (-minDy, -minDx), i.e. `radius` from each edge, but can shift if
-      // the bounding box above grew asymmetrically to cover a stray tile.
-      gridCenter: { row: -minDy, col: -minDx },
+      gridCenter: { row: -minDy, col: -minDx }, // player's cell (shifts if grid grew asymmetrically)
       grid,
-      // Tiles tracked (loaded/pending/pending-removal) further than
-      // `maxStrayRadius` from the player - not drawn in `grid` above (to
-      // keep the HUD panel bounded in size), but still worth surfacing as
-      // a count so a leftover far-away tile remains visible/diagnosable.
-      stray,
+      stray, // tracked tiles beyond maxStrayRadius, not drawn
       far: {
         loaded: this.farChunks.size,
         pending: this.farPending.size,

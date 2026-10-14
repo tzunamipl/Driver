@@ -1,30 +1,11 @@
-// Suspension travel HUD: one vertical bar per wheel/hover-point showing
-// live spring travel, read straight from each entry's Cannon-es-style
-// WheelInfo. Self-contained widget, independent of the other HUDs and of
-// physics tuning. Bars are built dynamically from vehicle.wheelInfos (in
-// order) and labelled from vehicle.wheelLabels (falling back to a plain
-// index if a vehicle kind doesn't provide one) - so this one HUD works
-// unmodified for lib/car.js's 4 fixed wheels (FL/FR/RL/RR) and for
-// lib/chariot.js's variable engine count + pod (E1/E2/.../POD), instead of
-// being hardcoded to exactly 4 wheels.
+// Suspension HUD: one bar per vehicle.wheelInfos entry (labels from
+// vehicle.wheelLabels), so it works for 4-wheel cars and pod racers.
 import { isWheelGrounded } from '../lib/wheelContact.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { DEFAULT_SURFACE_KEY } from '../lib/surfaceCompounds.js';
 
-// Debug-mode wheel colouring: blue while a wheel is off the ground
-// (matching the "hasLanded" readout below, which reflects the scoring
-// module's own touched-ground gate rather than any single wheel). Ground
-// contact here is verified with its own world-down raycast (see
-// wheelContact.js) rather than trusting cannon-es's own `wheel.isInContact`,
-// which under-reports contact on real terrain.
-//
-// While grounded, the fill instead fades from green (plenty of grip in
-// hand) through yellow/orange (approaching the tyre's friction limit) to
-// red (actually sliding, i.e. demanded forward+lateral impulse exceeded
-// maxGrip this step) - driven by wheel.gripFraction/wheel.sliding, both
-// computed every physics step in wheeledVehicle.js's applyFriction() from
-// the same friction-circle solve that drives the actual physics (not a
-// separate/approximate readout).
+// Fill colour: blue when airborne (own ground raycast, wheelContact.js),
+// else green -> amber -> red by wheel.gripFraction (red = sliding).
 const WHEEL_OFF_GROUND_COLOR = '#4fc3ff';
 const GRIP_COLOR_STOPS = [
   [0, [76, 175, 80]], // green - comfortably within grip
@@ -32,11 +13,7 @@ const GRIP_COLOR_STOPS = [
   [1, [244, 67, 54]], // red - at/over the limit (sliding)
 ];
 
-// Terrain-type square colours (see the square's doc comment below):
-// generic ground is the same green as "plenty of grip" above since both
-// read as "normal" at a glance; road and water get their own unambiguous
-// colours instead of a gradient, since terrain type is categorical, not a
-// continuous quantity.
+// Terrain-type square colours (categorical).
 const TERRAIN_COLOR_GENERIC = '#4caf50';
 const TERRAIN_COLOR_ROAD = '#e53935';
 const TERRAIN_COLOR_WATER = '#2196f3';
@@ -62,16 +39,7 @@ function gripFractionToColor(fraction) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/**
- * Classifies a world (x, z) position's terrain type for the debug square
- * (see rebuildBars/updateSuspensionHud below) via lib/terrainSurface.js's
- * shared classifySurfaceAt (same priority/fallback this HUD originally
- * defined: road first - "on road and water" counts as road - then water,
- * else the generic/default surface, which this HUD displays as "generic"
- * rather than terrainSurface.js's internal 'normal' key), also used by
- * lib/wheeledVehicle.js's per-surface tyre grip so the two can't drift out
- * of sync.
- */
+/** Terrain type at (x, z) via terrainSurface.js ('normal' shown as 'generic'). */
 function classifyTerrainAt(x, z, layers) {
   const surface = classifySurfaceAt(x, z, layers);
   return surface === DEFAULT_SURFACE_KEY ? 'generic' : surface;
@@ -86,9 +54,7 @@ function terrainColor(kind) {
 export function createSuspensionHud() {
   const grid = document.getElementById('susp-grid');
   const landedVal = document.getElementById('susp-landed-val');
-  // Rebuilt lazily whenever the attached vehicle's wheel count/labels
-  // change (e.g. switching between a car and a pod racer) rather than on
-  // every frame - tracked by a simple signature string.
+  // Rebuilt when the wheel count/labels signature changes.
   let bars = [];
   let lastSignature = '';
 
@@ -112,18 +78,8 @@ export function createSuspensionHud() {
   }
 
   /**
-   * A bar's fill height is 0% at full droop (fully extended) and 100% at
-   * full compression (bottomed out), with a rest-length marker line fixed
-   * at 50% - so the fill visibly moves up as a wheel loads/compresses
-   * (cornering, braking, bumps) and down as it unloads/droops (cresting a
-   * bump, airborne). The fill colour flags ground contact directly: blue
-   * while the wheel is off the ground, else a green->amber->red gradient
-   * driven by how close that wheel's tyre is to its friction limit (red
-   * once it's actually sliding). The small square above each bar is a
-   * separate, independent readout: the terrain type directly under that
-   * wheel's (x, z) position (green = generic ground, red = road, blue =
-   * water - see classifyTerrainAt above), regardless of whether the wheel
-   * is actually touching the ground right now.
+   * Fill: 0% full droop .. 100% bottomed out, rest marker at 50%; colour
+   * as above. Square above each bar: terrain type under that wheel.
    */
   function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world, terrainLayers) {
     if (!debugVisualsEnabled || !vehicle) return;
