@@ -6,15 +6,19 @@ import { localToLatLon } from './lib/geo.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
-import { createHorn } from './lib/horn.js';
+import { createHorn } from './lib/audio/horn.js';
 import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createClouds } from './lib/clouds.js';
-import { createMusic } from './lib/music.js';
-import { createEngineAudio } from './lib/engineAudio.js';
+import { createMusic } from './lib/audio/music.js';
+import { createEngineSound } from './lib/audio/engine.js';
+import { createTireSqueal } from './lib/audio/tireSqueal.js';
+import { createWaterSplashSound } from './lib/audio/waterSplash.js';
+import { createImpactSound } from './lib/audio/impact.js';
+import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
@@ -119,13 +123,10 @@ Object.assign(loadingEl.style, {
 document.body.appendChild(loadingEl);
 
 // ---------- Audio ----------
-const engineAudio = createEngineAudio(camera, [
-  //{ freq: 5, pitchD: 1, pitchT: 5, variation: 10, vibration: 0.3, vibrationT: 0.1 },
-  { freq: 10, pitchD: 4, pitchT: 10, variation: 20, vibration: 0, vibrationT: 0 },
-  { freq: 20, pitchD: 0, pitchT: 0, variation: 20, vibration: 0, vibrationT: 0 },
-  //{ freq: 30, pitchD: 20, pitchT: 1, variation: 5, vibration: 0.5, vibrationT: 4 },
-  //{ freq: 20, pitchD: 40, pitchT: 1, variation: 20, vibration: 0.0, vibrationT: 0.1 },
-]);
+const engineSound = createEngineSound();
+const tireSqueal = createTireSqueal();
+const waterSplashSound = createWaterSplashSound();
+const impactSound = createImpactSound();
 
 // ---------- Networking ----------
 // Stable clientId across reloads, so a refresh isn't a new peer.
@@ -169,7 +170,7 @@ const debugVisuals = createDebugVisualsToggle(
 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
-const bodyDust = createBodyDust(scene);
+const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
@@ -185,7 +186,11 @@ const vehicleDebugPicker = createVehicleDebugPicker({
 });
 
 // ---------- Input ----------
-const input = createInputController(engineAudio);
+const handbrakeSound = createHandbrakeSound();
+const input = createInputController({
+  onHandbrakePull: () => handbrakeSound.play(),
+  onHandbrakeLatch: () => handbrakeSound.play(3),
+});
 const collapsibleHud = setupCollapsibleHud();
 setupTouchControls(input.keys);
 
@@ -226,7 +231,7 @@ const shots = createShots({
 });
 const horn = createHorn();
 const jump = createJump({ world });
-const splash = createSplash(scene);
+const splash = createSplash(scene, { onSplash: waterSplashSound.play });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
@@ -277,6 +282,8 @@ const mainLoop = createMainLoop({
   pedestrians,
   shots,
   horn,
+  engineSound,
+  tireSqueal,
   jump,
   splash,
   tireSmoke,

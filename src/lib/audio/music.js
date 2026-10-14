@@ -3,6 +3,8 @@
 // anyone's song. Silent until the first key or tap (autoplay policy).
 // The slider sets loudness and is remembered in localStorage.
 
+import { getAudio } from './audioContext.js';
+
 const BPM = 150;
 const MAX_GAIN = 0.1;
 const DEFAULT_VOLUME = 0.4;
@@ -44,19 +46,17 @@ export function createMusic() {
 
   function context() {
     if (ctx) return ctx;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return null;
-    ctx = new AudioCtx();
+    const audio = getAudio();
+    if (!audio) return null;
+    ctx = audio.ctx;
+    noise = audio.noise;
     master = ctx.createGain();
     applyGain();
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 3200;
     master.connect(lowpass);
-    lowpass.connect(ctx.destination);
-    noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const data = noise.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    lowpass.connect(audio.buses.music);
     curve = distortionCurve(18);
     return ctx;
   }
@@ -138,7 +138,6 @@ export function createMusic() {
   function pump() {
     const audio = context();
     if (!audio) return;
-    if (audio.state === 'suspended') audio.resume();
     const horizon = audio.currentTime + 0.25;
     if (nextTime < audio.currentTime) nextTime = audio.currentTime + 0.05;
     while (nextTime < horizon) {
@@ -153,10 +152,7 @@ export function createMusic() {
   }
 
   function start() {
-    if (started) {
-      if (ctx?.state === 'suspended') ctx.resume();
-      return;
-    }
+    if (started) return;
     if (!context()) return;
     started = true;
     pump();

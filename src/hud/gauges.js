@@ -27,8 +27,11 @@ export function createGaugesHud({ initialKm = 0 } = {}) {
   const tachRpm = document.getElementById('tach-rpm');
   const tachTicks = document.getElementById('tach-ticks');
   let tachTicksRedline = -1; // redlineRpm the ticks were last built for
+  const handbrakeIcon = document.getElementById('handbrake-icon');
 
-  function updateGauges(chassisMesh, vehicle) {
+  function updateGauges(chassisMesh, vehicle, handbrake) {
+    handbrakeIcon?.classList.toggle('on', !!vehicle && !!handbrake?.on);
+    handbrakeIcon?.classList.toggle('latched', !!vehicle && !!handbrake?.latched);
     if (!chassisMesh || !vehicle) {
       odometer.disarm();
       tachEl?.classList.remove('visible');

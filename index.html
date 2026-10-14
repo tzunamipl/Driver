@@ -70,7 +70,7 @@
           W / &uarr; &mdash; throttle<br />
           S / &darr; &mdash; brake / reverse<br />
           A D / &larr; &rarr; &mdash; steer, also in the air<br />
-          Space &mdash; handbrake<br />
+          Space &mdash; handbrake (hold 5 s to lock, press again to release)<br />
           Shift &mdash; turbo<br />
           F &mdash; shoot<br />
           H &mdash; horn<br />
@@ -159,6 +159,11 @@
         <div class="gauge-needle" id="speedo-needle"></div>
         <div class="gauge-value" id="speedo-value">0</div>
         <div class="gauge-label">km/h</div>
+        <svg id="handbrake-icon" viewBox="0 0 32 24" aria-label="Hamulec ręczny">
+          <circle cx="16" cy="12" r="8" />
+          <path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15" />
+          <text x="16" y="16.2" text-anchor="middle">P</text>
+        </svg>
         <div id="odometer" aria-label="Licznik 0.0 kilometrów">
           <div class="odo-bezel">
             <div class="odo-wheels" id="odo-wheels"></div>
