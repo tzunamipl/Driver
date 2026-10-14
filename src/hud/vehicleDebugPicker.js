@@ -1,20 +1,12 @@
-// Instant vehicle/color picker for the debug view (toggled with M alongside
-// #suspension-hud/#terrain-stats, see hud/debugVisuals.js). Reuses the same
-// tabs + list widget as the lobby (ui/vehiclePicker.js) but, instead of just
-// recording a choice to join with, swaps the local car's vehicle kind/color
-// live via carManager.setVehicleKind()/setColor() and broadcasts them to
-// peers via net.setVehicleId()/setColor(). Dev mode never shows the lobby
-// form (see ui/lobby.js), so this is the only place to change either while
-// driving - both choices are persisted to DEV_CAR_STORAGE_KEY so they
-// survive a reload instead of snapping back to the default every time (see
-// loadDevCarChoice()/saveDevCarChoice() below, used by main.js at dev-mode
-// join time).
+// Debug-view vehicle/colour picker (dev mode has no lobby): swaps the car
+// live via carManager, broadcasts via net, and persists the pick to
+// DEV_CAR_STORAGE_KEY for the next dev-mode join.
 
 import { createVehiclePicker } from '../ui/vehiclePicker.js';
 import { DEFAULT_BODY_COLOR, DEV_CAR_STORAGE_KEY } from '../config.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
 
-/** Reads the last dev-mode car/color pick, if any, from localStorage. */
+/** Saved dev-mode car/colour pick, if any. */
 export function loadDevCarChoice() {
   try {
     const raw = localStorage.getItem(DEV_CAR_STORAGE_KEY);
@@ -31,8 +23,7 @@ function saveDevCarChoice(color, vehicleId) {
   try {
     localStorage.setItem(DEV_CAR_STORAGE_KEY, JSON.stringify({ color, vehicleId }));
   } catch {
-    // Storage unavailable (private browsing, quota, etc.) - not persisting
-    // is a harmless degradation, so silently ignore.
+    // Storage unavailable: just don't persist.
   }
 }
 
@@ -46,14 +37,9 @@ function colorToHex(color) {
  * @param {ReturnType<import('../lib/net.js').createNet>} deps.net
  * @param {HTMLElement} deps.tabsEl
  * @param {HTMLElement} deps.listEl
- * @param {HTMLInputElement} [deps.colorEl] - the <input type="color"> in
- *   the debug HUD; optional so tests/other call sites that don't need
- *   color picking can omit it.
- * @param {string} [deps.initialVehicleId] - overrides carManager's
- *   current vehicle for the picker's initial highlight (e.g. a saved dev
- *   choice applied before the car actually spawns with it).
- * @param {number} [deps.initialColor] - same, for the color input's
- *   initial value.
+ * @param {HTMLInputElement} [deps.colorEl] - colour input
+ * @param {string} [deps.initialVehicleId] - initial highlight (saved pick before spawn)
+ * @param {number} [deps.initialColor]
  */
 export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colorEl, initialVehicleId, initialColor }) {
   const picker = createVehiclePicker({
@@ -80,9 +66,7 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
   }
 
   return {
-    // Re-highlights whatever vehicle/color the car actually is - call
-    // after the local car (re)spawns (e.g. on join) so this panel never
-    // disagrees with the lobby's choice.
+    // Re-sync with the actual car after a (re)spawn.
     syncFromCar: () => {
       picker.select(carManager.getVehicleId());
       if (colorEl) colorEl.value = colorToHex(carManager.getColor() ?? DEFAULT_BODY_COLOR);

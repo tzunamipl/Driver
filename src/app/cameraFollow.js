@@ -20,22 +20,11 @@ import {
 import { CAMERA_VIEWS, getCameraView, nextCameraView, DEFAULT_CAMERA_VIEW_ID } from './cameraViews/index.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 
-// Chase camera: follows the car's velocity direction (not just its facing
-// direction) with yaw smoothing so suspension/wheel-contact jitter doesn't
-// get amplified into visible high-speed camera shake, and freezes yaw
-// while the car is flipped/tumbling instead of spinning wildly. A small,
-// heavily smoothed pitch tilt is also applied based on the car's vertical
-// velocity, so a steep climb or a long fall reads as a deliberate, subtle
-// up/down look rather than the camera staying rigidly level.
-//
-// Multiple selectable *views* (chase/close/cinematic/hood - see
-// app/cameraViews/) share this one updater: every view supplies only the
-// handful of fields that make it distinct (offset, look-at offset, pan
-// speed...), falling back to the CAMERA_* constants above as the shared
-// baseline every view doesn't bother overriding - see `activeParams()`
-// below. The "C" key (wired up in here, same self-contained toggle
-// pattern as hud/debugVisuals.js's "M") cycles through
-// app/cameraViews/'s registry.
+// Chase camera: aims along the velocity (not facing), smooths yaw to
+// filter suspension jitter, freezes yaw while flipped, and tilts slightly
+// on sustained climbs/falls. Views (app/cameraViews/, cycled with C)
+// override the shared CAMERA_* defaults; `rigid` views mount directly on
+// the vehicle instead.
 
 function isTypingInField() {
   const el = document.activeElement;
@@ -43,7 +32,6 @@ function isTypingInField() {
   return el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color');
 }
 
-/** Reads a saved view id back out of localStorage, if any/valid. */
 function loadSavedViewId() {
   try {
     const id = localStorage.getItem(CAMERA_VIEW_STORAGE_KEY);
@@ -55,10 +43,7 @@ function loadSavedViewId() {
 
 let labelEl = null;
 let labelTimer = null;
-/** Briefly flashes the newly-picked view's name on screen, same
- * transient-notice idea as hud/notice.js but kept self-contained here
- * rather than threading a HUD dependency through createCameraFollow's
- * signature just for this one thing. */
+/** Briefly shows the selected view's name. */
 function flashViewLabel(label) {
   if (!labelEl) {
     labelEl = document.createElement('div');
@@ -88,10 +73,8 @@ function flashViewLabel(label) {
 }
 
 /**
- * Creates a stateful camera-follow updater bound to a given camera. All
- * smoothing state (previous yaw, smoothed look-at, etc.) lives in this
- * closure rather than module-level globals, so it can't leak across
- * unrelated camera instances (e.g. in tests).
+ * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }),
+ * with .cycleView/.setView/.getViewId/.getViews attached.
  */
 export function createCameraFollow(camera) {
   const tmpVec = new THREE.Vector3();
@@ -116,22 +99,11 @@ export function createCameraFollow(camera) {
   let smoothedCloseScale = 1;
 
   let viewId = loadSavedViewId() ?? DEFAULT_CAMERA_VIEW_ID;
-  // Updated every frame from the vehicleId the caller passes in (see
-  // updateCamera below), so cycleView()/setView() - both only ever
-  // triggered from a keypress between frames - can restrict/fall back
-  // views by the vehicle actually being driven right now (e.g. hiding
-  // the hover-only pod cam - see cameraViews/pod.js - while driving a
-  // wheeled car). Starts at `null` - the "not resolved yet" sentinel
-  // cameraViews/index.js's viewMatchesVehicle() treats as "matches
-  // anything" - until the first frame with a vehicle runs; after that
-  // it's whatever that vehicle's own descriptor.vehicleType is (commonly
-  // plain `undefined` for wheeled cars, which is a real, resolved
-  // "doesn't match any restricted view" answer, not the same as `null`).
+  // Current vehicle's vehicleType, refreshed each frame, used to filter
+  // vehicle-specific views. null = not known yet (matches any view).
   let currentVehicleType = null;
 
-  /** Merges the active view's descriptor over the shared CAMERA_*
-   * baseline - the same `view.field ?? DEFAULT` pattern lib/car.js uses
-   * to merge a vehicle descriptor over its own shared defaults. */
+  /** Active view merged over the shared CAMERA_* defaults. */
   function activeParams() {
     const view = getCameraView(viewId, currentVehicleType);
     return {
@@ -143,10 +115,8 @@ export function createCameraFollow(camera) {
     };
   }
 
+  /** Next frame snaps to the new view instead of lerping across the cut. */
   function resetSmoothing() {
-    // Dropping the init flags makes the next frame snap straight to the
-    // new view's target instead of smoothly (and misleadingly) lerping
-    // from the old view's camera position/angle across a hard cut.
     smoothedLookAtInit = false;
     smoothedYawInit = false;
     smoothedPitchInit = false;
@@ -160,8 +130,7 @@ export function createCameraFollow(camera) {
     try {
       localStorage.setItem(CAMERA_VIEW_STORAGE_KEY, viewId);
     } catch {
-      // Storage unavailable (private browsing, quota, etc.) - the view
-      // picker still works for this session, it just won't persist.
+      // Storage unavailable: works for this session only.
     }
     flashViewLabel(view.label);
   }
@@ -175,24 +144,10 @@ export function createCameraFollow(camera) {
     if (e.code === 'KeyC' && !e.repeat) cycleView();
   });
 
+  /** Camera fixed to `mountMesh`, aimed along `lookAtMesh` (default: the mount). */
   function updateRigid(view, mountMesh, lookAtMesh) {
-    // Dashboard/hood cam: no chase-camera smoothing, velocity-direction
-    // framing, or close-up distance scaling at all - the camera is just
-    // parented directly to the mount transform every frame, same as a
-    // real mounted camera would be. `mountMesh` is normally chassisMesh,
-    // but views with `mountPoint: 'pod'` (see cameraViews/pod.js) get the
-    // chariot's actual pod mesh instead - see updateCamera below.
     tmpVec.set(...(view.offset ?? [0, 1.3, 1.6])).applyQuaternion(mountMesh.quaternion).add(mountMesh.position);
     camera.position.copy(tmpVec);
-    // Normally the look-at target is just another offset local to the
-    // same mount (straight "ahead" from wherever it's facing). But
-    // `lookAtMesh` (see updateCamera below) lets a view aim at a
-    // *different* transform instead - e.g. the pod cam rides on the pod
-    // but targets the centre engine mesh directly, so it actually tracks
-    // the engines rather than wherever the pod itself happens to be
-    // facing (its cosmetic facing lags/leads the engines on its own
-    // tether-driven timing, so "forward from the pod" isn't reliably
-    // "at the engines").
     const targetMesh = lookAtMesh ?? mountMesh;
     tmpVec
       .set(...(view.lookAtOffset ?? [0, 1, 10]))
@@ -204,24 +159,13 @@ export function createCameraFollow(camera) {
 
   const updateCamera = function updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }) {
     if (!chassisMesh || !vehicle) return;
-    // Resolved fresh each frame (cheap Map lookup, see
-    // lib/vehicles/index.js's getVehicle) rather than cached once, since
-    // the local vehicle can be swapped out mid-drive (debug picker/
-    // lobby respawn) without this module being recreated.
-    currentVehicleType = getVehicle(vehicleId)?.vehicleType;
+    currentVehicleType = getVehicle(vehicleId)?.vehicleType; // vehicle can change mid-drive
     const { view, offset, lookAtOffset, positionSpeed, lookAtSpeed } = activeParams();
 
     if (view.rigid) {
-      // Mount on the pod's own real, independently-tethered mesh - not
-      // chassisMesh, which on a chariot is really the centre engine's
-      // mesh (see lib/chariot.js) - so the camera inherits the pod's
-      // actual swinging/lagging motion instead of the engine's. Falls
-      // back to chassisMesh if podMesh somehow isn't available yet
-      // (e.g. mid-respawn) rather than erroring.
+      // mountPoint 'pod': ride the chariot's pod; lookAtTarget 'chassis':
+      // aim at the centre engine (the pod's own facing lags it).
       const mountMesh = view.mountPoint === 'pod' && podMesh ? podMesh : chassisMesh;
-      // `lookAtTarget: 'chassis'` (see cameraViews/pod.js) makes the view
-      // aim at the centre engine mesh instead of wherever the mount
-      // itself is facing - see updateRigid()'s own comment above.
       const lookAtMesh = view.lookAtTarget === 'chassis' ? chassisMesh : null;
       updateRigid(view, mountMesh, lookAtMesh);
       return;
@@ -238,18 +182,11 @@ export function createCameraFollow(camera) {
 
     let yaw = lastYaw;
     if (!isFlipped) {
-      // Point the camera where the car is actually moving (its velocity
-      // direction) rather than where it's heading (its forward axis), so
-      // e.g. sliding/drifting sideways or reversing looks correct. Only
-      // the horizontal (XZ) component is used - pitch/roll from bumps or
-      // rolling must never tilt the camera off the horizontal plane
-      // (no-roll rule).
+      // Horizontal velocity direction (so drifts/reversing frame right);
+      // chassis facing when too slow. Never pitch/roll from the chassis.
       const vel = vehicle.chassisBody.velocity;
       tmpForward.set(vel.x, 0, vel.z);
       if (tmpForward.lengthSq() < CAMERA_MIN_SPEED_FOR_VELOCITY_YAW * CAMERA_MIN_SPEED_FOR_VELOCITY_YAW) {
-        // Too slow for velocity direction to be meaningful - use the
-        // car's facing direction instead so the camera doesn't spin/
-        // jitter at near-zero speed.
         tmpForward.set(0, 0, 1).applyQuaternion(carQuat);
         tmpForward.y = 0;
       }
@@ -259,10 +196,7 @@ export function createCameraFollow(camera) {
       lastYaw = yaw;
     }
 
-    // Smooth the yaw angle itself (shortest-path, wrap-safe) instead of
-    // using the raw per-frame value directly - this is what actually
-    // decouples the camera from small heading vibrations instead of just
-    // smoothing the already-noisy rotated offset.
+    // Smooth the yaw angle itself (shortest path).
     if (!smoothedYawInit) {
       smoothedYaw = yaw;
       smoothedYawInit = true;
@@ -273,13 +207,7 @@ export function createCameraFollow(camera) {
     }
     yawQuat.setFromAxisAngle(upVec, smoothedYaw);
 
-    // Tilt the camera up/down to follow steep climbs/falls: the velocity's
-    // angle above/below horizontal (vertical speed vs horizontal speed)
-    // gives the slope the car is actually traveling along, clamped to a
-    // subtle max and zeroed out while too slow (same reasoning as the yaw
-    // fallback above) so it never fights the no-roll rule's goal of
-    // filtering out unintentional bump/roll jitter - only sustained
-    // vertical motion moves this.
+    // Pitch from the velocity's slope, clamped and smoothed; level when slow.
     const vel = vehicle.chassisBody.velocity;
     const horizSpeed = Math.hypot(vel.x, vel.z);
     let pitchTarget = 0;
@@ -297,25 +225,14 @@ export function createCameraFollow(camera) {
       const pitchFactor = 1 - Math.exp(-CAMERA_PITCH_SPEED * delta);
       smoothedPitch += (pitchTarget - smoothedPitch) * pitchFactor;
     }
-    // Pitch is applied around the already-yawed right axis (not world X),
-    // so it tilts relative to the direction the camera is actually facing
-    // regardless of heading.
-    pitchQuat.setFromAxisAngle(rightVec, smoothedPitch);
+    pitchQuat.setFromAxisAngle(rightVec, smoothedPitch); // around the yawed right axis
     rotQuat.copy(yawQuat).multiply(pitchQuat);
 
-    // Frame-rate independent exponential smoothing, so panning speed stays
-    // consistent regardless of delta time (e.g. during rapid crash motion).
-    // positionSpeed/lookAtSpeed are the active view's own pan speeds
-    // (falling back to the shared CAMERA_POSITION_SPEED/CAMERA_LOOKAT_SPEED
-    // defaults - see activeParams() above), so e.g. the cinematic view's
-    // lazier pan doesn't require touching this shared updater at all.
+    // Frame-rate independent exponential smoothing.
     const posFactor = 1 - Math.exp(-positionSpeed * delta);
     const lookFactor = 1 - Math.exp(-lookAtSpeed * delta);
 
-    // Pull the camera in closer as speed decreases, so slowing down/idling
-    // feels more intimate while cruising at speed keeps the wider framing.
-    // Based on actual car speed (not just horizontal velocity) so it still
-    // reacts correctly e.g. mid-air after a big jump.
+    // Closer when slow, wider when fast.
     const speed = vel.length();
     const speedT = THREE.MathUtils.clamp(
       (speed - CAMERA_CLOSE_MIN_SPEED) / (CAMERA_CLOSE_MAX_SPEED - CAMERA_CLOSE_MIN_SPEED),
@@ -329,14 +246,8 @@ export function createCameraFollow(camera) {
     );
     smoothedCloseScale += (targetCloseScale - smoothedCloseScale) * posFactor;
 
-    // Exponential smoothing settles toward its target with time constant
-    // 1/CAMERA_*_SPEED, so a constantly moving car steadily trails behind
-    // by (velocity * time constant). Push the smoothing target ahead by
-    // that same amount (scaled by CAMERA_POSITION_LEAD_FACTOR) so the
-    // lag cancels out at any speed instead of only being tolerable at low
-    // speeds - this is what keeps the camera from falling far behind at
-    // extreme speeds while leaving the jitter-filtering smoothing itself
-    // untouched.
+    // Lead the targets by velocity * settling time (1/speed) to cancel the
+    // smoothing's steady-state lag.
     tmpLeadPos
       .set(vel.x, vel.y, vel.z)
       .multiplyScalar((CAMERA_POSITION_LEAD_FACTOR / positionSpeed));
@@ -368,11 +279,11 @@ export function createCameraFollow(camera) {
     camera.up.set(0, 1, 0);
   };
 
-  // Attached to the returned function itself (functions are objects) so
-  // every existing `cameraFollow(delta, {...})` call site in
-  // app/mainLoop.js keeps working unchanged, while callers that want view
-  // switching (e.g. a future HUD button) can still reach
-  // cameraFollow.cycleView()/.setView()/.getViewId().
+  /** Floating-origin shift (camera.position itself is moved by the caller). */
+  updateCamera.shiftOrigin = (dx, dz) => {
+    smoothedLookAt.x -= dx;
+    smoothedLookAt.z -= dz;
+  };
   updateCamera.cycleView = cycleView;
   updateCamera.setView = setView;
   updateCamera.getViewId = () => viewId;

@@ -17,15 +17,8 @@ const SAMPLE_KEEP_MS = 1000;
 const TELEPORT_DISTANCE = 40;
 const CONNECT_TIMEOUT_MS = 4000;
 const SPAWN_RADIUS = 6;
-// How long a peer stays listed in the "who's online" roster (see
-// getRoster()) after their last pose update, independent of PEER_TIMEOUT_MS
-// above - that shorter timeout only governs when a peer's *car* despawns
-// from the scene, whereas the roster is meant to show everyone who's been
-// around in the last 24h, even if their connection is briefly spotty or
-// their tab has been closed for a while. Persisted to localStorage (see
-// loadRoster/saveRoster below) so it survives page reloads - the roster
-// isn't just "who's connected right now" but "who this browser has seen
-// active in the last day".
+// Roster TTL: "seen in the last 24h", persisted in localStorage; longer
+// than PEER_TIMEOUT_MS, which only despawns the peer's car.
 const ROSTER_TTL_MS = 24 * 60 * 60 * 1000;
 const ROSTER_STORAGE_KEY = 'driver.roster.v1';
 
@@ -50,20 +43,14 @@ function saveRoster(roster) {
   try {
     localStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify([...roster]));
   } catch {
-    // Storage full/unavailable (private browsing) - roster just won't
-    // persist across reloads, which is fine.
+    // Storage unavailable: roster won't persist.
   }
 }
 
 export function createNet({ clientId } = {}) {
   clientId = clientId || crypto.randomUUID();
   const peers = new Map();
-  // id -> { name, score, lastSeen } - a separate, longer-lived roster of
-  // everyone seen recently, decoupled from `peers` (which is pruned after
-  // just PEER_TIMEOUT_MS so a peer's rendered car disappears promptly).
-  // `lastSeen` here is a wall-clock (Date.now()) timestamp, not
-  // performance.now(), so it stays meaningful across page reloads once
-  // reloaded from localStorage (see loadRoster/saveRoster).
+  // id -> { name, score, lastSeen (Date.now(), survives reloads) }.
   const roster = loadRoster();
   const statusListeners = new Set();
   const propListeners = new Set();
@@ -135,10 +122,7 @@ export function createNet({ clientId } = {}) {
   function handlePose(msg) {
     if (!msg || msg.id === clientId) return;
     if (msg.leave) {
-      // Despawn their rendered car immediately, but deliberately leave the
-      // roster entry alone - someone who left should still show up in the
-      // "who's online" panel as idle/inactive for the rest of ROSTER_TTL_MS,
-      // not vanish the instant they close their tab.
+      // Despawn the car now; the roster entry stays until its TTL.
       peers.delete(msg.id);
       return;
     }
@@ -263,14 +247,7 @@ export function createNet({ clientId } = {}) {
     return poses;
   }
 
-  /**
-   * Returns everyone this browser has seen publish a pose within the last
-   * ROSTER_TTL_MS (24h), including across page reloads (persisted to
-   * localStorage) - for a "who's online" UI. Each entry is
-   * `{ id, name, score, idleMs }`, where idleMs is how long it's been
-   * since their last pose update (0 for someone actively streaming
-   * updates). Lazily prunes anyone past the TTL out of the roster.
-   */
+  /** Peers seen within ROSTER_TTL_MS: [{ id, name, score, idleMs }]; prunes expired ones. */
   function getRoster() {
     const now = Date.now();
     const list = [];
@@ -288,22 +265,12 @@ export function createNet({ clientId } = {}) {
     return list;
   }
 
-  /**
-   * Updates the vehicle kind published with every subsequent pose, without
-   * a reconnect - used by the debug view's instant vehicle picker (see
-   * hud/vehicleDebugPicker.js) so switching vehicles mid-drive also
-   * updates how this player renders on everyone else's screen.
-   */
+  /** Vehicle kind for subsequent poses (debug picker), no reconnect. */
   function setVehicleId(vehicleId) {
     playerVehicleId = sanitizeVehicleId(vehicleId);
   }
 
-  /**
-   * Updates the color published with every subsequent pose, without a
-   * reconnect - mirrors setVehicleId() above, used by the "Reset saved
-   * name/color" help-menu button (see ui/lobby.js) so resetting mid-drive
-   * also updates how this player renders on everyone else's screen.
-   */
+  /** Colour for subsequent poses, no reconnect. */
   function setColor(color) {
     playerColor = sanitizeColor(color);
   }

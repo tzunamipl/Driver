@@ -5,7 +5,10 @@ import { SCORE_PER_PEDESTRIAN } from '../config.js';
 // loop since this is gameplay/networking glue with no per-frame physics of
 // its own (balls' per-frame sync still happens in the main loop).
 
-export function setupGameplayProps({ pedestrians, balls, shots, net, carManager, scoreToast }) {
+// Positions arrive in the network frame; `viewFrame` maps them to ours.
+export function setupGameplayProps({ pedestrians, balls, shots, net, carManager, scoreToast, viewFrame }) {
+  const toView = (msg) => ({ ...msg, ...viewFrame.fromNetwork(msg.x, msg.z) });
+
   pedestrians.setOnHit((pedId, hit) => {
     carManager.addScore(SCORE_PER_PEDESTRIAN);
     scoreToast?.push(SCORE_PER_PEDESTRIAN, 'pedestrian');
@@ -14,13 +17,16 @@ export function setupGameplayProps({ pedestrians, balls, shots, net, carManager,
 
   net.onProps((msg) => {
     if (msg.type === 'peds' && Array.isArray(msg.peds)) {
-      for (const ped of msg.peds) pedestrians.addPed(ped.id, ped.x, ped.y, ped.z);
+      for (const ped of msg.peds) {
+        const { x, z } = viewFrame.fromNetwork(ped.x, ped.z);
+        pedestrians.addPed(ped.id, x, ped.y, z);
+      }
     } else if (msg.type === 'ped-hit') {
       pedestrians.knockFromRemote(msg.pedId, msg);
     } else if (msg.type === 'shot') {
-      shots.spawnRemote(msg);
+      shots.spawnRemote(toView(msg));
     } else if (msg.type === 'ball' || msg.type === 'ball-spawn') {
-      balls.ensureRemote(msg.ballId, msg);
+      balls.ensureRemote(msg.ballId, toView(msg));
     }
   });
 

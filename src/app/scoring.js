@@ -136,6 +136,12 @@ export function createScoring({
     }
   }
 
-  return { update, isLanded: () => hasLanded };
+  /** Floating-origin shift: not a position jump. */
+  function shiftOrigin(dx, dz) {
+    prevX -= dx;
+    prevZ -= dz;
+  }
+
+  return { update, shiftOrigin, isLanded: () => hasLanded };
 }
 

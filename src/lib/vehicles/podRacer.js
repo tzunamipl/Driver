@@ -1,33 +1,9 @@
-// Vehicle definition: "Chariot of Fire" pod racer - jet engines up front,
-// a driver's pod trailing behind on a tether, loosely modeled on a Star
-// Wars-style podracer. Self-contained visuals only (see ../chariot.js for
-// the hover/differential-thrust physics rig that actually drives it) so
-// this one vehicle kind can be reskinned without touching the shared rig
-// or any other vehicle's file - see ./index.js for how descriptors get
-// collected into the selectable roster.
-//
-// `engineCount` is a constructor parameter (not hardcoded) specifically so
-// new variants can be added later as thin wrappers around
-// createPodRacerVehicle(n) without copy-pasting the mesh/physics code -
-// see the bottom of this file for the one registered demo variant (3
-// engines).
-//
-// Two different body builders are exported because the local player's
-// rig is built from several genuinely independent physics bodies (every
-// engine, plus the pod - see chariot.js), while remote players only ever
-// replicate one interpolated network pose for the whole vehicle:
-//  - buildBody(): one rigid group (engines + pod + tether, fixed relative
-//    transforms) - used for *remote* players, since a fully independent
-//    per-engine simulation isn't reproducible from a single network pose
-//    anyway.
-//  - buildIndependentRig(): one separate THREE.Group per engine (each
-//    driven 1:1 every frame by its *own* physics body - see chariot.js's
-//    engineBodies), live power-coupling struts between neighbouring
-//    engines, a separate pod group, and live tether meshes - used for the
-//    *local* player's chariot. Every mesh here is driven directly off its
-//    own real physics body, so there is nothing rendered that isn't
-//    exactly what's being simulated (no shared rigid group standing in
-//    for bodies that can actually drift apart from each other).
+// "Chariots of Fire" pod racer descriptor + visuals (physics: ../chariot.js).
+// Jet engines in a row, driver pod tethered behind. Two body builders:
+//  - buildBody(): one rigid group, for remote players (one replicated pose);
+//  - buildIndependentRig(): one group per engine plus pod, struts and
+//    tethers, each driven by its own physics body, for the local player.
+// createPodRacerVehicle(n) makes variants with other engine counts.
 
 import * as THREE from 'three';
 import {
@@ -39,29 +15,10 @@ import {
   POD_LOCAL_OFFSET,
 } from './podRacerLayout.js';
 
-// === Tunable parameters (read generically by lib/chariot.js - see the
-// matching createPodRacerVehicle() defaults below) ===
-// Keeping every physics/power knob for this vehicle up here in one place,
-// instead of buried in createPodRacerVehicle()'s own default parameter
-// values ~250 lines down past all the body-geometry code, so retuning it
-// doesn't mean hunting through mesh-building boilerplate.
-
-// Thrust (Newtons) produced by a single engine at full throttle - this
-// chariot's own independent power characteristic (the hover-rig
-// equivalent of a car's enginePowerHp, see lib/car.js), read generically
-// by lib/chariot.js's createChariotVehicle. Not derived from any shared
-// global force constant, so each pod-racer variant can be tuned on its
-// own.
-const ENGINE_THRUST_FORCE = 64000;
-// Total chassis weight in kg, split evenly across this variant's engines
-// (see lib/chariot.js's createChariotVehicle) - this rig's own
-// independent weight rating, the hover-rig equivalent of a car's mass
-// (see lib/car.js).
-const MASS = 2100;
-// See lib/airDrag.js - slim, nose-first engines punch through the air
-// easily either direction, but the whole row spread broadside-on (engines
-// + pod + tether/coupling struts, all presenting their full length to the
-// airflow at once) is by far the draggiest way for this rig to move.
+// Tuning (read by chariot.js).
+const ENGINE_THRUST_FORCE = 64000; // N per engine at full throttle
+const MASS = 2100; // kg total, split across engines
+// Broadside (whole row + pod + struts) is by far the draggiest direction.
 const DRAG_PROFILE = { front: 0.7, side: 2.6, rear: 0.85 };
 
 const DEFAULT_BODY_COLOR = 0xff6a1a; // flame orange
@@ -72,11 +29,7 @@ const couplingMat = new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 
 const tetherMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.3, roughness: 0.7 });
 const podGlassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
 
-/**
- * One simple-cylinder jet engine: a grey body with a glowing rear nozzle,
- * oriented so its length runs along local Z (nose pointing +Z, matching
- * the chassis' own "front" axis).
- */
+/** Jet engine along local Z (nose +Z) with a glowing rear nozzle. */
 function buildEngine() {
   const group = new THREE.Group();
   const bodyGeo = new THREE.CylinderGeometry(ENGINE_RADIUS, ENGINE_RADIUS * 0.85, ENGINE_LENGTH, 12);
@@ -94,7 +47,7 @@ function buildEngine() {
   return group;
 }
 
-/** The pod (driver's seat) + a small cockpit glass cap, as a standalone group centered on its own origin. */
+/** Driver pod + cockpit glass, centred on its own origin. */
 function buildPod(color) {
   const group = new THREE.Group();
   const podMat = new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.5 });
@@ -115,18 +68,13 @@ function buildPod(color) {
 
 const STRUT_UP = new THREE.Vector3(0, 1, 0);
 
-/**
- * A unit-length cylinder mesh meant to be re-aimed/re-scaled every call to
- * `orientStrut` (below) rather than rebuilt - used for the live tethers
- * (re-oriented every frame from the engine rig's current transform to the
- * pod's current position).
- */
+/** Unit-length cylinder, re-aimed each frame by orientStrut(). */
 function buildStrutMesh(radius, material) {
   const geo = new THREE.CylinderGeometry(radius, radius, 1, 6);
   return new THREE.Mesh(geo, material);
 }
 
-/** Points and stretches a buildStrutMesh() cylinder to run exactly from `from` to `to` (any two {x,y,z}-like points, same space). */
+/** Positions/stretches a strut mesh to run from `from` to `to`. */
 function orientStrut(mesh, from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -137,48 +85,22 @@ function orientStrut(mesh, from, to) {
   mesh.quaternion.setFromUnitVectors(STRUT_UP, new THREE.Vector3(dx, dy, dz).normalize());
 }
 
-/**
- * Tethers attach at the rear-top of each engine (local -Z/+Y, matching
- * buildEngine()'s nose-points-+Z orientation) rather than its dead
- * centre - reads more like a cable clipped onto the engine housing than
- * one running straight through it. Shared by both body builders below so
- * the rigid (remote) and live (local) tethers start from the exact same
- * point on the engine.
- */
+/** Tether attach point on an engine: rear-top of the housing. */
 function tetherEngineAttachLocal(off) {
   return { x: off.x, y: off.y + ENGINE_RADIUS, z: off.z - ENGINE_LENGTH / 2 };
 }
 
 const TETHER_SEGMENT_COUNT = 3;
 
-/**
- * Builds the `TETHER_SEGMENT_COUNT` unit-strut meshes that make up one
- * tether, so it can bend/sag along its length (see orientTetherChain())
- * instead of always rendering as one perfectly rigid, dead-straight rod -
- * a single strut can never visually show the cable going slack even when
- * the physics says it genuinely is (see chariot.js's applyTether/
- * TETHER_SLACK).
- */
+/** Segments of one tether, so it can sag when slack. */
 function buildTetherChain() {
   return Array.from({ length: TETHER_SEGMENT_COUNT }, () => buildStrutMesh(0.025, tetherMat));
 }
 
-// One reusable scratch joint per *interior* joint of a tether chain (a
-// 3-segment chain has 2 interior joints between its 3 struts) - plain
-// module-level scratch (not per-tether) is safe because every joint is
-// fully (re)computed and consumed synchronously within a single
-// orientTetherChain() call, same pattern as orientStrut() having no
-// persistent state of its own.
+// Scratch interior joints, fully recomputed per orientTetherChain call.
 const tetherChainJoints = Array.from({ length: TETHER_SEGMENT_COUNT - 1 }, () => new THREE.Vector3());
 
-/**
- * Lays `segments` (TETHER_SEGMENT_COUNT struts) end-to-end from `from` to
- * `to`, bowing the interior joints downward by up to `sag` metres (a
- * simple parabolic droop, peaking at the midpoint, zero at both ends) so
- * a slack tether reads as a hanging cable instead of a straight line -
- * `sag` is expected to be 0 for a taut/rigid cable (collapses back to the
- * same straight run a single strut would draw).
- */
+/** Lays segments from `from` to `to`, drooping the middle by up to `sag` m (parabola). */
 function orientTetherChain(segments, from, to, sag = 0) {
   const n = segments.length;
   const joints = [from, ...tetherChainJoints, to];
@@ -194,12 +116,7 @@ function orientTetherChain(segments, from, to, sag = 0) {
   for (let i = 0; i < n; i++) orientStrut(segments[i], joints[i], joints[i + 1]);
 }
 
-/**
- * Rigid single-group body (engines + power couplings + pod + tethers, all
- * at fixed relative transforms) - used for remote players, who only ever
- * replicate one interpolated pose for the whole vehicle over the network,
- * so there's nothing to drive a second (pod) body with there anyway.
- */
+/** Rigid single-group body for remote players. */
 function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engineCount) {
   const group = new THREE.Group();
   const engineOffsets = engineLocalOffsets(engineCount);
@@ -223,10 +140,7 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engi
 
   engineOffsets.forEach((off) => {
     const tether = buildTetherChain();
-    // No live slack signal for a rigid remote pose (just one interpolated
-    // network transform for the whole vehicle - see file header), so sag
-    // is 0 here: collapses to the same straight run the old single strut
-    // drew, just now split into TETHER_SEGMENT_COUNT pieces.
+    // No slack info for a remote pose: straight tether.
     orientTetherChain(tether, tetherEngineAttachLocal(off), POD_LOCAL_OFFSET, 0);
     tether.forEach((segment) => group.add(segment));
   });
@@ -235,20 +149,9 @@ function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, engi
 }
 
 /**
- * Local-player rig: one separate THREE.Group *per engine* (added to
- * `scene` by the caller, each then driven 1:1 every frame by its own,
- * genuinely independent physics body - see chariot.js's engineBodies),
- * live power-coupling struts between neighbouring engines (re-oriented
- * every frame from the two real engines' current positions, since they
- * can flex/separate independently now), a separate pod group, and live
- * tether meshes. Nothing here is a stand-in for a body that can drift out
- * of sync with it - every mesh's transform *is* a real physics body's
- * transform, set directly from it every frame.
- *
- * `couplingPairs` lists the (i, j) engine-index pairs each coupling strut
- * spans (same adjacency as the rigid remote buildBody() above, sorted by
- * local x) so the caller can re-aim each strut from the matching pair of
- * engines' live positions every frame - see chariot.js's syncMeshes.
+ * Local-player rig: one group per engine, coupling struts (couplingPairs
+ * = engine index pairs, adjacent by local x), a pod group and tether
+ * chains - all added to `scene` and posed each frame by chariot.js.
  */
 function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
   const engineOffsets = engineLocalOffsets(engineCount);
@@ -259,9 +162,7 @@ function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
     return engine;
   });
 
-  // Sort engine indices by local x (matches the physical left-to-right
-  // layout) so neighbouring struts/couplings connect adjacent engines,
-  // same visual adjacency the rigid remote body uses.
+  // Adjacent engines by local x get a strut.
   const sortedIndices = engineOffsets
     .map((off, i) => i)
     .sort((a, b) => engineOffsets[a].x - engineOffsets[b].x);
@@ -277,21 +178,10 @@ function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
   const { group: podGroup, bodyMat } = buildPod(color);
   scene.add(podGroup);
 
-  // Attach point relative to a *single engine's own* local origin (each
-  // engineMeshes[i] is a standalone group centered on that one engine,
-  // already placed at its own absolute world position every frame - see
-  // chariot.js's syncMeshes) - must NOT include the engine's offset
-  // *within the formation* (off.x/off.z), unlike the rigid remote
-  // buildBody() above, or the attach point ends up displaced sideways/
-  // forward by that engine's own spread position, visibly detached from
-  // its mesh.
+  // Relative to the engine's own origin (each engine mesh is placed in
+  // world space), so no formation offset here.
   const localAttach = tetherEngineAttachLocal({ x: 0, y: 0, z: 0 });
   const tetherAttachLocal = engineOffsets.map(() => new THREE.Vector3(localAttach.x, localAttach.y, localAttach.z));
-  // Each tether is now a `TETHER_SEGMENT_COUNT`-piece chain (see
-  // orientTetherChain()) rather than one rigid strut, so it can visibly
-  // bow/sag whenever the real cable (see chariot.js's applyTether) is
-  // slack instead of taut - see chariot.js's syncMeshes for the per-frame
-  // sag calculation driving these.
   const tetherMeshes = engineOffsets.map(() => {
     const tether = buildTetherChain();
     tether.forEach((segment) => scene.add(segment));
@@ -301,25 +191,15 @@ function buildIndependentRig(scene, color = DEFAULT_BODY_COLOR, engineCount) {
   return { engineMeshes, couplingMeshes, couplingPairs, podGroup, bodyMat, tetherMeshes, tetherAttachLocal };
 }
 
-/**
- * Factory so new pod-racer variants (different engine counts) can be
- * registered later as one-liners instead of duplicating this whole file -
- * see lib/chariot.js, which reads `engineCount` off the descriptor to
- * build the matching physics rig.
- */
+/** Descriptor for a pod racer with `engineCount` engines. */
 function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass } = {}) {
   return {
     id: id ?? `pod-racer-${engineCount}`,
     name: name ?? `Pod Racer (${engineCount} engines)`,
     category: 'chariots-of-fire',
     defaultColor: DEFAULT_BODY_COLOR,
-    // Tells lib/car.js's createCar/createRemoteCar to build the hover
-    // rig (lib/chariot.js) instead of the wheeled RaycastVehicle rig.
-    vehicleType: 'hover',
+    vehicleType: 'hover', // car.js dispatches to chariot.js
     engineCount,
-    // See the tunable-parameters block at the top of this file -
-    // `engineThrustForce`/`mass` overrides let individual variants
-    // (registered via this factory) deviate from those defaults.
     engineThrustForce: engineThrustForce ?? ENGINE_THRUST_FORCE,
     mass: mass ?? MASS,
     buildBody: (chassisWidth, chassisLength, color) => buildBody(chassisWidth, chassisLength, color, engineCount),
@@ -329,9 +209,7 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass 
 }
 
 
-// Demo variant requested for launch: 3 engines. Other engine counts can be
-// added later with `createPodRacerVehicle(n)` - no other file needs to
-// change (see ./index.js's VEHICLES list).
+// The registered variant; add others with createPodRacerVehicle(n).
 export default createPodRacerVehicle(3);
 
 export { createPodRacerVehicle, orientStrut, orientTetherChain };

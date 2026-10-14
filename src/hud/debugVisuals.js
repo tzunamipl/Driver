@@ -1,39 +1,24 @@
-// Debug visuals toggle (tile stats HUD, 3D tile borders, collision
-// hitbox wireframes for buildings + the car chassis, OSM street/river
-// centerlines drawn as broad lines, and OSM water body fills). Press M to
-// hide/show all of these together while driving. Kept as its own module
-// since it fans out to terrain/buildings/streets/rivers/water/car/HUD
-// elements that otherwise wouldn't need to know about each other.
+// M key: toggles all debug visuals together (stats HUDs, tile lines,
+// hitboxes, street/river/water overlays).
 
 /**
  * @param {object} deps
  * @param {import('../lib/terrain.js').TerrainManager} deps.terrain
  * @param {import('../lib/buildings.js').BuildingsManager} deps.buildings
- * @param {import('../lib/streets.js').StreetsManager} [deps.streets] -
- *   optional so tests/other call sites that don't need street debug lines
- *   can omit it.
- * @param {import('../lib/rivers.js').RiversManager} [deps.rivers] -
- *   optional so tests/other call sites that don't need river debug lines
- *   can omit it.
- * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas] -
- *   optional so tests/other call sites that don't need water-area debug
- *   fills can omit it.
+ * @param {import('../lib/streets.js').StreetsManager} [deps.streets]
+ * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
+ * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
- * @param {HTMLElement} [deps.vehicleDebugHudEl] - instant vehicle picker
- *   panel (see hud/vehicleDebugPicker.js); optional so tests/other
- *   call sites that don't need it can omit it.
- * @param {boolean} initialEnabled - on by default in dev mode, off by
- *   default in prod (see config.js APP_MODE).
+ * @param {HTMLElement} [deps.vehicleDebugHudEl]
+ * @param {boolean} initialEnabled - on in dev, off in prod
  */
 export function createDebugVisualsToggle(
   { terrain, buildings, streets, rivers, waterAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl },
   initialEnabled
 ) {
   let debugVisualsEnabled = initialEnabled;
-  // Registered later, once the car exists (see carManager.js) - calling
-  // setEnabled before that just skips the car hitbox for now; carManager
-  // re-applies the current state whenever it (re)spawns a car.
+  // Set once a car exists; carManager re-applies the state on spawn.
   let setCarHitboxVisible = null;
 
   function apply() {

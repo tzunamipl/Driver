@@ -1,93 +1,30 @@
 import * as CANNON from 'cannon-es';
 import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 
-// Self-contained replacement for cannon-es's CANNON.RaycastVehicle, built
-// from scratch instead of layering fixes on top of it (see car.js's former
-// correctWheelieTorque()/stabilityAssistCallback() hacks, now gone - their
-// jobs are handled naturally below instead of being patched in after the
-// fact). Keeps the exact public surface every call site already relies on
-// (wheelInfos[].{worldTransform,suspensionLength,suspensionRestLength,
-// maxSuspensionTravel,steering,radius}, numWheelsOnGround, wheelLabels,
-// addWheel/setSteeringValue/applyEngineForce/setBrake/updateWheelTransform/
-// addToWorld) so app/input.js, app/scoring.js, app/mainLoop.js,
-// hud/suspensionHud.js and lib/wheelContact.js keep working unmodified -
-// only the internals (how suspension/friction forces are actually derived)
-// are new.
-//
-// Three behavioural upgrades over cannon-es's own RaycastVehicle, all
-// aimed at "feels natural, reacts to the world" rather than "feels
-// hand-tuned to stop flipping":
-//   1. Each wheel's ray spans its *entire* suspension travel (rest length
-//      + max travel), not just the rest length. Cannon's own vehicle only
-//      casts restLength+radius, so a wheel dropping into a dip or
-//      clipping the lip of a building/curb loses ground contact a beat
-//      early and "pops" instead of smoothly extending - this casts far
-//      enough to track the wheel across its whole droop range, so bumps,
-//      curbs and building edges compress/extend the spring instead of
-//      snapping it.
-//   2. Suspension force is applied along the actual hit surface normal
-//      (not the chassis' own local "down" axis), so clipping the angled
-//      face of a building or a kerb naturally shoves the car up and
-//      sideways along that face instead of straight along the chassis
-//      axis - the same reason a real wheel glances off an angled curb
-//      instead of just compressing vertically.
-//   3. Both the forward (accel/brake) and lateral (cornering) tyre
-//      impulses use a proper rotational-effective-mass solve (same
-//      impulse-denominator math cannon-es itself already uses for
-//      rolling friction, just applied consistently to both axes instead
-//      of only one), and *both* are applied through a reduced lever arm
-//      (pitchInfluence/rollInfluence) at the moment the impulse is
-//      applied - so the car simply never accumulates the excess
-//      wheelie/flip torque cannon-es's own vehicle does, instead of
-//      generating it and then subtracting it back out a step later.
-//   4. Each wheel also applies rolling resistance (Frr = Crr(v) * Fz, Crr
-//      growing with speed) any time it's loaded and moving, independent
-//      of engine/brake input - so a car coasts to a stop on a flat road
-//      like a real one instead of rolling forever once up to speed.
+// Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
+// surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
+// setBrake, updateWheelTransform, addToWorld). Differences:
+//  1. Suspension rays span the full travel, so wheels track dips/curbs
+//     instead of popping.
+//  2. Suspension force acts along the hit normal, so angled kerbs/walls
+//     push the car sideways naturally.
+//  3. Forward and lateral tyre impulses both use an effective-mass solve
+//     and a reduced lever arm (pitch/rollInfluence), so no excess
+//     wheelie/flip torque is generated in the first place.
+//  4. Speed-dependent rolling resistance, so the car coasts to a stop.
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
   directionLocal: new CANNON.Vec3(0, -1, 0),
   axleLocal: new CANNON.Vec3(-1, 0, 0),
   chassisConnectionPointLocal: new CANNON.Vec3(0, 0, 0),
-  // car.js computes its own mass-derived value (see DEFAULT_SUSPENSION_FORCE_G
-  // there) and every current vehicle descriptor gets one - this is only a
-  // fallback for callers that don't go through car.js at all.
-  maxSuspensionForce: 1e6,
-  // Tyre friction coefficient (mu, see wheeledVehicle.js's
-  // maxGrip = suspensionForce * dt * frictionSlip) - 1.6 matches a
-  // genuinely sticky tarmac rally tyre. The old value of 5 was an
-  // unrealistic "super-glue" grip level (real tyres top out around
-  // 1.3-1.8, even race slicks) that - combined with the old uncapped
-  // suspension-force spikes on hard impacts (see maxSuspensionForce
-  // above) - let a single frame's tyre grip budget fully cancel a car's
-  // entire sideways momentum on landing, reading as an instant,
-  // unrealistic snap back upright/straight instead of a visible slide.
-  frictionSlip: 1.6,
-  // Rolling resistance coefficient (dimensionless, Crr at near-zero speed)
-  // - a real tyre constantly loses a little energy to deformation at the
-  // contact patch, so it never coasts forever even with the engine off and
-  // no brake applied. Modelled as a force opposing rolling motion,
-  // proportional to the wheel's own normal load (suspensionForce) the same
-  // way real rolling resistance is (Frr = Crr(v) * Fz) - see
-  // applyFriction's rollingResistance handling below. 0.015 is a typical
-  // asphalt value for a road tyre at low speed; per-vehicle descriptors can
-  // override it (e.g. knobby off-road tyres) via car.js's suspension
-  // overrides, same as frictionSlip/rollInfluence above.
-  rollingResistance: 0.015,
-  // How much rollingResistance grows with speed - real tyres get
-  // noticeably draggier as they go faster (more flex/heat/air resistance
-  // in the tyre carcass itself), not just a flat drag force. Modelled as
-  // Crr(v) = rollingResistance * (1 + rollingResistanceSpeedFactor * |v|)
-  // (v in m/s) - 0.02 means Crr roughly doubles by ~50 m/s (180 km/h).
+  maxSuspensionForce: 1e6, // car.js passes a mass-derived cap
+  frictionSlip: 1.6, // tyre mu (sticky tarmac)
+  rollingResistance: 0.015, // Crr at low speed (asphalt)
+  // Crr(v) = rollingResistance * (1 + factor * |v|), v in m/s.
   rollingResistanceSpeedFactor: 0.08,
-  rollInfluence: 0.09,
-  // Mirrors the old standalone PITCH_INFLUENCE constant in car.js - how
-  // much of the forward (accel/brake) impulse's true lever arm survives
-  // when applied, the same trick rollInfluence already does for the
-  // sideways impulse. Small values resist nose-up/down "wheelie" pitch
-  // without killing straight-line acceleration itself.
-  pitchInfluence: 0.65,
+  rollInfluence: 0.09, // share of the lateral impulse's lever arm kept
+  pitchInfluence: 0.65, // share of the forward impulse's lever arm kept
   customSlidingRotationalSpeed: -30,
   useCustomSlidingRotationalSpeed: false,
 };
@@ -96,13 +33,8 @@ function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);
 }
 
-// Same effective-mass math cannon-es's own computeImpulseDenominator uses
-// (1/m_eff = invMass + dir . ((invInertiaWorld . (r x dir)) x r)) - reused
-// here for *both* the forward and lateral tyre impulses (cannon-es itself
-// only bothers with it for rolling friction, and falls back to a cruder
-// mass-only solve for the side impulse) so cornering grip accounts for the
-// car's actual rotational inertia the same way acceleration grip already
-// does.
+// 1/m_eff = invMass + dir . ((invInertiaWorld . (r x dir)) x r), as in
+// cannon-es's computeImpulseDenominator.
 const idR = new CANNON.Vec3();
 const idC = new CANNON.Vec3();
 const idM = new CANNON.Vec3();
@@ -119,9 +51,7 @@ function impulseDenominator(body, pos, dir) {
 const velAtPoint1 = new CANNON.Vec3();
 const velAtPoint2 = new CANNON.Vec3();
 const relVelVec = new CANNON.Vec3();
-// Solves for the impulse (along `dir`) that would zero out the relative
-// velocity between the two bodies at `pos`, clamped to +/-maxImpulse -
-// shared by both the forward and lateral friction solves below.
+/** Impulse along `dir` that zeroes relative velocity at `pos`, clamped to ±maxImpulse. */
 function solveBilateralImpulse(bodyA, bodyB, pos, dir, maxImpulse) {
   bodyA.getVelocityAtWorldPoint(pos, velAtPoint1);
   if (bodyB) bodyB.getVelocityAtWorldPoint(pos, velAtPoint2);
@@ -139,12 +69,8 @@ function solveBilateralImpulse(bodyA, bodyB, pos, dir, maxImpulse) {
 }
 
 /**
- * Creates a from-scratch, cannon-es-RaycastVehicle-API-compatible wheeled
- * vehicle rig: per-wheel raycast suspension (spring+damper) plus a
- * friction-circle tyre model (engine/brake longitudinal force, cornering
- * lateral force, combined grip limited by load x frictionSlip). See the
- * file header above for how/why it differs from cannon-es's own
- * RaycastVehicle.
+ * Raycast suspension (spring+damper) plus a friction-circle tyre model
+ * (longitudinal + lateral grip limited by load x frictionSlip).
  */
 export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexForwardAxis = 2, indexUpAxis = 1 }) {
   const vehicle = {
@@ -173,30 +99,11 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       suspensionForce: 0,
       isInContact: false,
       sliding: false,
-      // Signed forward-axis slip speed of the tyre's contact patch
-      // relative to the ground (m/s) - zero for a wheel rolling without
-      // slip, nonzero (and sign-flipped vs. the car's own motion) when
-      // the wheel is spinning faster/slower than the car is actually
-      // travelling (wheelspin/lockup), see the computation alongside
-      // deltaRotation below. Consumed by lib/tireSmoke.js/
-      // lib/terrainDust.js to kick dust/smoke out in the direction the
-      // overspinning tyre tread is actually throwing it, not just the
-      // direction the car itself is moving.
+      // Signed contact-patch slip along the wheel's forward axis (m/s);
+      // nonzero under wheelspin/lockup. Used by smoke/dust effects.
       spinSlipSpeed: 0,
-      // World-space forward direction of this wheel's contact patch (the
-      // same frictionForward computed fresh each applyFriction call
-      // below), persisted so the dust/smoke effects above know which way
-      // "forward" is for this wheel without recomputing the friction
-      // solve themselves. Stays at its last-grounded value while the
-      // wheel is airborne (harmless - callers already gate on
-      // isWheelGrounded).
-      forwardWorld: new CANNON.Vec3(),
-      // Ground-surface key (road/water/normal - see surfaceCompounds.js),
-      // driven every frame by app/mainLoop.js's classifySurfaceAt call
-      // from this wheel's last-known world position; defaults to the
-      // generic surface until the first frame sets it (e.g. the very
-      // first physics step after spawn).
-      surface: DEFAULT_SURFACE_KEY,
+      forwardWorld: new CANNON.Vec3(), // last contact-patch forward direction
+      surface: DEFAULT_SURFACE_KEY, // set each frame by mainLoop's classifySurfaceAt
       connectionPointWorld: new CANNON.Vec3(),
       directionWorld: new CANNON.Vec3(),
       axleWorld: new CANNON.Vec3(),
@@ -228,31 +135,21 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   const rayFrom = new CANNON.Vec3();
   const rayTo = new CANNON.Vec3();
   const rayResult = new CANNON.RaycastResult();
-  // Other bodies that belong to this same vehicle rig but aren't the
-  // chassis itself (e.g. car.js's per-wheel kinematic pedestrian-hitbox
-  // spheres, synced to sit right on top of each wheel) - populated by the
-  // caller via vehicle.ignoreBodies.push(...) after creation. Without
-  // this, a wheel's own hitbox sphere (centered exactly on that wheel,
-  // same spot the suspension ray travels through) is the *closest* thing
-  // the ray can hit, well before the actual ground/building - which reads
-  // as the suspension being instantly bottomed out against itself.
+  // Extra bodies of this rig the suspension rays must ignore (e.g. car.js's
+  // wheel hitboxes, which sit right on the ray). Filled by the caller.
   vehicle.ignoreBodies = [];
   function castRay(wheel) {
     chassisBody.pointToWorldFrame(wheel.chassisConnectionPointLocal, wheel.connectionPointWorld);
     chassisBody.vectorToWorldFrame(wheel.directionLocal, wheel.directionWorld);
     chassisBody.vectorToWorldFrame(wheel.axleLocal, wheel.axleWorld);
 
-    // Full travel range (see file header point 1), not just restLength.
     const rayLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel + wheel.radius;
     rayFrom.copy(wheel.connectionPointWorld);
     wheel.directionWorld.scale(rayLength, rayTo);
     rayTo.vadd(rayFrom, rayTo);
 
     rayResult.reset();
-    // Don't let a wheel ray hit its own chassis or any of this vehicle's
-    // other non-ground bodies (see vehicle.ignoreBodies above) - toggle
-    // their collisionResponse off for just this one raycast, same trick
-    // cannon-es's own RaycastVehicle uses for the chassis.
+    // Disable collision response on our own bodies for this raycast only.
     const selfBodies = [chassisBody, ...vehicle.ignoreBodies];
     const oldResponses = selfBodies.map((b) => b.collisionResponse);
     for (const b of selfBodies) b.collisionResponse = false;
@@ -345,8 +242,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const normal = wheel.raycastResult.hitNormalWorld;
     const hitPoint = wheel.raycastResult.hitPointWorld;
 
-    // Steered axle/forward directions, projected flat onto the contact
-    // plane (matches the wheel's own steered worldTransform).
+    // Steered axle/forward directions, projected onto the contact plane.
     wheel.worldTransform.quaternion.vmult(rightAxisLocal, frictionAxle);
     const proj = frictionAxle.dot(normal);
     normal.scale(proj, frictionNormalScaledProj);
@@ -356,30 +252,15 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     frictionForward.normalize();
     wheel.forwardWorld.copy(frictionForward);
 
-    // Per-surface tyre compound (road/water/normal - see
-    // surfaceCompounds.js, set every frame on wheel.surface by
-    // app/mainLoop.js's classifySurfaceAt): scales *and* offsets this
-    // wheel's own base frictionSlip, then clamps the resulting raw grip
-    // force to the compound's load-independent ceiling, before turning it
-    // into this step's impulse budget - so e.g. water stays slippery
-    // regardless of how loaded the wheel currently is, not just
-    // proportionally grippier. Clamped to >= 0 since a large enough
-    // negative frictionSlipOffset could otherwise flip grip negative for
-    // a low-frictionSlip vehicle.
+    // Surface compound scales/offsets frictionSlip and caps grip force
+    // independent of load (water stays slippery however loaded).
     const compound = getSurfaceCompound(wheel.surface);
     const effectiveFrictionSlip = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
     const rawGripForce = Math.min(wheel.suspensionForce * effectiveFrictionSlip, compound.maxForceN);
     const maxGrip = rawGripForce * dt;
 
-    // Longitudinal: engine force (continuous push) plus brake treated as a
-    // velocity-zeroing impulse (so the handbrake/brake actually locks
-    // speed toward zero rather than fighting it with a fixed force).
-    // wheel.brake is treated as a (generous) max impulse cap, the same
-    // semantics cannon-es itself uses (not scaled by dt) - BRAKE_FORCE
-    // (see config.js) is tuned large enough that this basically never
-    // binds in practice, so the solve below (which already computes the
-    // exact impulse needed to zero the wheel's contact-point velocity) is
-    // what actually determines stopping power.
+    // Longitudinal: brake = velocity-zeroing impulse capped by wheel.brake
+    // (not scaled by dt, like cannon-es), plus engine force.
     const brakeLimit = wheel.brake;
     let forwardImpulse;
     if (brakeLimit > 0) {
@@ -389,23 +270,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     }
     forwardImpulse += wheel.engineForce * dt;
 
-    // Rolling resistance: a small, continuous drag opposing the wheel's
-    // own rolling motion (Frr = Crr(v) * Fz, same formula real tyres
-    // follow, with Crr growing with speed via rollingResistanceSpeedFactor
-    // - see DEFAULT_WHEEL_OPTIONS above), present any time the wheel is
-    // loaded and moving - unlike engine force/brake above, this always
-    // acts regardless of throttle/brake input, which is what actually
-    // makes a car coast to a stop on a flat road instead of rolling
-    // forever (and lose top speed faster than a flat drag force would).
-    // Capped at (not solved as) the impulse that would zero the wheel's
-    // own forward speed, so it slows the car toward a stop rather than
-    // ever reversing it in one step. The per-surface compound's
-    // rollingResistanceMultiplier (surfaceCompounds.js) scales the
-    // vehicle's own rollingResistance the same proportional way
-    // frictionMultiplier scales frictionSlip above, so e.g. water/loose
-    // ground costs every vehicle extra coasting drag without flattening
-    // each vehicle's own tuning (a monster truck's knobbier tyres still
-    // drag more than a rally car's on the same surface).
+    // Rolling resistance Frr = Crr(v) * Fz, always on, capped at the impulse
+    // that would stop the wheel (never reverses it).
     if (wheel.rollingResistance > 0) {
       chassisBody.getVelocityAtWorldPoint(hitPoint, velAtPoint1);
       const rollSpeed = frictionForward.dot(velAtPoint1);
@@ -420,16 +286,11 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       }
     }
 
-    // Lateral: fully cancel sideways slip at the contact patch (grippy
-    // cornering), clamped below by the shared friction circle.
+    // Lateral: cancel sideways slip, limited by the friction circle.
     let sideImpulse = solveBilateralImpulse(chassisBody, groundBody?.mass > 0 ? groundBody : null, hitPoint, frictionAxle, maxGrip);
 
     const combined = Math.hypot(forwardImpulse, sideImpulse);
-    // How much of this wheel's available grip the current demand is using
-    // (0 = unloaded, 1 = right at the limit/sliding) - exposed purely for
-    // debug visuals (see hud/suspensionHud.js's green->red gradient),
-    // doesn't feed back into the physics at all.
-    wheel.gripFraction = maxGrip > 0 ? Math.min(1, combined / maxGrip) : 0;
+    wheel.gripFraction = maxGrip > 0 ? Math.min(1, combined / maxGrip) : 0; // debug HUD only
     if (combined > maxGrip && combined > 0) {
       wheel.sliding = true;
       const scale = maxGrip / combined;
@@ -441,8 +302,6 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
 
     if (forwardImpulse !== 0) {
       frictionForward.scale(forwardImpulse, frictionImpulseVec);
-      // Reduced lever arm (file header point 3) - resists wheelie pitch
-      // without touching the forward push itself.
       chassisBody.vectorToLocalFrame(frictionRelPos, frictionRelPosLocal);
       frictionRelPosLocal.y *= wheel.pitchInfluence;
       chassisBody.vectorToWorldFrame(frictionRelPosLocal, frictionRelPosScaled);
@@ -463,11 +322,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       }
     }
 
-    // --- Visual wheel spin ---
-    // Approximates real rolling: spins to match the actual ground-contact
-    // speed along the wheel's forward axis, with a touch of free-spin
-    // under wide-open engine force while sliding/airborne so a stuck
-    // throttle still visibly spins the wheel.
+    // Visual spin matches ground speed; free-spins under throttle while
+    // sliding/airborne; stops under brake.
     chassisBody.getVelocityAtWorldPoint(wheel.connectionPointWorld, velAtPoint1);
     const rollSpeed = frictionForward.dot(velAtPoint1);
     let deltaRotation = (-rollSpeed * dt) / wheel.radius;
@@ -477,17 +333,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     if (Math.abs(wheel.brake) > Math.abs(wheel.engineForce)) deltaRotation = 0;
     wheel.rotation += deltaRotation;
 
-    // Forward-axis slip speed of the contact patch itself (m/s, signed):
-    // rollSpeed is how fast the *car* is actually moving along the
-    // wheel's forward axis, while (deltaRotation/dt)*radius is how fast
-    // this step's wheel spin says the tyre surface is moving at the
-    // contact patch - added together (not subtracted) since
-    // deltaRotation is defined with the opposite sign convention to
-    // rollSpeed (see the no-slip case above, where it exactly cancels
-    // rollSpeed out to zero). Zero when rolling without slip; nonzero -
-    // and typically large - under wheelspin/lockup, when the free-spin
-    // deltaRotation above no longer tracks the car's actual rollSpeed at
-    // all.
+    // Car speed + tread speed (opposite sign convention): 0 when rolling cleanly.
     wheel.spinSlipSpeed = rollSpeed + (deltaRotation / dt) * wheel.radius;
   }
 

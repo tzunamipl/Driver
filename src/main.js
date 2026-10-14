@@ -2,7 +2,7 @@ import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
 import { TerrainManager, GROUND_COLLISION_GROUP } from './lib/terrain.js';
-import { remapLocalOrigin } from './lib/geo.js';
+import { localToLatLon } from './lib/geo.js';
 import { createPedestrians } from './lib/pedestrians.js';
 import { createBalls } from './lib/ball.js';
 import { createShots } from './lib/shots.js';
@@ -46,39 +46,43 @@ import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createAddressSearch } from './ui/addressSearch.js';
+import { createViewFrame } from './app/viewFrame.js';
+import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createLobby } from './ui/lobby.js';
 
 // ---------- Composition root ----------
-// This file only wires modules together in the right order; all actual
-// logic (physics, terrain/buildings streaming, camera, HUD, input,
-// networking UI, gameplay) lives in ./app, ./hud, ./ui, and ./lib - see
-// those folders to work on a specific concern without touching this file.
+// Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
 const { sun, sunDisc, SUN_OFFSET } = createLighting(scene);
 
+// ---------- View frame ----------
+// Resume where the previous session left off (lib/carState.js).
+const savedCarState = loadCarState();
+
+// The saved pose is in the network frame. Far from ORIGIN (e.g. after a
+// teleport), start the view frame at the car instead, as a teleport does;
+// from then on floatingOrigin.js keeps local coordinates small.
+const VIEW_REBASE_DISTANCE_METERS = 2000;
+const initialViewOrigin =
+  savedCarState && Math.hypot(savedCarState.x, savedCarState.z) > VIEW_REBASE_DISTANCE_METERS
+    ? localToLatLon(savedCarState.x, savedCarState.z, ORIGIN_LAT, ORIGIN_LON)
+    : { lat: ORIGIN_LAT, lon: ORIGIN_LON };
+const viewFrame = createViewFrame(initialViewOrigin.lat, initialViewOrigin.lon);
+
 // ---------- Physics world ----------
 const world = createPhysicsWorld();
 const remoteCollisions = createRemoteCollisions(world);
-const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP);
+const pedestrians = createPedestrians(scene, world, GROUND_COLLISION_GROUP, viewFrame);
 const balls = createBalls(scene, world);
 const noticeHud = createNoticeHud();
 const preventGroundTunneling = createGroundTunnelGuard(
   world,
   () => {
-    // The network/world origin, remapped into *this* player's current local
-    // frame (see mainLoop.js's toViewFrame for the same remap applied to
-    // remote poses) - i.e. "wherever the game's own starting location is,
-    // expressed in local scene coordinates right now". Computed fresh on
-    // every call (rather than once) since a personal teleport (see
-    // ui/addressSearch.js) changes that mapping at runtime; this is what the
-    // ground-tunnel guard rescues a body to if it's stuck somewhere with no
-    // terrain data at all (e.g. a teleport destination outside the map's
-    // coverage), since the player's *current* position is exactly the place
-    // that's already proven to have no ground.
-    const { lat, lon } = addressSearch.getCurrentOrigin();
-    return remapLocalOrigin(0, 0, ORIGIN_LAT, ORIGIN_LON, lat, lon);
+    // Game start position in the current view frame; where the ground
+    // guard rescues a body with no terrain.
+    return viewFrame.fromNetwork(0, 0);
   },
   () =>
     noticeHud.show(
@@ -89,11 +93,15 @@ const buildingTunnelGuard = createBuildingTunnelGuard(world);
 const preventBuildingEmbedding = createBuildingEmbedGuard(world);
 
 // ---------- Real-world terrain + 3D buildings (streamed) ----------
-const terrain = new TerrainManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const buildings = new BuildingsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const streets = new StreetsManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const rivers = new RiversManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
-const waterAreas = new WaterAreasManager(scene, world, ORIGIN_LAT, ORIGIN_LON);
+// Height baseline stays at ORIGIN so world y matches across clients.
+const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, {
+  lat: ORIGIN_LAT,
+  lon: ORIGIN_LON,
+});
+const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -120,29 +128,23 @@ const engineAudio = createEngineAudio(camera, [
 ]);
 
 // ---------- Networking ----------
-// Reuse the same clientId across reloads (see lib/playerId.js) so this
-// browser doesn't show up as a fresh duplicate peer every time the page
-// is refreshed.
+// Stable clientId across reloads, so a refresh isn't a new peer.
 const net = createNet({ clientId: loadOrCreatePlayerId() });
 
 // ---------- Car spawn point ----------
-// Start a few meters back along -Z (opposite of the car's forward +Z). Y is
-// a small drop height above the (roughly zeroed) terrain at the origin;
-// gravity settles it onto the real ground once the chunk physics bodies
-// are loaded.
+// A few metres back from the origin, dropped onto the terrain.
 const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 
-// If the player was somewhere else when they last reloaded, resume there
-// instead of always restarting at the world origin (see lib/carState.js).
-// Read once at startup - it reflects wherever the *previous* session left
-// off, not anything from this one.
-const savedCarState = loadCarState();
-
 function playerSpawnPos() {
-  if (savedCarState) return new CANNON.Vec3(savedCarState.x, savedCarState.y, savedCarState.z);
+  // Saved pose and START_POS are both network-frame positions.
+  if (savedCarState) {
+    const { x, z } = viewFrame.fromNetwork(savedCarState.x, savedCarState.z);
+    return new CANNON.Vec3(x, savedCarState.y, z);
+  }
   const offset = net.spawnOffset();
-  return new CANNON.Vec3(START_POS.x + offset.x, START_POS.y, START_POS.z + offset.z);
+  const { x, z } = viewFrame.fromNetwork(START_POS.x + offset.x, START_POS.z + offset.z);
+  return new CANNON.Vec3(x, START_POS.y, z);
 }
 
 function playerSpawnQuat() {
@@ -166,17 +168,11 @@ const debugVisuals = createDebugVisualsToggle(
 );
 
 // ---------- Car + remote players ----------
-// Created ahead of carManager (rather than alongside splash/tireSmoke
-// below) since carManager's chassisBody 'collide' listener needs it
-// immediately on first spawn.
+// Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene);
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
-// ---------- Instant vehicle picker in the debug view (see M-key toggle
-// above); needs net too so switches broadcast to peers like the lobby's
-// picker does on join. Pre-loads any previously saved dev-mode car/color
-// pick (see loadDevCarChoice() in hud/vehicleDebugPicker.js) so the panel
-// shows the right highlight even before the car itself spawns with it. ----------
+// ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
 const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
 const vehicleDebugPicker = createVehicleDebugPicker({
   carManager,
@@ -206,13 +202,14 @@ createVersionBadge();
 
 // ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({
+  world,
   terrain,
   buildings,
   streets,
   rivers,
   waterAreas,
   carManager,
-  origin: { lat: ORIGIN_LAT, lon: ORIGIN_LON },
+  viewFrame,
   isJoined: () => lobby.isJoined(),
 });
 
@@ -241,6 +238,7 @@ setupGameplayProps({
   net,
   carManager,
   scoreToast,
+  viewFrame,
 });
 const scoring = createScoring({
   world,
@@ -248,6 +246,16 @@ const scoring = createScoring({
   onJumpScore: (points) => scoreToast.push(points, 'jump'),
   onAirtimeUpdate: (points) => airtimeHud.update(points),
   onAirtimeEnd: () => airtimeHud.hide(),
+});
+
+// ---------- Floating origin ----------
+const floatingOrigin = createFloatingOrigin({
+  scene,
+  world,
+  camera,
+  viewFrame,
+  streamers: [terrain, buildings, streets, rivers, waterAreas],
+  parts: [carManager, cameraFollow, gaugesHud, scoring],
 });
 
 // ---------- Main loop ----------
@@ -291,6 +299,8 @@ const mainLoop = createMainLoop({
   buildingTunnelGuard,
   preventBuildingEmbedding,
   scoring,
+  viewFrame,
+  floatingOrigin,
   isJoined: () => lobby.isJoined(),
 });
 
@@ -310,40 +320,26 @@ const lobby = createLobby({
     vehicleDebugPicker.syncFromCar();
     addressSearch.setUiEnabled(true);
     startLoopOnce();
-    // Only start the help/players auto-fold timers once the player has
-    // actually joined (name/color picked) - starting them at page load
-    // would risk folding the help panel away while they're still on the
-    // lobby form (see hud/collapsible.js).
+    // Start the HUD auto-fold timers only after joining.
     collapsibleHud.startAutoFold();
   },
   onReset() {
-    // applyLivePick() in lobby.js already respawned the car with the
-    // newly-picked color/vehicle - just re-sync the debug view's vehicle
-    // picker so it doesn't disagree with the new choice.
+    // lobby.js already respawned the car; just sync the debug picker.
     vehicleDebugPicker.syncFromCar();
   },
 });
 
 // ---------- Startup ----------
-// Load the initial terrain around the spawn point before starting the sim,
-// so the car never falls through an unloaded world. Buildings stream in
-// via the same per-frame animate() call once the car exists - not awaited
-// here, since building tiles are slower/less critical than the aerial/
-// elevation tile sources and terrain-only is enough to safely start
-// driving.
+// Load initial terrain before starting, so the car can't fall through.
+// Buildings stream in from the main loop.
 terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
-    // Skip the name/color prompt and preview car entirely in dev -
-    // joinRoom() spawns the (only) car and starts the loop itself. Joins
-    // with a previously saved car/color pick (devCarChoice, see above) if
-    // there is one, so switching cars/colors via the debug HUD survives a
-    // reload instead of resetting to the default every time.
+    // Dev: skip the lobby and join with the saved debug pick, if any.
     lobby.joinRoom('dev_mode', devCarChoice?.color ?? DEFAULT_BODY_COLOR, devCarChoice?.vehicleId);
     return;
   }
-  // If the player already picked a name/color on a previous visit, skip
-  // the prompt entirely and join straight away with those saved choices.
+  // Returning player: join straight away with the saved name/colour.
   if (lobby.tryAutoJoin()) return;
   lobby.enableJoinButton();
   lobby.setStatus('Enter your name and pick a color.');

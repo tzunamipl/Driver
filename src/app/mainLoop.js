@@ -1,22 +1,15 @@
 import * as THREE from 'three';
-import { lon2tileX, lat2tileY, localToLatLon, remapLocalOrigin } from '../lib/geo.js';
+import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, ORIGIN_LAT, ORIGIN_LON } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 
-// How often to persist the local car's position/orientation/odometer (see
-// lib/carState.js) - frequent enough that a crash/refresh rarely loses more
-// than a second of driving, infrequent enough to keep localStorage writes
-// off the per-frame hot path.
-const CAR_STATE_SAVE_INTERVAL_MS = 1000;
+const CAR_STATE_SAVE_INTERVAL_MS = 1000; // localStorage save throttle
 
-// The main animate() loop: fixed-timestep physics stepping (with the
-// ground-tunneling guard and interpolated render transforms), then
-// per-frame gameplay/HUD/camera/streaming updates and networking pose
-// publishing. This is the composition point that ties every other module
-// together each frame - it deliberately contains no physics/camera/HUD
-// *logic* of its own, only the call order between them.
+// Per-frame orchestration: fixed-step physics with guards and render
+// interpolation, then gameplay/HUD/camera/streaming updates and network
+// publishing. Only call order lives here, no logic of its own.
 
 export function createMainLoop({
   world,
@@ -57,15 +50,15 @@ export function createMainLoop({
   buildingTunnelGuard,
   preventBuildingEmbedding,
   scoring,
+  viewFrame,
+  floatingOrigin,
   isJoined,
 }) {
   let lastTime = performance.now();
   let accumulator = 0;
   let nextBallSend = 0;
   let nextCarStateSave = 0;
-  // Last-computed save payload, kept fresh every joined frame so the
-  // pagehide flush below can persist it immediately even if the reload
-  // happens between two throttled saves.
+  // Latest save payload, flushed on pagehide between throttled saves.
   let pendingCarState = null;
   window.addEventListener('pagehide', () => {
     if (pendingCarState) saveCarState(pendingCarState);
@@ -80,6 +73,10 @@ export function createMainLoop({
     const frameDelta = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
 
+    // First, so everything below sees one consistent frame. Not during a
+    // teleport: the view frame has already moved but the car hasn't.
+    if (!addressSearch.isTeleporting()) floatingOrigin.update(carManager.getVehicle()?.chassisBody.position);
+
     const vehicle = carManager.getVehicle();
     const chassisMesh = carManager.getChassisMesh();
     const reset = carManager.getReset();
@@ -88,40 +85,25 @@ export function createMainLoop({
     input.updateControls(vehicle, reset, frameDelta);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
-    // This player's own local (0, 0) origin - equal to the fixed network
-    // origin normally, but can diverge after a personal teleport (see
-    // ui/addressSearch.js). Every remote pose (always encoded relative to
-    // the fixed network origin - see config.js's ORIGIN_LAT/ORIGIN_LON)
-    // needs remapping into *this* frame before it means anything as a
-    // scene position here, and this player's own pose needs the inverse
-    // remap before publishing, so everyone else keeps interpreting it
-    // relative to the one frame they all still share.
-    const { lat: viewOriginLat, lon: viewOriginLon } = addressSearch.getCurrentOrigin();
+    // Network messages use the fixed network frame; remap them into this
+    // player's view frame (viewFrame.js), and ours back before publishing.
     function toViewFrame(pose) {
-      const { x, z } = remapLocalOrigin(pose.x, pose.z, ORIGIN_LAT, ORIGIN_LON, viewOriginLat, viewOriginLon);
-      return { ...pose, x, z };
+      return { ...pose, ...viewFrame.fromNetwork(pose.x, pose.z) };
+    }
+    function toNetworkFrame(pose) {
+      return { ...pose, ...viewFrame.toNetwork(pose.x, pose.z) };
     }
 
-    // Computed once per frame (rather than re-fetched/re-mapped at each of
-    // the three call sites below) since net.remotePoses() itself does
-    // interpolation work, and the remap is a no-op fast path when this
-    // player hasn't teleported anyway.
     const remotePoses = isJoined() ? net.remotePoses(now).map(toViewFrame) : [];
 
-    // Remote cars are kinematic obstacles. Place them before the step so
-    // the local chassis actually contacts them this frame (see
-    // remoteCollisions.js).
+    // Remote cars are kinematic obstacles; place them before the step.
     if (isJoined()) remoteCollisions.sync(remotePoses);
 
-    // Advance physics in fixed-size steps (accumulator pattern) instead of
-    // a single variable-size world.step() call. requestAnimationFrame
-    // deltas rarely divide evenly into FIXED_STEP, so letting cannon-es
-    // pick its own substep count each frame makes that count flicker
-    // (e.g. 1, 1, 2, 1...), which reads as jitter/stutter at high speed
-    // even though the underlying motion is smooth. Stepping fixed-size
-    // chunks ourselves and interpolating the render transform (see
-    // snapshotPhysics/syncMeshes) removes that.
-    accumulator += frameDelta;
+    // Fixed-size steps (accumulator) + interpolated rendering: a varying
+    // substep count per frame would show as jitter.
+    // Paused during a teleport: the old ground is gone and the new one is
+    // still loading, so the ground guard would rescue the car to the start.
+    if (!addressSearch.isTeleporting()) accumulator += frameDelta;
     let substeps = 0;
     while (accumulator >= FIXED_STEP && substeps < MAX_SUBSTEPS) {
       buildingTunnelGuard.beforeStep(carManager.getVehicle());
@@ -135,9 +117,7 @@ export function createMainLoop({
       accumulator -= FIXED_STEP;
       substeps++;
     }
-    // If we're badly lagging (hit MAX_SUBSTEPS), drop the remainder instead
-    // of letting it snowball into a "spiral of death" of ever-growing
-    // catch-up.
+    // Lagging badly: drop the remainder instead of spiralling.
     if (accumulator > FIXED_STEP) accumulator = accumulator % FIXED_STEP;
 
     const alpha = accumulator / FIXED_STEP;
@@ -158,7 +138,7 @@ export function createMainLoop({
     if (isJoined() && currentChassisMesh && currentVehicle) {
       if (!input.isTyping()) {
         const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
-        if (shot) net.publishProps({ type: 'shot', ...shot });
+        if (shot) net.publishProps({ type: 'shot', ...toNetworkFrame(shot) });
       }
       scoring.update(frameDelta, currentChassisMesh, currentVehicle);
       pedestrians.updatePopulation(
@@ -168,18 +148,7 @@ export function createMainLoop({
       );
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
-      // Remap this player's own local (view-frame) position back into the
-      // fixed network origin's frame before publishing - see the
-      // toViewFrame() comment above for why (a no-op unless this player
-      // has personally teleported).
-      const { x: netX, z: netZ } = remapLocalOrigin(
-        currentChassisMesh.position.x,
-        currentChassisMesh.position.z,
-        viewOriginLat,
-        viewOriginLon,
-        ORIGIN_LAT,
-        ORIGIN_LON
-      );
+      const { x: netX, z: netZ } = viewFrame.toNetwork(currentChassisMesh.position.x, currentChassisMesh.position.z);
       net.publishPose({
         x: netX,
         y: currentChassisMesh.position.y,
@@ -195,12 +164,11 @@ export function createMainLoop({
       });
       if (now >= nextBallSend) {
         nextBallSend = now + 100;
-        for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...pose });
+        for (const pose of balls.ownedPoses()) net.publishProps({ type: 'ball', ...toNetworkFrame(pose) });
       }
       carManager.updateRemotes(frameDelta, remotePoses);
 
-      // Kept fresh every frame (for the pagehide flush) but only actually
-      // written to localStorage on the throttled interval below.
+      // Fresh every frame (for pagehide); written on the throttle below.
       pendingCarState = {
         x: netX,
         y: currentChassisMesh.position.y,
@@ -234,15 +202,9 @@ export function createMainLoop({
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
-      viewOriginLat,
-      viewOriginLon,
+      viewFrame,
     });
-    // Per-wheel tyre-grip surface (road/water/normal - see
-    // lib/surfaceCompounds.js) read by wheeledVehicle.js's applyFriction()
-    // on the *next* physics step(s) this frame's accumulator loop runs -
-    // same one-frame-lag timing splash.js already accepts for its own
-    // wheel-on-water check below, using each wheel's last-known world
-    // position rather than blocking on a fresh raycast mid-step.
+    // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
         const pos = wheel.worldTransform.position;
@@ -253,112 +215,54 @@ export function createMainLoop({
       streets,
       waterAreas,
     });
-    // Wheel-splash particles: independent of debugVisualsEnabled (see
-    // lib/splash.js/vectorPolygonLayer.js's doc comments) so this shows
-    // during normal play, not just with the debug overlay open. Also
-    // passes streets so a wheel on a bridge road over water (road wins,
-    // per terrainSurface.js's classifySurfaceAt) doesn't splash, and
-    // rivers so narrow waterway centerlines (too thin to be filled
-    // polygons in waterAreas) splash too.
+    // Effects run regardless of debug state. Splash also takes streets
+    // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
-    // Tyre-smoke particles: reads wheel.sliding/wheel.surface (already set
-    // above/by wheeledVehicle.js's friction solve), so like splash.js this
-    // runs unconditionally - not gated on debugVisualsEnabled.
     tireSmoke.update(frameDelta, currentVehicle, world);
-    // Terrain-dust particles: plain-ground (wheel.surface === 'normal')
-    // counterpart to tireSmoke's paved-road case, gated on the same
-    // wheel.sliding flag (see lib/terrainDust.js) - unconditional like
-    // splash/tireSmoke, not gated on debugVisualsEnabled.
     terrainDust.update(frameDelta, currentVehicle, world);
-    // Chassis body-dust particles: driven by discrete 'collide' events
-    // (see app/carManager.js's hookCar) rather than a per-frame
-    // grounded check like splash/tireSmoke, so only animate/age already-
-    // spawned puffs here.
+    // Body dust is spawned by collide events; this only ages puffs.
     bodyDust.update(frameDelta);
-    // Distant high-altitude clouds: purely cosmetic and independent of
-    // join/debug state like the particle effects above, but needs the
-    // player's current position to know where "the far horizon" currently
-    // is - skipped only in the one frame before the chassis mesh exists.
     if (currentChassisMesh) {
       clouds.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z, currentChassisMesh.position.y);
     }
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
-      // Keep the sun (and its shadow frustum) centered on the car so
-      // shadows keep rendering as it drives away from the spawn point.
+      // Keep the sun and its shadow frustum centred on the car.
       sun.position.copy(SUN_OFFSET).add(currentChassisMesh.position);
       sun.target.position.copy(currentChassisMesh.position);
       sun.target.updateMatrixWorld();
       sunDisc.position.copy(SUN_OFFSET).multiplyScalar(5000).add(currentChassisMesh.position);
 
-      // Stream terrain/buildings chunks in/out as the car moves (cheap
-      // no-op if the player is still inside the currently-loaded tile) -
-      // but never while a teleport (ui/addressSearch.js's recenter()) is
-      // in flight. During that window terrain.originLat/originLon have
-      // already flipped to the destination while the chassis mesh is
-      // still sitting at its *old* local position (it only moves once
-      // recenter() resolves and reset() runs), so computing a tile center
-      // from the two here would reinterpret stale local coordinates
-      // against the new origin and stream in a bogus, unrelated
-      // neighborhood - clobbering TerrainManager's center bookkeeping out
-      // from under the recenter() call already streaming in the real
-      // destination tiles (visible as tiles stuck "planned" in the debug
-      // HUD while the loaded-tile count climbs from the stray fetches).
+      // Stream around the car, but not during a teleport: the origin has
+      // already moved while the car hasn't, so tile math would be bogus.
       if (!addressSearch.isTeleporting()) {
-        // Car's facing direction (local XZ only), used to prioritize the
-        // LOW-detail ring's streaming queue toward tiles ahead of the
-        // player over ones behind - see TerrainManager.update()'s heading
-        // param / _queuePriorityRank.
+        // Facing prioritizes LOW-ring terrain tiles ahead of the car.
         terrainHeading.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
         terrain.update(currentChassisMesh.position.x, currentChassisMesh.position.z, false, {
           x: terrainHeading.x,
           z: terrainHeading.z,
         });
 
-        // Buildings stream on the same DETAIL_ZOOM tile grid as the terrain
-        // detail tier; compute the current tile center the same way
-        // TerrainManager.update() does internally so the two stay aligned.
-        const { lat: carLat, lon: carLon } = localToLatLon(
+        // Same DETAIL_ZOOM tile centre as TerrainManager computes.
+        const { lat: carLat, lon: carLon } = viewFrame.toLatLon(
           currentChassisMesh.position.x,
-          currentChassisMesh.position.z,
-          viewOriginLat,
-          viewOriginLon
+          currentChassisMesh.position.z
         );
         const tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
         const tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
-        // Load priority: terrain (above, needed for driving/physics) first,
-        // then roads/rivers, then buildings last - buildings are by far
-        // the most expensive to construct (per-building convex hull/
-        // raycasts/extrusion, see buildings.js), so kicking off their
-        // fetch/build last means the cheaper, more immediately important
-        // content (ground to drive on, then the debug road/river overlay)
-        // is never left waiting behind it. All four stream on the same
-        // tile grid, and all three of streets/rivers/waterAreas always
-        // fetch/build regardless of the M-key debug overlay's own
-        // visibility (buildings.js has no such toggle to begin with),
-        // since their data also drives gameplay: streets' per-wheel
-        // tyre-grip surface classification, and both rivers' and
-        // waterAreas' splash.js wheel-on-water check (see
-        // vectorLineLayer.js's alwaysStream option doc comment and
-        // vectorPolygonLayer.js's own doc comment) - and
-        // every manager time-slices its own CPU-heavy mesh/physics
-        // building across frames (see buildings.js's BUILD_TIME_BUDGET_MS)
-        // rather than doing it all in the frame it becomes available, so
-        // none of this ever freezes a frame.
+        // Order: terrain (above), overlays, then buildings (most expensive).
+        // Overlays always stream: they drive tyre grip and splash.
+        // Every manager time-slices its building work.
         streets.update(tileX, tileY);
         rivers.update(tileX, tileY);
         waterAreas.update(tileX, tileY);
         buildings.update(tileX, tileY);
       }
-      // Catch a car that ended up inside a building's solid volume - a
-      // tile streaming in under an already-parked car, or a teleport
-      // landing on a spot a building occupies - and lift it onto the
-      // roof. Checked here (frame cadence) rather than per physics
-      // substep since that's also how buildings stream in/teleports land.
+      // Lift a car found inside a building onto its roof.
       preventBuildingEmbedding(currentVehicle);
 
-      minimapHud.update(currentChassisMesh, { lat: viewOriginLat, lon: viewOriginLon }, remotePoses);
+      minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
 
     renderer.render(scene, camera);

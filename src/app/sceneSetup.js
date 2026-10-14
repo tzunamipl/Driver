@@ -1,29 +1,15 @@
 import * as THREE from 'three';
-import { FAR_BASE_COLOR, SKY_COLOR } from '../lib/terrain.js';
+import { SKY_COLOR } from '../lib/terrain.js';
 
-// Renderer / scene / camera / lighting bootstrap - the pure "rendering
-// environment" concern, isolated from physics, gameplay, and UI so it can
-// be tuned (fog, shadows, FOV...) independently of everything else.
+// Renderer, scene, camera and lights.
 
-// Fog is tinted to match the FAR backdrop tier's own low-detail terrain
-// color (its lowland elevation-ramp stop, see terrain.js FAR_BASE_COLOR)
-// rather than the LOW tier's debug HUD color, so fogged-out tiles visually
-// fade/"fall into" the same tone the low-detail backdrop already uses.
-//const FOG_COLOR = FAR_BASE_COLOR; // Solution binded to FAR terrain
-const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex(); // Hardcoded solution
+const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex();
 
-/**
- * Builds the renderer, scene, and camera and mounts the renderer's canvas
- * into #app. Returns the trio plus a resize() hook to wire up externally.
- */
+/** Builds renderer/scene/camera, mounts the canvas in #app; returns them plus resize(). */
 export function createSceneEnvironment() {
   const app = document.getElementById('app');
 
-  // Logarithmic depth buffer: needed because the view now spans from ~0.1m
-  // (car interior/wheels) out to the far-LOD terrain tier tens of km away
-  // (see terrain.js FAR_RADIUS_METERS) - a standard depth buffer doesn't
-  // have enough precision across that range and would z-fight badly at
-  // distance.
+  // Logarithmic depth: the view spans ~0.1 m to over 100 km.
   const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -32,15 +18,8 @@ export function createSceneEnvironment() {
 
   const scene = new THREE.Scene();
   scene.background = SKY_COLOR.clone();
-  // Linear (not exponential) fog: stays fully clear out to 10km - nearby
-  // and most of the LOW detail tier reads crisp with no haze at all - then
-  // fades LOW detail tiles out between 10km and 20km (LOW_DETAIL_RADIUS's
-  // own max reach), fully dissolving them into the fog color by 20km. The
-  // FAR backdrop tier beyond that opts out of fog entirely (see its
-  // material's fog:false in terrain.js) so it keeps its own hand-tuned
-  // elevation color ramp instead of flattening into the fog color. Fog
-  // only affects rendered geometry, not the sky (scene.background above
-  // stays plain sky blue, deliberately not fog-tinted).
+  // Linear fog for non-terrain objects; terrain and sky opt out (terrain
+  // has its own distance haze, see terrain.js).
   const FOG_NEAR_METERS = 6_000;
   const FOG_FAR_METERS = 13_000;
   scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR_METERS, FOG_FAR_METERS);
@@ -49,9 +28,7 @@ export function createSceneEnvironment() {
     70,
     window.innerWidth / window.innerHeight,
     0.1,
-    // Far plane must reach past the far-LOD terrain tier's radius (see
-    // terrain.js FAR_RADIUS_METERS = 150km) or that whole tier gets
-    // frustum-culled and is never rendered no matter how the fog is tuned.
+    // Far plane must exceed FAR_RADIUS_METERS or distant terrain is culled.
     160_000
   );
   camera.position.set(0, 5, -8);
@@ -65,11 +42,7 @@ export function createSceneEnvironment() {
   return { renderer, scene, camera };
 }
 
-/**
- * Adds ambient + directional (sun) lighting to the scene. The sun's
- * position/target get re-centered on the car every frame (see mainLoop.js)
- * so its shadow frustum keeps up as the car drives away from spawn.
- */
+/** Ambient + sun light; mainLoop keeps the sun centred on the car for shadows. */
 export function createLighting(scene) {
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
   const sun = new THREE.DirectionalLight(0xffffff, 3.2);

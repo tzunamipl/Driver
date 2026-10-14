@@ -1,226 +1,111 @@
-// Central app configuration: run mode, spawn origin, and tuning constants
-// shared across modules. Keeping these here (rather than scattered through
-// main.js) lets other files (input, camera, HUD, physics...) import just
-// the constants they need without depending on the composition root.
+// App-wide configuration and shared tuning constants.
 
 // ---------- App mode ----------
-// Two run modes, driven by Vite's built-in DEV flag (true for `npm run dev`,
-// false for `npm run build`/the deployed GitHub Pages build - see
-// vite.config.js), so no extra env setup is needed to get the right mode:
-//  - "dev": local development. Debug visuals (tile HUD, hitbox wireframes)
-//    default on. Networking (the shared MQTT room) is a prod-only feature -
-//    dev mode never opens that connection, so you always drive
-//    solo/offline against localhost without depending on (or spamming) the
-//    public broker.
-//  - "prod": the shared remote build. Debug visuals default off.
-// Can still be forced either way (e.g. to test the prod build's behavior
-// from `vite dev`) via ?mode=prod / ?mode=dev in the URL.
+// "dev" (vite dev): debug visuals on, no networking.
+// "prod" (build): shared MQTT room, debug visuals off.
+// Override with ?mode=dev / ?mode=prod.
 const FORCED_MODE = new URLSearchParams(location.search).get('mode');
 export const APP_MODE = FORCED_MODE === 'dev' || FORCED_MODE === 'prod' ? FORCED_MODE : (import.meta.env.DEV ? 'dev' : 'prod');
 export const IS_DEV_MODE = APP_MODE === 'dev';
-// Whether the player is allowed to change their real-world location (via
-// the address search bar). Always on: teleporting only ever recenters the
-// requesting player's own terrain/buildings/car and is never broadcast to
-// anyone else, so it can't disturb the shared world's starting point or
-// any other player's session (see ui/addressSearch.js).
+// Address-search teleport; local to this player, never broadcast.
 export const CAN_CHANGE_LOCATION = true;
-// Whether to connect to the shared MQTT room at all (see net.js). Off in
-// dev so local development never touches the public broker.
 export const CAN_USE_NETWORK = !IS_DEV_MODE;
 
-// Real-world spawn location (Wroclaw city center). The terrain streams in
-// real aerial imagery + elevation around wherever the car currently is, so
-// you can drive anywhere on Earth from here - it's just the starting point.
-// Also doubles as the fixed "network origin": every player's pose is
-// published/interpreted in local meters relative to this exact point, for
-// everyone, forever, regardless of where any individual player personally
-// teleports their own view to (see ui/addressSearch.js + geo.js's
-// remapLocalOrigin) - that's what keeps a personal teleport from moving
-// the shared starting point or corrupting multiplayer position sync.
+// Spawn point (Wroclaw) and fixed network origin: all poses are exchanged
+// in local metres relative to it, whatever each player teleports to.
 export const ORIGIN_LAT = 51.1079;
 export const ORIGIN_LON = 17.0385;
 
-// Starting body color when the lobby is skipped (dev mode). The lobby
-// itself uses a color picker; this is only the fallback blue.
+// Body colour when the lobby is skipped (dev mode).
 export const DEFAULT_BODY_COLOR = 0xffffff;
 
 // ---------- Controls ----------
 export const STEER_SPEED = 0.01
 export const MAX_STEER = 0.5;
-// Flat brake force (Newtons) applied at each wheel/engine when the
-// handbrake is held, shared by every vehicle regardless of its own engine
-// power - deliberately NOT derived from any per-vehicle power rating (see
-// lib/car.js's enginePowerHp / lib/vehicles/podRacer.js's
-// engineThrustForce), so retuning one vehicle's power can't silently
-// change how hard every vehicle brakes.
+// Flat per-wheel handbrake force, independent of vehicle power.
 export const BRAKE_FORCE = 3000;
 export const TURBO_MULT = 4;
-// Jump charges while the button is held and fires on release. A tap is a
-// small hop; holding out the full charge time reaches the high jump.
+// Hold to charge, release to jump; full charge = max speed.
 export const JUMP_CHARGE_S = 1.2;
 export const JUMP_MIN_SPEED = 5;
 export const JUMP_MAX_SPEED = 15;
-// Air steering. Wheels do nothing once they're off the ground, so A/D add
-// yaw directly. Capped so a held turn is a heading change, not a blender.
+// Airborne A/D adds yaw directly, capped.
 export const AIR_YAW_ACCEL = 2.4;
 export const AIR_YAW_MAX = 1.5;
 
 // ---------- Collision response (arcade impact roll) ----------
-// Ignore near-stationary grazes/resting contacts (e.g. gently rolling up
-// against a wall) - only impacts above this relative speed (m/s along the
-// contact normal) trigger the arcade flip/roll response.
-export const IMPACT_ROLL_MIN_SPEED = 2.5;
-// Tuning knob for how dramatic a qualifying hit's induced spin is; scales
-// linearly with impact speed, so a glancing tap barely rocks the car while
-// a hard head-on/corner hit can flip it.
-export const IMPACT_ROLL_TORQUE_SCALE = 0.22;
+export const IMPACT_ROLL_MIN_SPEED = 2.5; // m/s along the normal; slower contacts ignored
+export const IMPACT_ROLL_TORQUE_SCALE = 0.22; // spin per m/s of impact
 
 // ---------- Ground-tunneling guard ----------
 export const GROUND_RAY_HEIGHT = 50;
 export const MIN_GROUND_CLEARANCE = 0.05;
 
 // ---------- Building-tunneling guard ----------
-// Below this squared distance moved in a single physics step, don't bother
-// sweeping - normal driving speeds never cover enough ground in 1/60s to
-// tunnel through a building anyway, so this is just cutting out a
-// raycastClosest call on almost every step.
-export const BUILDING_SWEEP_MIN_DIST_M = 0.15;
-// How far back along the step's own movement to land the chassis once a
-// tunneling hit is caught - just enough clearance that next step's normal
-// contact resolution can take over instead of immediately re-tunneling.
-export const BUILDING_SWEEP_BACKOFF_M = 0.1;
+export const BUILDING_SWEEP_MIN_DIST_M = 0.15; // skip the sweep for smaller per-step moves
+export const BUILDING_SWEEP_BACKOFF_M = 0.1; // pull-back distance after a caught tunnel
 
 // ---------- Building-embed guard ----------
-// How far above/below the chassis to cast the "is this spot under a
-// building's roof?" ray - tall enough to clear any real building plus the
-// chassis' own resting height on either side.
 export const BUILDING_EMBED_RAY_HEIGHT = 500;
-// Tolerance (metres) before a chassis sitting right at/just above a roof
-// (i.e. legitimately parked on top of a building) is mistaken for one
-// embedded just below it.
-export const BUILDING_EMBED_EPSILON_M = 0.2;
+export const BUILDING_EMBED_EPSILON_M = 0.2; // tolerance so parking on a roof isn't "embedded"
 
 // ---------- Score ----------
-// One point per whole kilometre of horizontal travel. A frame that jumps
-// farther than this is a reset or a map recenter, not driving.
 export const SCORE_PER_KM = 1;
-export const SCORE_TELEPORT_M = 20;
-// Ten points per whole second the car is actually flying: every wheel off
-// the ground, and the chassis center at least this far above the terrain.
-// Resting ride height is about 1.25 m; fully extended suspension just
-// clears the surface around 2 m, so 2.4 m is a real gap rather than a
-// crest, a curb, or the car sitting on its roof.
+export const SCORE_TELEPORT_M = 20; // larger per-frame jumps are resets, not driving
+// Airtime: all wheels off and chassis this high above terrain (ride
+// height ~1.25 m, full droop ~2 m).
 export const SCORE_PER_AIR_SECOND = 10;
 export const FLIGHT_MIN_CLEARANCE_M = 2.4;
-// How upright the chassis must be, mid-air, for airtime to keep counting:
-// the dot product of the chassis' local up axis (world-transformed) against
-// world up. 1 is dead level, 0 is on its side, -1 is upside down. 0.5 (~60°
-// of pitch/roll either way) still allows a stunt jump's natural rotation
-// while excluding an actual barrel-roll/flip from paying out.
+// Min dot(chassis up, world up) for airtime to count (0.5 ~ 60deg tilt).
 export const AIRTIME_MIN_UPRIGHT_DOT = 0.5;
-// A jump must be airborne at least this long before it pays out at all -
-// filters out curbs, bumps, and other trivial hops that briefly lift a
-// wheel but aren't a real jump.
-export const AIRTIME_MIN_DURATION_S = 0.5;
+export const AIRTIME_MIN_DURATION_S = 0.5; // shorter hops don't pay
 export const SCORE_PER_PEDESTRIAN = 5;
-// A few points for a shot that connects with another player's car. Less
-// than running someone over, and only the shooter scores.
-export const SCORE_PER_CAR_HIT = 3;
+export const SCORE_PER_CAR_HIT = 3; // shooter only
 
 // ---------- Camera follow ----------
-// These CAMERA_* constants are the *shared* baseline every camera view
-// (chase/close/cinematic/hood - see app/cameraViews/) falls back to for
-// any parameter it doesn't explicitly override - the same
-// shared-defaults-plus-per-item-overrides split used for vehicles
-// (lib/car.js's DEFAULT_* constants + each lib/vehicles/*.js descriptor)
-// and surface compounds (lib/surfaceCompounds.js). Keeping the common
-// smoothing/behavior tuning here means a single view can change just its
-// camera offset/look-at without having to restate (and risk drifting
-// from) every shared knob below; app/cameraViews/index.js is the
-// registry of distinct per-view descriptors and app/cameraFollow.js does
-// the `view.field ?? SHARED_DEFAULT` merge each frame.
+// Shared defaults; each view in app/cameraViews/ may override any of them.
 export const CAMERA_OFFSET = [0, 20, -30];
 export const CAMERA_LOOKAT_OFFSET = [0, 5, 10];
-// Lower = smoother/slower camera pan, so crashes don't whip the camera around.
-export const CAMERA_POSITION_SPEED = 3;
+export const CAMERA_POSITION_SPEED = 3; // lower = smoother
 export const CAMERA_LOOKAT_SPEED = 50;
-// Raw yaw (from the chassis quaternion) carries small high-frequency noise
-// from suspension/wheel-contact vibration, which gets amplified a lot by
-// the long camera offset (~36 units) into visible high-speed jitter. Smooth
-// the yaw angle itself (not just the final position) to filter that noise
-// out while still turning briskly with real heading changes.
+// Yaw is smoothed separately: suspension noise in the raw yaw is amplified
+// by the long offset into jitter.
 export const CAMERA_YAW_SPEED = 6;
-// Below this dot(carUp, worldUp) the car is considered "flipped" (on its
-// roof/side, tumbling mid-crash, etc.) - roughly more than ~60 degrees of
-// tilt. Projecting the forward vector to get a yaw becomes unstable/
-// meaningless once the car is that far from upright (it can spin the
-// camera rapidly during a barrel roll), so we just freeze the last good
-// yaw and hold the camera steady until the car is upright again.
+// Below this dot(carUp, worldUp) the car counts as flipped; yaw is frozen.
 export const FLIP_UP_DOT_THRESHOLD = 0.5;
-// Below this horizontal speed (m/s) the velocity direction is too noisy/
-// undefined (e.g. standing still, or barely rolling) to aim the camera at,
-// so we fall back to the chassis heading instead.
+// Below this speed (m/s) aim along the chassis heading, not velocity.
 export const CAMERA_MIN_SPEED_FOR_VELOCITY_YAW = 1;
-// Pull the camera closer to the car as it slows down, so standing still/
-// crawling feels more intimate while cruising at speed keeps the wider,
-// more "in control" framing. Below this speed (m/s) the camera sits at
-// its closest offset.
+// Offset scales with speed: SCALE_AT_MIN at/below MIN_SPEED .. SCALE_AT_MAX
+// at/above MAX_SPEED (m/s).
 export const CAMERA_CLOSE_MIN_SPEED = 10;
-// At/above this speed (m/s) the camera reaches its farthest offset.
 export const CAMERA_CLOSE_MAX_SPEED = 100;
-// Distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at/below
-// CAMERA_CLOSE_MIN_SPEED (1 = no change, lower = closer to the car).
 export const CAMERA_CLOSE_SCALE_AT_MIN_SPEED = 0.6;
-// Distance scale applied to CAMERA_OFFSET/CAMERA_LOOKAT_OFFSET at/above
-// CAMERA_CLOSE_MAX_SPEED (1 = no change, higher = farther from the car).
 export const CAMERA_CLOSE_SCALE_AT_MAX_SPEED = 1;
-// The exponential position/look-at smoothing above has a fixed settling
-// time (~1/CAMERA_*_SPEED seconds), so while the car is moving at a
-// constant velocity the smoothed camera steadily trails behind by
-// (velocity * that settling time) - negligible at normal speeds but tens
-// of meters at extreme speeds (e.g. ~500km/h). To cancel that steady-state
-// lag without touching the smoothing itself (which would bring jitter
-// back), the smoothing target is pushed ahead by the car's velocity
-// scaled by its own settling time before being smoothed, so a constant
-// velocity converges to zero lag. 1 = full compensation, 0 = none.
+// Leads the smoothing target by velocity * settling time to cancel the
+// steady-state lag at high speed (1 = full, 0 = none).
 export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
-// Tilt the camera up/down slightly to follow steep slopes (climbing a
-// hill) or a steep fall (off a cliff/jump), based on the car's velocity
-// angle (vertical speed vs horizontal speed) - purely cosmetic framing,
-// separate from the no-roll rule which only bans *unintentional* tilt
-// from chassis bumps/rolling.
-// Smoothing rate for the pitch angle (same role as CAMERA_YAW_SPEED) -
-// filters out suspension/bump noise so only sustained climbs/falls tilt
-// the camera, not every pothole.
+// Cosmetic pitch following sustained climbs/falls (velocity angle).
 export const CAMERA_PITCH_SPEED = 5;
-// Maximum camera tilt (radians, ~12 degrees), applied regardless of how
-// steep/fast the actual fall or climb is - keeps the effect subtle.
 export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
-// Below this horizontal speed (m/s) the velocity angle is too noisy/
-// undefined (e.g. standing still) to derive a pitch from, so the camera
-// levels back out instead.
-export const CAMERA_PITCH_MIN_SPEED = 2;
+export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
 
 // ---------- Terrain stats HUD ----------
-// 8-direction lookup, ordered to match on-screen layout: grid columns are
-// tile-x (world +x/east, left->right) and grid rows are tile-y (world
-// +z/south, top->bottom) - see geo.js. So a direction's (dx, dy) here maps
-// 1:1 onto how many cells to step right/down in the rendered grid, and the
-// arrow glyphs point the same way on screen as the car is actually heading.
+// Columns = tile x (east, left->right), rows = tile y (south, top->bottom),
+// so (dx, dy) steps match the on-screen grid.
 export const DIRECTIONS = [
-  { dx: 0, dy: -1, arrow: '\u2191' }, // N (up)
-  { dx: 1, dy: -1, arrow: '\u2197' }, // NE
-  { dx: 1, dy: 0, arrow: '\u2192' }, // E (right)
-  { dx: 1, dy: 1, arrow: '\u2198' }, // SE
-  { dx: 0, dy: 1, arrow: '\u2193' }, // S (down)
-  { dx: -1, dy: 1, arrow: '\u2199' }, // SW
-  { dx: -1, dy: 0, arrow: '\u2190' }, // W (left)
-  { dx: -1, dy: -1, arrow: '\u2196' }, // NW
+  { dx: 0, dy: -1, arrow: '↑' }, // N (up)
+  { dx: 1, dy: -1, arrow: '↗' }, // NE
+  { dx: 1, dy: 0, arrow: '→' }, // E (right)
+  { dx: 1, dy: 1, arrow: '↘' }, // SE
+  { dx: 0, dy: 1, arrow: '↓' }, // S (down)
+  { dx: -1, dy: 1, arrow: '↙' }, // SW
+  { dx: -1, dy: 0, arrow: '←' }, // W (left)
+  { dx: -1, dy: -1, arrow: '↖' }, // NW
 ];
-export const STATS_UPDATE_INTERVAL = 0.25; // seconds; DOM updates don't need to happen every frame
+export const STATS_UPDATE_INTERVAL = 0.25; // seconds
 
 // ---------- Networking / lobby ----------
 export const NET_STATUS_TEXT = {
@@ -230,14 +115,8 @@ export const NET_STATUS_TEXT = {
 };
 
 // ---------- Players panel HUD ----------
-// DOM updates don't need to happen every frame - a peer's roster idle
-// state only changes on the order of seconds.
 export const PLAYERS_UPDATE_INTERVAL = 1; // seconds
-// Below this time since a peer's last pose update, they're shown as
-// "Active" (poses stream every ~100ms while a tab is open/connected, so in
-// practice this only flips to idle once someone's tab is backgrounded,
-// their connection hiccups, or they're about to drop out of the roster
-// entirely - see net.js ROSTER_TTL_MS).
+// "Active" if a pose arrived within this window (poses stream ~10/s).
 export const PLAYERS_ACTIVE_THRESHOLD_MS = 60_000;
 
 
@@ -246,32 +125,16 @@ export const FIXED_STEP = 1 / 60;
 export const MAX_SUBSTEPS = 5;
 
 // ---------- Minimap HUD ----------
-// Slippy-map tile zoom levels (same convention as the terrain streamer).
-// 3 is whole-continent scale; 19 is close to individual-building scale.
-export const MINIMAP_MIN_ZOOM = 3;
-export const MINIMAP_MAX_ZOOM = 19;
+export const MINIMAP_MIN_ZOOM = 3; // continent
+export const MINIMAP_MAX_ZOOM = 19; // buildings
 export const MINIMAP_DEFAULT_ZOOM = 17;
-// Diameter of the round minimap widget, in CSS pixels. Documents the
-// actual size set on #minimap in index.html (the widget reads its real
-// size off the DOM each frame, so this constant isn't consumed directly -
-// keep it in sync if you resize the CSS).
+// Documents the #minimap CSS size; not read by code (keep in sync).
 export const MINIMAP_SIZE_PX = 260;
+
+// ---------- localStorage keys ----------
 export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
-// Persists the lobby name/color choice across reloads (see src/ui/lobby.js).
 export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
-// Persists the local car's last known position/orientation/odometer across
-// reloads (see src/lib/carState.js).
 export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
-// Persists the dev-mode debug HUD's last-picked car/color across reloads
-// (see src/hud/vehicleDebugPicker.js) - separate from LOBBY_STORAGE_KEY
-// since dev mode never shows/uses the lobby form itself.
-export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1';
-// Persists a stable, invisible-to-the-player network identity across
-// reloads (see src/lib/playerId.js), so this browser keeps the same
-// "clientId" instead of minting a new one every page load - otherwise
-// every reload would look like a brand-new peer to everyone else (ghost
-// duplicates in the remote-cars list and "who's online" roster).
-export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1';
-// Persists the last-picked camera view (see app/cameraViews/) across
-// reloads, same pattern as MINIMAP_STORAGE_KEY above.
+export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
+export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';

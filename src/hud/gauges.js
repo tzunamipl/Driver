@@ -65,7 +65,7 @@ export function createGaugesHud({ initialKm = 0 } = {}) {
     tachRpm.textContent = `${Math.round(engine.rpm)} RPM`;
   }
 
-  return { updateGauges, getOdometerKm: () => odometer.getKm() };
+  return { updateGauges, shiftOrigin: odometer.shiftOrigin, getOdometerKm: () => odometer.getKm() };
 }
 
 // Needle/tick angle for a given rpm: sweeps -90deg (0 rpm) to +90deg
@@ -174,7 +174,13 @@ function createOdometer(root, wheelsEl, initialKm = 0) {
   }
 
   paint();
-  return { addTravel, disarm, getKm: () => km };
+  /** Floating-origin shift: not travel. */
+  function shiftOrigin(dx, dz) {
+    prevX -= dx;
+    prevZ -= dz;
+  }
+
+  return { addTravel, disarm, shiftOrigin, getKm: () => km };
 }
 
 // Position of one drum in digit-heights, 0..10. The tenths drum rolls

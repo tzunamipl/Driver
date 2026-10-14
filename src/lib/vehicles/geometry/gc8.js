@@ -1,84 +1,36 @@
 import * as THREE from 'three';
+import { buildImprezaBody } from './impreza.js';
 
-function taperCabinTop(geometry, frontInset, backInset) {
-    const pos = geometry.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-        const y = pos.getY(i);
-        const z = pos.getZ(i);
-        if (y > 0) {
-            if (z > 0) pos.setZ(i, z - frontInset);
-            else pos.setZ(i, z + backInset);
+// Impreza WRX sedan (GC8): short roof, raked rear window, trunk deck,
+// hood scoop, round fog lights and a trunk wing.
+const SEDAN = {
+    rearTop: [[-1.4, 0.27], [-2.05, 0.3], [-2.14, 0.27], [-2.17, 0.15]],
+    roofTail: (belt) => [[-0.95, 0.755], [-1.1, 0.73], [-1.55, belt(-1.55) + 0.005]],
+    rearPinchZ: -0.9,
+    roofEndZ: -1.0,
+    rearPanel: (roof, belt) => [[-0.85, belt(-0.85)], [-0.95, roof(-0.95) - 0.045], [-1.1, roof(-1.1)], [-1.55, belt(-1.55) + 0.005]],
+    rearFrame: [[-1.1, -1.55]],
+    blackPillars: [-0.42],
+    sealEndZ: -0.87,
+    decorate({ add, box, materials }) {
+        const fogMat = new THREE.MeshStandardMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
+
+        // Hood scoop, following the hood's forward slope
+        const scoop = box(0.46, 0.07, 0.4, materials.body, 0, 0.225, 1.25);
+        scoop.rotation.x = 0.1;
+        box(0.36, 0.04, 0.02, materials.trim, 0, 0.235, 1.455).rotation.x = 0.1;
+
+        for (const side of [-1, 1]) {
+            const fog = add(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 8), fogMat, side * 0.56, -0.13, 2.225);
+            fog.rotation.x = Math.PI / 2;
+            box(0.42, 0.13, 0.05, materials.tail, side * 0.53, 0.08, -2.17); // wide taillight
+            box(0.05, 0.12, 0.08, materials.body, side * 0.6, 0.35, -1.98);  // wing strut
         }
-    }
-    pos.needsUpdate = true;
-    geometry.computeVertexNormals();
-    return geometry;
-}
+        box(1.5, 0.035, 0.22, materials.body, 0, 0.425, -1.99).rotation.x = -0.08; // wing
+        box(0.52, 0.11, 0.012, materials.plate, 0, -0.07, -2.18);
+    },
+};
 
-export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
-    const group = new THREE.Group();
-
-    const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.45 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x161616, metalness: 0.2, roughness: 0.8 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
-    const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0x554417, roughness: 0.3 });
-    const fogMat = new THREE.MeshStandardMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
-    const tailMat = new THREE.MeshStandardMaterial({ color: 0x7a0f0f, emissive: 0x3a0000, roughness: 0.4 });
-
-    const parts = [];
-    const add = (geometry, material, x, y, z) => {
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, y+0.2, z);
-        mesh.castShadow = true;
-        parts.push(mesh);
-        return mesh;
-    };
-
-    // Main lower body shell.
-    add(new THREE.BoxGeometry(chassisWidth, 0.5, chassisLength * 0.9), bodyMat, 0, -0.3, 0);
-
-    // Tapered cabin/greenhouse (windshield rake at front, rear-window rake at back).
-    const cabinGeo = taperCabinTop(new THREE.BoxGeometry(chassisWidth * 0.83, 0.55, chassisLength * 0.5), 0.5, 0.35);
-    add(cabinGeo, glassMat, 0, 0.175, -0.1);
-
-    // Hood (protrudes slightly past the main shell toward the nose).
-    add(new THREE.BoxGeometry(chassisWidth * 0.97, 0.12, chassisLength * 0.28), bodyMat, 0, 0.01, chassisLength * 0.36);
-
-    // Front bumper/nose cap.
-    add(new THREE.BoxGeometry(chassisWidth, 0.35, 0.25), trimMat, 0, -0.35, chassisLength * 0.475);
-
-    // Rear trunk deck + bumper.
-    add(new THREE.BoxGeometry(chassisWidth * 0.97, 0.15, chassisLength * 0.2), bodyMat, 0, -0.02, -chassisLength * 0.39);
-    add(new THREE.BoxGeometry(chassisWidth, 0.3, 0.2), trimMat, 0, -0.35, -chassisLength * 0.4875);
-
-    // Grille + rectangular headlights.
-    add(new THREE.BoxGeometry(0.5, 0.15, 0.03), trimMat, 0, -0.15, chassisLength * 0.49);
-    add(new THREE.BoxGeometry(0.35, 0.18, 0.05), lightMat, chassisWidth * 0.36, -0.1, chassisLength * 0.49);
-    add(new THREE.BoxGeometry(0.35, 0.18, 0.05), lightMat, -chassisWidth * 0.36, -0.1, chassisLength * 0.49);
-
-    // Round rally fog lights (Impreza GC trademark).
-    const fogGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.06, 12);
-    fogGeo.rotateX(Math.PI / 2);
-    add(fogGeo, fogMat, chassisWidth * 0.28, -0.42, chassisLength * 0.5);
-    add(fogGeo.clone(), fogMat, -chassisWidth * 0.28, -0.42, chassisLength * 0.5);
-
-    // Taillights.
-    add(new THREE.BoxGeometry(0.3, 0.15, 0.05), tailMat, chassisWidth * 0.42, 0, -chassisLength * 0.49);
-    add(new THREE.BoxGeometry(0.3, 0.15, 0.05), tailMat, -chassisWidth * 0.42, 0, -chassisLength * 0.49);
-
-    // Hood scoop (WRX icon).
-    add(new THREE.BoxGeometry(0.45, 0.08, 0.4), trimMat, 0, 0.11, chassisLength * 0.325);
-
-    // Side mirrors.
-    add(new THREE.BoxGeometry(0.1, 0.08, 0.15), bodyMat, chassisWidth * 0.53, 0.15, chassisLength * 0.15);
-    add(new THREE.BoxGeometry(0.1, 0.08, 0.15), bodyMat, -chassisWidth * 0.53, 0.15, chassisLength * 0.15);
-
-    // Rear STI wing on struts.
-    const strutGeo = new THREE.BoxGeometry(0.05, 0.35, 0.05);
-    add(strutGeo, trimMat, chassisWidth * 0.36, 0.2, -chassisLength * 0.46);
-    add(strutGeo.clone(), trimMat, -chassisWidth * 0.36, 0.2, -chassisLength * 0.46);
-    add(new THREE.BoxGeometry(chassisWidth * 0.9, 0.05, 0.35), trimMat, 0, 0.38, -chassisLength * 0.46);
-
-    parts.forEach((mesh) => group.add(mesh));
-    return { group, bodyMat };
+export function buildBody(chassisWidth, chassisLength, color) {
+    return buildImprezaBody(chassisWidth, chassisLength, color, SEDAN);
 }

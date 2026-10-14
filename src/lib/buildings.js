@@ -1,47 +1,17 @@
-// 3D building footprints extruded from free OpenStreetMap data, served as
-// pre-built vector tiles by OpenFreeMap (https://openfreemap.org) - a free,
-// keyless, CDN-hosted static-file tile service (just nginx serving files,
-// no live query engine to overload). Each tile is a Mapbox Vector Tile
-// (MVT/.pbf) containing (among other layers) a `building` layer, where
-// every building footprint polygon already has OpenMapTiles-computed
-// `render_height`/`render_min_height` fields (meters) - i.e. the
-// height-from-tags estimation this module used to do by hand against raw
-// Overpass data has effectively already been done upstream.
-//
-// Why not the Overpass API (this module's original data source): Overpass
-// instances are shared, best-effort, live query servers that are prone to
-// overload/downtime under real-world load (the flagship overpass-api.de
-// instance's own docs now explicitly warn "this server is overloaded...
-// do not expect high reliability"). OpenFreeMap's tiles are just static
-// files on a CDN, which is a fundamentally more robust delivery model for
-// this use case - and unlike a single big region query, many small tile
-// requests in parallel is exactly what a CDN is built for.
-//
-// Buildings still stream in/out (mesh + physics body add/remove) per tile
-// on exactly the same Web Mercator tile grid as the terrain detail tier
-// (see terrain.js: DETAIL_ZOOM/DETAIL_RADIUS/UNLOAD_MARGIN/
-// UNLOAD_DELAY_TICKS/circleOffsets/inCircle, all reused here rather than
-// duplicated) - that's DETAIL_ZOOM (15). OpenFreeMap's building layer tops
-// out at BUILDING_TILE_ZOOM (14), one zoom level coarser, so each fetched
-// vector tile is decoded once and its buildings bucketed into the (up to
-// four) DETAIL_ZOOM tiles it covers - see _fetchBuildingTile.
-//
-// Local persistence: every successfully-decoded tile is also written to an
-// IndexedDB cache (see buildingsCache.js) so buildings already seen once
-// keep showing up even if a later fetch fails (offline, CDN hiccup, etc).
-//
-// Limitations (fine for a POC, worth knowing): OpenMapTiles' building
-// layer already drops most holes/complex multipolygon detail during its
-// own generalization, and only the outer ring of each footprint is used
-// here; all roofs are rendered flat at the tile's render_height.
+// 3D buildings from OpenFreeMap vector tiles (static CDN files; more
+// reliable than the overloaded public Overpass servers). The `building`
+// layer already carries render_height. Tiles come at BUILDING_TILE_ZOOM
+// (14) and are bucketed by centroid into DETAIL_ZOOM (15) tiles, streamed
+// on the terrain detail grid. Decoded tiles are written to IndexedDB
+// (buildingsCache.js) as an offline fallback.
+// Limitations: outer ring only, flat roofs.
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { PbfReader } from 'pbf';
-import { VectorTile } from '@mapbox/vector-tile';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { tileX2lon, tileY2lat, lon2tileX, lat2tileY, latLonToLocal } from './geo.js';
 import { cacheTiles, readCachedRegion } from './buildingsCache.js';
+import { fetchVectorTileLayer } from './tiles/openFreeMap.js';
 import {
   DETAIL_ZOOM,
   DETAIL_RADIUS,
@@ -52,76 +22,39 @@ import {
   GROUND_COLLISION_GROUP,
 } from './terrain.js';
 
-// OpenFreeMap's TileJSON, which advertises the current tile URL template
-// (the path contains a data-version stamp that can change over time, e.g.
-// ".../planet/20260913_164504_pt/{z}/{x}/{y}.pbf" - so it's fetched once
-// and cached in memory rather than hardcoded).
-const TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
+const BUILDING_TILE_ZOOM = 14; // the building layer's maxzoom
 
-// The building layer's own maxzoom (see TILEJSON_URL's vector_layers) -
-// OpenMapTiles doesn't ship building detail any finer than this; tiles are
-// fetched at this zoom and their contents bucketed down into DETAIL_ZOOM
-// (15) tiles for streaming, same as the old Overpass-region code did by
-// centroid.
-const BUILDING_TILE_ZOOM = 14;
-
-// Dedicated collision group for building bodies, distinct from
-// GROUND_COLLISION_GROUP, so the anti-tunneling ground raycast in main.js
-// (which filters specifically on GROUND_COLLISION_GROUP) doesn't mistake a
-// building roof/wall for "the ground" - the car should be able to crash
-// into a building, not get treated as standing on it.
+// Separate from GROUND_COLLISION_GROUP so ground raycasts ignore roofs.
 export const BUILDING_COLLISION_GROUP = 4;
-
-// Shared CANNON.Material tagging every building body, paired in main.js
-// with car.js's CHASSIS_MATERIAL via a dedicated low-friction/bouncy
-// ContactMaterial - so grazing a wall at a shallow angle slides the car
-// along it (and off) rather than snagging to a dead stop.
+// Paired with CHASSIS_MATERIAL in physicsSetup.js (low friction, so the
+// car slides along walls instead of snagging).
 export const BUILDING_MATERIAL = new CANNON.Material('building');
 
-const DEFAULT_HEIGHT_METERS = 6; // ~2 stories, used on the rare feature missing render_height entirely
+const DEFAULT_HEIGHT_METERS = 6; // when render_height is missing
 const MIN_HEIGHT_METERS = 2;
-// Extra depth the physics prism extends below the lowest ground sample
-// under its footprint (see _minGroundHeightAt) - a buffer against slopes/
-// tile seams/raycast misses so the solid hitbox always reaches real
-// terrain, with no gap a car could drive or get stuck underneath.
+// Physics prism extends this far below the lowest ground sample, so slopes
+// and tile seams never leave a gap to drive under.
 const BUILDING_SKIRT_DEPTH_M = 4;
 
-// Skip pathological footprints (bad data, or a way that isn't actually a
-// closed polygon) rather than let them produce a degenerate/huge mesh.
 const MIN_FOOTPRINT_POINTS = 3;
-const MAX_FOOTPRINT_METERS = 500; // building footprints bigger than this are almost certainly bad data for this scale
+const MAX_FOOTPRINT_METERS = 500; // larger = bad data at this scale
 
 const BUILDING_COLOR = 0xb8b0a4;
 const DEFAULT_BUILDING_COLOR = new THREE.Color(BUILDING_COLOR);
 
-// OpenMapTiles' building layer carries an optional `colour` field (sourced
-// from OSM's building:colour/roof:colour tags, with OpenMapTiles filling in
-// a generalized default for plenty of untagged buildings too - in practice
-// the large majority of features in a tile have *some* value here) as
-// either a CSS hex string ("#rrggbb"/"#rgb") or a CSS/X11 color keyword
-// ("white", "dark_grey" with an underscore has been seen in the wild too,
-// which isn't a real CSS keyword). Anything that isn't recognized as one
-// of those two forms is treated as "no usable tag data" - same as a
-// missing `colour` field - and falls through to the deterministic grey
-// fallback below, rather than risk THREE.Color logging a warning and
-// silently leaving a stale/wrong color behind.
+// The optional `colour` field is a hex string or CSS keyword; anything
+// else counts as missing and gets the deterministic grey fallback.
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const _parsedColorCache = new Map(); // raw `colour` string -> plain 0xRRGGBB int (or null if unrecognized)
 const _colorParseScratch = new THREE.Color();
 const _vertexColorScratch = new THREE.Color();
 
-// For the (still sizable, see above) minority of buildings with no usable
-// `colour` tag, rather than paint every one of them the exact same flat
-// BUILDING_COLOR (visually flat/repetitive at a glance across a whole
-// city block), derive a grey deterministically from the feature's own OSM
-// id - the same building always gets the same shade on every fetch/reload/
-// cache read, but different buildings don't all match each other.
+// Untagged buildings get a stable grey derived from their OSM id, so a
+// block isn't one flat colour but each building stays the same shade.
 const FALLBACK_GREY_LIGHT = 0xd8; // single channel, 0-255 - grayscale, so R=G=B
 const FALLBACK_GREY_DARK = 0x58;
 
-// Tiny FNV-1a string hash - good enough spread for "pick a shade" use, not
-// cryptographic; used instead of bitwise ops directly on `id` since OSM
-// way ids comfortably exceed 32 bits (bitwise ops in JS truncate to 32).
+// FNV-1a over the id string (OSM ids exceed 32 bits, so no bitwise ops on them).
 function fnv1aHash(str) {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -131,18 +64,14 @@ function fnv1aHash(str) {
   return h >>> 0;
 }
 
-/** Deterministic light-to-dark grey (0xRRGGBB, R=G=B) derived from a stable per-building key (its OSM id, or a tile-local fallback if that's ever missing). */
+/** Deterministic grey (0xRRGGBB) for a stable building key. */
 function greyFromKey(key) {
   const t = fnv1aHash(String(key)) / 0xffffffff;
   const channel = Math.round(FALLBACK_GREY_DARK + t * (FALLBACK_GREY_LIGHT - FALLBACK_GREY_DARK));
   return channel * 0x010101;
 }
 
-// Returns a plain 0xRRGGBB integer (same representation as BUILDING_COLOR
-// above) rather than a THREE.Color instance - these entries get persisted
-// as-is to IndexedDB (see buildingsCache.js), and a plain number survives
-// that structured-clone round trip unambiguously, whereas a class
-// instance's prototype/methods wouldn't.
+// Returns a plain int (not THREE.Color) so it survives IndexedDB cloning.
 function parseBuildingColor(props) {
   const raw = props && props.colour;
   if (typeof raw !== 'string' || !raw) return null;
@@ -156,109 +85,20 @@ function parseBuildingColor(props) {
   return hex;
 }
 
-// Per-frame time budget (ms) spent synchronously extruding/physics-building
-// already-fetched buildings into meshes/bodies. A freshly-available region
-// can have dozens of tiles' worth of buildings (each needing a convex
-// hull, several ground raycasts, and an ExtrudeGeometry) become buildable
-// in the very same frame its network fetch resolves - doing all of that
-// synchronously in one go is what used to cause a visible freeze/stutter
-// whenever the player crossed into unexplored territory. Capping how much
-// of that CPU work happens per frame (continuing across frames via
-// `_buildQueue`/`_inProgressBuilds` below, see _stepChunkBuild) spreads it
-// out instead, trading "tiles pop in instantly" for "tiles pop in across a
-// handful of frames, never a stutter" - same end result a few frames
-// later, no dropped frame in between.
+// Building is time-sliced: at most this many ms per frame, resumed next
+// frame, so entering new territory never stutters.
 const BUILD_TIME_BUDGET_MS = 6;
+const BUILD_TIME_CHECK_INTERVAL = 4; // buildings between clock checks
 
-// How many buildings to process before re-checking the clock within a
-// single _stepChunkBuild call - checking performance.now() after every
-// single building would add measurable overhead of its own for dense
-// tiles, so time is only sampled every this-many buildings.
-const BUILD_TIME_CHECK_INTERVAL = 4;
-
-// How many BUILDING_TILE_ZOOM tiles beyond the detail tier's keep radius
-// to keep fetched/cached in memory at once - the bigger this buffer, the
-// less often new tiles need fetching as the player drives around (at the
-// cost of holding more buildings in memory).
-const REGION_MARGIN_TILES = 2;
-
-// After a region fetch fails outright (network error, timeout, CDN hiccup
-// affecting every tile in it), wait this long before automatically
-// retrying, so a persistent outage doesn't turn into a tight retry loop.
+const REGION_MARGIN_TILES = 2; // extra tiles fetched beyond the keep radius
 const REGION_RETRY_COOLDOWN_MS = 8000;
-
-// Ratio between DETAIL_ZOOM (the tile grid buildings are streamed/cached
-// on, matching terrain.js) and BUILDING_TILE_ZOOM (the coarser zoom
-// OpenFreeMap's building layer is actually served at) - i.e. how many
-// DETAIL_ZOOM tiles per side one fetched vector tile covers.
 const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - BUILDING_TILE_ZOOM);
-
-// Vector tile response feature cap per tile: a dense city-center tile can
-// contain thousands of building features. Processing (let alone
-// extruding+merging) unbounded numbers of them per tile would stall the
-// main thread, so anything past this count in a single tile is simply not
-// rendered.
-const MAX_FEATURES_PER_TILE = 8000;
+const MAX_FEATURES_PER_TILE = 8000; // cap for dense city tiles
 
 
-/**
- * Fetches (once, memoized) OpenFreeMap's TileJSON to learn the current
- * tile URL template - see TILEJSON_URL's comment above for why this isn't
- * just hardcoded.
- */
-let tileUrlTemplatePromise = null;
-// Exported so streets.js (same OpenFreeMap tiles, different layer) can
-// reuse this instead of independently re-fetching/memoizing the TileJSON.
-export async function getTileUrlTemplate() {
-  if (!tileUrlTemplatePromise) {
-    tileUrlTemplatePromise = fetch(TILEJSON_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error(`TileJSON request failed (${res.status})`);
-        return res.json();
-      })
-      .then((json) => {
-        const template = json?.tiles?.[0];
-        if (!template) throw new Error('TileJSON response had no tiles[] entry');
-        return template;
-      })
-      .catch((err) => {
-        tileUrlTemplatePromise = null; // let the next attempt retry the TileJSON fetch itself
-        throw err;
-      });
-  }
-  return tileUrlTemplatePromise;
-}
-
-const FETCH_TIMEOUT_MS = 15000; // small single-tile requests, much quicker than the old big region queries
-
-/**
- * Fetches and decodes one BUILDING_TILE_ZOOM vector tile, returning its
- * building features bucketed by which DETAIL_ZOOM tile their centroid
- * falls in - same shape _fetchRegion used to produce from an Overpass
- * response, so the rest of the class (chunk streaming, IndexedDB
- * write-through) doesn't need to know which data source it came from.
- */
+/** Fetches one z14 tile; returns detail-tile key -> [{ ring: [{lat, lon}], height, color }]. */
 async function fetchBuildingTile(tx14, ty14) {
-  const template = await getTileUrlTemplate();
-  const url = template.replace('{z}', BUILDING_TILE_ZOOM).replace('{x}', tx14).replace('{y}', ty14);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  let buffer;
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    // A 404 here just means "no data for this tile" (e.g. open water/no
-    // buildings) for most tile servers, not an error - treat it as empty
-    // rather than a failure worth retrying/falling back to cache for.
-    if (res.status === 404) return new Map();
-    if (!res.ok) throw new Error(`Tile request failed (${res.status})`);
-    buffer = await res.arrayBuffer();
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const tile = new VectorTile(new PbfReader(new Uint8Array(buffer)));
-  const layer = tile.layers.building;
+  const layer = await fetchVectorTileLayer(BUILDING_TILE_ZOOM, tx14, ty14, 'building');
   const byTile = new Map();
   if (!layer) return byTile;
 
@@ -266,14 +106,11 @@ async function fetchBuildingTile(tx14, ty14) {
   for (let i = 0; i < featureCount; i++) {
     try {
       const feature = layer.feature(i);
-      // hide_3d marks footprints OpenMapTiles' own styles intentionally
-      // don't extrude (e.g. building parts covered by a more detailed
-      // sibling feature) - respect that rather than double-drawing them.
-      if (feature.properties.hide_3d) continue;
+      if (feature.properties.hide_3d) continue; // covered by a more detailed part
 
       const rings = feature.loadGeometry();
       if (!rings.length) continue;
-      const outer = rings[0]; // only outer ring - see module doc comment on limitations
+      const outer = rings[0];
       if (outer.length < MIN_FOOTPRINT_POINTS) continue;
 
       const extent = layer.extent;
@@ -283,12 +120,6 @@ async function fetchBuildingTile(tx14, ty14) {
       }));
 
       const height = parseHeightMeters(feature.properties);
-      // Prefer the OSM-tagged/OpenMapTiles-provided colour; fall back to a
-      // deterministic grey derived from the feature's own OSM id (falling
-      // back further to a tile+index key on the rare feature with no id at
-      // all) so an untagged building still always renders the same shade
-      // rather than either a flat uniform grey or something that changes
-      // across reloads - see greyFromKey/parseBuildingColor above.
       const color = parseBuildingColor(feature.properties) ?? greyFromKey(feature.id != null ? feature.id : `${tx14}_${ty14}_${i}`);
 
       let sumLat = 0;
@@ -323,11 +154,7 @@ function parseHeightMeters(props) {
   return DEFAULT_HEIGHT_METERS;
 }
 
-/**
- * Rough byte estimate of a tile's building meshes+physics data, matching
- * the spirit of terrain.js's estimateChunkBytes - good enough for the
- * "is this leaking?" memory readout, not exact.
- */
+/** Rough memory estimate for the debug HUD. */
 function estimateTileBytes(mergedGeometry, bodyCount) {
   const position = mergedGeometry?.attributes?.position;
   const vertexBytes = position ? position.array.length * 2 * 4 : 0; // position + normal, 4 bytes/float
@@ -336,23 +163,14 @@ function estimateTileBytes(mergedGeometry, bodyCount) {
 }
 
 /**
- * Computes the convex hull of a set of 2D {x, z} points via Andrew's
- * monotone chain, returning hull vertices in counter-clockwise order (in
- * the x-z plane, matching the winding CANNON.ConvexPolyhedron expects for
- * outward-facing normals - see buildFootprintPrism below). Used because
- * most OSM building footprints are already convex (simple rectangles/
- * L-shapes' bounding hull is close enough), and a real physics hitbox
- * needs a convex shape - unlike the render mesh, which can use the exact
- * (possibly concave) footprint outline since it's not used for collision.
+ * Convex hull of {x, z} points (Andrew's monotone chain), CCW - the
+ * physics shape must be convex; the render mesh uses the exact outline.
  */
 function convexHull2D(points) {
   const pts = points
     .slice()
     .sort((a, b) => a.x - b.x || a.z - b.z)
-    // Drop consecutive duplicates (degenerate footprints occasionally
-    // repeat a point), which would otherwise produce zero-length hull
-    // edges/cross products.
-    .filter((p, i, arr) => i === 0 || p.x !== arr[i - 1].x || p.z !== arr[i - 1].z);
+    .filter((p, i, arr) => i === 0 || p.x !== arr[i - 1].x || p.z !== arr[i - 1].z); // drop repeats
   if (pts.length < 3) return pts;
 
   const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
@@ -373,17 +191,7 @@ function convexHull2D(points) {
   return lower.concat(upper);
 }
 
-/**
- * Builds a CANNON.ConvexPolyhedron prism (vertical walls + flat top/
- * bottom) from a convex hull footprint, centered on `center` and spanning
- * `-halfHeight..+halfHeight` in Y - i.e. a physics shape tracing the
- * building's real (convex) footprint instead of its bounding-box AABB, so
- * rotated/non-rectangular buildings' hitboxes actually line up with what's
- * rendered. Vertex/face layout mirrors cannon-es's own built-in Cylinder
- * shape (interleaved bottom/top rings, side quads, top ring reversed) -
- * a pattern already verified to produce correctly-wound (outward-normal)
- * faces.
- */
+/** ConvexPolyhedron prism over `hull`, centred on `center`, ±halfHeight in y. */
 function buildFootprintPrism(hull, center, halfHeight) {
   const n = hull.length;
   const vertices = [];
@@ -404,20 +212,9 @@ function buildFootprintPrism(hull, center, halfHeight) {
 }
 
 /**
- * Builds one extruded, flat-roofed mesh geometry for a building footprint
- * given as an array of {x, z} local-meter points (already deduplicated,
- * open ring), plus a matching convex-hull footprint (for a physics shape
- * that actually matches the building, see buildFootprintPrism) and its
- * AABB (used only to sample ground height / as a byte-size estimate).
- * Returns null if the footprint is degenerate.
- *
- * Extrusion technique: THREE.ExtrudeGeometry extrudes a 2D shape (in its
- * own X/Y plane) along +Z by `depth`. We feed it (x, -z) as the shape's
- * (x, y) so that after rotating the result -90deg around X (which maps
- * shape-Y -> world-Y "up" and extrusion-Z -> world-Z), the footprint's
- * original x/z land back in the right place: rotateX(-90deg) sends
- * (x, y, z) -> (x, z, -y), so world y = shape's extrusion depth (0..height,
- * correctly "up") and world z = -shape.y = -(-localZ) = localZ.
+ * Extruded flat-roofed mesh (y 0..height) for a local {x, z} footprint,
+ * plus its convex hull and AABB; null if degenerate. The shape is built in
+ * (x, -z) and rotated -90deg about X so x/z land back in place, y is up.
  */
 function buildFootprintGeometry(points, height) {
   if (points.length < MIN_FOOTPRINT_POINTS) return null;
@@ -463,67 +260,29 @@ function buildFootprintGeometry(points, height) {
   };
 }
 
-/**
- * Streams OSM building footprints, extruded to (estimated) real-world
- * height, as chunks aligned 1:1 with the terrain detail tier's tile grid,
- * fetched as OpenFreeMap vector tiles (see module doc comment above and
- * fetchBuildingTile) covering a buffered region around the player.
- */
+/** Streams building meshes + physics per detail tile from a buffered fetched region. */
 export class BuildingsManager {
   constructor(scene, world, originLat, originLon, terrain) {
     this.scene = scene;
     this.world = world;
     this.originLat = originLat;
     this.originLon = originLon;
-    // Needed to gate each tile's build on terrain.isTileLoaded() (see
-    // update() below) - buildings raycast straight down onto the terrain's
-    // physics body to find ground height (_groundHeightAt), so building a
-    // tile before its terrain tile's body exists yet would always miss and
-    // fall back to y=0, instead of the player's actual spawn height.
+    this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
+    // Tiles wait for their terrain tile: ground height comes from raycasting its body.
     this.terrain = terrain;
     this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
-    // Time-sliced build pipeline (see BUILD_TIME_BUDGET_MS above): tiles
-    // whose buildings are ready to be extruded/physics-built but haven't
-    // started yet sit in `_buildQueue`; a tile that's partway through
-    // (paused mid-tile once the frame's time budget ran out) lives in
-    // `_inProgressBuilds` instead, keyed the same way as `chunks`, so it
-    // can be resumed exactly where it left off next frame.
-    this._buildQueue = []; // [{ tx, ty, key }]
+    this._buildQueue = []; // [{ tx, ty, key }] not yet started
     this._queuedKeys = new Set();
-    this._inProgressBuilds = new Map(); // key -> build descriptor (see _beginChunkBuild)
+    this._inProgressBuilds = new Map(); // key -> build paused mid-tile
     this.material = new THREE.MeshStandardMaterial({
-      // Per-building color (see parseBuildingColor/BUILDING_COLOR fallback)
-      // comes in as a vertex color attribute baked into the merged tile
-      // geometry in _stepChunkBuild - keep the material's own base color
-      // white so it doesn't tint those colors.
-      vertexColors: true,
+      vertexColors: true, // per-building colour baked into the merged geometry
       roughness: 0.9,
-      // OSM way winding order isn't guaranteed, and ExtrudeGeometry's
-      // normals depend on it - render both faces so a reversed-winding
-      // building's walls/roof don't vanish via backface culling.
-      side: THREE.DoubleSide,
+      side: THREE.DoubleSide, // OSM winding isn't consistent
     });
-    // Debug-only wireframe boxes marking each building body's actual
-    // physics hitbox (its convex-hull prism shape) - created alongside every body
-    // so toggling never has to walk/rebuild chunks, just flip .visible.
-    // See setHitboxesVisible().
-    //
-    // Rendered as two overlapping wireframes sharing the same geometry
-    // rather than one depthTest:false mesh, so a line's brightness reflects
-    // whether it's actually visible or hidden behind something else (e.g.
-    // another building, or the hitbox's own far walls) instead of every
-    // line always drawing on top at full brightness regardless of what's
-    // in front of it:
-    //  - `_hitboxMaterial`: normal depth test (depthFunc defaults to
-    //    LessEqual), so this one only draws where the line is genuinely
-    //    the frontmost thing - bright pink, the "actually visible" case.
-    //  - `_hitboxMaterialOccluded`: the opposite comparison (GreaterDepth),
-    //    so it only draws where something else already won the depth
-    //    test - dark pink, the "covered by something else" case. Neither
-    //    writes depth (depthWrite: false) so this x-ray pair never
-    //    interferes with each other's test or anything drawn after them.
+    // Debug hitbox wireframes as an x-ray pair sharing geometry: bright
+    // where visible (normal depth test), dark where occluded (GreaterDepth).
     this._hitboxMaterial = new THREE.MeshBasicMaterial({
       color: 0xff33ff,
       wireframe: true,
@@ -538,23 +297,13 @@ export class BuildingsManager {
     });
     this._hitboxesVisible = false;
 
-    // Region cache: the last fetched tile-range and the buildings within it
-    // (raw lat/lon rings + tags, bucketed by which tile their centroid
-    // falls in) - see _ensureRegion/_fetchRegion.
-    this._region = null; // { minTx, maxTx, minTy, maxTy }
-    this._buildingsByTile = new Map(); // tileKey -> [{ ring: [{lat,lon}], height }]
+    this._region = null; // { minTx, maxTx, minTy, maxTy } of the fetched area
+    this._buildingsByTile = new Map(); // tileKey -> [{ ring: [{lat,lon}], height, color }]
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._lastError = null;
-    // True when the buildings currently loaded/covering _region came from
-    // the local IndexedDB cache (see buildingsCache.js) rather than a live
-    // Overpass fetch - i.e. the network is (or was) down and this is
-    // best-effort stale data. Surfaced via getStats() for the HUD.
-    this._usingCachedData = false;
-    // Bumped on recenter() so a region fetch in flight from before a
-    // respawn can detect it's stale and discard its result instead of
-    // polluting the new location's cache.
-    this._generation = 0;
+    this._usingCachedData = false; // region came from IndexedDB fallback (shown in HUD)
+    this._generation = 0; // bumped on recenter() to discard stale fetches
   }
 
   _key(tx, ty) {
@@ -565,7 +314,7 @@ export class BuildingsManager {
     return DETAIL_RADIUS + UNLOAD_MARGIN;
   }
 
-  /** True if the current cached region fully covers keepRadius tiles around (centerTx, centerTy). */
+  /** True if the current region covers keepRadius tiles around the centre. */
   _regionCovers(centerTx, centerTy) {
     const r = this._keepRadius();
     const region = this._region;
@@ -579,15 +328,9 @@ export class BuildingsManager {
   }
 
   /**
-   * Ensures a region covering keepRadius tiles around (centerTx, centerTy)
-   * has been fetched, fetching a fresh (wider, buffered) one if not. Safe
-   * to call every frame: a no-op once covered by a *live* fetch, coalesces
-   * concurrent calls onto a single in-flight fetch, and backs off for a
-   * cooldown period after a failure instead of retrying every single
-   * frame. When the current coverage is only cache-fallback data (see
-   * _fallBackToCache), a live retry is still attempted every cooldown
-   * period so the app transparently upgrades back to fresh data once the
-   * network recovers, instead of being stuck on stale data forever.
+   * Fetches a buffered region around the centre if needed. Safe every
+   * frame: coalesces concurrent calls, backs off after failure (falling back
+   * to cache), and keeps retrying live while on cached data.
    */
   async _ensureRegion(centerTx, centerTy) {
     const covered = this._regionCovers(centerTx, centerTy);
@@ -624,9 +367,6 @@ export class BuildingsManager {
   }
 
   async _fetchRegion(region, generation) {
-    // Convert the DETAIL_ZOOM tile range into the (coarser) BUILDING_TILE_ZOOM
-    // tiles that cover it, and fetch each one from OpenFreeMap - see
-    // fetchBuildingTile and the module doc comment above.
     const minTx14 = Math.floor(region.minTx / TILE_ZOOM_RATIO);
     const maxTx14 = Math.floor(region.maxTx / TILE_ZOOM_RATIO);
     const minTy14 = Math.floor(region.minTy / TILE_ZOOM_RATIO);
@@ -640,7 +380,7 @@ export class BuildingsManager {
     }
 
     const results = await Promise.allSettled(tileCoords.map(([tx14, ty14]) => fetchBuildingTile(tx14, ty14)));
-    if (generation !== this._generation) return; // stale - a recenter() happened while this was in flight
+    if (generation !== this._generation) return; // recentered meanwhile
 
     const byTile = new Map();
     let total = 0;
@@ -661,9 +401,7 @@ export class BuildingsManager {
       }
     }
 
-    // Only treat this as a hard failure (triggering the cache fallback) if
-    // every single tile request failed - a handful of CDN hiccups amid an
-    // otherwise-successful region shouldn't blank out the whole area.
+    // Only a total failure counts (triggers the cache fallback).
     if (tileCoords.length > 0 && failed === tileCoords.length) {
       throw new Error(`All ${failed} building tile request(s) failed`);
     }
@@ -676,32 +414,14 @@ export class BuildingsManager {
         `tile request(s)${failed ? `, ${failed} failed` : ''}`
     );
 
-    // Write-through to the local IndexedDB cache so this data is still
-    // available next time (this session or a future one) even if the CDN
-    // is unreachable then - see buildingsCache.js. Fire-and-forget: a
-    // cache-write failure must never block/break live rendering.
-    cacheTiles(DETAIL_ZOOM, byTile).catch(() => {});
-
-    // A freshly-fetched region invalidates any already-built tile that
-    // isn't backed by (fresh) cache data anymore - but tiles currently in
-    // view are about to be rebuilt from the new cache by the caller's
-    // per-tile loop regardless, so nothing else to do here.
+    cacheTiles(DETAIL_ZOOM, byTile).catch(() => {}); // fire-and-forget write-through
   }
 
-  /**
-   * Called when a live region fetch fails outright (all mirrors
-   * unreachable). Looks up the same region's tiles in the local
-   * IndexedDB cache (previously-seen buildings from earlier successful
-   * fetches) and, if any are found, uses them as a best-effort stand-in so
-   * previously-seen buildings keep rendering instead of the area going
-   * empty. Marks `_usingCachedData` so the HUD can indicate the data may
-   * be stale. A generation check guards against a recenter() happening
-   * while this (also async) cache read is in flight.
-   */
+  /** After a total fetch failure: use cached tiles for the region, if any (marks data as stale). */
   async _fallBackToCache(region, generation) {
     const cached = await readCachedRegion(DETAIL_ZOOM, region.minTx, region.maxTx, region.minTy, region.maxTy);
-    if (generation !== this._generation) return; // stale - a recenter() happened meanwhile
-    if (cached.size === 0) return; // nothing cached for this area - leave region uncovered, will retry the network
+    if (generation !== this._generation) return; // recentered meanwhile
+    if (cached.size === 0) return; // nothing cached; network retry later
 
     this._region = region;
     this._buildingsByTile = cached;
@@ -713,14 +433,7 @@ export class BuildingsManager {
   }
 
 
-  /**
-   * Samples ground height at a local (x, z) point by raycasting straight
-   * down through the terrain's physics bodies (already loaded by the time
-   * buildings stream in, since both tiers are driven from the same tile
-   * grid/update cadence). Falls back to y=0 if nothing is hit yet - rare
-   * and self-correcting since a flat-footed building is far less jarring
-   * than a crash.
-   */
+  /** Terrain height at (x, z) via a ground raycast; 0 if nothing hit. */
   _groundHeightAt(x, z) {
     const from = new CANNON.Vec3(x, 2000, z);
     const to = new CANNON.Vec3(x, -2000, z);
@@ -729,17 +442,7 @@ export class BuildingsManager {
     return result.hasHit ? result.hitPointWorld.y : 0;
   }
 
-  /**
-   * Samples ground height at the footprint's center plus every hull
-   * corner and returns the lowest one. A building's physics prism used to
-   * sit flat at just the center sample's height - fine on level ground,
-   * but on any slope (or right at a terrain tile seam) some corners of
-   * the footprint end up with real terrain below the prism's bottom face,
-   * leaving a gap a car can drive/get stuck under. Used only for the
-   * physics shape's bottom (see _stepChunkBuild) - the visible mesh
-   * still sits at the single center-sampled height, which is the correct
-   * "flat foundation" look for a real building anyway.
-   */
+  /** Lowest ground under the hull corners/centre - bottom of the physics prism only. */
   _minGroundHeightAt(hull, centerX, centerZ, centerGroundY) {
     let min = centerGroundY;
     for (const p of hull) {
@@ -749,13 +452,7 @@ export class BuildingsManager {
     return min;
   }
 
-  /**
-   * Starts a new time-sliced build for one tile from the already-fetched
-   * region cache (no network I/O) - returns a resumable "build descriptor"
-   * consumed by _stepChunkBuild/_finishChunkBuild rather than doing all the
-   * work here, so a dense tile's worth of buildings never has to finish in
-   * a single frame (see BUILD_TIME_BUDGET_MS above).
-   */
+  /** Resumable build descriptor for one tile (from the fetched region, no I/O). */
   _beginChunkBuild(tx, ty) {
     const key = this._key(tx, ty);
     return {
@@ -771,14 +468,7 @@ export class BuildingsManager {
     };
   }
 
-  /**
-   * Processes buildings from a build descriptor (see _beginChunkBuild)
-   * starting at `build.index`, stopping either when the tile's whole list
-   * is done or when `deadline` (a performance.now() timestamp) is reached -
-   * whichever comes first. Safe to call again on the same descriptor next
-   * frame to resume exactly where it left off. Returns true once the tile
-   * is fully processed (ready for _finishChunkBuild), false if paused.
-   */
+  /** Builds buildings until done (true) or past `deadline` (false; resume next frame). */
   _stepChunkBuild(build, deadline) {
     const { list } = build;
     let sinceCheck = 0;
@@ -790,33 +480,18 @@ export class BuildingsManager {
       sinceCheck++;
       const entry = list[build.index++];
       try {
-        const points = entry.ring.map((p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon));
+        const points = entry.ring.map((p) => latLonToLocal(p.lat, p.lon, this.originLat, this.originLon, this.scaleLat));
         const built = buildFootprintGeometry(points, entry.height);
         if (!built) continue;
 
         const groundY = this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ);
         const center = { x: built.aabb.centerX, z: built.aabb.centerZ };
-        // Physics prism's bottom sits below the lowest ground sample
-        // under the footprint (not just its center), plus a skirt buffer -
-        // see _minGroundHeightAt/BUILDING_SKIRT_DEPTH_M - so sloped ground
-        // or a terrain tile seam under part of the building never leaves a
-        // gap to drive/get stuck under. Its roof stays at the same height
-        // above the center-sampled ground as before (unrelated to this
-        // fix), so the visible mesh (which uses `groundY` below,
-        // unchanged) still lines up with the physics shape's top.
+        // Roof at centre ground + height (matches the mesh); bottom below
+        // the lowest ground sample plus a skirt.
         const topY = groundY + entry.height;
         const bottomY = this._minGroundHeightAt(built.hull, center.x, center.z, groundY) - BUILDING_SKIRT_DEPTH_M;
         const physicsHalfHeight = (topY - bottomY) / 2;
         const physicsCenterY = (topY + bottomY) / 2;
-        // Physics: a convex-hull prism tracing the building's actual
-        // (rotated/non-rectangular) footprint, previously an axis-aligned
-        // CANNON.Box approximating just its AABB - which visibly didn't
-        // match rotated buildings' rendered walls. Tagged with
-        // BUILDING_MATERIAL so the dedicated low-friction/bouncy
-        // chassis<->building ContactMaterial (see physicsSetup.js) actually
-        // applies - it previously never did, since these bodies were never
-        // given a `material` at all and silently fell back to the world
-        // default contact tuning.
         const body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL });
         body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
         body.addShape(buildFootprintPrism(built.hull, center, physicsHalfHeight));
@@ -824,11 +499,7 @@ export class BuildingsManager {
         this.world.addBody(body);
         build.bodies.push(body);
 
-        // Debug hitbox wireframe: the same convex-hull prism as the
-        // physics shape above (built via the same extrusion technique as
-        // the visible mesh, just from the hull instead of the full
-        // footprint outline), so toggling it (M key) shows exactly what
-        // the car actually collides with.
+        // Debug wireframe of the same hull prism (visible + occluded pair).
         const hullShape = new THREE.Shape();
         built.hull.forEach((p, i) => {
           const lx = p.x - center.x;
@@ -843,9 +514,6 @@ export class BuildingsManager {
         });
         hitboxGeometry.rotateX(-Math.PI / 2);
         hitboxGeometry.translate(0, -physicsHalfHeight, 0);
-        // Two meshes sharing this one geometry - see the materials' doc
-        // comment above for why - rather than a single mesh, so occluded
-        // lines render dark instead of every line always drawing on top.
         const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
         hitboxMesh.position.copy(body.position);
         hitboxMesh.visible = this._hitboxesVisible;
@@ -860,17 +528,10 @@ export class BuildingsManager {
         this.scene.add(hitboxMeshOccluded);
         build.hitboxMeshes.push(hitboxMeshOccluded);
 
-        // The extrusion geometry itself runs from y=0 to y=height in local
-        // space; translate it up to the sampled ground height so the
-        // merged-geometry vertices land at the right world Y.
         built.geometry.translate(0, groundY, 0);
 
-        // Per-building vertex colors (see parseBuildingColor/greyFromKey
-        // above), since every tile's buildings get merged into one mesh/
-        // material. `entry.color` is always set for freshly-fetched data
-        // (tag color or deterministic grey fallback); the flat
-        // DEFAULT_BUILDING_COLOR here only covers entries read back from an
-        // older IndexedDB cache written before this field existed.
+        // Per-vertex colour (tiles are merged into one mesh). `color` is
+        // missing only in caches written before it existed.
         const buildingColor = entry.color == null ? DEFAULT_BUILDING_COLOR : _vertexColorScratch.setHex(entry.color);
         const vertexCount = built.geometry.attributes.position.count;
         const colorArray = new Float32Array(vertexCount * 3);
@@ -890,7 +551,7 @@ export class BuildingsManager {
     return true;
   }
 
-  /** Finalizes a fully-processed build descriptor (see _stepChunkBuild) into a chunk in `this.chunks`. */
+  /** Merges a finished build into one mesh and registers the chunk. */
   _finishChunkBuild(build) {
     const { tx, ty, key, geometries, bodies, hitboxMeshes, skipped } = build;
     let mesh = null;
@@ -910,12 +571,7 @@ export class BuildingsManager {
     this.stats.buildings += bodies.length;
   }
 
-  /**
-   * Discards a build descriptor that's paused mid-tile (see _stepChunkBuild)
-   * without finishing it - used when a tile drifts out of range or the
-   * manager recenters while a build is in flight, so its partially-created
-   * bodies/hitbox meshes don't leak into the world/scene unfinished.
-   */
+  /** Removes the partial bodies/meshes of a build paused mid-tile. */
   _abandonChunkBuild(build) {
     for (const body of build.bodies) this.world.removeBody(body);
     for (const hitboxMesh of build.hitboxMeshes) {
@@ -925,7 +581,7 @@ export class BuildingsManager {
     for (const g of build.geometries) g.dispose();
   }
 
-  /** True once a tile's mesh/physics have actually been built (not just fetched) - used by the debug stats HUD's per-tile progress indicator. */
+  /** True once a tile is built (not just fetched) - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
     return this.chunks.has(this._key(tx, ty));
   }
@@ -938,10 +594,7 @@ export class BuildingsManager {
       chunk.mesh.geometry.dispose();
     }
     for (const body of chunk.bodies) this.world.removeBody(body);
-    // Each building contributes two meshes sharing one geometry (see the
-    // bright/occluded pair in _stepChunkBuild) - disposing it via both
-    // is harmless (BufferGeometry.dispose() is a no-op past the first
-    // call), just simpler than tracking which half of the pair owns it.
+    // Hitbox pairs share a geometry; double dispose is a no-op.
     for (const hitboxMesh of chunk.hitboxMeshes) {
       this.scene.remove(hitboxMesh);
       hitboxMesh.geometry.dispose();
@@ -952,7 +605,7 @@ export class BuildingsManager {
     this.stats.removed++;
   }
 
-  /** Toggles visibility of every building's debug collision-hitbox wireframe (see main.js's M-key debug toggle). */
+  /** M-key debug toggle for hitbox wireframes. */
   setHitboxesVisible(visible) {
     this._hitboxesVisible = visible;
     for (const chunk of this.chunks.values()) {
@@ -960,18 +613,10 @@ export class BuildingsManager {
     }
   }
 
-  /**
-   * Re-centers on a new lat/lon origin (matching TerrainManager.recenter):
-   * tears down every currently-loaded building tile and drops the region
-   * cache so nothing from the old location lingers, before the caller
-   * streams in a fresh batch around the new origin's local (0, 0).
-   */
+  /** Drops everything (incl. in-progress builds and region) for a new origin. */
   recenter(lat, lon) {
     for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
     this.pendingRemoval.clear();
-    // Abandon (not finish) any tile build that was mid-flight - it almost
-    // certainly belongs to the old location's tile grid, and finishing it
-    // would just add soon-to-be-unloaded bodies/meshes for nothing.
     for (const build of this._inProgressBuilds.values()) this._abandonChunkBuild(build);
     this._inProgressBuilds.clear();
     this._buildQueue = [];
@@ -985,20 +630,26 @@ export class BuildingsManager {
     this._generation++;
     this.originLat = lat;
     this.originLon = lon;
+    this.scaleLat = lat;
   }
 
   /**
-   * Ensures the region covering (centerTx, centerTy) is fetched, then
-   * (re)builds every tile within the detail tier's circular radius from
-   * that cache, and stages/unloads tiles that have drifted out of range -
-   * mirroring TerrainManager.update()'s detail-tier bookkeeping (same tile
-   * grid, circular radius, and unload-delay constants). The actual
-   * mesh/physics building is time-sliced (see BUILD_TIME_BUDGET_MS,
-   * _stepChunkBuild) rather than all done in one go, so a newly-available
-   * region's worth of tiles never freezes the frame they become ready in -
-   * unless `awaitAll` (teleport/initial load, already behind its own
-   * blocking loading-screen await), which runs the build queue to
-   * completion with no per-frame time limit instead.
+   * Floating-origin shift by (dx, dz): scene objects and bodies were already
+   * translated by the caller; partial builds' geometry (not in the scene yet)
+   * is moved here.
+   */
+  shiftOrigin(lat, lon, dx, dz) {
+    this.originLat = lat;
+    this.originLon = lon;
+    for (const build of this._inProgressBuilds.values()) {
+      for (const g of build.geometries) g.translate(-dx, 0, -dz);
+    }
+  }
+
+  /**
+   * Ensures the region, queues in-range tiles whose terrain is ready,
+   * builds within the frame budget (unbounded if awaitAll), and stages
+   * out-of-range tiles for delayed unload.
    */
   async update(centerTx, centerTy, awaitAll = false) {
     const ensure = this._ensureRegion(centerTx, centerTy);
@@ -1012,12 +663,6 @@ export class BuildingsManager {
         const tx = centerTx + dx;
         const ty = centerTy + dy;
         const key = this._key(tx, ty);
-        // Hold off queueing a tile until its terrain counterpart has
-        // actually finished loading (mesh + physics body) - see this
-        // class's `terrain` field doc comment. Tiles skipped here simply
-        // get re-checked on the next call (this runs every frame), so they
-        // queue themselves the moment terrain catches up instead of ever
-        // building against missing ground.
         const terrainReady = !this.terrain || this.terrain.isTileLoaded(tx, ty);
         if (terrainReady && !this.chunks.has(key) && !this._inProgressBuilds.has(key) && !this._queuedKeys.has(key)) {
           this._queuedKeys.add(key);
@@ -1027,8 +672,7 @@ export class BuildingsManager {
     }
 
     const deadline = awaitAll ? Infinity : performance.now() + BUILD_TIME_BUDGET_MS;
-    // Resume anything paused mid-tile last frame first, so a tile already
-    // partway built finishes before a brand new one is even started.
+    // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;
       if (!inCircle(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
@@ -1044,8 +688,8 @@ export class BuildingsManager {
     while (this._buildQueue.length && performance.now() < deadline) {
       const { tx, ty, key } = this._buildQueue.shift();
       this._queuedKeys.delete(key);
-      if (this.chunks.has(key)) continue; // already built via some other path
-      if (!inCircle(tx - centerTx, ty - centerTy, keepRadius)) continue; // drifted out of range while queued
+      if (this.chunks.has(key)) continue;
+      if (!inCircle(tx - centerTx, ty - centerTy, keepRadius)) continue;
       const build = this._beginChunkBuild(tx, ty);
       if (this._stepChunkBuild(build, deadline)) {
         this._finishChunkBuild(build);
@@ -1077,10 +721,7 @@ export class BuildingsManager {
     return {
       loaded: this.chunks.size,
       pendingRemoval: this.pendingRemoval.size,
-      // Tiles whose buildings are fetched but not yet (fully) built into
-      // meshes/bodies (see BUILD_TIME_BUDGET_MS) - surfaced so the HUD can
-      // show "still constructing" separately from "still downloading".
-      building: this._buildQueue.length + this._inProgressBuilds.size,
+      building: this._buildQueue.length + this._inProgressBuilds.size, // fetched, not yet built
       regionLoading: !!this._regionPending,
       regionFailed: !!this._regionFailedAt,
       usingCachedData: this._usingCachedData,
