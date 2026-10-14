@@ -24,9 +24,9 @@ const PARTICLE_MAT = new THREE.MeshBasicMaterial({ color: PARTICLE_COLOR });
 
 /**
  * Creates the wheel-splash effect. Call update() once per frame.
- * `onSplash(speed)` fires with each burst (the splash sound).
+ * `onWade(wetFraction, speed)` fires every frame with the share of wheels in water.
  */
-export function createSplash(scene, { onSplash } = {}) {
+export function createSplash(scene, { onWade } = {}) {
   const pool = [];
   for (let i = 0; i < POOL_SIZE; i++) {
     const mesh = new THREE.Mesh(PARTICLE_GEO, PARTICLE_MAT);
@@ -80,28 +80,31 @@ export function createSplash(scene, { onSplash } = {}) {
       p.mesh.scale.setScalar(Math.max(0.05, p.life / PARTICLE_LIFETIME_S));
     }
 
-    if (!vehicle || !world || (!waterAreas && !rivers)) return;
+    if (!vehicle || !world || (!waterAreas && !rivers)) {
+      onWade?.(0, 0);
+      return;
+    }
     if (wheelTimers.length !== vehicle.wheelInfos.length) {
       wheelTimers = vehicle.wheelInfos.map(() => 0);
     }
 
     const speed = vehicle.chassisBody.velocity.length();
-    if (speed < MIN_SPLASH_SPEED) return;
-
+    let wetWheels = 0;
     vehicle.wheelInfos.forEach((wheel, i) => {
       wheelTimers[i] -= dt;
-      if (wheelTimers[i] > 0) return;
       if (!isWheelGrounded(world, wheel)) return;
       const pos = wheel.worldTransform.position;
       if (streets?.containsPoint(pos.x, pos.z)) return;
       const onWater = waterAreas?.classifyAt(pos.x, pos.z) === 'water' || rivers?.containsPoint(pos.x, pos.z);
       if (!onWater) return;
+      wetWheels++;
 
+      if (speed < MIN_SPLASH_SPEED || wheelTimers[i] > 0) return;
       spawnBurst(pos.x, pos.y - wheel.radius, pos.z, speed);
-      onSplash?.(speed);
       const speedFrac = Math.min(1, speed / EMIT_SPEED_FOR_MIN_INTERVAL);
       wheelTimers[i] = EMIT_INTERVAL_MAX_S - (EMIT_INTERVAL_MAX_S - EMIT_INTERVAL_MIN_S) * speedFrac;
     });
+    onWade?.(vehicle.wheelInfos.length ? wetWheels / vehicle.wheelInfos.length : 0, speed);
   }
 
   return { update };

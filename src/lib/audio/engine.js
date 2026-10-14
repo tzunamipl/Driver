@@ -6,7 +6,7 @@
 
 import { getAudio } from './audioContext.js';
 
-const MASTER_GAIN = 0.35;
+const MASTER_GAIN = 0.025;
 const FALLBACK_IDLE_RPM = 900; // hover rigs have no engine.js state
 const FALLBACK_REDLINE_RPM = 6500;
 const WAVE_SAMPLES = 2048;

@@ -16,7 +16,7 @@ import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
-import { createWaterSplashSound } from './lib/audio/waterSplash.js';
+import { createWaterWadeSound } from './lib/audio/waterWade.js';
 import { createImpactSound } from './lib/audio/impact.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { BuildingsManager } from './lib/buildings.js';
@@ -125,7 +125,7 @@ document.body.appendChild(loadingEl);
 // ---------- Audio ----------
 const engineSound = createEngineSound();
 const tireSqueal = createTireSqueal();
-const waterSplashSound = createWaterSplashSound();
+const waterWadeSound = createWaterWadeSound();
 const impactSound = createImpactSound();
 
 // ---------- Networking ----------
@@ -231,7 +231,7 @@ const shots = createShots({
 });
 const horn = createHorn();
 const jump = createJump({ world });
-const splash = createSplash(scene, { onSplash: waterSplashSound.play });
+const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
