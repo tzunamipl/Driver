@@ -14,12 +14,13 @@ function lerpColor(a, b, t) {
   return (r << 16) | (g << 8) | bl;
 }
 
-// Per-class parameters (add new ones here).
+// Per-class parameters (add new ones here). smoothMeters = window the
+// terrain road bed averages the elevation over along the road (0 = exact).
 const ROAD_CLASS_DEFS = {
-  motorway: { widthMeters: 28 },
-  trunk: { widthMeters: 24 },
-  primary: { widthMeters: 20 },
-  secondary: { widthMeters: 17 },
+  motorway: { widthMeters: 28, smoothMeters: 150 },
+  trunk: { widthMeters: 24, smoothMeters: 120 },
+  primary: { widthMeters: 20, smoothMeters: 80 },
+  secondary: { widthMeters: 17, smoothMeters: 40 },
   tertiary: { widthMeters: 14 },
   minor: { widthMeters: 12 },
   service: { widthMeters: 4 },
@@ -49,7 +50,7 @@ ROAD_CLASSES.raceway = ROAD_CLASSES.tertiary;
 // Shipping lines aren't roads.
 export const SKIP_CLASSES = new Set(['ferry']);
 
-/** Feature props -> { key, color, width (m) }, or null if not a road class. */
+/** Feature props -> { key, color, width (m), smoothMeters }, or null if not a road class. */
 export function classifyRoad(props) {
   let cls = props?.class;
   if (!cls || SKIP_CLASSES.has(cls)) return null;
@@ -71,5 +72,6 @@ export function classifyRoad(props) {
     key: underConstruction ? `${cls}_construction` : cls,
     color: base.color,
     width,
+    smoothMeters: base.smoothMeters ?? 0,
   };
 }

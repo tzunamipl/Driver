@@ -1,4 +1,4 @@
-// Body dust + thud: one big tan puff from the chassis centre when the body
+// Body dust: one big tan puff from the chassis centre when the body
 // itself (not a wheel) hits the ground hard - jump landings, rollovers.
 // Driven by app/carManager.js's chassis 'collide' listener via onGroundContact().
 
@@ -20,33 +20,13 @@ const EMIT_INTERVAL_S = 0.1; // re-arm cooldown so scraping doesn't emit every s
 const POSITION_JITTER = 0.15;
 const COLORS = [0x8a7352, 0xc2a775];
 
-// Audio
-
-const audioCtx = new AudioContext();
-
-function playImpactSound(speed) {
-  const now = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(100, now);
-  osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
-
-  gain.gain.setValueAtTime(Math.min(speed / 15, 0.8), now);
-  gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-
-  osc.start(now);
-  osc.stop(now + 0.15);
-}
-
 const jitter = () => (Math.random() - 0.5) * POSITION_JITTER;
 
-/** Creates the chassis body-dust effect. Call update() once per rendered frame. */
-export function createBodyDust(scene) {
+/**
+ * Creates the chassis body-dust effect. Call update() once per rendered frame.
+ * `onImpact(speed)` fires with each puff (the thud sound).
+ */
+export function createBodyDust(scene, { onImpact } = {}) {
   const puffs = createPuffPool(scene, {
     size: POOL_SIZE,
     lifetime: PARTICLE_LIFETIME_S,
@@ -73,7 +53,7 @@ export function createBodyDust(scene) {
       inherit: chassisVelocity,
       inheritFraction: VELOCITY_INHERIT_FRACTION,
     });
-    playImpactSound(impactSpeed);
+    onImpact?.(impactSpeed);
     rearmTimer = EMIT_INTERVAL_S;
   }
 

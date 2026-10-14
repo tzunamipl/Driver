@@ -22,45 +22,11 @@ const EMIT_SPEED_FOR_MIN_INTERVAL = 1; // m/s
 const PARTICLE_GEO = new THREE.SphereGeometry(PARTICLE_RADIUS, 6, 5);
 const PARTICLE_MAT = new THREE.MeshBasicMaterial({ color: PARTICLE_COLOR });
 
-/** Creates the wheel-splash effect. Call update() once per frame. */
-export function createSplash(scene) {
-  // Audio
-  const audioCtx = new AudioContext();
-  let lastWaterSound = 0;
-
-  const noiseBuffer = audioCtx.createBuffer(
-      1, audioCtx.sampleRate, audioCtx.sampleRate
-  );
-  const data = noiseBuffer.getChannelData(0);
-
-  for (let i = 0; i < data.length; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-
-  function playWaterSound(volume = 4) {
-    const source = audioCtx.createBufferSource();
-    const filter = audioCtx.createBiquadFilter();
-    const gain = audioCtx.createGain();
-    const now = audioCtx.currentTime;
-    if (now - lastWaterSound < 0.2) return;
-    lastWaterSound = now;
-
-    source.buffer = noiseBuffer;
-    filter.type = 'lowpass';
-    filter.frequency.value = 600 + Math.random() * 200;
-
-    source.connect(filter);
-    filter.connect(gain);
-    gain.connect(audioCtx.destination);
-
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(volume, now + 2);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 5);
-
-    source.start(now);
-    source.stop(now + 0.65);
-  }
-
+/**
+ * Creates the wheel-splash effect. Call update() once per frame.
+ * `onSplash(speed)` fires with each burst (the splash sound).
+ */
+export function createSplash(scene, { onSplash } = {}) {
   const pool = [];
   for (let i = 0; i < POOL_SIZE; i++) {
     const mesh = new THREE.Mesh(PARTICLE_GEO, PARTICLE_MAT);
@@ -132,7 +98,7 @@ export function createSplash(scene) {
       if (!onWater) return;
 
       spawnBurst(pos.x, pos.y - wheel.radius, pos.z, speed);
-      playWaterSound(Math.min(0.2, speed * 0.04));
+      onSplash?.(speed);
       const speedFrac = Math.min(1, speed / EMIT_SPEED_FOR_MIN_INTERVAL);
       wheelTimers[i] = EMIT_INTERVAL_MAX_S - (EMIT_INTERVAL_MAX_S - EMIT_INTERVAL_MIN_S) * speedFrac;
     });

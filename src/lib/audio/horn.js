@@ -1,7 +1,8 @@
 // A two-tone horn. Holding the key ramps it from a quiet beep to full
 // volume; releasing cuts it. Other players hear the level carried on the
-// pose, quieter the farther away they are. Web Audio only starts after a
-// key gesture, which this module treats as the first honk.
+// pose, quieter the farther away they are.
+
+import { getAudio } from './audioContext.js';
 
 const RAMP_S = 2.5;
 const QUIET = 0.08;
@@ -12,25 +13,12 @@ const TONE_A = 430;
 const TONE_B = 510;
 
 export function createHorn() {
-  let ctx = null;
   let localGain = null;
   let hold = 0;
   const remotes = new Map();
 
-  // Browsers block audio until a gesture. Driving keys count, so a horn
-  // that started while the context was suspended becomes audible on the
-  // next keypress.
-  window.addEventListener('keydown', () => {
-    if (ctx?.state === 'suspended') ctx.resume();
-  });
-
-  function context() {
-    if (ctx) return ctx;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return null;
-    ctx = new AudioCtx();
-    return ctx;
-  }
+  const context = () => getAudio()?.ctx ?? null;
+  const output = () => getAudio().buses.sfx;
 
   function tonePair(destinationGain) {
     const audio = context();
@@ -60,7 +48,7 @@ export function createHorn() {
     if (!audio || localGain) return;
     localGain = audio.createGain();
     localGain.gain.value = 0;
-    localGain.connect(audio.destination);
+    localGain.connect(output());
     tonePair(localGain);
   }
 
@@ -71,7 +59,7 @@ export function createHorn() {
     if (!audio) return null;
     const gain = audio.createGain();
     gain.gain.value = 0;
-    gain.connect(audio.destination);
+    gain.connect(output());
     const nodes = tonePair(gain);
     if (!nodes) return null;
     voice = { gain, ...nodes };
@@ -90,8 +78,6 @@ export function createHorn() {
 
   function update(dt, held, listener, poses) {
     if (held) {
-      const audio = context();
-      if (audio?.state === 'suspended') audio.resume();
       ensureLocal();
       hold = Math.min(RAMP_S, hold + dt);
     } else {

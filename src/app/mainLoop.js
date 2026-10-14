@@ -4,6 +4,7 @@ import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
+import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
 
 const CAR_STATE_SAVE_INTERVAL_MS = 1000; // localStorage save throttle
 
@@ -28,6 +29,8 @@ export function createMainLoop({
   pedestrians,
   shots,
   horn,
+  engineSound,
+  tireSqueal,
   jump,
   splash,
   tireSmoke,
@@ -191,7 +194,7 @@ export function createMainLoop({
       vehicle: currentVehicle,
       vehicleId: carManager.getVehicleId(),
     });
-    gaugesHud.updateGauges(currentChassisMesh, currentVehicle);
+    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake());
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, {
       terrain,
@@ -219,6 +222,8 @@ export function createMainLoop({
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
+    tireSqueal.update(currentVehicle);
+    engineSound.update(currentVehicle, getVehicleDescriptor(carManager.getVehicleId()), input.getThrottle());
     terrainDust.update(frameDelta, currentVehicle, world);
     // Body dust is spawned by collide events; this only ages puffs.
     bodyDust.update(frameDelta);

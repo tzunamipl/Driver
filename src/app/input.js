@@ -1,4 +1,4 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S } from '../config.js';
 
 // Keyboard -> vehicle controls, applied each frame.
 
@@ -9,12 +9,15 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
-export function createInputController(engineAudio) {
+/** @param {{ onHandbrakePull?: () => void, onHandbrakeLatch?: () => void }} [options] */
+export function createInputController({ onHandbrakePull, onHandbrakeLatch } = {}) {
   const keys = new Set();
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
   // For gradual, not instant steering
   let steerValue = 0;
+  // Throttle pedal 0..1, read by the engine sound.
+  let throttle = 0;
 
   window.addEventListener('keydown', (e) => {
     if (isTypingInField()) return;
@@ -30,12 +33,19 @@ export function createInputController(engineAudio) {
   let forwardWasPressed = false;
   let backwardBrakeOnly = false;
   let forwardBrakeOnly = false;
+  // Held for HANDBRAKE_LATCH_S it stays pulled; the next press only releases it.
+  let handbrakeWasPressed = false;
+  let handbrakeHeldS = 0;
+  let handbrakeLatched = false;
+  let handbrakeReleasing = false;
+  let handbrakeOn = false;
 
   /**
    * Applies key state to the vehicle (engine, steering, brake, R reset).
    * Zeroes controls while typing. `dt` drives the engine.js gearbox, if any.
    */
   function updateControls(vehicle, reset, dt = 0) {
+    throttle = 0;
     if (!vehicle) return;
     // Driven wheels; default RWD (hover rigs ignore the index).
     const driveWheels = vehicle.driveWheels ?? [2, 3];
@@ -50,7 +60,7 @@ export function createInputController(engineAudio) {
     const backward = keys.has('KeyS') || keys.has('ArrowDown');
     const left = keys.has('KeyA') || keys.has('ArrowLeft');
     const right = keys.has('KeyD') || keys.has('ArrowRight');
-    const handbrake = keys.has('Space');
+    const handbrakePressed = keys.has('Space');
     const turbo = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const forceScale = turbo ? TURBO_MULT : 1;
 
@@ -83,10 +93,7 @@ export function createInputController(engineAudio) {
         })
       : engineForceUnit;
 
-    // Audio
-    const rpm = vehicle.engine?.rpm ?? 100;
-    const throttle = forward ? 1 : 0;
-    engineAudio.update(rpm, throttle);
+    throttle = forward ? 1 : 0;
 
     const engineForce = pedalBraking
       ? 0
@@ -130,6 +137,25 @@ export function createInputController(engineAudio) {
 
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
+    if (handbrakePressed && !handbrakeWasPressed) {
+      if (handbrakeLatched) {
+        handbrakeLatched = false;
+        handbrakeReleasing = true;
+      } else {
+        onHandbrakePull?.();
+      }
+    }
+    if (!handbrakePressed) handbrakeReleasing = false;
+    handbrakeWasPressed = handbrakePressed;
+    const handbrakeHeld = handbrakePressed && !handbrakeReleasing;
+    handbrakeHeldS = handbrakeHeld ? handbrakeHeldS + dt : 0;
+    if (handbrakeHeld && !handbrakeLatched && handbrakeHeldS >= HANDBRAKE_LATCH_S) {
+      handbrakeLatched = true;
+      onHandbrakeLatch?.();
+    }
+    const handbrake = handbrakeHeld || handbrakeLatched;
+    handbrakeOn = handbrake;
+
     // Per-vehicle brake strength; BRAKE_FORCE fallback.
     const brakeForce = (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale;
     const pedalBrake = pedalBraking ? brakeForce : 0;
@@ -149,5 +175,11 @@ export function createInputController(engineAudio) {
     return isTypingInField();
   }
 
-  return { keys, updateControls, isTyping };
+  return {
+    keys,
+    updateControls,
+    isTyping,
+    getThrottle: () => throttle,
+    getHandbrake: () => ({ on: handbrakeOn, latched: handbrakeLatched }),
+  };
 }
