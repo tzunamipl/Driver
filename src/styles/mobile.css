@@ -1,0 +1,94 @@
+/* Phone: instructions and the player list are gone, the map and
+   speedo sit at the top (a bit smaller), and the hold buttons
+   sit on the bottom edge. These rules come last so they beat the
+   desktop positions above. */
+@media (pointer: coarse), (max-width: 800px) {
+  #hud {
+    position: fixed;
+    top: 146px;
+    right: 10px;
+    bottom: auto;
+    left: auto;
+    transform: none;
+    background: transparent;
+    padding: 0;
+    text-align: right;
+  }
+  #hud.collapsed #hud-discord,
+  #hud-discord {
+    margin: 0;
+    padding: 0;
+    border: none;
+  }
+  #hud-discord a {
+    font-size: 13px;
+    padding: 5px 8px;
+  }
+  #net-status { bottom: 104px; }
+  #music-volume {
+    left: 12px;
+    bottom: 188px;
+  }
+  #version-badge { bottom: 88px; }
+  #odometer { top: 78%; }
+  #minimap {
+    top: 10px;
+    bottom: auto;
+    left: 10px;
+    --mm-dial: 97px;
+    height: var(--mm-dial);
+  }
+  #minimap-info {
+    bottom: 8px;
+    max-width: 86%;
+    overflow: hidden;
+  }
+  #minimap-place { font-size: 12px; }
+  #gauges {
+    top: 10px;
+    bottom: auto;
+    right: 10px;
+  }
+  #speedo {
+    width: 132px;
+    height: 132px;
+  }
+  #speedo .gauge-value { font-size: 24px; }
+  #speedo .gauge-needle { height: 50px; }
+  #tach {
+    width: 86px;
+    height: 86px;
+  }
+  #tach .gauge-value { font-size: 18px; }
+  #tach .gauge-needle { height: 34px; }
+  #tach .tach-tick-label { font-size: 7px; }
+  #address-search-toggle {
+    display: block;
+    position: fixed;
+    top: 184px;
+    right: 10px;
+    z-index: 11;
+    padding: 5px 8px;
+    border: none;
+    border-radius: 6px;
+    background: #4fc3ff;
+    color: #06222f;
+    font: 700 13px system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #address-search {
+    display: none;
+    top: 222px;
+    right: 10px;
+    left: auto;
+    transform: none;
+  }
+  #address-search.is-open { display: flex; }
+  #address-search input { width: min(200px, 52vw); }
+  #address-search-status {
+    top: 268px;
+    right: 10px;
+    left: auto;
+    transform: none;
+  }
+}

@@ -1,0 +1,131 @@
+/* Car-navigation-style minimap: round, north-up, with a rotating car
+   marker, zoom controls, a scale bar, and a place-name/coordinates
+   readout above the dial. */
+#minimap {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  /* The puck's own diameter - the canvas/arrow-overflow sizing and
+     the zoom button offset below are derived from this via calc(),
+     so the mobile breakpoint only needs to override this one
+     variable. */
+  --mm-dial: 150px;
+  /* Off-screen peer arrows are drawn this far past the dial's edge
+     (see arrowBand in minimap.js - kept in sync with this formula). */
+  --mm-arrow: calc(var(--mm-dial) * 2 / 19);
+  width: var(--mm-dial);
+  /* Extra height below the circle reserves room for the scale
+     bar/label so they no longer sit under the map dial. */
+  height: calc(var(--mm-dial) + 26px);
+  z-index: 10;
+  font-family: system-ui, sans-serif;
+}
+#minimap-info {
+  position: absolute;
+  left: 50%;
+  /* The extra `var(--mm-arrow)` clears the dial's own arrow
+     overflow above it (north-pointing peer arrows), not just the
+     dial itself. */
+  bottom: calc(100% + 8px + var(--mm-arrow));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
+}
+#minimap-place {
+  font-size: 14px;
+  font-weight: 700;
+}
+#minimap-coords {
+  font-family: monospace;
+  font-size: 11px;
+  opacity: 0.8;
+}
+/* Shared positioning for both the map canvas and the peer-arrows
+   overlay canvas stacked on top of it: both are centered on the
+   dial's own center (--mm-dial / 2 from the box's top-left corner),
+   and both are sized in JS to be bigger than the puck itself so
+   off-screen peer arrows have transparent room to be drawn past the
+   dial's edge (see resize()/draw() in minimap.js). Because the two
+   canvases are the same size/position, the dial's own bounding box
+   still lines up exactly with the #minimap box, same as the
+   original pinned-at-top-left design - only the arrow overflow
+   extends beyond it. */
+#minimap-canvas,
+#minimap-arrows-canvas {
+  position: absolute;
+  top: calc(var(--mm-dial) / 2);
+  left: calc(var(--mm-dial) / 2);
+  transform: translate(-50%, -50%);
+  display: block;
+  background: transparent;
+}
+#minimap-canvas {
+  cursor: ns-resize;
+  touch-action: none;
+}
+#minimap-arrows-canvas {
+  /* Purely a visual overlay - drawn on top of the zoom buttons and
+     scale bar (later in DOM order) so peer arrows are never hidden
+     behind them, but it must never intercept clicks/wheel meant for
+     the zoom buttons or the map canvas underneath it. */
+  pointer-events: none;
+}
+#minimap-zoom {
+  /* Tucked right at the dial's own top-right corner ("on the
+     brink") - `var(--mm-arrow)` compensates for the arrow-overflow
+     canvas overhang above the dial so this still sits the original
+     few px down from the dial's *own* edge, not the bigger canvas'. */
+  position: absolute;
+  top: calc(var(--mm-arrow) + 4px);
+  right: -4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#minimap-zoom button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+#minimap-zoom button:active {
+  background: rgba(79, 195, 255, 0.6);
+}
+#minimap-scale {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+#minimap-scale-bar {
+  height: 3px;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+#minimap-scale-label {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}

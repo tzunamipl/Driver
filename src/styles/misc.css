@@ -1,0 +1,46 @@
+#attribution {
+  position: fixed;
+  bottom: 4px;
+  left: 8px;
+  z-index: 10;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  pointer-events: none;
+}
+#attribution a {
+  color: inherit;
+}
+#version-badge {
+  position: fixed;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+  pointer-events: none;
+}
+#music-volume {
+  position: fixed;
+  left: 292px;
+  bottom: 28px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 600 12px system-ui, sans-serif;
+  pointer-events: auto;
+}
+#music-volume input {
+  width: 110px;
+  margin: 0;
+  accent-color: #4fc3ff;
+  cursor: pointer;
+}

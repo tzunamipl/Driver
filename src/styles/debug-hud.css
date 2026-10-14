@@ -1,0 +1,154 @@
+#debug-hud-row {
+  /* Row wrapper so the vehicle debug picker sits beside the
+     suspension HUD (not stacked underneath it), while the row as a
+     whole still stacks below the help/controls HUD inside
+     #top-left-stack. */
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+#suspension-hud {
+  /* Stacked below the help/controls HUD inside #top-left-stack
+     (same flex-column approach #terrain-stats uses under
+     #players-panel in #top-right-stack), so it automatically moves
+     up/down as the help HUD collapses to its pill or is hidden,
+     instead of relying on a fixed pixel offset. */
+  color: #fff;
+  font-family: monospace;
+  font-size: 10px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 10;
+}
+#suspension-hud .susp-title {
+  margin-bottom: 6px;
+  opacity: 0.8;
+  letter-spacing: 0.5px;
+}
+#suspension-hud .susp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 34px);
+  gap: 6px 16px;
+}
+#suspension-hud .susp-wheel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+#suspension-hud .susp-terrain {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: #4caf50;
+  flex: none;
+}
+#suspension-hud .susp-bar {
+  width: 14px;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+#suspension-hud .susp-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: #4fc3ff;
+}
+#suspension-hud .susp-rest-line {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: 50%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 1;
+}
+#suspension-hud .susp-label {
+  opacity: 0.85;
+  text-align: center;
+}
+#suspension-hud .susp-landed {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  opacity: 0.85;
+}
+/* Instant vehicle picker in the debug view (toggled with M, same as
+   #suspension-hud/#terrain-stats) - a compact version of the lobby's
+   tabs + list widget (see .vehicle-tab/.vehicle-item below) that
+   swaps the local car's vehicle kind in place instead of just
+   previewing a choice before joining. */
+#vehicle-debug-hud {
+  color: #fff;
+  font-family: monospace;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 8px 10px;
+  border-radius: 6px;
+  z-index: 10;
+  width: 150px;
+  /* #top-left-stack is click-through (pointer-events: none) so the
+     map/driving controls underneath the other HUD pieces stay
+     reachable - but this panel's tabs/buttons need actual clicks,
+     so opt back in here (the lobby's own #vehicle-picker isn't
+     inside that click-through stack, so it never needed this). */
+  pointer-events: auto;
+}
+#vehicle-debug-hud .susp-title {
+  margin-bottom: 6px;
+  opacity: 0.8;
+  letter-spacing: 0.5px;
+}
+#vehicle-debug-hud #vehicle-debug-tabs {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+#vehicle-debug-hud .vehicle-tab {
+  flex: 1;
+  padding: 4px 2px;
+  font-size: 9px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+#vehicle-debug-hud #vehicle-debug-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+#vehicle-debug-hud .vehicle-item {
+  padding: 5px 6px;
+  font-size: 10px;
+}
+#vehicle-debug-color {
+  display: block;
+  width: 100%;
+  height: 26px;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+#vehicle-debug-color::-webkit-color-swatch-wrapper { padding: 0; }
+#vehicle-debug-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+#vehicle-debug-color::-moz-color-swatch {
+  border: none;
+  border-radius: 3px;
+}

@@ -1,0 +1,110 @@
+#gauges {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  z-index: 10;
+  pointer-events: none;
+  font-family: monospace;
+  color: #fff;
+}
+#top-right-stack {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+#players-panel {
+  color: #fff;
+  font-family: monospace;
+  font-size: 12px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px 12px;
+  border-radius: 6px;
+  line-height: 1.5;
+  min-width: 180px;
+  max-width: 240px;
+  pointer-events: none;
+}
+#players-toggle {
+  pointer-events: auto;
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-align: left;
+  opacity: 0.85;
+  cursor: pointer;
+}
+#players-toggle::before {
+  content: '▾ ';
+}
+#players-panel.collapsed #players-toggle {
+  margin-bottom: 0;
+}
+#players-panel.collapsed #players-toggle::before {
+  content: '▸ ';
+}
+/* Same fold animation as #hud-body: max-height/opacity instead of
+   an instant display: none. */
+#players-list {
+  max-height: 600px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
+}
+#players-panel.collapsed #players-list {
+  max-height: 0;
+  opacity: 0;
+}
+/* Medium stage: only the top 5 rows stay visible (roster is
+   pre-sorted by activeness/score - see playersPanel.js), everything
+   past that is hidden without touching the DOM. */
+#players-panel.medium #players-list {
+  max-height: 220px;
+}
+#players-panel.medium #players-list .players-row:nth-child(n+6) {
+  display: none;
+}
+#players-panel .players-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+#players-panel .players-row.me { color: #4fc3ff; }
+#players-panel .players-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#players-panel .players-score {
+  opacity: 0.85;
+  min-width: 2ch;
+  text-align: right;
+}
+#players-panel .players-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  white-space: nowrap;
+}
+#players-panel .players-status.active { color: #b6f5c3; background: rgba(76,175,80,0.25); }
+#players-panel .players-status.idle { color: #ffe08a; background: rgba(255,193,7,0.18); }
+#players-panel .players-empty { opacity: 0.7; font-style: italic; }

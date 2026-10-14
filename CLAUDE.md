@@ -1,0 +1,57 @@
+# Driver
+
+Browser driving game on real-world terrain. Vanilla JS (ES modules), three.js (render),
+cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
+
+- `npm run dev` – local dev server; `npm run build` – sanity check (catches import/syntax errors).
+- Deployed to GitHub Pages via `.github/workflows/pages.yml`.
+
+## Layout
+- `src/main.js` – composition root: creates every subsystem and wires them together.
+- `src/config.js` – run mode, spawn origin, global tuning constants.
+- `src/app/` – game orchestration: `mainLoop.js` (per-frame update order), `carManager.js`
+  (local car spawn/respawn + remote roster), `input.js`, `collisions.js` (arcade responses,
+  tunnel guards), `cameraFollow.js` + `cameraViews/` (one file per camera), `scoring.js`,
+  `sceneSetup.js`, `physicsSetup.js`. `viewFrame.js` = this player's local frame (network frame is
+  fixed at `ORIGIN`); `floatingOrigin.js` shifts the world back to near (0,0) every 2 km - anything
+  keeping world-space positions between frames needs a `shiftOrigin(dx, dz)` registered there.
+- `src/lib/` – subsystems:
+  - World streaming: `terrain.js` (quadtree of elevation + aerial tiles, `TerrainManager`; worker
+    fetch/decode + mesh building in `terrain/`; detail tiles carve OSM roads in as a raised bed, `terrain/roadBed.js`, with Heightfield physics), `buildings.js`
+    (+ `buildingsCache.js` IndexedDB). Debug/gameplay overlays extend `tiles/vectorTileLayer.js`
+    (fetch, bucketing, time-sliced builds, unload): `vectorLineLayer.js` → `streets.js`,
+    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `tiles/openFreeMap.js` = vector tile
+    fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
+  - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
+    (chassis body/inertia/hitboxes, wheel mesh, remote car). Hover vehicles go to `chariot.js`,
+    helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
+    `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
+    `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox), `airDrag.js`,
+    `surfaceCompounds.js`, `terrainSurface.js`.
+  - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
+    Register new vehicles in `vehicles/index.js`.
+  - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js` (all on
+    `particles/puffPool.js`), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
+  - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
+    `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
+    (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`,
+    `waterSplash.js`, `impact.js`). Never create another `AudioContext`.
+  - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
+    `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
+- `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, address search.
+- `index.html` – DOM skeleton for HUD/UI. Styles: `src/styles/*.css` (one per UI area, imported
+  in cascade order by `src/styles/index.css`).
+
+## Conventions
+- Modules export `createX(...)` factories returning plain objects, or `XManager` classes for
+  tile streamers (`update`, `recenter`, `getStats`, `isTileLoaded`).
+- Physics axes: x right, y up, z forward. Collision groups exported from `terrain.js` / `buildings.js`.
+- Per-vehicle values come from the descriptor with a module-level default (`descriptor.x ?? DEFAULT_X`).
+- Keep comments short: one line of *why* for non-obvious choices; no history or cross-file narration.
+
+## Token hints
+- `README.md` is user-facing docs with deep background; usually skip it.
+- Largest files: `terrain.js` (~1000 lines), `buildings.js`, `vehicles/geometry/levorg.js` –
+  grep for the function first and read only that range.
+- Comment-only edits can be verified by building and comparing the hash of `dist/assets/*.js`
+  (the minifier strips comments; mask the `YY.MM.DD-HH.MM` build timestamp first).

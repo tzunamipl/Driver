@@ -1,0 +1,218 @@
+#top-left-stack {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+#hud {
+  color: #fff;
+  font-family: monospace;
+  font-size: 13px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px 12px;
+  border-radius: 6px;
+  line-height: 1.5;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--hud-fold-ms) ease, transform var(--hud-fold-ms) ease, padding var(--hud-fold-ms) ease;
+}
+#hud-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  pointer-events: auto;
+  transition: margin-bottom var(--hud-fold-ms) ease;
+}
+#hud-toggle {
+  display: block;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: bold;
+  text-align: left;
+  cursor: pointer;
+}
+#hud-toggle::before {
+  content: '▾ ';
+}
+#hud.collapsed {
+  padding: 6px 10px;
+}
+#hud.collapsed #hud-header {
+  gap: 6px;
+  margin-bottom: 0;
+}
+#hud.collapsed #hud-toggle {
+  flex: 0 0 auto;
+}
+#hud.collapsed #hud-toggle::before {
+  content: '▸ ';
+}
+/* Rolled up to the small "Help" pill: the body folds away via
+   max-height/opacity (rather than snapping with display: none) so
+   collapsing/expanding is animated the same way hiding is. */
+#hud-body {
+  max-height: 400px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
+}
+#hud.collapsed #hud-body {
+  max-height: 0;
+  opacity: 0;
+}
+#hud.collapsed #hud-discord {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: none;
+}
+#hud .hud-points {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+#hud-discord {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  pointer-events: auto;
+}
+#hud-discord a {
+  display: inline-block;
+  color: #fff;
+  background: #5865f2;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.7);
+}
+#hud-discord a:hover {
+  background: #6c75f5;
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.9);
+}
+#hud-reset {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  pointer-events: auto;
+}
+#hud-reset-choices {
+  display: inline-block;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#hud-reset-choices:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+#score-toasts {
+  position: fixed;
+  left: 50%;
+  top: 28%;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.score-toast {
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 6px 14px;
+  text-shadow: 0 1px 2px #000;
+  animation: score-toast 1.6s ease forwards;
+}
+@keyframes score-toast {
+  0% { opacity: 0; transform: translateY(8px); }
+  12% { opacity: 1; transform: translateY(0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* System notices (e.g. the ground-tunnel guard's auto-rescue) - like
+   score-toasts above, but top-center, longer-lived, and wraps longer
+   explanatory sentences instead of a short "+N". */
+#system-notices {
+  position: fixed;
+  left: 50%;
+  top: 10%;
+  transform: translateX(-50%);
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  max-width: min(90vw, 480px);
+}
+.system-notice {
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(40, 10, 10, 0.75);
+  border: 1px solid rgba(255, 120, 120, 0.4);
+  border-radius: 8px;
+  padding: 8px 16px;
+  text-shadow: 0 1px 2px #000;
+  animation: system-notice 5s ease forwards;
+}
+@keyframes system-notice {
+  0% { opacity: 0; transform: translateY(-8px); }
+  8% { opacity: 1; transform: translateY(0); }
+  88% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+
+#airtime-hud {
+  position: fixed;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  z-index: 12;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  padding: 6px 14px;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+#airtime-hud.visible {
+  opacity: 1;
+}

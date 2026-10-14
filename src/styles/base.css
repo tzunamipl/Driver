@@ -1,0 +1,20 @@
+/* Shared timing for every HUD fold/hide animation (help panel
+   collapse-to-pill, its full dismiss, and the players panel
+   collapse) so they all read as the same kind of motion. */
+:root { --hud-fold-ms: 250ms; }
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #111;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+#app { width: 100vw; height: 100vh; }
+canvas { display: block; }
