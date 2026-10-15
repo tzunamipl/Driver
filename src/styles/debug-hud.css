@@ -152,3 +152,35 @@
   border: none;
   border-radius: 3px;
 }
+/* Which debug overlays show in the debug view (persisted per browser). */
+#debug-layers-hud {
+  color: #fff;
+  font-family: monospace;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 8px 10px;
+  border-radius: 6px;
+  z-index: 10;
+  pointer-events: auto; /* #top-left-stack is click-through */
+}
+#debug-layers-hud .susp-title {
+  margin-bottom: 6px;
+  opacity: 0.8;
+  letter-spacing: 0.5px;
+}
+#debug-layers-hud .debug-layers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#debug-layers-hud .debug-layer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#debug-layers-hud .debug-layer input {
+  margin: 0;
+  cursor: pointer;
+}

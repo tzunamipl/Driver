@@ -10,12 +10,14 @@
   color: #fff;
 }
 #lobby form {
-  width: min(420px, calc(100vw - 32px));
+  width: min(760px, calc(100vw - 32px));
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.78);
   padding: 22px 22px 18px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.15);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
 }
 #lobby h1 {
   margin: 0 0 6px;
@@ -66,8 +68,14 @@
   border: none;
   border-radius: 6px;
 }
-#vehicle-picker {
+#lobby-body {
+  display: flex;
+  gap: 18px;
   margin: 0 0 16px;
+}
+#lobby-fields {
+  flex: 1 1 0;
+  min-width: 0;
 }
 #vehicle-tabs {
   display: flex;
@@ -91,8 +99,8 @@
   border-bottom-color: #4fc3ff;
 }
 #vehicle-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
   max-height: 140px;
   overflow-y: auto;
@@ -113,12 +121,60 @@
   background: rgba(79, 195, 255, 0.18);
 }
 .vehicle-empty {
+  grid-column: 1 / -1;
   margin: 0;
   padding: 8px 2px;
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
 }
+#vehicle-showcase {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(79, 195, 255, 0.16), rgba(0, 0, 0, 0.3) 70%);
+}
+#vehicle-preview {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
+#vehicle-stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  font-size: 12px;
+}
+#vehicle-stats dt {
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.6);
+}
+#vehicle-stats dd {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#lobby-actions {
+  display: flex;
+  gap: 8px;
+}
+#lobby-cancel {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+#lobby-cancel[hidden] { display: none; }
 #lobby-join {
+  flex: 1;
   width: 100%;
   padding: 8px 14px;
   border: none;
@@ -153,3 +209,7 @@
 }
 #net-status[data-status="offline"] { color: #ffb0b0; }
 #net-status[data-status="online"] { color: #b6f5c3; }
+@media (max-width: 640px) {
+  #lobby-body { flex-direction: column; }
+  #vehicle-preview { height: 160px; }
+}

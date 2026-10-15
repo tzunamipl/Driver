@@ -10,9 +10,9 @@ import { PLAYER_ID_STORAGE_KEY } from '../config.js';
 //
 // Deliberately kept in its own tiny module (mirrors carState.js) rather
 // than folded into the lobby's name/color storage, since it has its own
-// lifecycle: it must survive "Reset saved info" (name/color/position are
-// meant to reset, but the id shouldn't change underneath an active
-// connection) and it's read before the lobby form even exists.
+// lifecycle: it must stay stable when name/color/vehicle change (the id
+// shouldn't change underneath an active connection) and it's read before
+// the lobby form even exists.
 export function loadOrCreatePlayerId() {
   try {
     const existing = localStorage.getItem(PLAYER_ID_STORAGE_KEY);

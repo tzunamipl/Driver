@@ -32,16 +32,27 @@
       <form id="lobby-form" autocomplete="off">
         <h1>Shared Room</h1>
         <p class="hint">Enter your name and pick a color. Everyone on this page drives on the same map.</p>
-        <label for="lobby-name">Name</label>
-        <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
-        <label for="lobby-color">Color</label>
-        <input id="lobby-color" name="color" type="color" value="#ffffff" />
-        <label>Vehicle</label>
-        <div id="vehicle-picker">
-          <div id="vehicle-tabs" role="tablist"></div>
-          <div id="vehicle-list"></div>
+        <div id="lobby-body">
+          <div id="lobby-fields">
+            <label for="lobby-name">Name</label>
+            <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
+            <label for="lobby-color">Color</label>
+            <input id="lobby-color" name="color" type="color" value="#ffffff" />
+            <label>Vehicle</label>
+            <div id="vehicle-picker">
+              <div id="vehicle-tabs" role="tablist"></div>
+              <div id="vehicle-list"></div>
+            </div>
+          </div>
+          <div id="vehicle-showcase">
+            <canvas id="vehicle-preview"></canvas>
+            <dl id="vehicle-stats"></dl>
+          </div>
         </div>
-        <button id="lobby-join" type="submit" disabled>Drive in</button>
+        <div id="lobby-actions">
+          <button id="lobby-cancel" type="button" hidden>Cancel</button>
+          <button id="lobby-join" type="submit" disabled>Drive in</button>
+        </div>
         <p id="lobby-status">Loading terrain…</p>
       </form>
     </div>
@@ -50,7 +61,7 @@
       Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot;
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
-    <div id="version-badge"></div>
+    <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
     <label id="music-volume">
       Music
       <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="0.4" aria-label="Music volume" />
@@ -86,7 +97,7 @@
             3 &mdash; car hit
           </div>
           <div id="hud-reset">
-            <button type="button" id="hud-reset-choices">Reset saved name/color</button>
+            <button type="button" id="hud-change-choices">Change name/vehicle</button>
           </div>
         </div>
         <div id="hud-discord">
@@ -104,6 +115,10 @@
           <div id="vehicle-debug-tabs"></div>
           <div id="vehicle-debug-list"></div>
           <input id="vehicle-debug-color" type="color" value="#ffffff" aria-label="Car color" />
+        </div>
+        <div id="debug-layers-hud">
+          <div class="susp-title">LAYERS</div>
+          <div class="debug-layers-list"></div>
         </div>
       </div>
     </div>

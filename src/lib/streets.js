@@ -4,6 +4,7 @@
 
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad } from './roadClasses.js';
+import { DETAIL_BOX } from './terrain.js';
 
 // The transportation layer's maxzoom.
 const STREET_TILE_ZOOM = 14;
@@ -26,4 +27,5 @@ export const StreetsManager = createVectorLineLayer({
   lift: STREET_LIFT,
   flat: true,
   alwaysStream: true,
+  radius: DETAIL_BOX, // every DETAIL_ZOOM tile terrain streams (HIGH, MEDIUM and LOW)
 });

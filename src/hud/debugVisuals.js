@@ -1,5 +1,35 @@
-// M key: toggles all debug visuals together (stats HUDs, tile lines,
-// hitboxes, street/river/water overlays).
+// M key: toggles the debug view (stats HUDs + 3D overlays). The layers panel
+// picks which 3D overlays show while it's on; the choice persists.
+
+import { DEBUG_LAYERS_STORAGE_KEY } from '../config.js';
+
+const LAYERS = [
+  { id: 'roads', label: 'Roads' },
+  { id: 'water', label: 'Water' },
+  { id: 'tileBorders', label: 'Tile borders' },
+  { id: 'hitboxes', label: 'Hitboxes' },
+  { id: 'terrainGrid', label: 'Terrain polygons' },
+  { id: 'roadBed', label: 'Road bed' }, // terrain deformation, not an overlay: off rebuilds detail tiles
+];
+
+function loadLayers() {
+  const layers = Object.fromEntries(LAYERS.map(({ id }) => [id, true]));
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEBUG_LAYERS_STORAGE_KEY) || '{}');
+    for (const { id } of LAYERS) if (typeof saved[id] === 'boolean') layers[id] = saved[id];
+  } catch {
+    // Corrupt/unavailable storage: all layers on.
+  }
+  return layers;
+}
+
+function saveLayers(layers) {
+  try {
+    localStorage.setItem(DEBUG_LAYERS_STORAGE_KEY, JSON.stringify(layers));
+  } catch {
+    // Storage unavailable: just don't persist.
+  }
+}
 
 /**
  * @param {object} deps
@@ -11,28 +41,54 @@
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
+ * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
  * @param {boolean} initialEnabled - on in dev, off in prod
  */
 export function createDebugVisualsToggle(
-  { terrain, buildings, streets, rivers, waterAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl },
+  { terrain, buildings, streets, rivers, waterAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl, layersHudEl },
   initialEnabled
 ) {
   let debugVisualsEnabled = initialEnabled;
+  const layers = loadLayers();
   // Set once a car exists; carManager re-applies the state on spawn.
   let setCarHitboxVisible = null;
 
+  const shown = (id) => debugVisualsEnabled && layers[id];
+
   function apply() {
-    terrainStatsEl.style.display = debugVisualsEnabled ? '' : 'none';
-    suspensionHudEl.style.display = debugVisualsEnabled ? '' : 'none';
-    if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = debugVisualsEnabled ? '' : 'none';
-    terrain.setBordersVisible(debugVisualsEnabled);
-    buildings.setHitboxesVisible(debugVisualsEnabled);
-    if (streets) streets.setVisible(debugVisualsEnabled);
-    if (rivers) rivers.setVisible(debugVisualsEnabled);
-    if (waterAreas) waterAreas.setVisible(debugVisualsEnabled);
-    if (setCarHitboxVisible) setCarHitboxVisible(debugVisualsEnabled);
+    const display = debugVisualsEnabled ? '' : 'none';
+    terrainStatsEl.style.display = display;
+    suspensionHudEl.style.display = display;
+    if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = display;
+    if (layersHudEl) layersHudEl.style.display = display;
+    terrain.setBordersVisible(shown('tileBorders'));
+    terrain.setWireframeVisible(shown('terrainGrid'));
+    terrain.setRoadBedEnabled(!debugVisualsEnabled || layers.roadBed);
+    buildings.setHitboxesVisible(shown('hitboxes'));
+    if (streets) streets.setVisible(shown('roads'));
+    if (rivers) rivers.setVisible(shown('water'));
+    if (waterAreas) waterAreas.setVisible(shown('water'));
+    if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 
+  function buildLayersPanel() {
+    const list = layersHudEl.querySelector('.debug-layers-list') || layersHudEl;
+    for (const { id, label } of LAYERS) {
+      const row = document.createElement('label');
+      row.className = 'debug-layer';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = layers[id];
+      box.addEventListener('change', () => {
+        layers[id] = box.checked;
+        saveLayers(layers);
+        apply();
+        box.blur(); // keep keyboard driving working after a click
+      });
+      row.append(box, label);
+      list.append(row);
+    }
+  }
 
   function setEnabled(enabled) {
     debugVisualsEnabled = enabled;
@@ -41,7 +97,7 @@ export function createDebugVisualsToggle(
 
   function setCarHitboxSetter(fn) {
     setCarHitboxVisible = fn;
-    if (fn) fn(debugVisualsEnabled);
+    if (fn) fn(shown('hitboxes'));
   }
 
   window.addEventListener('keydown', (e) => {
@@ -50,6 +106,7 @@ export function createDebugVisualsToggle(
     if (e.code === 'KeyM' && !e.repeat) setEnabled(!debugVisualsEnabled);
   });
 
+  if (layersHudEl) buildLayersPanel();
   apply();
 
   return {

@@ -1,17 +1,24 @@
 // Fetches + decodes terrain tiles off the main thread: Terrarium PNG ->
 // Float32 elevations, and an aerial mosaic -> ImageBitmap. Detail tiles
 // come back as a finished surface with the road bed (detailSurface.js). Never throws:
-// a failed elevation comes back as {error}, failed aerial quadrants stay blank.
+// a failed elevation comes back as {error}, missing aerial quadrants use coarser imagery.
+// A {cancel: id} message aborts that job's imagery and answers it {aborted: true}
+// (shared elevation / road fetches are cached for other jobs, so they run on).
 import { AERIAL_URL, ELEVATION_URL, AERIAL_TILE_SIZE } from './tileUrls.js';
 import { loadRoadLines } from './roadBed.js';
 import { buildDetailSurface } from './detailSurface.js';
 
-// Decoded elevations, shared by a tile and its neighbours' borders.
+// Decoded elevations, shared by a tile, its neighbours' borders and overzoomed tiles cropping it.
 const ELEVATION_CACHE_SIZE = 96;
+// Zoom levels to step up for a missing aerial tile (6: one ancestor pixel per 4x4 output pixels).
+const AERIAL_FALLBACK_LEVELS = 6;
+const ELEVATION_MAX_ZOOM = 15; // Terrarium's deepest level; finer tiles crop their ancestor
 const elevationCache = new Map(); // "z/x/y" -> Promise<{heights, width, height} | {error}>
 
-async function fetchBitmap(url, options) {
-  const res = await fetch(url);
+const controllers = new Map(); // job id -> AbortController
+
+async function fetchBitmap(url, options, signal) {
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return createImageBitmap(await res.blob(), options);
 }
@@ -56,80 +63,131 @@ function cachedElevation(z, x, y) {
 }
 
 /**
- * Tile (z, x, y) plus a `border`-pixel frame copied from its 8 neighbours,
- * so neighbouring tiles see identical data around their shared edge. A
- * missing neighbour's strip repeats this tile's edge pixels instead.
+ * Tile (z, x, y) plus a `border`-pixel frame read from the neighbouring tiles,
+ * so tiles see identical data around their shared edge. Beyond
+ * ELEVATION_MAX_ZOOM it's a crop of the ancestor's pixels, `border` rounded up
+ * to them. Missing neighbours repeat the ancestor's edge pixels instead.
  */
 async function loadElevation(z, x, y, border) {
-  const own = await cachedElevation(z, x, y);
-  if (own.error || !border) return own.error ? own : { ...own, heights: own.heights.slice() };
-  const n = 2 ** z;
-  const neighbours = await Promise.all(
-    [-1, 0, 1].flatMap((dy) =>
-      [-1, 0, 1].map((dx) => {
-        const nx = x + dx;
-        const ny = y + dy;
-        if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= n || ny >= n) return null;
-        return cachedElevation(z, nx, ny);
-      })
-    )
-  );
-  const { width: w, height: h } = own;
-  const bw = w + 2 * border;
-  const bh = h + 2 * border;
-  const heights = new Float32Array(bw * bh);
-  for (let by = 0; by < bh; by++) {
-    const py = by - border; // pixel row in this tile's own coordinates
-    const dy = py < 0 ? -1 : py >= h ? 1 : 0;
-    for (let bx = 0; bx < bw; bx++) {
-      const px = bx - border;
-      const dx = px < 0 ? -1 : px >= w ? 1 : 0;
-      const src = neighbours[(dy + 1) * 3 + (dx + 1)];
-      const tile = src && !src.error && src.width === w && src.height === h ? src : own;
-      const sx = tile === own ? Math.min(w - 1, Math.max(0, px)) : px - dx * w;
-      const sy = tile === own ? Math.min(h - 1, Math.max(0, py)) : py - dy * h;
-      heights[by * bw + bx] = tile.heights[sy * w + sx];
-    }
-  }
-  return { heights, width: bw, height: bh, border };
+  const az = Math.min(z, ELEVATION_MAX_ZOOM);
+  const s = 2 ** (z - az);
+  const ax = Math.floor(x / s);
+  const ay = Math.floor(y / s);
+  const own = await cachedElevation(az, ax, ay);
+  if (own.error) return own;
+  const b = Math.ceil(border / s);
+  const span = own.width / s; // ancestor pixels across this tile
+  return cropMosaic(az, ax, ay, own, (x % s) * span - b, (y % s) * span - b, span + 2 * b, b);
 }
 
-/** One bitmap for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles. */
-async function loadAerial(z, x, y, boost) {
+/** `w` x `w` window from pixel (x0, y0) of ancestor `own`, reading past its edge into the neighbouring tiles. */
+async function cropMosaic(z, ax, ay, own, x0, y0, w, border) {
+  const { width: W, height: H } = own;
+  const n = 2 ** z;
+  const tx0 = Math.floor(x0 / W);
+  const ty0 = Math.floor(y0 / H);
+  const tx1 = Math.floor((x0 + w - 1) / W);
+  const ty1 = Math.floor((y0 + w - 1) / H);
+  const tiles = new Map(); // "dx/dy" -> elevation (same size as `own`) | null
+  const loads = [];
+  for (let dy = ty0; dy <= ty1; dy++) {
+    for (let dx = tx0; dx <= tx1; dx++) {
+      const key = `${dx}/${dy}`;
+      const nx = ax + dx;
+      const ny = ay + dy;
+      if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= n || ny >= n) {
+        tiles.set(key, dx === 0 && dy === 0 ? own : null);
+        continue;
+      }
+      loads.push(cachedElevation(z, nx, ny).then((t) => tiles.set(key, !t.error && t.width === W && t.height === H ? t : null)));
+    }
+  }
+  await Promise.all(loads);
+  const heights = new Float32Array(w * w);
+  for (let r = 0; r < w; r++) {
+    const py = y0 + r;
+    const dy = Math.floor(py / H);
+    for (let c = 0; c < w; c++) {
+      const px = x0 + c;
+      const dx = Math.floor(px / W);
+      const tile = tiles.get(`${dx}/${dy}`);
+      heights[r * w + c] = tile
+        ? tile.heights[(py - dy * H) * W + (px - dx * W)]
+        : own.heights[Math.min(H - 1, Math.max(0, py)) * W + Math.min(W - 1, Math.max(0, px))];
+    }
+  }
+  return { heights, width: w, height: w, border };
+}
+
+/**
+ * One bitmap for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
+ * Missing children are filled upscaled from the nearest coarser tile; null if nothing loaded.
+ */
+async function loadAerial(z, x, y, boost, signal) {
   const n = 2 ** boost;
+  const zz = z + boost;
   const canvas = new OffscreenCanvas(n * AERIAL_TILE_SIZE, n * AERIAL_TILE_SIZE);
   const ctx = canvas.getContext('2d');
+  const fetched = new Map(); // url -> Promise<ImageBitmap | null>, shared by quadrants falling back to one ancestor
+  const fetchOnce = (tz, tx, ty) => {
+    const url = AERIAL_URL(tz, tx, ty);
+    if (!fetched.has(url)) fetched.set(url, fetchBitmap(url, undefined, signal).catch(() => null));
+    return fetched.get(url);
+  };
+  let drawn = 0;
   const loads = [];
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
+      const qx = x * n + i;
+      const qy = y * n + j;
       loads.push(
-        fetchBitmap(AERIAL_URL(z + boost, x * n + i, y * n + j))
-          .then((bmp) => {
-            ctx.drawImage(bmp, i * AERIAL_TILE_SIZE, j * AERIAL_TILE_SIZE, AERIAL_TILE_SIZE, AERIAL_TILE_SIZE);
-            bmp.close();
-          })
-          .catch(() => {})
+        (async () => {
+          for (let k = 0; k <= AERIAL_FALLBACK_LEVELS && zz - k >= 0; k++) {
+            const bmp = await fetchOnce(zz - k, qx >> k, qy >> k);
+            if (signal.aborted) return;
+            if (!bmp) continue;
+            const s = AERIAL_TILE_SIZE / 2 ** k; // this quadrant's share of the ancestor
+            const sx = (qx - ((qx >> k) << k)) * s;
+            const sy = (qy - ((qy >> k) << k)) * s;
+            ctx.drawImage(bmp, sx, sy, s, s, i * AERIAL_TILE_SIZE, j * AERIAL_TILE_SIZE, AERIAL_TILE_SIZE, AERIAL_TILE_SIZE);
+            drawn++;
+            return;
+          }
+        })()
       );
     }
   }
   await Promise.all(loads);
-  return canvas.transferToImageBitmap();
+  for (const promise of fetched.values()) (await promise)?.close();
+  return drawn ? canvas.transferToImageBitmap() : null;
 }
 
 self.onmessage = async ({ data: job }) => {
+  if (job.cancel != null) {
+    controllers.get(job.cancel)?.abort();
+    return;
+  }
   const { id, z, x, y, elevation, elevationBorder = 0, aerialBoost, detail } = job;
+  const controller = new AbortController();
+  controllers.set(id, controller);
   const [elev, bitmap, roadLines] = await Promise.all([
     elevation ? loadElevation(z, x, y, elevationBorder) : null,
-    aerialBoost != null ? loadAerial(z, x, y, aerialBoost).catch(() => null) : null,
-    detail ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters) : null,
+    aerialBoost != null ? loadAerial(z, x, y, aerialBoost, controller.signal).catch(() => null) : null,
+    detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters) : null,
   ]);
+  controllers.delete(id);
+  if (controller.signal.aborted) {
+    bitmap?.close();
+    self.postMessage({ id, aborted: true });
+    return;
+  }
   const transfer = [];
   if (bitmap) transfer.push(bitmap);
   if (detail) {
     // Failed elevation builds flat (main thread decides what to do with it).
     let surface;
     try {
-      surface = buildDetailSurface({ ...detail, elev: elev?.heights ? elev : null, lines: roadLines });
+      surface = buildDetailSurface({ ...detail, elev: elev?.heights ? elev : null, lines: roadLines ?? [] });
     } catch (err) {
       self.postMessage({ id, elev: { error: String(err) }, bitmap, surface: null }, transfer);
       return;

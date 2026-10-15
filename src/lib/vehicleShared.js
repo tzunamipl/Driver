@@ -128,13 +128,14 @@ export function createRemoteShell(scene, group, bodyMat, color, name, score) {
     const geometries = new Set();
     group.traverse((obj) => {
       if (obj.geometry) geometries.add(obj.geometry);
-      if (obj.material) {
-        materials.add(obj.material);
-        if (obj.material.map) obj.material.map.dispose();
-      }
+      // Multi-material meshes (e.g. the Impreza body) hold an array.
+      for (const material of [obj.material ?? []].flat()) materials.add(material);
     });
     for (const geometry of geometries) geometry.dispose();
-    for (const material of materials) material.dispose();
+    for (const material of materials) {
+      material.map?.dispose();
+      material.dispose();
+    }
   }
 
   return { setAppearance, dispose };

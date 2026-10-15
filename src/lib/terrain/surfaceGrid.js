@@ -2,10 +2,9 @@
 // detailSurface.js (tile worker): height sampling and grid triangulation.
 
 /**
- * Elevation at tile-relative (u, v): bilinear between pixel centres. With a
- * neighbour `border` (see tileWorker.js) both tiles read the same pixels
- * across their shared edge, so it matches exactly; without one the outer
- * half pixel is extrapolated (exact only on even slopes).
+ * Elevation at tile-relative (u, v): bilinear between pixel centres, reading
+ * into the `border` frame past the edge (see tileWorker.js); without one the
+ * outer half pixel is extrapolated (exact only on even slopes).
  */
 export function sampleHeight({ heights, width, height, border = 0 }, u, v) {
   const fx = u * (width - 2 * border) - 0.5 + border;

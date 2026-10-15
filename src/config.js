@@ -140,3 +140,4 @@ export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';
+export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';

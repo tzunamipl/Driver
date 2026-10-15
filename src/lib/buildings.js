@@ -1,28 +1,34 @@
 // 3D buildings from OpenFreeMap vector tiles (static CDN files; more
 // reliable than the overloaded public Overpass servers). The `building`
 // layer already carries render_height. Tiles come at BUILDING_TILE_ZOOM
-// (14) and are bucketed by centroid into DETAIL_ZOOM (15) tiles, streamed
+// (14) and are bucketed by centroid into DETAIL_ZOOM (20) tiles, streamed
 // on the terrain detail grid. Decoded tiles are written to IndexedDB
-// (buildingsCache.js) as an offline fallback.
+// (buildingsCache.js) as an offline fallback. Past them, buildings/
+// farBuildings.js draws every footprint as a plain box.
 // Limitations: outer ring only, flat roofs.
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { tileX2lon, tileY2lat, lon2tileX, lat2tileY, latLonToLocal } from './geo.js';
+import { latLonToLocal } from './geo.js';
 import { cacheTiles, readCachedRegion } from './buildingsCache.js';
-import { fetchVectorTileLayer } from './tiles/openFreeMap.js';
+import {
+  BUILDING_TILE_ZOOM,
+  MIN_FOOTPRINT_POINTS,
+  MAX_FOOTPRINT_METERS,
+  fetchBuildingFeatures,
+  convexHull2D,
+} from './buildings/features.js';
+import { FarBuildingsManager } from './buildings/farBuildings.js';
 import {
   DETAIL_ZOOM,
+  DETAIL_BOX,
   DETAIL_RADIUS,
   UNLOAD_MARGIN,
   UNLOAD_DELAY_TICKS,
-  circleOffsets,
   inCircle,
   GROUND_COLLISION_GROUP,
 } from './terrain.js';
-
-const BUILDING_TILE_ZOOM = 14; // the building layer's maxzoom
 
 // Separate from GROUND_COLLISION_GROUP so ground raycasts ignore roofs.
 export const BUILDING_COLLISION_GROUP = 4;
@@ -30,60 +36,13 @@ export const BUILDING_COLLISION_GROUP = 4;
 // car slides along walls instead of snagging).
 export const BUILDING_MATERIAL = new CANNON.Material('building');
 
-const DEFAULT_HEIGHT_METERS = 6; // when render_height is missing
-const MIN_HEIGHT_METERS = 2;
 // Physics prism extends this far below the lowest ground sample, so slopes
 // and tile seams never leave a gap to drive under.
 const BUILDING_SKIRT_DEPTH_M = 4;
 
-const MIN_FOOTPRINT_POINTS = 3;
-const MAX_FOOTPRINT_METERS = 500; // larger = bad data at this scale
-
 const BUILDING_COLOR = 0xb8b0a4;
 const DEFAULT_BUILDING_COLOR = new THREE.Color(BUILDING_COLOR);
-
-// The optional `colour` field is a hex string or CSS keyword; anything
-// else counts as missing and gets the deterministic grey fallback.
-const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-const _parsedColorCache = new Map(); // raw `colour` string -> plain 0xRRGGBB int (or null if unrecognized)
-const _colorParseScratch = new THREE.Color();
 const _vertexColorScratch = new THREE.Color();
-
-// Untagged buildings get a stable grey derived from their OSM id, so a
-// block isn't one flat colour but each building stays the same shade.
-const FALLBACK_GREY_LIGHT = 0xd8; // single channel, 0-255 - grayscale, so R=G=B
-const FALLBACK_GREY_DARK = 0x58;
-
-// FNV-1a over the id string (OSM ids exceed 32 bits, so no bitwise ops on them).
-function fnv1aHash(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-/** Deterministic grey (0xRRGGBB) for a stable building key. */
-function greyFromKey(key) {
-  const t = fnv1aHash(String(key)) / 0xffffffff;
-  const channel = Math.round(FALLBACK_GREY_DARK + t * (FALLBACK_GREY_LIGHT - FALLBACK_GREY_DARK));
-  return channel * 0x010101;
-}
-
-// Returns a plain int (not THREE.Color) so it survives IndexedDB cloning.
-function parseBuildingColor(props) {
-  const raw = props && props.colour;
-  if (typeof raw !== 'string' || !raw) return null;
-  const trimmed = raw.trim();
-  if (_parsedColorCache.has(trimmed)) return _parsedColorCache.get(trimmed);
-  let hex = null;
-  if (HEX_COLOR_RE.test(trimmed) || THREE.Color.NAMES[trimmed.toLowerCase()] !== undefined) {
-    hex = _colorParseScratch.setStyle(trimmed).getHex();
-  }
-  _parsedColorCache.set(trimmed, hex);
-  return hex;
-}
 
 // Building is time-sliced: at most this many ms per frame, resumed next
 // frame, so entering new territory never stutters.
@@ -92,66 +51,40 @@ const BUILD_TIME_CHECK_INTERVAL = 4; // buildings between clock checks
 
 const REGION_MARGIN_TILES = 2; // extra tiles fetched beyond the keep radius
 const REGION_RETRY_COOLDOWN_MS = 8000;
-const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - BUILDING_TILE_ZOOM);
-const MAX_FEATURES_PER_TILE = 8000; // cap for dense city tiles
+// Every DETAIL_ZOOM tile the terrain streams (the full DETAIL_BOX square, LOW corners included), nearest first.
+const BUILD_OFFSETS = [];
+for (let dy = -DETAIL_BOX; dy <= DETAIL_BOX; dy++) {
+  for (let dx = -DETAIL_BOX; dx <= DETAIL_BOX; dx++) BUILD_OFFSETS.push({ dx, dy });
+}
+BUILD_OFFSETS.sort((a, b) => a.dx * a.dx + a.dy * a.dy - (b.dx * b.dx + b.dy * b.dy));
 
+function inSquare(dx, dy, radius) {
+  return Math.abs(dx) <= radius && Math.abs(dy) <= radius;
+}
+
+function shiftBody(body, dx, dz) {
+  for (const v of [body.position, body.previousPosition, body.interpolatedPosition, body.initPosition]) {
+    v.x -= dx;
+    v.z -= dz;
+  }
+  body.aabbNeedsUpdate = true;
+}
+
+const TILE_ZOOM_RATIO = 2 ** (DETAIL_ZOOM - BUILDING_TILE_ZOOM);
 
 /** Fetches one z14 tile; returns detail-tile key -> [{ ring: [{lat, lon}], height, color }]. */
 async function fetchBuildingTile(tx14, ty14) {
-  const layer = await fetchVectorTileLayer(BUILDING_TILE_ZOOM, tx14, ty14, 'building');
   const byTile = new Map();
-  if (!layer) return byTile;
-
-  const featureCount = Math.min(layer.length, MAX_FEATURES_PER_TILE);
-  for (let i = 0; i < featureCount; i++) {
-    try {
-      const feature = layer.feature(i);
-      if (feature.properties.hide_3d) continue; // covered by a more detailed part
-
-      const rings = feature.loadGeometry();
-      if (!rings.length) continue;
-      const outer = rings[0];
-      if (outer.length < MIN_FOOTPRINT_POINTS) continue;
-
-      const extent = layer.extent;
-      const ring = outer.map((p) => ({
-        lat: tileY2lat(ty14 + p.y / extent, BUILDING_TILE_ZOOM),
-        lon: tileX2lon(tx14 + p.x / extent, BUILDING_TILE_ZOOM),
-      }));
-
-      const height = parseHeightMeters(feature.properties);
-      const color = parseBuildingColor(feature.properties) ?? greyFromKey(feature.id != null ? feature.id : `${tx14}_${ty14}_${i}`);
-
-      let sumLat = 0;
-      let sumLon = 0;
-      for (const p of ring) {
-        sumLat += p.lat;
-        sumLon += p.lon;
-      }
-      const centroidLat = sumLat / ring.length;
-      const centroidLon = sumLon / ring.length;
-      const detailTx = Math.floor(lon2tileX(centroidLon, DETAIL_ZOOM));
-      const detailTy = Math.floor(lat2tileY(centroidLat, DETAIL_ZOOM));
-      const key = `${detailTx}_${detailTy}`;
-
-      let list = byTile.get(key);
-      if (!list) {
-        list = [];
-        byTile.set(key, list);
-      }
-      list.push({ ring, height, color });
-    } catch (err) {
-      console.warn('Skipping one malformed building feature', tx14, ty14, err);
+  for (const { ring, height, color, detailTx, detailTy } of await fetchBuildingFeatures(tx14, ty14)) {
+    const key = `${detailTx}_${detailTy}`;
+    let list = byTile.get(key);
+    if (!list) {
+      list = [];
+      byTile.set(key, list);
     }
+    list.push({ ring, height, color });
   }
   return byTile;
-}
-
-function parseHeightMeters(props) {
-  if (!props) return DEFAULT_HEIGHT_METERS;
-  const meters = parseFloat(props.render_height);
-  if (Number.isFinite(meters) && meters > 0) return Math.max(MIN_HEIGHT_METERS, meters);
-  return DEFAULT_HEIGHT_METERS;
 }
 
 /** Rough memory estimate for the debug HUD. */
@@ -160,35 +93,6 @@ function estimateTileBytes(mergedGeometry, bodyCount) {
   const vertexBytes = position ? position.array.length * 2 * 4 : 0; // position + normal, 4 bytes/float
   const bodyBytes = bodyCount * 200; // rough flat estimate per CANNON.Box body
   return vertexBytes + bodyBytes;
-}
-
-/**
- * Convex hull of {x, z} points (Andrew's monotone chain), CCW - the
- * physics shape must be convex; the render mesh uses the exact outline.
- */
-function convexHull2D(points) {
-  const pts = points
-    .slice()
-    .sort((a, b) => a.x - b.x || a.z - b.z)
-    .filter((p, i, arr) => i === 0 || p.x !== arr[i - 1].x || p.z !== arr[i - 1].z); // drop repeats
-  if (pts.length < 3) return pts;
-
-  const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
-
-  const lower = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
-    lower.push(p);
-  }
-  const upper = [];
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
-    upper.push(p);
-  }
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
 }
 
 /** ConvexPolyhedron prism over `hull`, centred on `center`, ±halfHeight in y. */
@@ -268,9 +172,9 @@ export class BuildingsManager {
     this.originLat = originLat;
     this.originLon = originLon;
     this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
-    // Tiles wait for their terrain tile: ground height comes from raycasting its body.
+    // Tiles wait for their terrain tile: ground height comes from its heightfield.
     this.terrain = terrain;
-    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes }
+    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes, physics }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
     this._buildQueue = []; // [{ tx, ty, key }] not yet started
@@ -304,6 +208,7 @@ export class BuildingsManager {
     this._lastError = null;
     this._usingCachedData = false; // region came from IndexedDB fallback (shown in HUD)
     this._generation = 0; // bumped on recenter() to discard stale fetches
+    this._far = new FarBuildingsManager(scene, terrain, originLat, originLon);
   }
 
   _key(tx, ty) {
@@ -311,7 +216,7 @@ export class BuildingsManager {
   }
 
   _keepRadius() {
-    return DETAIL_RADIUS + UNLOAD_MARGIN;
+    return DETAIL_BOX + UNLOAD_MARGIN;
   }
 
   /** True if the current region covers keepRadius tiles around the centre. */
@@ -433,13 +338,15 @@ export class BuildingsManager {
   }
 
 
-  /** Terrain height at (x, z) via a ground raycast; 0 if nothing hit. */
+  /** Terrain height at (x, z) from the detail heightfield, else a ground raycast; null if neither. */
   _groundHeightAt(x, z) {
+    const y = this.terrain?.detailHeightAt(x, z);
+    if (y != null) return y;
     const from = new CANNON.Vec3(x, 2000, z);
     const to = new CANNON.Vec3(x, -2000, z);
     const result = new CANNON.RaycastResult();
     this.world.raycastClosest(from, to, { collisionFilterMask: GROUND_COLLISION_GROUP }, result);
-    return result.hasHit ? result.hitPointWorld.y : 0;
+    return result.hasHit ? result.hitPointWorld.y : null;
   }
 
   /** Lowest ground under the hull corners/centre - bottom of the physics prism only. */
@@ -447,7 +354,7 @@ export class BuildingsManager {
     let min = centerGroundY;
     for (const p of hull) {
       const y = this._groundHeightAt(p.x, p.z);
-      if (y < min) min = y;
+      if (y != null && y < min) min = y; // corners over unloaded terrain are skipped
     }
     return min;
   }
@@ -484,7 +391,11 @@ export class BuildingsManager {
         const built = buildFootprintGeometry(points, entry.height);
         if (!built) continue;
 
-        const groundY = this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ);
+        // The AABB centre can sit over a neighbour not loaded yet; the vertex mean is in this (loaded) tile.
+        const groundY =
+          this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ) ??
+          this._groundHeightAt(points.reduce((s, p) => s + p.x, 0) / points.length, points.reduce((s, p) => s + p.z, 0) / points.length) ??
+          0;
         const center = { x: built.aabb.centerX, z: built.aabb.centerZ };
         // Roof at centre ground + height (matches the mesh); bottom below
         // the lowest ground sample plus a skirt.
@@ -496,8 +407,7 @@ export class BuildingsManager {
         body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
         body.addShape(buildFootprintPrism(built.hull, center, physicsHalfHeight));
         body.position.set(center.x, physicsCenterY, center.z);
-        this.world.addBody(body);
-        build.bodies.push(body);
+        build.bodies.push(body); // added to the world by _syncChunkPhysics
 
         // Debug wireframe of the same hull prism (visible + occluded pair).
         const hullShape = new THREE.Shape();
@@ -516,14 +426,14 @@ export class BuildingsManager {
         hitboxGeometry.translate(0, -physicsHalfHeight, 0);
         const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
         hitboxMesh.position.copy(body.position);
-        hitboxMesh.visible = this._hitboxesVisible;
+        hitboxMesh.visible = false; // _syncChunkPhysics shows it with the body
         hitboxMesh.renderOrder = 999;
         this.scene.add(hitboxMesh);
         build.hitboxMeshes.push(hitboxMesh);
 
         const hitboxMeshOccluded = new THREE.Mesh(hitboxGeometry, this._hitboxMaterialOccluded);
         hitboxMeshOccluded.position.copy(body.position);
-        hitboxMeshOccluded.visible = this._hitboxesVisible;
+        hitboxMeshOccluded.visible = false;
         hitboxMeshOccluded.renderOrder = 999;
         this.scene.add(hitboxMeshOccluded);
         build.hitboxMeshes.push(hitboxMeshOccluded);
@@ -566,14 +476,15 @@ export class BuildingsManager {
     if (skipped) console.warn(`Buildings tile ${tx},${ty}: ${skipped} malformed footprints skipped`);
 
     const bytes = estimateTileBytes(mesh?.geometry, bodies.length);
-    this.chunks.set(key, { mesh, bodies, hitboxMeshes, tx, ty, bytes });
+    const chunk = { mesh, bodies, hitboxMeshes, tx, ty, bytes, physics: false };
+    this.chunks.set(key, chunk);
+    this._syncChunkPhysics(chunk);
     this.stats.created++;
     this.stats.buildings += bodies.length;
   }
 
   /** Removes the partial bodies/meshes of a build paused mid-tile. */
   _abandonChunkBuild(build) {
-    for (const body of build.bodies) this.world.removeBody(body);
     for (const hitboxMesh of build.hitboxMeshes) {
       this.scene.remove(hitboxMesh);
       hitboxMesh.geometry.dispose();
@@ -593,7 +504,7 @@ export class BuildingsManager {
       this.scene.remove(chunk.mesh);
       chunk.mesh.geometry.dispose();
     }
-    for (const body of chunk.bodies) this.world.removeBody(body);
+    if (chunk.physics) for (const body of chunk.bodies) this.world.removeBody(body);
     // Hitbox pairs share a geometry; double dispose is a no-op.
     for (const hitboxMesh of chunk.hitboxMeshes) {
       this.scene.remove(hitboxMesh);
@@ -609,8 +520,20 @@ export class BuildingsManager {
   setHitboxesVisible(visible) {
     this._hitboxesVisible = visible;
     for (const chunk of this.chunks.values()) {
-      for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = visible;
+      for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = visible && chunk.physics;
     }
+  }
+
+  /** Collision only on the terrain's physics circle; LOW tiles are visual only. */
+  _syncChunkPhysics(chunk) {
+    const want = inCircle(chunk.tx - this._centerTx, chunk.ty - this._centerTy, DETAIL_RADIUS);
+    if (want === chunk.physics) return;
+    chunk.physics = want;
+    for (const body of chunk.bodies) {
+      if (want) this.world.addBody(body);
+      else this.world.removeBody(body);
+    }
+    for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = this._hitboxesVisible && want;
   }
 
   /** Drops everything (incl. in-progress builds and region) for a new origin. */
@@ -631,18 +554,25 @@ export class BuildingsManager {
     this.originLat = lat;
     this.originLon = lon;
     this.scaleLat = lat;
+    this._far.recenter(lat, lon);
   }
 
   /**
    * Floating-origin shift by (dx, dz): scene objects and bodies were already
    * translated by the caller; partial builds' geometry (not in the scene yet)
-   * is moved here.
+   * and bodies not in the world are moved here.
    */
   shiftOrigin(lat, lon, dx, dz) {
     this.originLat = lat;
     this.originLon = lon;
+    this._far.shiftOrigin(lat, lon, dx, dz);
     for (const build of this._inProgressBuilds.values()) {
       for (const g of build.geometries) g.translate(-dx, 0, -dz);
+      for (const body of build.bodies) shiftBody(body, dx, dz);
+    }
+    // Detached bodies aren't in world.bodies, so the caller didn't move them.
+    for (const chunk of this.chunks.values()) {
+      if (!chunk.physics) for (const body of chunk.bodies) shiftBody(body, dx, dz);
     }
   }
 
@@ -652,6 +582,8 @@ export class BuildingsManager {
    * out-of-range tiles for delayed unload.
    */
   async update(centerTx, centerTy, awaitAll = false) {
+    this._centerTx = centerTx;
+    this._centerTy = centerTy;
     const ensure = this._ensureRegion(centerTx, centerTy);
     if (awaitAll) await ensure;
     else ensure.catch(() => {});
@@ -659,7 +591,7 @@ export class BuildingsManager {
     const keepRadius = this._keepRadius();
 
     if (this._regionCovers(centerTx, centerTy)) {
-      for (const { dx, dy } of circleOffsets(DETAIL_RADIUS)) {
+      for (const { dx, dy } of BUILD_OFFSETS) {
         const tx = centerTx + dx;
         const ty = centerTy + dy;
         const key = this._key(tx, ty);
@@ -675,7 +607,7 @@ export class BuildingsManager {
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;
-      if (!inCircle(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
+      if (!inSquare(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
         this._abandonChunkBuild(build);
         this._inProgressBuilds.delete(key);
         continue;
@@ -689,7 +621,7 @@ export class BuildingsManager {
       const { tx, ty, key } = this._buildQueue.shift();
       this._queuedKeys.delete(key);
       if (this.chunks.has(key)) continue;
-      if (!inCircle(tx - centerTx, ty - centerTy, keepRadius)) continue;
+      if (!inSquare(tx - centerTx, ty - centerTy, keepRadius)) continue;
       const build = this._beginChunkBuild(tx, ty);
       if (this._stepChunkBuild(build, deadline)) {
         this._finishChunkBuild(build);
@@ -699,7 +631,8 @@ export class BuildingsManager {
     }
 
     for (const [k, chunk] of this.chunks) {
-      const farAway = !inCircle(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius);
+      this._syncChunkPhysics(chunk);
+      const farAway = !inSquare(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius);
       if (farAway) {
         if (!this.pendingRemoval.has(k)) this.pendingRemoval.set(k, UNLOAD_DELAY_TICKS);
       } else {
@@ -713,6 +646,7 @@ export class BuildingsManager {
         this.pendingRemoval.set(k, ticksLeft - 1);
       }
     }
+    this._far.update(centerTx, centerTy, this.chunks);
   }
 
   getStats() {
@@ -730,6 +664,7 @@ export class BuildingsManager {
       removed: this.stats.removed,
       buildings: this.stats.buildings,
       memoryBytes,
+      far: this._far.getStats(),
     };
   }
 }

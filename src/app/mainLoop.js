@@ -83,6 +83,14 @@ export function createMainLoop({
     const vehicle = carManager.getVehicle();
     const chassisMesh = carManager.getChassisMesh();
     const reset = carManager.getReset();
+    if (vehicle?.imperfectionFrame) {
+      // Surface bumps are keyed by network-frame metres (fixed per spot); the frame map is affine.
+      const origin = viewFrame.toNetwork(0, 0);
+      const frame = vehicle.imperfectionFrame;
+      frame.ox = origin.x;
+      frame.oz = origin.z;
+      frame.sx = viewFrame.toNetwork(1, 0).x - origin.x;
+    }
 
     carManager.getUpdateReset()?.(frameDelta);
     input.updateControls(vehicle, reset, frameDelta);
@@ -181,6 +189,7 @@ export function createMainLoop({
         qz: currentChassisMesh.quaternion.z,
         qw: currentChassisMesh.quaternion.w,
         odoKm: gaugesHud.getOdometerKm(),
+        handbrakeLatched: input.getHandbrake().latched,
       };
       if (now >= nextCarStateSave) {
         nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;
