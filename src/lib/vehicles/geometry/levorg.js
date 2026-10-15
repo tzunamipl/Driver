@@ -1,11 +1,11 @@
 import * as THREE from 'three';
+import { createGlossyMaterial, createPaintMaterial } from './paint.js';
 import { DEFAULT_BODY_COLOR } from '../../../config.js';
 
 export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
     const group = new THREE.Group();
 
-    const bodyMat = new THREE.MeshStandardMaterial({
-        color,
+    const bodyMat = createPaintMaterial(color, {
         metalness: 0.35,
         roughness: 0.42
     });
@@ -16,25 +16,25 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
         roughness: 0.75
     });
 
-    const glassMat = new THREE.MeshStandardMaterial({
+    const glassMat = createGlossyMaterial({
         color: 0x111820,
         metalness: 0.55,
         roughness: 0.16
     });
 
-    const headlightMat = new THREE.MeshStandardMaterial({
+    const headlightMat = createGlossyMaterial({
         color: 0xfff5d8,
         emissive: 0x403817,
         roughness: 0.22
     });
 
-    const tailLightMat = new THREE.MeshStandardMaterial({
+    const tailLightMat = createGlossyMaterial({
         color: 0x7d1014,
         emissive: 0x300000,
         roughness: 0.3
     });
 
-    const fogMat = new THREE.MeshStandardMaterial({
+    const fogMat = createGlossyMaterial({
         color: 0xffd77a,
         emissive: 0x664400,
         roughness: 0.3

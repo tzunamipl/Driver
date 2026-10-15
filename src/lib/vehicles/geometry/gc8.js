@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildImprezaBody } from './impreza.js';
+import { createGlossyMaterial } from './paint.js';
 
 // Impreza WRX sedan (GC8): short roof, raked rear window, trunk deck,
 // hood scoop, round fog lights and a trunk wing.
@@ -13,7 +14,7 @@ const SEDAN = {
     blackPillars: [-0.42],
     sealEndZ: -0.87,
     decorate({ add, box, materials }) {
-        const fogMat = new THREE.MeshStandardMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
+        const fogMat = createGlossyMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
 
         // Hood scoop, following the hood's forward slope
         const scoop = box(0.46, 0.07, 0.4, materials.body, 0, 0.225, 1.25);

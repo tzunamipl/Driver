@@ -6,6 +6,7 @@
 // createPodRacerVehicle(n) makes variants with other engine counts.
 
 import * as THREE from 'three';
+import { createGlossyMaterial, createPaintMaterial } from './geometry/paint.js';
 import {
   ENGINE_RADIUS,
   ENGINE_LENGTH,
@@ -27,7 +28,7 @@ const engineBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a8d93, metalnes
 const engineGlowMat = new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xff6a00, emissiveIntensity: 1.4, roughness: 0.3 });
 const couplingMat = new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x1e6f99, emissiveIntensity: 0.9, roughness: 0.25 });
 const tetherMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.3, roughness: 0.7 });
-const podGlassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
+const podGlassMat = createGlossyMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
 
 /** Jet engine along local Z (nose +Z) with a glowing rear nozzle. */
 function buildEngine() {
@@ -50,7 +51,7 @@ function buildEngine() {
 /** Driver pod + cockpit glass, centred on its own origin. */
 function buildPod(color) {
   const group = new THREE.Group();
-  const podMat = new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.5 });
+  const podMat = createPaintMaterial(color, { metalness: 0.3, roughness: 0.5 });
 
   const podGeo = new THREE.CapsuleGeometry(POD_RADIUS, POD_LENGTH, 4, 8);
   podGeo.rotateX(Math.PI / 2);

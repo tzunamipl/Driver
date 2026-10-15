@@ -1,12 +1,12 @@
 import * as THREE from 'three';
+import { createPaintMaterial } from './paint.js';
 
 const DEFAULT_BODY_COLOR = 0xcc2222;
 
 export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
     const group = new THREE.Group();
 
-    const bodyMat = new THREE.MeshStandardMaterial({
-        color,
+    const bodyMat = createPaintMaterial(color, {
         metalness: 0.3,
         roughness: 0.55
     });

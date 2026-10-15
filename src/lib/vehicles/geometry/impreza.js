@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createGlossyMaterial, createPaintMaterial } from './paint.js';
 import { DEFAULT_BODY_COLOR } from '../../../config.js';
 
 // Shared low-poly 1993-2000 Subaru Impreza body; gl.js (wagon) and gc8.js
@@ -142,12 +143,12 @@ export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BO
     };
 
     const materials = {
-        body: new THREE.MeshStandardMaterial({ color, metalness: 0.35, roughness: 0.5, flatShading: true }),
-        glass: new THREE.MeshStandardMaterial({ color: 0x18222c, metalness: 0.5, roughness: 0.15, flatShading: true }),
+        body: createPaintMaterial(color, { metalness: 0.35, roughness: 0.5, flatShading: true }),
+        glass: createGlossyMaterial({ color: 0x18222c, metalness: 0.5, roughness: 0.15, flatShading: true }),
         trim: new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.8 }),
         plate: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.6 }),
-        light: new THREE.MeshStandardMaterial({ color: 0xfff0c8, emissive: 0x403418, roughness: 0.2 }),
-        tail: new THREE.MeshStandardMaterial({ color: 0x9a1016, emissive: 0x2a0000, roughness: 0.3 }),
+        light: createGlossyMaterial({ color: 0xfff0c8, emissive: 0x403418, roughness: 0.2 }),
+        tail: createGlossyMaterial({ color: 0x9a1016, emissive: 0x2a0000, roughness: 0.3 }),
     };
     const { body: bodyMat, glass: glassMat, trim: trimMat } = materials;
 

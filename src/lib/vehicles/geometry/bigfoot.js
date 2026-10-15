@@ -1,14 +1,15 @@
 import * as THREE from 'three';
+import { createGlossyMaterial, createPaintMaterial } from './paint.js';
 import { DEFAULT_BODY_COLOR } from '../../../config.js';
 
 export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR) {
     const group = new THREE.Group();
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.55 });
+    const bodyMat = createPaintMaterial(color, { metalness: 0.3, roughness: 0.55 });
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.2, roughness: 0.8 });
     const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, metalness: 0.9, roughness: 0.2 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
-    const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0x554417, roughness: 0.3 });
+    const glassMat = createGlossyMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
+    const lightMat = createGlossyMaterial({ color: 0xfff3cf, emissive: 0x554417, roughness: 0.3 });
     const flameMat = new THREE.MeshStandardMaterial({ color: 0xff9a1f, emissive: 0xff5a00, emissiveIntensity: 1.1, roughness: 0.35 });
 
     const parts = [];

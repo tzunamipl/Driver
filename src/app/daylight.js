@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sunDirection } from '../lib/sunPosition.js';
 import { setHazeColor } from '../lib/terrain.js';
+import { setPaintReflection } from '../lib/vehicles/geometry/paint.js';
 import { TIME_SCALE } from '../config.js';
 
 // Day-night cycle: sun direction from the simulated clock and the car's
@@ -37,17 +38,15 @@ const PALETTE = [
 }));
 
 /**
- * Simulated clock: time of day runs TIME_SCALE times faster from the real
- * time at load, wrapped inside the real (UTC) date so the date never drifts.
+ * Simulated clock: real time since UTC midnight times TIME_SCALE, wrapped
+ * inside the real (UTC) date - a pure function of wall time, so reloads agree.
  */
-function simulatedTimeMs(realMs, startRealMs) {
+function simulatedTimeMs(realMs) {
   const dayStart = realMs - (realMs % MS_PER_DAY);
-  const timeOfDay = realMs - dayStart + (TIME_SCALE - 1) * (realMs - startRealMs);
-  return dayStart + (((timeOfDay % MS_PER_DAY) + MS_PER_DAY) % MS_PER_DAY);
+  return dayStart + ((realMs - dayStart) * TIME_SCALE) % MS_PER_DAY;
 }
 
 export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
-  const startRealMs = Date.now();
   const sunDir = new THREE.Vector3();
   const lightDir = new THREE.Vector3();
   const sky = new THREE.Color();
@@ -62,6 +61,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
     sky.lerpColors(a.sky, b.sky, t);
     scene.background.copy(sky);
     setHazeColor(sky);
+    setPaintReflection(sky);
     scene.fog.color.lerpColors(a.fog, b.fog, t);
     if (elevationDeg < MOON_TAKEOVER_ELEVATION_DEG) {
       sun.color.copy(MOON_LIGHT_COLOR);
@@ -77,7 +77,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
 
   /** Call once per frame with the car's world position and lat/lon. */
   function update(position, lat, lon) {
-    const { east, north, up } = sunDirection(simulatedTimeMs(Date.now(), startRealMs), lat, lon);
+    const { east, north, up } = sunDirection(simulatedTimeMs(Date.now()), lat, lon);
     // World axes: x = east, y = up, z = south.
     sunDir.set(east, up, -north);
     const elevationDeg = Math.asin(THREE.MathUtils.clamp(up, -1, 1)) / (Math.PI / 180);
