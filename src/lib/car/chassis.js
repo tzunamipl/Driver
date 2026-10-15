@@ -12,76 +12,88 @@ export const AXLE_HALF_WIDTH = CHASSIS_WIDTH / 2 - 0.1;
 export const WHEEL_FRONT_Z = 1.3;
 export const WHEEL_BACK_Z = -1.3;
 
+// Fraction of the body's height (from the bottom) that counts as lower body;
+// everything above is cabin/greenhouse.
+const BELT_FRACTION = 0.6;
+const MAX_ROOF_SPHERE_RADIUS = 0.25;
+
 /**
- * Top-down footprint: octagon tapered at nose and tail, convex (required by
- * ConvexPolyhedron). Winding gives outward face normals in buildHullPrism.
+ * Collision layout fitted to the body mesh (chassis-local, built at the
+ * origin): a lower-body box over the full bounds up to the belt, a cabin box
+ * over whatever sits above mid-window height, and ground spheres rounding
+ * the lower-body corners and the roof corners.
  */
-function buildHullPoints(width, length) {
-  const w = width / 2;
-  const l = length / 2;
-  return [
-    { x: -0.5 * w, z: l },
-    { x: -w, z: 0.55 * l },
-    { x: -w, z: -0.55 * l },
-    { x: -0.5 * w, z: -l },
-    { x: 0.5 * w, z: -l },
-    { x: w, z: -0.55 * l },
-    { x: w, z: 0.55 * l },
-    { x: 0.5 * w, z: l },
-  ];
-}
+export function fitChassisHitbox(mesh) {
+  mesh.updateMatrixWorld(true);
+  const points = [];
+  mesh.traverse((obj) => {
+    const position = obj.geometry?.attributes.position;
+    if (!position) return;
+    for (let i = 0; i < position.count; i++) {
+      points.push(new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(obj.matrixWorld));
+    }
+  });
+  const { min, max } = new THREE.Box3().setFromPoints(points);
+  const belt = min.y + (max.y - min.y) * BELT_FRACTION;
 
-/** Vertical prism over `hull`, spanning ±halfHeight around the body origin. */
-function buildHullPrism(hull, halfHeight) {
-  const n = hull.length;
-  const vertices = [];
-  const sideFaces = [];
-  const bottomFace = [];
-  const topFace = [];
-  for (let i = 0; i < n; i++) {
-    const p = hull[i];
-    vertices.push(new CANNON.Vec3(p.x, -halfHeight, p.z));
-    bottomFace.push(2 * i);
-    vertices.push(new CANNON.Vec3(p.x, halfHeight, p.z));
-    topFace.push(2 * i + 1);
-    const j = (i + 1) % n;
-    sideFaces.push([2 * i, 2 * i + 1, 2 * j + 1, 2 * j]);
-  }
-  const faces = [...sideFaces, bottomFace, topFace.slice().reverse()];
-  return new CANNON.ConvexPolyhedron({ vertices, faces });
-}
+  const lowerBounds = new THREE.Box3().setFromPoints(points.filter((p) => p.y <= belt));
+  const cabinBounds = new THREE.Box3().setFromPoints(points.filter((p) => p.y > (belt + max.y) / 2));
+  const lowerHalfWidth = Math.max(-lowerBounds.min.x, lowerBounds.max.x);
+  const cabinHalfWidth = Math.max(-cabinBounds.min.x, cabinBounds.max.x);
 
-const HITBOX_RADIUS = Math.min(CHASSIS_WIDTH, CHASSIS_HEIGHT) / 2 - 0.05;
+  const lower = {
+    halfExtents: new CANNON.Vec3(lowerHalfWidth, (belt - min.y) / 2, (lowerBounds.max.z - lowerBounds.min.z) / 2),
+    offset: new CANNON.Vec3(0, (belt + min.y) / 2, (lowerBounds.max.z + lowerBounds.min.z) / 2),
+  };
+  const cabin = {
+    halfExtents: new CANNON.Vec3(cabinHalfWidth, (max.y - belt) / 2, (cabinBounds.max.z - cabinBounds.min.z) / 2),
+    offset: new CANNON.Vec3(0, (max.y + belt) / 2, (cabinBounds.max.z + cabinBounds.min.z) / 2),
+  };
 
-/** Local offsets of the 8 corner spheres. */
-function cornerOffsets() {
-  const out = [];
+  // Lower spheres span the whole lower-body height, so its edges are round.
+  const lowerRadius = Math.min(lower.halfExtents.y, lower.halfExtents.x, lower.halfExtents.z);
+  const roofRadius = Math.min(MAX_ROOF_SPHERE_RADIUS, cabin.halfExtents.y, cabin.halfExtents.x, cabin.halfExtents.z);
+  const spheres = [];
   for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        out.push([
-          sx * (CHASSIS_WIDTH / 2 - HITBOX_RADIUS),
-          sy * (CHASSIS_HEIGHT / 2 - HITBOX_RADIUS),
-          sz * (CHASSIS_LENGTH / 2 - HITBOX_RADIUS),
-        ]);
-      }
+    for (const sz of [-1, 1]) {
+      spheres.push({
+        radius: lowerRadius,
+        offset: new CANNON.Vec3(
+          sx * (lower.halfExtents.x - lowerRadius),
+          lower.offset.y,
+          lower.offset.z + sz * (lower.halfExtents.z - lowerRadius)
+        ),
+      });
+      spheres.push({
+        radius: roofRadius,
+        offset: new CANNON.Vec3(
+          sx * (cabin.halfExtents.x - roofRadius),
+          max.y - roofRadius,
+          cabin.offset.z + sz * (cabin.halfExtents.z - roofRadius)
+        ),
+      });
     }
   }
-  return out;
+  return { boxes: [lower, cabin], spheres };
 }
 
 /**
- * Compound chassis body: the car-shaped hull handles buildings/pedestrians
- * (masked off the ground, so a low hull can't snag on road beds) and 8
- * corner spheres catch the ground on rollovers.
+ * Compound chassis body from fitChassisHitbox(): the boxes handle
+ * buildings/pedestrians (masked off the ground - box-vs-heightfield snags on
+ * cell edges) and the spheres alone touch the ground, so scrapes and
+ * rollovers slide smoothly.
  */
-export function createChassisBody(mass, position, quaternion) {
+export function createChassisBody(mass, position, quaternion, hitbox) {
   const body = new CANNON.Body({ mass, material: CHASSIS_MATERIAL });
-  const hull = buildHullPrism(buildHullPoints(CHASSIS_WIDTH, CHASSIS_LENGTH), CHASSIS_HEIGHT / 2);
-  hull.collisionFilterMask = ~GROUND_COLLISION_GROUP;
-  body.addShape(hull);
-  for (const [x, y, z] of cornerOffsets()) {
-    body.addShape(new CANNON.Sphere(HITBOX_RADIUS), new CANNON.Vec3(x, y, z));
+  for (const { halfExtents, offset } of hitbox.boxes) {
+    const box = new CANNON.Box(halfExtents);
+    box.collisionFilterMask = ~GROUND_COLLISION_GROUP;
+    body.addShape(box, offset);
+  }
+  for (const { radius, offset } of hitbox.spheres) {
+    const sphere = new CANNON.Sphere(radius);
+    sphere.collisionFilterMask = GROUND_COLLISION_GROUP;
+    body.addShape(sphere, offset);
   }
   body.position.copy(position);
   body.quaternion.copy(quaternion);
@@ -104,22 +116,18 @@ export function applyFootprintInertia(body, halfExtents) {
   body.updateInertiaWorld(true);
 }
 
-/** Debug wireframes of the hull + corner spheres, parented to `parent`. */
-export function buildChassisHitboxMeshes(parent) {
+/** Debug wireframes of the hitbox boxes + spheres, parented to `parent`. */
+export function buildChassisHitboxMeshes(parent, hitbox) {
   const material = createHitboxMaterial();
-  const shape = new THREE.Shape();
-  buildHullPoints(CHASSIS_WIDTH, CHASSIS_LENGTH).forEach((p, i) => {
-    if (i === 0) shape.moveTo(p.x, -p.z);
-    else shape.lineTo(p.x, -p.z);
-  });
-  const hullGeometry = new THREE.ExtrudeGeometry(shape, { depth: CHASSIS_HEIGHT, bevelEnabled: false, curveSegments: 1 });
-  hullGeometry.rotateX(-Math.PI / 2);
-  hullGeometry.translate(0, -CHASSIS_HEIGHT / 2, 0);
-
-  const meshes = [hitboxMesh(hullGeometry, material)];
-  for (const [x, y, z] of cornerOffsets()) {
-    const sphere = hitboxMesh(new THREE.SphereGeometry(HITBOX_RADIUS, 8, 6), material);
-    sphere.position.set(x, y, z);
+  const meshes = [];
+  for (const { halfExtents: h, offset } of hitbox.boxes) {
+    const box = hitboxMesh(new THREE.BoxGeometry(2 * h.x, 2 * h.y, 2 * h.z), material);
+    box.position.copy(offset);
+    meshes.push(box);
+  }
+  for (const { radius, offset } of hitbox.spheres) {
+    const sphere = hitboxMesh(new THREE.SphereGeometry(radius, 8, 6), material);
+    sphere.position.copy(offset);
     meshes.push(sphere);
   }
   for (const m of meshes) parent.add(m);

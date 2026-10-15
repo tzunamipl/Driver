@@ -1,5 +1,6 @@
 import * as CANNON from 'cannon-es';
-import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
+import { getSurfaceCompound, DEFAULT_SURFACE_KEY, REFERENCE_TYRE_WIDTH_M } from './surfaceCompounds.js';
+import { sampleImperfection } from './surfaceImperfections.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -12,6 +13,10 @@ import { getSurfaceCompound, DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 //     and a reduced lever arm (pitch/rollInfluence), so no excess
 //     wheelie/flip torque is generated in the first place.
 //  4. Speed-dependent rolling resistance, so the car coasts to a stop.
+//  5. Each wheel carries its own spin (tread speed + rotational inertia,
+//     plus the engine's reflected inertia on driven wheels): it free-spins
+//     in the air, spins up / locks when the patch exceeds static grip, and
+//     then slides with the surface's lower dynamic friction.
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
@@ -19,15 +24,27 @@ const DEFAULT_WHEEL_OPTIONS = {
   axleLocal: new CANNON.Vec3(-1, 0, 0),
   chassisConnectionPointLocal: new CANNON.Vec3(0, 0, 0),
   maxSuspensionForce: 1e6, // car.js passes a mass-derived cap
-  frictionSlip: 1.6, // tyre mu (sticky tarmac)
+  frictionSlip: 1.6, // static tyre mu (sticky tarmac)
+  width: REFERENCE_TYRE_WIDTH_M, // tyre tread width (m), scales grip per surface
   rollingResistance: 0.015, // Crr at low speed (asphalt)
   // Crr(v) = rollingResistance * (1 + factor * |v|), v in m/s.
   rollingResistanceSpeedFactor: 0.08,
   rollInfluence: 0.09, // share of the lateral impulse's lever arm kept
   pitchInfluence: 0.65, // share of the forward impulse's lever arm kept
-  customSlidingRotationalSpeed: -30,
-  useCustomSlidingRotationalSpeed: false,
 };
+
+// Tyre + rim mass ~ density * r^2 * width (17 kg for a 225/35 R17), and
+// I ~ 0.7 m r^2, so the tread-equivalent spin mass I/r^2 = 0.7 m.
+const WHEEL_MASS_PER_R2_WIDTH = 700;
+const WHEEL_INERTIA_SHAPE = 0.7;
+const MIN_SPIN_MASS = 4; // kg, keeps tiny wheels numerically sane
+// Weight of spin/lock slip vs sideways slip when splitting dynamic grip:
+// real tyres keep more cornering force under wheelspin than pure Coulomb.
+const LONG_SLIP_WEIGHT = 0.25;
+// Bearing/air drag on a wheel spinning in the air, 1/s.
+const AIR_SPIN_DRAG_PER_S = 0.4;
+// Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
+const IMPERFECTION_MIN_NORMAL_Y = 0.7;
 
 function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);
@@ -68,9 +85,17 @@ function solveBilateralImpulse(bodyA, bodyB, pos, dir, maxImpulse) {
   return impulse;
 }
 
+/** Moves `x` toward 0 by at most `step` (never past it). */
+function approachZero(x, step) {
+  if (x > 0) return Math.max(0, x - step);
+  if (x < 0) return Math.min(0, x + step);
+  return 0;
+}
+
 /**
  * Raycast suspension (spring+damper) plus a friction-circle tyre model
- * (longitudinal + lateral grip limited by load x frictionSlip).
+ * (longitudinal + lateral grip limited by load x surface mu x tyre width,
+ * static until exceeded, dynamic while sliding) and per-wheel spin.
  */
 export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexForwardAxis = 2, indexUpAxis = 1 }) {
   const vehicle = {
@@ -93,8 +118,15 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       steering: 0,
       engineForce: 0,
       brake: 0,
+      abs: false,
       rotation: 0,
-      deltaRotation: 0,
+      // Tread speed (m/s) along forwardWorld; equals the patch speed when
+      // rolling cleanly. Negative = rolling forward (forwardWorld points back).
+      spinSpeed: 0,
+      // Driveline state, set each frame by input.js via setDriveline.
+      drivelineMass: 0, // engine inertia reflected to this tread (kg)
+      driveSpeedLimit: Infinity, // rev limiter as tread speed (m/s)
+      engineBrake: 0, // engine-braking force (N)
       suspensionLength: 0,
       suspensionForce: 0,
       isInContact: false,
@@ -118,6 +150,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
         distance: 0,
       },
     };
+    if (wheel.spinMass === undefined) {
+      const r2w = wheel.radius * wheel.radius * wheel.width;
+      wheel.spinMass = Math.max(MIN_SPIN_MASS, WHEEL_INERTIA_SHAPE * WHEEL_MASS_PER_R2_WIDTH * r2w);
+    }
     vehicle.wheelInfos.push(wheel);
     return vehicle.wheelInfos.length - 1;
   }
@@ -128,8 +164,21 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   function applyEngineForce(value, i) {
     vehicle.wheelInfos[i].engineForce = value;
   }
-  function setBrake(value, i) {
+  /** `abs`: the brake backs off rather than lock the wheel (pedal brake; not the handbrake). */
+  function setBrake(value, i, abs = false) {
     vehicle.wheelInfos[i].brake = value;
+    vehicle.wheelInfos[i].abs = abs;
+  }
+  /** Engine coupling of a driven wheel: reflected inertia (kg at the tread), rev-limit tread speed, engine braking (N). */
+  function setDriveline(i, { mass = 0, speedLimit = Infinity, engineBrake = 0 }) {
+    const wheel = vehicle.wheelInfos[i];
+    wheel.drivelineMass = mass;
+    wheel.driveSpeedLimit = speedLimit;
+    wheel.engineBrake = engineBrake;
+  }
+  /** Stops every wheel spinning (teleports/resets). */
+  function resetWheelSpin() {
+    for (const wheel of vehicle.wheelInfos) wheel.spinSpeed = 0;
   }
 
   const rayFrom = new CANNON.Vec3();
@@ -138,6 +187,34 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   // Extra bodies of this rig the suspension rays must ignore (e.g. car.js's
   // wheel hitboxes, which sit right on the ray). Filled by the caller.
   vehicle.ignoreBodies = [];
+  // Local -> network frame for the surface bumps: net = (ox + sx * x, oz + z).
+  // Set each frame by mainLoop (the view frame moves with floating origin).
+  vehicle.imperfectionFrame = { ox: 0, oz: 0, sx: 1 };
+  const bump = { height: 0, dhdx: 0, dhdz: 0 };
+
+  /** Raises the hit by the surface's pseudo-random bump and tilts its normal by the bump slope. */
+  function applySurfaceImperfection(wheel) {
+    const amplitudeM = (getSurfaceCompound(wheel.surface).imperfectionCm ?? 0) / 100;
+    const hit = wheel.raycastResult;
+    const normal = hit.hitNormalWorld;
+    if (amplitudeM <= 0 || normal.y < IMPERFECTION_MIN_NORMAL_Y || hit.body?.mass > 0) return;
+    const { ox, oz, sx } = vehicle.imperfectionFrame;
+    const point = hit.hitPointWorld;
+    sampleImperfection(ox + sx * point.x, oz + point.z, amplitudeM, bump);
+
+    // A vertical rise h moves the plane h * n.y along n, i.e. that / (-n.d) along the ray.
+    const along = Math.max(0.3, -normal.dot(wheel.directionWorld));
+    const shorten = (bump.height * normal.y) / along;
+    hit.distance -= shorten;
+    point.x -= wheel.directionWorld.x * shorten;
+    point.y -= wheel.directionWorld.y * shorten;
+    point.z -= wheel.directionWorld.z * shorten;
+
+    normal.x -= bump.dhdx * sx;
+    normal.z -= bump.dhdz;
+    normal.normalize();
+  }
+
   function castRay(wheel) {
     chassisBody.pointToWorldFrame(wheel.chassisConnectionPointLocal, wheel.connectionPointWorld);
     chassisBody.vectorToWorldFrame(wheel.directionLocal, wheel.directionWorld);
@@ -165,8 +242,9 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.raycastResult.hitPointWorld.copy(rayResult.hitPointWorld);
       wheel.raycastResult.hitNormalWorld.copy(rayResult.hitNormalWorld);
       wheel.raycastResult.distance = rayResult.distance;
+      applySurfaceImperfection(wheel);
 
-      let length = rayResult.distance - wheel.radius;
+      let length = wheel.raycastResult.distance - wheel.radius;
       if (length < minLength) length = minLength;
       if (length > maxLength) length = maxLength;
       wheel.suspensionLength = length;
@@ -220,8 +298,9 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     chassisBody.applyImpulse(suspensionImpulse, suspensionRelPos);
   }
 
-  // --- Tyre friction: forward (engine/brake) + lateral (cornering),
-  // combined in one friction circle limited by load x frictionSlip ---
+  // --- Tyre friction: forward (engine/brake via the wheel's spin) + lateral
+  // (cornering), combined in one friction circle. Static grip holds until
+  // exceeded, then the patch slides at the lower dynamic grip ---
   const frictionForward = new CANNON.Vec3();
   const frictionAxle = new CANNON.Vec3();
   const frictionNormalScaledProj = new CANNON.Vec3();
@@ -230,15 +309,61 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   const frictionRelPosScaled = new CANNON.Vec3();
   const frictionImpulseVec = new CANNON.Vec3();
   const frictionRelPos2 = new CANNON.Vec3();
+  const patchVel = new CANNON.Vec3();
+  const groundVel = new CANNON.Vec3();
+
+  /** Impulse on the chassis at the contact patch with a reduced lever arm (+ reaction on a dynamic ground body). */
+  function applyPatchImpulse(wheel, dir, impulse, leverInfluence, groundBody) {
+    if (impulse === 0) return;
+    const hitPoint = wheel.raycastResult.hitPointWorld;
+    hitPoint.vsub(chassisBody.position, frictionRelPos);
+    dir.scale(impulse, frictionImpulseVec);
+    chassisBody.vectorToLocalFrame(frictionRelPos, frictionRelPosLocal);
+    frictionRelPosLocal.y *= leverInfluence;
+    chassisBody.vectorToWorldFrame(frictionRelPosLocal, frictionRelPosScaled);
+    chassisBody.applyImpulse(frictionImpulseVec, frictionRelPosScaled);
+    if (groundBody) {
+      hitPoint.vsub(groundBody.position, frictionRelPos2);
+      frictionImpulseVec.scale(-1, frictionImpulseVec);
+      groundBody.applyImpulse(frictionImpulseVec, frictionRelPos2);
+    }
+  }
+
+  /** Chassis velocity at the patch relative to the ground, into patchVel. */
+  function readPatchVelocity(hitPoint, groundBody) {
+    chassisBody.getVelocityAtWorldPoint(hitPoint, patchVel);
+    if (groundBody) {
+      groundBody.getVelocityAtWorldPoint(hitPoint, groundVel);
+      patchVel.vsub(groundVel, patchVel);
+    }
+  }
+
   function applyFriction(wheel, dt) {
     wheel.sliding = false;
     wheel.gripFraction = 0;
-    if (!wheel.isInContact) {
-      wheel.spinSlipSpeed = 0;
-      return;
-    }
+    const spinMass = wheel.spinMass + wheel.drivelineMass;
+    // Drive impulse on the tread; none once at the rev limit in that direction.
+    let drive = wheel.engineForce * dt;
+    if (drive !== 0 && Math.sign(drive) * wheel.spinSpeed >= wheel.driveSpeedLimit) drive = 0;
+    // Brake (impulse cap per step, like cannon-es) + engine braking.
+    const brakeLimit = wheel.brake + wheel.engineBrake * dt;
+    const wDrive = wheel.spinSpeed + drive / spinMass;
 
-    const groundBody = wheel.raycastResult.body;
+    let w;
+    if (!wheel.isInContact) {
+      w = approachZero(wDrive * (1 - Math.min(1, AIR_SPIN_DRAG_PER_S * dt)), brakeLimit / spinMass);
+      wheel.spinSlipSpeed = 0;
+    } else {
+      w = applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit);
+    }
+    if (drive !== 0 && Math.sign(drive) * w > wheel.driveSpeedLimit) w = Math.sign(drive) * wheel.driveSpeedLimit;
+    wheel.spinSpeed = w;
+    wheel.rotation += (-w * dt) / wheel.radius;
+  }
+
+  /** Grounded tyre solve; applies the patch impulses and returns the new tread speed. */
+  function applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit) {
+    const groundBody = wheel.raycastResult.body?.mass > 0 ? wheel.raycastResult.body : null;
     const normal = wheel.raycastResult.hitNormalWorld;
     const hitPoint = wheel.raycastResult.hitPointWorld;
 
@@ -252,89 +377,114 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     frictionForward.normalize();
     wheel.forwardWorld.copy(frictionForward);
 
-    // Surface compound scales/offsets frictionSlip and caps grip force
-    // independent of load (water stays slippery however loaded).
+    // Surface compound sets static mu, its dynamic share and how tyre width
+    // pays off; maxForceN caps grip regardless of load.
     const compound = getSurfaceCompound(wheel.surface);
-    const effectiveFrictionSlip = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
-    const rawGripForce = Math.min(wheel.suspensionForce * effectiveFrictionSlip, compound.maxForceN);
-    const maxGrip = rawGripForce * dt;
+    const staticMu = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
+    const widthGrip = Math.pow(wheel.width / REFERENCE_TYRE_WIDTH_M, compound.widthGripExponent ?? 0);
+    const staticGrip = Math.min(wheel.suspensionForce * staticMu * widthGrip, compound.maxForceN) * dt;
+    const dynamicGrip = staticGrip * (compound.dynamicFrictionRatio ?? 1);
 
-    // Longitudinal: brake = velocity-zeroing impulse capped by wheel.brake
-    // (not scaled by dt, like cannon-es), plus engine force.
-    const brakeLimit = wheel.brake;
-    let forwardImpulse;
-    if (brakeLimit > 0) {
-      forwardImpulse = solveBilateralImpulse(chassisBody, groundBody?.mass > 0 ? groundBody : null, hitPoint, frictionForward, brakeLimit);
-    } else {
-      forwardImpulse = 0;
-    }
-    forwardImpulse += wheel.engineForce * dt;
-
-    // Rolling resistance Frr = Crr(v) * Fz, always on, capped at the impulse
-    // that would stop the wheel (never reverses it).
+    // Rolling resistance Frr = Crr(v) * Fz on the chassis, capped at the
+    // impulse that would stop it (never reverses it).
     if (wheel.rollingResistance > 0) {
-      chassisBody.getVelocityAtWorldPoint(hitPoint, velAtPoint1);
-      const rollSpeed = frictionForward.dot(velAtPoint1);
+      readPatchVelocity(hitPoint, groundBody);
+      const rollSpeed = frictionForward.dot(patchVel);
       const denom = impulseDenominator(chassisBody, hitPoint, frictionForward);
       if (denom > 1e-9 && rollSpeed !== 0) {
-        const stopImpulse = -rollSpeed / denom; // impulse needed to zero rollSpeed
+        const stopImpulse = -rollSpeed / denom;
         const effectiveRollingResistance = wheel.rollingResistance * compound.rollingResistanceMultiplier;
         const speedDependentCrr = effectiveRollingResistance * (1 + wheel.rollingResistanceSpeedFactor * Math.abs(rollSpeed));
         const maxResistImpulse = speedDependentCrr * wheel.suspensionForce * dt;
         const resistImpulse = Math.sign(stopImpulse) * Math.min(Math.abs(stopImpulse), maxResistImpulse);
-        forwardImpulse += resistImpulse;
+        applyPatchImpulse(wheel, frictionForward, resistImpulse, wheel.pitchInfluence, null);
       }
     }
 
-    // Lateral: cancel sideways slip, limited by the friction circle.
-    let sideImpulse = solveBilateralImpulse(chassisBody, groundBody?.mass > 0 ? groundBody : null, hitPoint, frictionAxle, maxGrip);
+    readPatchVelocity(hitPoint, groundBody);
+    const vLong = frictionForward.dot(patchVel);
+    const vLat = frictionAxle.dot(patchVel);
+    const denomLong =
+      impulseDenominator(chassisBody, hitPoint, frictionForward) +
+      (groundBody ? impulseDenominator(groundBody, hitPoint, frictionForward) : 0);
+    const chassisMass = denomLong > 1e-9 ? 1 / denomLong : 0;
 
-    const combined = Math.hypot(forwardImpulse, sideImpulse);
-    wheel.gripFraction = maxGrip > 0 ? Math.min(1, combined / maxGrip) : 0; // debug HUD only
-    if (combined > maxGrip && combined > 0) {
+    // Rolling solution: chassis and tread end at a common speed u, with the
+    // brake pulling that shared momentum toward 0 as far as its cap allows.
+    const momentum = chassisMass * vLong + spinMass * wDrive;
+    const totalMass = chassisMass + spinMass;
+    let brakeImpulse = Math.max(-brakeLimit, Math.min(brakeLimit, -momentum));
+    let longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
+    const sideRoll = solveBilateralImpulse(chassisBody, groundBody, hitPoint, frictionAxle, Infinity);
+    // ABS: trim the brake so the patch stays within static grip.
+    const longAvail = Math.sqrt(Math.max(0, staticGrip * staticGrip - sideRoll * sideRoll));
+    if (wheel.abs && brakeImpulse !== 0 && Math.abs(longRoll) > longAvail) {
+      const brakeShare = chassisMass / totalMass; // d(longRoll)/d(brakeImpulse)
+      const target = Math.sign(longRoll) * longAvail;
+      const trimmed = brakeImpulse + (target - longRoll) / brakeShare;
+      brakeImpulse = Math.sign(trimmed) === Math.sign(brakeImpulse) ? trimmed : 0;
+      longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
+      brakeLimit = Math.abs(brakeImpulse);
+    }
+    const u = (momentum + brakeImpulse) / totalMass;
+    const needed = Math.hypot(longRoll, sideRoll);
+    wheel.gripFraction = staticGrip > 0 ? Math.min(1, needed / staticGrip) : 1; // debug HUD only
+
+    let longImpulse, sideImpulse, w;
+    if (needed <= staticGrip * (1 + 1e-6)) { // tolerance: ABS trims to exactly staticGrip
+      longImpulse = longRoll;
+      sideImpulse = sideRoll;
+      w = u;
+    } else {
+      // Sliding: dynamic grip opposes the patch slip direction, so a spinning
+      // or locked wheel also loses most of its cornering grip.
       wheel.sliding = true;
-      const scale = maxGrip / combined;
-      forwardImpulse *= scale;
-      sideImpulse *= scale;
+      const wFree = approachZero(wDrive, brakeLimit / spinMass);
+      const slipLong = (vLong - wFree) * LONG_SLIP_WEIGHT;
+      const slipMag = Math.hypot(slipLong, vLat);
+      const dirLong = slipMag > 1e-3 ? slipLong / slipMag : -longRoll / needed;
+      const dirLat = slipMag > 1e-3 ? vLat / slipMag : -sideRoll / needed;
+      // Never more than the impulse that would end the slip (no overshoot).
+      longImpulse = -dirLong * dynamicGrip;
+      longImpulse = Math.sign(longImpulse) * Math.min(Math.abs(longImpulse), Math.abs(longRoll));
+      sideImpulse = -dirLat * dynamicGrip;
+      sideImpulse = Math.sign(sideImpulse) * Math.min(Math.abs(sideImpulse), Math.abs(sideRoll));
+      w = approachZero(wDrive - longImpulse / spinMass, brakeLimit / spinMass);
     }
 
-    hitPoint.vsub(chassisBody.position, frictionRelPos);
+    applyPatchImpulse(wheel, frictionForward, longImpulse, wheel.pitchInfluence, null);
+    applyPatchImpulse(wheel, frictionAxle, sideImpulse, wheel.rollInfluence, groundBody);
 
-    if (forwardImpulse !== 0) {
-      frictionForward.scale(forwardImpulse, frictionImpulseVec);
-      chassisBody.vectorToLocalFrame(frictionRelPos, frictionRelPosLocal);
-      frictionRelPosLocal.y *= wheel.pitchInfluence;
-      chassisBody.vectorToWorldFrame(frictionRelPosLocal, frictionRelPosScaled);
-      chassisBody.applyImpulse(frictionImpulseVec, frictionRelPosScaled);
+    // Patch speed minus tread speed: 0 when rolling cleanly.
+    if (wheel.sliding) {
+      readPatchVelocity(hitPoint, groundBody);
+      wheel.spinSlipSpeed = frictionForward.dot(patchVel) - w;
+    } else {
+      wheel.spinSlipSpeed = 0;
     }
+    return w;
+  }
 
-    if (sideImpulse !== 0) {
-      frictionAxle.scale(sideImpulse, frictionImpulseVec);
-      chassisBody.vectorToLocalFrame(frictionRelPos, frictionRelPosLocal);
-      frictionRelPosLocal.y *= wheel.rollInfluence;
-      chassisBody.vectorToWorldFrame(frictionRelPosLocal, frictionRelPosScaled);
-      chassisBody.applyImpulse(frictionImpulseVec, frictionRelPosScaled);
-
-      if (groundBody && groundBody.mass > 0) {
-        hitPoint.vsub(groundBody.position, frictionRelPos2);
-        frictionImpulseVec.scale(-1, frictionImpulseVec);
-        groundBody.applyImpulse(frictionImpulseVec, frictionRelPos2);
+  // Driven wheels in the air follow the grounded driven ones (diff/LSD), so
+  // a hop doesn't flare one wheel to the limiter while the rest still grip.
+  function coupleDrivenWheels() {
+    const driven = vehicle.driveWheels;
+    if (!driven || driven.length < 2) return;
+    let sum = 0;
+    let grounded = 0;
+    for (const i of driven) {
+      const wheel = vehicle.wheelInfos[i];
+      if (wheel?.isInContact) {
+        sum += wheel.spinSpeed;
+        grounded++;
       }
     }
-
-    // Visual spin matches ground speed; free-spins under throttle while
-    // sliding/airborne; stops under brake.
-    chassisBody.getVelocityAtWorldPoint(wheel.connectionPointWorld, velAtPoint1);
-    const rollSpeed = frictionForward.dot(velAtPoint1);
-    let deltaRotation = (-rollSpeed * dt) / wheel.radius;
-    if ((wheel.sliding || !wheel.isInContact) && wheel.engineForce !== 0 && wheel.useCustomSlidingRotationalSpeed) {
-      deltaRotation = (wheel.engineForce > 0 ? 1 : -1) * wheel.customSlidingRotationalSpeed * dt;
+    if (grounded === 0 || grounded === driven.length) return;
+    const mean = sum / grounded;
+    for (const i of driven) {
+      const wheel = vehicle.wheelInfos[i];
+      if (wheel && !wheel.isInContact) wheel.spinSpeed = mean;
     }
-    if (Math.abs(wheel.brake) > Math.abs(wheel.engineForce)) deltaRotation = 0;
-    wheel.rotation += deltaRotation;
-
-    // Car speed + tread speed (opposite sign convention): 0 when rolling cleanly.
-    wheel.spinSlipSpeed = rollSpeed + (deltaRotation / dt) * wheel.radius;
   }
 
   function updateVehicle(dt) {
@@ -343,6 +493,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     for (let i = 0; i < wheelInfos.length; i++) updateWheelTransform(i);
     for (let i = 0; i < wheelInfos.length; i++) applySuspension(wheelInfos[i], dt);
     for (let i = 0; i < wheelInfos.length; i++) applyFriction(wheelInfos[i], dt);
+    coupleDrivenWheels();
 
     vehicle.numWheelsOnGround = wheelInfos.reduce((n, w) => n + (w.isInContact ? 1 : 0), 0);
   }
@@ -364,6 +515,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   vehicle.setSteeringValue = setSteeringValue;
   vehicle.applyEngineForce = applyEngineForce;
   vehicle.setBrake = setBrake;
+  vehicle.setDriveline = setDriveline;
+  vehicle.resetWheelSpin = resetWheelSpin;
   vehicle.updateWheelTransform = updateWheelTransform;
   vehicle.addToWorld = addToWorld;
   vehicle.removeFromWorld = removeFromWorld;

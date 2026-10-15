@@ -1,6 +1,6 @@
 // Line overlay (streets.js, rivers.js) on top of tiles/vectorTileLayer.js.
-// Bucketed per segment (by midpoint), not per way, so long roads/rivers
-// stream tile-by-tile instead of popping in as one unit.
+// Segments are split into SEGMENT_MAX_METERS pieces and bucketed by midpoint,
+// so long roads/rivers stream tile-by-tile and hug the ground between vertices.
 
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, DoubleSide } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
@@ -9,8 +9,11 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { latLonToLocal, localToLatLon } from './geo.js';
 import { VectorTileLayer } from './tiles/vectorTileLayer.js';
 
+const SEGMENT_MAX_METERS = 4;
+const METERS_PER_DEGREE = 111_320;
+
 /**
- * Builds a manager class (call `new Cls(scene, world, originLat, originLon)`).
+ * Builds a manager class (call `new Cls(scene, world, originLat, originLon, terrain)`).
  *
  * @param {object} options
  * @param {number} options.tileZoom
@@ -20,8 +23,9 @@ import { VectorTileLayer } from './tiles/vectorTileLayer.js';
  * @param {boolean} [options.flat] - draw `linewidth` as a real-metre ground-hugging stripe
  *   instead of a screen-space LineMaterial fat line. Required for containsPoint().
  * @param {boolean} [options.alwaysStream] - stream even when hidden (containsPoint used by gameplay).
+ * @param {number} [options.radius] - loaded square half-size in DETAIL_ZOOM tiles (default: the HIGH block).
  */
-export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false, alwaysStream = false }) {
+export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.2, flat = false, alwaysStream = false, radius }) {
   // Style key -> material, shared by every tile of this layer.
   const materials = new Map();
   function materialFor(style) {
@@ -44,8 +48,8 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
   });
 
   return class VectorLineLayerManager extends VectorTileLayer {
-    constructor(scene, world, originLat, originLon) {
-      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream });
+    constructor(scene, world, originLat, originLon, terrain) {
+      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream, radius, terrain });
     }
 
     _decodeFeature(lines, style, toLatLon, add) {
@@ -55,7 +59,16 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
         for (let p = 0; p < points.length - 1; p++) {
           const a = points[p];
           const b = points[p + 1];
-          add((a.lat + b.lat) / 2, (a.lon + b.lon) / 2, { a, b, style });
+          const dLat = (b.lat - a.lat) * METERS_PER_DEGREE;
+          const dLon = (b.lon - a.lon) * METERS_PER_DEGREE * Math.cos((a.lat * Math.PI) / 180);
+          const pieces = Math.max(1, Math.ceil(Math.hypot(dLat, dLon) / SEGMENT_MAX_METERS));
+          let prev = a;
+          for (let i = 1; i <= pieces; i++) {
+            const t = i / pieces;
+            const next = i === pieces ? b : { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+            add((prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2, { a: prev, b: next, style });
+            prev = next;
+          }
         }
       }
     }

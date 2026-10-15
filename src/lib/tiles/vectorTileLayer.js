@@ -6,8 +6,8 @@
 //       an item by the detail tile containing (lat, lon); item must carry `style`.
 //   _buildItem(item, byStyleKey) - turn one item into per-style bucket data.
 //   _makeMesh(bucket) - build a mesh from one finished bucket (or null).
-// Only the HIGH_DETAIL_RADIUS block around the player is loaded - these are
-// the most expensive debug content. No IndexedDB cache (unlike buildings.js).
+// By default only the HIGH_DETAIL_RADIUS block around the player is loaded -
+// these are the most expensive debug content. No IndexedDB cache (unlike buildings.js).
 
 import * as CANNON from 'cannon-es';
 import { tileX2lon, tileY2lat, lon2tileX, lat2tileY } from '../geo.js';
@@ -17,8 +17,6 @@ import {
   HIGH_DETAIL_RADIUS,
   UNLOAD_MARGIN,
   UNLOAD_DELAY_TICKS,
-  circleOffsets,
-  inCircle,
   GROUND_COLLISION_GROUP,
 } from '../terrain.js';
 
@@ -27,9 +25,28 @@ const REGION_RETRY_COOLDOWN_MS = 8000;
 const MAX_FEATURES_PER_TILE = 8000;
 const BUILD_TIME_BUDGET_MS = 4; // per frame, so a fresh region doesn't stutter
 const BUILD_TIME_CHECK_INTERVAL = 16; // items between performance.now() checks
+const GROUND_CHECK_INTERVAL_MS = 500; // how often built chunks look for a changed terrain tile below
 
 export function tileKey(tx, ty) {
   return `${tx}_${ty}`;
+}
+
+/** Key of the DETAIL_ZOOM tile containing (lat, lon). */
+function inSquare(dx, dy, radius) {
+  return Math.abs(dx) <= radius && Math.abs(dy) <= radius;
+}
+
+/** Offsets of a (2r+1)^2 square, nearest first. */
+function squareOffsets(radius) {
+  const offsets = [];
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) offsets.push({ dx, dy });
+  }
+  return offsets.sort((a, b) => a.dx * a.dx + a.dy * a.dy - (b.dx * b.dx + b.dy * b.dy));
+}
+
+function detailTileKeyAt(lat, lon) {
+  return tileKey(Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM)));
 }
 
 export class VectorTileLayer {
@@ -39,8 +56,17 @@ export class VectorTileLayer {
    * @param {string} opts.layerName - MVT layer to read ('transportation', 'water', ...).
    * @param {(props: object) => ({key: string} | null)} opts.classify - feature props -> style, null skips.
    * @param {boolean} [opts.alwaysStream] - stream data even while hidden (gameplay uses it).
+   * @param {number} [opts.radius] - square half-size, in DETAIL_ZOOM tiles, of the loaded block.
+   * @param {import('../terrain.js').TerrainManager} [opts.terrain] - ground heights from the rendered
+   *   surface (any tile, physics or not); chunks wait for it and rebuild when it changes.
    */
-  constructor(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream = false }) {
+  constructor(
+    scene,
+    world,
+    originLat,
+    originLon,
+    { tileZoom, layerName, classify, alwaysStream = false, radius = HIGH_DETAIL_RADIUS, terrain = null }
+  ) {
     this.scene = scene;
     this.world = world;
     this.originLat = originLat;
@@ -50,6 +76,10 @@ export class VectorTileLayer {
     this.layerName = layerName;
     this.classify = classify;
     this.alwaysStream = alwaysStream;
+    this.radius = radius;
+    this.terrain = terrain;
+    this._groundCheckedAt = 0;
+    this._loadOffsets = squareOffsets(radius);
     this.tileZoomRatio = 2 ** (DETAIL_ZOOM - tileZoom);
 
     this.chunks = new Map(); // key -> { meshes, tx, ty }
@@ -61,6 +91,7 @@ export class VectorTileLayer {
 
     this._region = null; // { minTx, maxTx, minTy, maxTy }
     this._itemsByTile = new Map(); // detail tile key -> items
+    this._itemsBySourceTile = new Map(); // tileZoom tile key -> items decoded from it
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._generation = 0;
@@ -71,7 +102,7 @@ export class VectorTileLayer {
   }
 
   _keepRadius() {
-    return HIGH_DETAIL_RADIUS + UNLOAD_MARGIN;
+    return this.radius + UNLOAD_MARGIN;
   }
 
   /** Items whose bucket tile is within one tile of the detail tile containing (lat, lon). */
@@ -86,12 +117,22 @@ export class VectorTileLayer {
     }
   }
 
-  /** Fetches one vector tile and returns its items bucketed by detail tile key. */
+  /**
+   * Items decoded from the tileZoom tile containing (lat, lon). The source
+   * clips features to its tile, so this holds every polygon piece covering it.
+   */
+  _itemsInSourceTile(lat, lon) {
+    const key = tileKey(Math.floor(lon2tileX(lon, this.tileZoom)), Math.floor(lat2tileY(lat, this.tileZoom)));
+    return this._itemsBySourceTile.get(key) ?? [];
+  }
+
+  /** Fetches one vector tile: its items, also bucketed by detail tile key. */
   async _fetchTile(tx, ty) {
     const { tileZoom, layerName } = this;
     const layer = await fetchVectorTileLayer(tileZoom, tx, ty, layerName);
     const byTile = new Map();
-    if (!layer) return byTile;
+    const items = [];
+    if (!layer) return { byTile, items };
 
     const extent = layer.extent;
     const toLatLon = (p) => ({
@@ -99,10 +140,11 @@ export class VectorTileLayer {
       lon: tileX2lon(tx + p.x / extent, tileZoom),
     });
     const add = (lat, lon, item) => {
-      const key = tileKey(Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM)));
+      const key = detailTileKeyAt(lat, lon);
       let list = byTile.get(key);
       if (!list) byTile.set(key, (list = []));
       list.push(item);
+      items.push(item);
     };
 
     const featureCount = Math.min(layer.length, MAX_FEATURES_PER_TILE);
@@ -116,7 +158,7 @@ export class VectorTileLayer {
         console.warn(`Skipping one malformed ${layerName} feature`, tx, ty, err);
       }
     }
-    return byTile;
+    return { byTile, items };
   }
 
   _regionCovers(centerTx, centerTy) {
@@ -168,27 +210,33 @@ export class VectorTileLayer {
     if (generation !== this._generation) return; // recentered meanwhile
 
     const byTile = new Map();
+    const bySourceTile = new Map();
     let failed = 0;
-    for (const result of results) {
+    results.forEach((result, i) => {
       if (result.status === 'rejected') {
         failed++;
-        continue;
+        return;
       }
-      for (const [key, list] of result.value) {
+      bySourceTile.set(tileKey(...tileCoords[i]), result.value.items);
+      for (const [key, list] of result.value.byTile) {
         let existing = byTile.get(key);
         if (!existing) byTile.set(key, (existing = []));
         existing.push(...list);
       }
-    }
+    });
     if (tileCoords.length > 0 && failed === tileCoords.length) {
       throw new Error(`All ${failed} ${this.layerName} tile request(s) failed`);
     }
 
     this._region = region;
     this._itemsByTile = byTile;
+    this._itemsBySourceTile = bySourceTile;
   }
 
+  /** Ground y at (x, z): the rendered terrain surface, else a ground raycast, else 0. */
   _groundHeightAt(x, z) {
+    const y = this.terrain?.surfaceHeightAt(x, z);
+    if (y != null) return y;
     const from = new CANNON.Vec3(x, 2000, z);
     const to = new CANNON.Vec3(x, -2000, z);
     const result = new CANNON.RaycastResult();
@@ -203,9 +251,33 @@ export class VectorTileLayer {
     return bucket;
   }
 
+  /** Terrain tile under (tx, ty) and its revision, so a chunk can tell its heights went stale. */
+  _groundStamp(tx, ty) {
+    const tile = this.terrain?.surfaceTileAt(tx, ty) ?? null;
+    return { tile, revision: tile?.surfaceRevision ?? 0 };
+  }
+
+  /** Without terrain there's nothing to wait for. */
+  _groundReady(tx, ty) {
+    return !this.terrain || !!this.terrain.surfaceTileAt(tx, ty);
+  }
+
   _beginChunkBuild(tx, ty) {
     const key = this._key(tx, ty);
-    return { tx, ty, key, list: this._itemsByTile.get(key) || [], index: 0, byStyleKey: new Map() };
+    const ground = this._groundStamp(tx, ty);
+    return { tx, ty, key, ground, list: this._itemsByTile.get(key) || [], index: 0, byStyleKey: new Map() };
+  }
+
+  /** Queues a rebuild of every chunk whose terrain tile was replaced or rebuilt since it was built. */
+  _queueStaleChunks() {
+    if (!this.terrain) return;
+    for (const [key, chunk] of this.chunks) {
+      if (this._queuedKeys.has(key) || this._inProgressBuilds.has(key)) continue;
+      const { tile, revision } = this._groundStamp(chunk.tx, chunk.ty);
+      if (!tile || (tile === chunk.ground.tile && revision === chunk.ground.revision)) continue;
+      this._queuedKeys.add(key);
+      this._buildQueue.push({ tx: chunk.tx, ty: chunk.ty, key, rebuild: true });
+    }
   }
 
   /** Resumable: processes items until done (true) or past `deadline` (false). */
@@ -228,7 +300,9 @@ export class VectorTileLayer {
     return true;
   }
 
-  _finishChunkBuild({ tx, ty, key, byStyleKey }) {
+  _finishChunkBuild({ tx, ty, key, ground, byStyleKey }) {
+    const old = this.chunks.get(key);
+    if (old) this._disposeMeshes(old);
     const meshes = [];
     for (const bucket of byStyleKey.values()) {
       const mesh = this._makeMesh(bucket);
@@ -237,7 +311,7 @@ export class VectorTileLayer {
       this.scene.add(mesh);
       meshes.push(mesh);
     }
-    this.chunks.set(key, { meshes, tx, ty });
+    this.chunks.set(key, { meshes, tx, ty, ground });
   }
 
   /** True once a tile's meshes are built (not just fetched) - for the debug stats HUD. */
@@ -245,13 +319,17 @@ export class VectorTileLayer {
     return this.chunks.has(this._key(tx, ty));
   }
 
-  _unloadChunk(key) {
-    const chunk = this.chunks.get(key);
-    if (!chunk) return;
+  _disposeMeshes(chunk) {
     for (const mesh of chunk.meshes) {
       this.scene.remove(mesh);
       mesh.geometry.dispose();
     }
+  }
+
+  _unloadChunk(key) {
+    const chunk = this.chunks.get(key);
+    if (!chunk) return;
+    this._disposeMeshes(chunk);
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
   }
@@ -272,6 +350,7 @@ export class VectorTileLayer {
     this._inProgressBuilds.clear();
     this._region = null;
     this._itemsByTile = new Map();
+    this._itemsBySourceTile = new Map();
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._generation++;
@@ -303,22 +382,28 @@ export class VectorTileLayer {
     const keepRadius = this._keepRadius();
 
     if (this._regionCovers(centerTx, centerTy)) {
-      for (const { dx, dy } of circleOffsets(HIGH_DETAIL_RADIUS)) {
+      for (const { dx, dy } of this._loadOffsets) {
         const tx = centerTx + dx;
         const ty = centerTy + dy;
         const key = this._key(tx, ty);
-        if (!this.chunks.has(key) && !this._inProgressBuilds.has(key) && !this._queuedKeys.has(key)) {
-          this._queuedKeys.add(key);
-          this._buildQueue.push({ tx, ty, key });
-        }
+        if (this.chunks.has(key) || this._inProgressBuilds.has(key) || this._queuedKeys.has(key)) continue;
+        if (!this._groundReady(tx, ty)) continue;
+        this._queuedKeys.add(key);
+        this._buildQueue.push({ tx, ty, key });
       }
+    }
+
+    const now = performance.now();
+    if (now - this._groundCheckedAt >= GROUND_CHECK_INTERVAL_MS) {
+      this._groundCheckedAt = now;
+      this._queueStaleChunks();
     }
 
     const deadline = awaitAll ? Infinity : performance.now() + BUILD_TIME_BUDGET_MS;
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;
-      if (!inCircle(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
+      if (!inSquare(build.tx - centerTx, build.ty - centerTy, keepRadius)) {
         this._inProgressBuilds.delete(key);
         continue;
       }
@@ -328,10 +413,10 @@ export class VectorTileLayer {
       }
     }
     while (this._buildQueue.length && performance.now() < deadline) {
-      const { tx, ty, key } = this._buildQueue.shift();
+      const { tx, ty, key, rebuild } = this._buildQueue.shift();
       this._queuedKeys.delete(key);
-      if (this.chunks.has(key)) continue;
-      if (!inCircle(tx - centerTx, ty - centerTy, keepRadius)) continue;
+      if (this.chunks.has(key) && !rebuild) continue;
+      if (!inSquare(tx - centerTx, ty - centerTy, keepRadius)) continue;
       const build = this._beginChunkBuild(tx, ty);
       if (this._stepChunkBuild(build, deadline)) {
         this._finishChunkBuild(build);
@@ -341,7 +426,7 @@ export class VectorTileLayer {
     }
 
     for (const [k, chunk] of this.chunks) {
-      if (!inCircle(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius)) {
+      if (!inSquare(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius)) {
         if (!this.pendingRemoval.has(k)) this.pendingRemoval.set(k, UNLOAD_DELAY_TICKS);
       } else {
         this.pendingRemoval.delete(k);

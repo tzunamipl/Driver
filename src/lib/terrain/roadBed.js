@@ -1,29 +1,60 @@
 // Road bed for detail terrain (runs in tileWorker.js): OSM roads lift the
 // ground into a slightly raised, level-across strip whose height follows
-// the terrain along the centreline, blending back over a shoulder. Higher
-// classes override lower ones; overlapping roads of one class share evenly.
+// the terrain along the centreline (smoothed for higher classes), with
+// embankments / cuttings at set slopes back to the ground. Roads meeting at
+// a junction share its height, easing to it along each road. Higher classes
+// override lower ones; overlapping roads of one class share evenly.
 
 import { fetchVectorTileLayer } from '../tiles/openFreeMap.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from '../roadClasses.js';
 import { sampleHeight } from './surfaceGrid.js';
 
 const ROAD_TILE_ZOOM = 14; // the transportation layer's maxzoom
-const ROAD_LIFT = 0.25; // metres above the terrain
-const SHOULDER_METERS = 3; // blend from road edge back to terrain
-const SUBDIVIDE_METERS = 8; // max segment length of smoothed roads, so long straights still follow the profile
-const JOIN_METERS = 0.5; // line ends closer than this meet
+const ROAD_LIFT = 0.15; // metres above the terrain
+const SUBDIVIDE_METERS = 8; // max segment length of profiled roads, so long straights still follow the profile
+const JOIN_METERS = 0.5; // line ends / junction vertices closer than this meet
 const JOIN_MIN_STRAIGHTNESS = 0.5; // cos of the sharpest turn a road continues through a junction
+const SNAP_CELL_METERS = 32; // spatial hash cell for snapping line ends onto other lines
+const GRADE_WINDOW_METERS = 200; // how far along the road a max grade looks for terrain to cut / fill
+const BANK_FADE_METERS = 6; // a bank still off the ground at its widest blends into it over this
+const OVERSHOOT_METERS = 0.5; // past a vertex the road continues through, the segment hands over to the next one
+// Profile defaults for classes that don't set them (see roadClasses.js).
+const DEFAULT_SMOOTH_METERS = 0;
+const DEFAULT_MAX_GRADE = 0; // 0 = follow the terrain's grade
+const DEFAULT_RAMP_METERS = 20;
+const DEFAULT_BANK_METERS = 8;
+const DEFAULT_FILL_SLOPE = 0.6; // 1:2 embankment
+const DEFAULT_CUT_SLOPE = 0.6; // 1:1.5 cutting
 // Unpaved tracks and footpaths stay part of the terrain; bridges/tunnels aren't on it.
 const SKIP_CLASSES = new Set(['path', 'track']);
 const SKIP_BRUNNELS = new Set(['bridge', 'tunnel']);
 const CACHE_SIZE = 32;
 
-/** Farthest a road can reach from its centreline (m). */
-export const ROAD_REACH_METERS = Math.max(...Object.values(ROAD_CLASSES).map((c) => c.widthMeters)) / 2 + SHOULDER_METERS;
-const MAX_SMOOTH_METERS = Math.max(...Object.values(ROAD_CLASSES).map((c) => c.smoothMeters ?? 0));
-// Farthest road data (and the terrain under it) matters outside a tile: reach plus the smoothing window.
-const ROAD_MARGIN_METERS = ROAD_REACH_METERS + MAX_SMOOTH_METERS / 2 + SUBDIVIDE_METERS;
-/** Elevation border (px) the road bed reads outside its tile: margin + bilinear slack. */
+/** Road bed profile of a class key (aliases and `_construction` share their base class's). */
+function roadProfile(key) {
+  const def = ROAD_CLASSES[key.replace(/_construction$/, '')];
+  return {
+    smoothMeters: def.smoothMeters ?? DEFAULT_SMOOTH_METERS,
+    maxGrade: def.maxGrade ?? DEFAULT_MAX_GRADE,
+    rampMeters: def.rampMeters ?? DEFAULT_RAMP_METERS,
+    bankMeters: def.bankMeters ?? DEFAULT_BANK_METERS,
+    fillSlope: def.fillSlope ?? DEFAULT_FILL_SLOPE,
+    cutSlope: def.cutSlope ?? DEFAULT_CUT_SLOPE,
+  };
+}
+
+const bedClasses = ROAD_HIERARCHY.filter((cls) => !SKIP_CLASSES.has(cls));
+const maxOf = (fn) => Math.max(...bedClasses.map(fn));
+// Farthest a road can reach from its centreline (m).
+const ROAD_REACH_METERS = maxOf((cls) => ROAD_CLASSES[cls].widthMeters / 2 + roadProfile(cls).bankMeters);
+// Farthest road data (and the terrain under it) matters outside a tile: reach,
+// plus a junction's ramp (and its top road's half width), plus the smoothing window there.
+const ROAD_MARGIN_METERS =
+  ROAD_REACH_METERS +
+  maxOf((cls) => roadProfile(cls).rampMeters + ROAD_CLASSES[cls].widthMeters / 2) +
+  maxOf((cls) => profileRadius(roadProfile(cls)) + (roadProfile(cls).maxGrade ? GRADE_WINDOW_METERS : 0)) +
+  SUBDIVIDE_METERS;
+/** Elevation border (px) the road bed samples outside its tile: margin + bilinear slack. */
 export function roadBedBorderPx(pixelMeters) {
   return Math.ceil(ROAD_MARGIN_METERS / pixelMeters) + 2;
 }
@@ -32,6 +63,30 @@ export function roadBedBorderPx(pixelMeters) {
 function roadPriority(key) {
   const base = ROAD_CLASSES[key.replace(/_construction$/, '')];
   return ROAD_HIERARCHY.length - ROAD_HIERARCHY.findIndex((cls) => ROAD_CLASSES[cls] === base);
+}
+
+/** Point clusterer: `at(x, z)` = the node within JOIN_METERS of (x, z), created if none; nodes collect `items`. */
+function createNodeIndex() {
+  const cells = new Map();
+  const nodes = [];
+  const at = (x, z) => {
+    const cx = Math.floor(x / JOIN_METERS);
+    const cz = Math.floor(z / JOIN_METERS);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (const node of cells.get(`${cx + dx}/${cz + dz}`) ?? []) {
+          if (Math.hypot(node.x - x, node.z - z) < JOIN_METERS) return node;
+        }
+      }
+    }
+    const node = { x, z, items: [] };
+    const key = `${cx}/${cz}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(node);
+    nodes.push(node);
+    return node;
+  };
+  return { at, nodes };
 }
 
 /** Clips a flat [x, y, ...] polyline to a rectangle; returns the inside pieces. */
@@ -73,7 +128,7 @@ function clipPolyline(points, x0, y0, x1, y1) {
   return pieces;
 }
 
-// "x/y" -> Promise<Array<{ points, halfWidth, priority, smoothMeters }>>, points flat [x, y, ...] in
+// "x/y" -> Promise<Array<{ points, halfWidth, priority, ...roadProfile }>>, points flat [x, y, ...] in
 // global ROAD_TILE_ZOOM tile units, clipped to the tile itself (its buffer belongs to the neighbours).
 const cache = new Map();
 
@@ -89,7 +144,7 @@ async function decodeRoadTile(tx, ty) {
     if (SKIP_BRUNNELS.has(props.brunnel)) continue;
     const style = classifyRoad(props);
     if (!style || SKIP_CLASSES.has(style.key.replace(/_construction$/, ''))) continue;
-    const info = { halfWidth: style.width / 2, priority: roadPriority(style.key), smoothMeters: style.smoothMeters };
+    const info = { halfWidth: style.width / 2, priority: roadPriority(style.key), ...roadProfile(style.key) };
     for (const line of feature.loadGeometry()) {
       const flat = line.flatMap((pt) => [tx + pt.x / extent, ty + pt.y / extent]);
       for (const piece of clipPolyline(flat, tx, ty, tx + 1, ty + 1)) out.push({ ...info, points: piece });
@@ -118,25 +173,7 @@ function cachedRoadTile(tx, ty) {
  * edges, way splits and junctions where it doesn't turn sharply.
  */
 function joinPieces(pieces) {
-  const cells = new Map();
-  const nodes = [];
-  const nodeAt = (x, z) => {
-    const cx = Math.floor(x / JOIN_METERS);
-    const cz = Math.floor(z / JOIN_METERS);
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        for (const node of cells.get(`${cx + dx}/${cz + dz}`) ?? []) {
-          if (Math.hypot(node.x - x, node.z - z) < JOIN_METERS) return node;
-        }
-      }
-    }
-    const node = { x, z, ends: [] };
-    const key = `${cx}/${cz}`;
-    if (!cells.has(key)) cells.set(key, []);
-    cells.get(key).push(node);
-    nodes.push(node);
-    return node;
-  };
+  const { at: nodeAt, nodes } = createNodeIndex();
   // End key = piece * 2 + (0 start | 1 end); direction points into the piece.
   pieces.forEach(({ points: p }, i) => {
     const n = p.length;
@@ -145,12 +182,12 @@ function joinPieces(pieces) {
       [1, p[n - 2], p[n - 1], p[n - 4], p[n - 3]],
     ]) {
       const len = Math.hypot(nx - ex, nz - ez) || 1;
-      nodeAt(ex, ez).ends.push({ key: i * 2 + end, dx: (nx - ex) / len, dz: (nz - ez) / len });
+      nodeAt(ex, ez).items.push({ key: i * 2 + end, dx: (nx - ex) / len, dz: (nz - ez) / len });
     }
   });
 
   const partner = new Map();
-  for (const { ends } of nodes) {
+  for (const { items: ends } of nodes) {
     if (ends.length < 2) continue;
     const pairs = [];
     for (let a = 0; a < ends.length; a++) {
@@ -199,9 +236,10 @@ function joinPieces(pieces) {
   return strokes;
 }
 
-/** Splits every segment of a flat polyline into equal parts no longer than `maxLength`. */
+/** Splits every segment of a flat polyline into equal parts no longer than `maxLength`; `rawIndex` maps input to output vertices. */
 function subdivide(points, maxLength) {
   const out = [points[0], points[1]];
+  const rawIndex = [0];
   for (let i = 2; i < points.length; i += 2) {
     const ax = points[i - 2];
     const az = points[i - 1];
@@ -209,19 +247,21 @@ function subdivide(points, maxLength) {
     const dz = points[i + 1] - az;
     const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / maxLength));
     for (let k = 1; k <= n; k++) out.push(ax + (dx * k) / n, az + (dz * k) / n);
+    rawIndex.push(out.length / 2 - 1);
   }
-  return out;
+  return { points: out, rawIndex };
 }
 
 /**
  * Road lines around detail tile (z, x, y), in its own frame: metres from
  * the NW corner, x east (tile width `widthMeters`), z south (`heightMeters`).
- * Each is { points: [x, z, ...], halfWidth, priority, smoothMeters }; smoothed
- * classes come joined into strokes. Resolves to [] if the road tiles fail
+ * Each is { points: [x, z, ...], halfWidth, priority, ...roadProfile },
+ * joined into strokes per class. Resolves to [] if the road tiles fail
  * (terrain still builds).
  */
 export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
   const scale = 2 ** (z - ROAD_TILE_ZOOM);
+  // Neighbouring road tiles within the margin too, so tiles on both sides of a road tile edge build the same bed.
   const margin = ROAD_MARGIN_METERS / widthMeters / scale; // in road tiles
   const tiles = [];
   for (let ty = Math.floor(y / scale - margin); ty <= Math.floor((y + 1) / scale + margin); ty++) {
@@ -236,11 +276,10 @@ export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
     console.warn('Road bed: road tiles failed, building plain terrain', z, x, y, err);
     return [];
   }
-  const lines = [];
-  const groups = new Map(); // smoothed lines by class, to join
+  const reach = ROAD_MARGIN_METERS;
+  const groups = new Map(); // lines by class, to join
   for (const list of lists) {
     for (const line of list) {
-      const reach = line.halfWidth + SHOULDER_METERS + (line.smoothMeters ? line.smoothMeters / 2 + SUBDIVIDE_METERS : 0);
       // Global road tile units -> this tile's metres.
       const points = new Array(line.points.length);
       let minX = Infinity;
@@ -258,30 +297,115 @@ export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
         maxZ = Math.max(maxZ, pz);
       }
       if (maxX < -reach || minX > widthMeters + reach || maxZ < -reach || minZ > heightMeters + reach) continue;
-      const local = { ...line, points };
-      if (!line.smoothMeters) {
-        lines.push(local);
-        continue;
-      }
-      const key = `${line.priority}/${line.halfWidth}/${line.smoothMeters}`;
+      const key = `${line.priority}/${line.halfWidth}`;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(local);
+      groups.get(key).push({ ...line, points });
     }
   }
-  for (const group of groups.values()) {
-    for (const stroke of joinPieces(group)) lines.push({ ...stroke, points: subdivide(stroke.points, SUBDIVIDE_METERS) });
-  }
+  const lines = [];
+  for (const group of groups.values()) lines.push(...joinPieces(group));
   return lines;
 }
 
-/** Per vertex: terrain averaged along the line under a tent of half-width `radius` (m). */
-function smoothedHeights(points, radius, terrainAt) {
+/**
+ * Adds a vertex wherever a line's end lies on another line between its
+ * vertices (a T-junction the other line wasn't split at), so junctions can
+ * be matched vertex to vertex.
+ */
+function snapEnds(lines) {
+  const cells = new Map(); // "cx/cz" -> [line, segment start index]
+  lines.forEach(({ points: p }, li) => {
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const c0 = Math.floor((Math.min(p[i], p[i + 2]) - JOIN_METERS) / SNAP_CELL_METERS);
+      const c1 = Math.floor((Math.max(p[i], p[i + 2]) + JOIN_METERS) / SNAP_CELL_METERS);
+      const r0 = Math.floor((Math.min(p[i + 1], p[i + 3]) - JOIN_METERS) / SNAP_CELL_METERS);
+      const r1 = Math.floor((Math.max(p[i + 1], p[i + 3]) + JOIN_METERS) / SNAP_CELL_METERS);
+      for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+          const key = `${c}/${r}`;
+          if (!cells.has(key)) cells.set(key, []);
+          cells.get(key).push([li, i]);
+        }
+      }
+    }
+  });
+  const inserts = new Map(); // line -> [{ i, t, x, z }]
+  lines.forEach(({ points: p }, li) => {
+    const n = p.length;
+    for (const [ex, ez] of [[p[0], p[1]], [p[n - 2], p[n - 1]]]) {
+      const cell = cells.get(`${Math.floor(ex / SNAP_CELL_METERS)}/${Math.floor(ez / SNAP_CELL_METERS)}`) ?? [];
+      for (const [lj, i] of cell) {
+        if (lj === li) continue;
+        const q = lines[lj].points;
+        const dx = q[i + 2] - q[i];
+        const dz = q[i + 3] - q[i + 1];
+        const len = Math.hypot(dx, dz);
+        if (len < 2 * JOIN_METERS) continue;
+        const t = ((ex - q[i]) * dx + (ez - q[i + 1]) * dz) / (len * len);
+        // Near a vertex already: the junction matching finds it.
+        if (t * len < JOIN_METERS || (1 - t) * len < JOIN_METERS) continue;
+        const x = q[i] + dx * t;
+        const z = q[i + 1] + dz * t;
+        if (Math.hypot(x - ex, z - ez) >= JOIN_METERS) continue;
+        if (!inserts.has(lj)) inserts.set(lj, []);
+        inserts.get(lj).push({ i, t, x, z });
+      }
+    }
+  });
+  return lines.map((line, li) => {
+    const list = inserts.get(li);
+    if (!list) return line;
+    list.sort((a, b) => a.i - b.i || a.t - b.t);
+    const p = line.points;
+    const points = [];
+    let k = 0;
+    for (let i = 0; i < p.length; i += 2) {
+      points.push(p[i], p[i + 1]);
+      for (; k < list.length && list[k].i === i; k++) points.push(list[k].x, list[k].z);
+    }
+    return { ...line, points };
+  });
+}
+
+/** Tent half-width (m) a class's profile is averaged under; 0 = follows the terrain exactly. */
+function profileRadius({ smoothMeters, maxGrade }) {
+  return maxGrade ? Math.max(smoothMeters / 2, SUBDIVIDE_METERS) : smoothMeters / 2;
+}
+
+/**
+ * Heights `h` at arc lengths `arc` held to `grade` (rise over run): the mean
+ * of the lowest fill-only and highest cut-only profiles that keep it, so cut
+ * and fill balance. Looks GRADE_WINDOW_METERS each way, keeping it local.
+ */
+function limitGrade(arc, h, grade) {
+  const n = h.length;
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let fill = h[i];
+    let cut = h[i];
+    for (let j = i - 1; j >= 0 && arc[i] - arc[j] <= GRADE_WINDOW_METERS; j--) {
+      const slack = grade * (arc[i] - arc[j]);
+      fill = Math.max(fill, h[j] - slack);
+      cut = Math.min(cut, h[j] + slack);
+    }
+    for (let j = i + 1; j < n && arc[j] - arc[i] <= GRADE_WINDOW_METERS; j++) {
+      const slack = grade * (arc[j] - arc[i]);
+      fill = Math.max(fill, h[j] - slack);
+      cut = Math.min(cut, h[j] + slack);
+    }
+    out[i] = (fill + cut) / 2;
+  }
+  return out;
+}
+
+/** Per vertex: terrain (held to `maxGrade` if set) averaged along the line under a tent of half-width `radius` (m). */
+function smoothedHeights(points, radius, terrainAt, maxGrade) {
   const n = points.length / 2;
   const arc = new Float64Array(n); // arc length at each vertex
   // Per segment: midpoint arc length, length, terrain at the midpoint.
   const mid = new Float64Array(n - 1);
   const len = new Float64Array(n - 1);
-  const h = new Float64Array(n - 1);
+  let h = new Float64Array(n - 1);
   for (let i = 0; i < n - 1; i++) {
     const ax = points[i * 2];
     const az = points[i * 2 + 1];
@@ -292,6 +416,7 @@ function smoothedHeights(points, radius, terrainAt) {
     mid[i] = arc[i] + len[i] / 2;
     h[i] = terrainAt((ax + bx) / 2, (az + bz) / 2);
   }
+  if (maxGrade) h = limitGrade(mid, h, maxGrade);
   const out = new Float64Array(n);
   let lo = 0;
   for (let i = 0; i < n; i++) {
@@ -308,26 +433,123 @@ function smoothedHeights(points, radius, terrainAt) {
   return out;
 }
 
+/** 1 at u = 0 easing to 0 at u = 1 (smoothstep). */
+function falloff(u) {
+  if (u >= 1) return 0;
+  return 1 - u * u * (3 - 2 * u);
+}
+
+/**
+ * Per vertex at arc lengths `arc`: the correction that hits every pin
+ * ({ s, d }: arc length, offset) exactly. Pins closer than two ramps are
+ * joined linearly; otherwise each fades out over `ramp` metres.
+ */
+function pinDeltas(arc, pins, ramp) {
+  pins.sort((a, b) => a.s - b.s);
+  const out = new Float64Array(arc.length);
+  let k = 0;
+  for (let i = 0; i < arc.length; i++) {
+    const s = arc[i];
+    while (k < pins.length && pins[k].s <= s) k++;
+    const prev = pins[k - 1];
+    const next = pins[k];
+    if (prev && next && next.s - prev.s <= 2 * ramp) {
+      out[i] = prev.d + ((next.d - prev.d) * (s - prev.s)) / (next.s - prev.s);
+    } else {
+      out[i] = (prev ? prev.d * falloff((s - prev.s) / ramp) : 0) + (next ? next.d * falloff((next.s - s) / ramp) : 0);
+    }
+  }
+  return out;
+}
+
+/** Base height of a profiled line at arc length `s` (linear between vertices). */
+function baseAt({ arc, base }, s) {
+  let lo = 0;
+  let hi = arc.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (arc[mid] <= s) lo = mid;
+    else hi = mid;
+  }
+  const t = arc[hi] > arc[lo] ? (s - arc[lo]) / (arc[hi] - arc[lo]) : 0;
+  return base[lo] + (base[hi] - base[lo]) * t;
+}
+
+/**
+ * Centreline profiles: each line's base height (smoothed terrain, or the
+ * terrain itself) gets corrected so all roads at a junction meet at one
+ * height - the mean of the most important ones there. Returns lines with
+ * subdivided points plus per-vertex `heights` (absolute) or `deltas` (on
+ * top of the terrain), or the line as is when it just follows the terrain.
+ */
+function buildProfiles(lines, terrainAt) {
+  const profiled = snapEnds(lines).map((line) => {
+    const { points, rawIndex } = subdivide(line.points, SUBDIVIDE_METERS);
+    const n = points.length / 2;
+    const arc = new Float64Array(n);
+    for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(points[i * 2] - points[i * 2 - 2], points[i * 2 + 1] - points[i * 2 - 1]);
+    const radius = profileRadius(line);
+    const base = radius
+      ? smoothedHeights(points, radius, terrainAt, line.maxGrade)
+      : Float64Array.from({ length: n }, (_, i) => terrainAt(points[i * 2], points[i * 2 + 1]));
+    return { line, raw: line.points, points, rawIndex, arc, base, pins: [] };
+  });
+
+  const { at: nodeAt, nodes } = createNodeIndex();
+  for (const p of profiled) {
+    for (let r = 0; r < p.rawIndex.length; r++) nodeAt(p.raw[r * 2], p.raw[r * 2 + 1]).items.push({ p, i: p.rawIndex[r] });
+  }
+  for (const { items } of nodes) {
+    if (items.length < 2) continue;
+    const top = Math.max(...items.map((it) => it.p.line.priority));
+    let sum = 0;
+    let count = 0;
+    for (const { p, i } of items) {
+      if (p.line.priority !== top) continue;
+      sum += p.base[i];
+      count++;
+    }
+    const target = sum / count;
+    const topHalfWidth = Math.max(...items.filter((it) => it.p.line.priority === top).map((it) => it.p.line.halfWidth));
+    for (const { p, i } of items) {
+      p.pins.push({ s: p.arc[i], d: target - p.base[i] });
+      if (p.line.priority === top) continue;
+      // A lower road reaches the junction height at the top road's edges, not just its centreline.
+      for (const s of [p.arc[i] - topHalfWidth, p.arc[i] + topHalfWidth]) {
+        if (s > 0 && s < p.arc[p.arc.length - 1]) p.pins.push({ s, d: target - baseAt(p, s) });
+      }
+    }
+  }
+
+  return profiled.map(({ line, points, arc, base, pins }) => {
+    const deltas = pins.some((pin) => Math.abs(pin.d) > 1e-3) ? pinDeltas(arc, pins, line.rampMeters) : null;
+    if (profileRadius(line)) return { ...line, points, heights: deltas ? base.map((h, i) => h + deltas[i]) : base };
+    return deltas ? { ...line, points, deltas } : line;
+  });
+}
+
 /**
  * Height sampler for one detail tile in its own frame (see loadRoadLines):
- * `evaluateGrid` fills a regular grid with terrain + road bed. Depends only
- * on shared data, so neighbouring tiles agree along their common edge.
+ * `evaluateGrid` fills a regular grid with terrain + road bed.
  * `elev` null = flat ground.
  */
 export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, lines }) {
   const terrainAt = elev
     ? (x, z) => sampleHeight(elev, x / widthMeters, z / heightMeters) - heightOffset
     : () => 0;
-  // Smoothed lines carry centreline heights per vertex (ha, hb); the rest follow the terrain exactly.
+  // Centreline height per vertex: absolute (ha, hb), terrain + offset (da, db), or the terrain exactly.
   const segments = [];
-  for (const { points: p, halfWidth, priority, smoothMeters } of lines) {
-    const heights = smoothMeters && elev ? smoothedHeights(p, smoothMeters / 2, terrainAt) : null;
-    const reach = halfWidth + SHOULDER_METERS;
+  for (const line of elev ? buildProfiles(lines, terrainAt) : lines) {
+    const { points: p, halfWidth, priority, bankMeters, fillSlope, cutSlope, heights, deltas } = line;
+    const reach = halfWidth + bankMeters;
     for (let i = 0; i + 3 < p.length; i += 2) {
       const [ax, az, bx, bz] = [p[i], p[i + 1], p[i + 2], p[i + 3]];
       if (Math.max(ax, bx) < -reach || Math.min(ax, bx) > widthMeters + reach) continue;
       if (Math.max(az, bz) < -reach || Math.min(az, bz) > heightMeters + reach) continue;
-      segments.push({ ax, az, bx, bz, halfWidth, priority, ha: heights?.[i / 2], hb: heights?.[i / 2 + 1] });
+      segments.push({
+        ax, az, bx, bz, halfWidth, priority, bankMeters, fillSlope, cutSlope, joinA: i > 0, joinB: i + 4 < p.length,
+        ha: heights?.[i / 2], hb: heights?.[i / 2 + 1], da: deltas?.[i / 2], db: deltas?.[i / 2 + 1],
+      });
     }
   }
   // Least important first, so each class is laid over the ones below it.
@@ -341,23 +563,31 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
     }
     if (!segments.length) return out;
 
-    // Per node, within one priority: strongest road weight, and the weighted mean of road heights.
-    const maxWeight = new Float32Array(out.length);
+    // Per node, within one priority: weighted mean of road heights, and the distance to the nearest road edge.
     const weightSum = new Float32Array(out.length);
     const targetSum = new Float32Array(out.length);
-    const applyLayer = () => {
+    const edgeDist = new Float32Array(out.length).fill(Infinity);
+    // Road top inside the edges; outside, a bank at the class's slope down/up to the ground below (incl. lower roads).
+    const applyLayer = ({ bankMeters, fillSlope, cutSlope }) => {
+      const fade = Math.min(BANK_FADE_METERS, bankMeters);
       for (let i = 0; i < out.length; i++) {
-        const w = maxWeight[i];
-        if (w > 0) out[i] += (targetSum[i] / weightSum[i] - out[i]) * w;
+        if (!(weightSum[i] > 0)) continue;
+        const g = out[i];
+        const target = targetSum[i] / weightSum[i];
+        const e = edgeDist[i];
+        let h = target > g ? Math.max(g, target - e * fillSlope) : Math.min(g, target + e * cutSlope);
+        const s = Math.min(1, (bankMeters - e) / fade);
+        if (s < 1) h = g + (h - g) * s * s * (3 - 2 * s);
+        out[i] = h;
       }
-      maxWeight.fill(0);
       weightSum.fill(0);
       targetSum.fill(0);
+      edgeDist.fill(Infinity);
     };
     for (let k = 0; k < segments.length; k++) {
-      const { ax, az, bx, bz, halfWidth, priority, ha, hb } = segments[k];
-      if (k > 0 && priority !== segments[k - 1].priority) applyLayer();
-      const reach = halfWidth + SHOULDER_METERS;
+      const { ax, az, bx, bz, halfWidth, priority, bankMeters, joinA, joinB, ha, hb, da, db } = segments[k];
+      if (k > 0 && priority !== segments[k - 1].priority) applyLayer(segments[k - 1]);
+      const reach = halfWidth + bankMeters;
       const c0 = Math.max(0, Math.ceil((Math.min(ax, bx) - reach - x0) / step));
       const c1 = Math.min(cols - 1, Math.floor((Math.max(ax, bx) + reach - x0) / step));
       const r0 = Math.max(0, Math.ceil((Math.min(az, bz) - reach - z0) / step));
@@ -366,30 +596,34 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
       const dx = bx - ax;
       const dz = bz - az;
       const lenSq = dx * dx + dz * dz;
+      const len = Math.sqrt(lenSq);
       for (let r = r0; r <= r1; r++) {
         const pz = z0 + r * step;
         for (let c = c0; c <= c1; c++) {
           const px = x0 + c * step;
-          const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / lenSq)) : 0;
+          const tRaw = lenSq > 1e-9 ? ((px - ax) * dx + (pz - az) * dz) / lenSq : 0;
+          const t = Math.max(0, Math.min(1, tRaw));
           // Height comes from the nearest centreline point: level across the road.
           const cx = ax + dx * t;
           const cz = az + dz * t;
-          const d = Math.hypot(px - cx, pz - cz);
-          if (d >= reach) continue;
-          let w = 1;
-          if (d > halfWidth) {
-            const s = (reach - d) / SHOULDER_METERS;
-            w = s * s * (3 - 2 * s);
-          }
+          const e = Math.max(0, Math.hypot(px - cx, pz - cz) - halfWidth);
+          if (e >= bankMeters) continue;
+          const s = (bankMeters - e) / bankMeters;
+          let w = s * s * (3 - 2 * s);
+          // Caps only stand in at road ends and bends' outer wedges, else they'd terrace the profile at every vertex.
+          const overshoot = tRaw < 0 ? (joinA ? -tRaw * len : 0) : tRaw > 1 ? (joinB ? (tRaw - 1) * len : 0) : 0;
+          if (overshoot > 0) w /= 1 + (overshoot / OVERSHOOT_METERS) ** 2;
           const i = r * cols + c;
-          if (w > maxWeight[i]) maxWeight[i] = w;
           weightSum[i] += w;
-          const base = ha === undefined ? terrainAt(cx, cz) : ha + (hb - ha) * t;
+          if (e < edgeDist[i]) edgeDist[i] = e;
+          let base;
+          if (ha !== undefined) base = ha + (hb - ha) * t;
+          else base = terrainAt(cx, cz) + (da === undefined ? 0 : da + (db - da) * t);
           targetSum[i] += w * (base + ROAD_LIFT);
         }
       }
     }
-    applyLayer();
+    applyLayer(segments[segments.length - 1]);
     return out;
   }
 

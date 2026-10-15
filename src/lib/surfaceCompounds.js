@@ -1,17 +1,51 @@
 // Tyre grip per ground surface (classified in terrainSurface.js), applied
 // in wheeledVehicle.js's applyFriction on top of each vehicle's own tuning:
-//   effectiveFrictionSlip = frictionSlip * frictionMultiplier + frictionSlipOffset
-//   maxGrip = min(suspensionForce * effectiveFrictionSlip, maxForceN) * dt
+//   staticMu  = frictionSlip * frictionMultiplier + frictionSlipOffset
+//   widthGrip = (tyreWidth / REFERENCE_TYRE_WIDTH_M) ^ widthGripExponent
+//   staticGrip  = min(suspensionForce * staticMu * widthGrip, maxForceN) * dt
+//   dynamicGrip = staticGrip * dynamicFrictionRatio   (once the patch slides)
 // maxForceN is a load-independent cap (Infinity = none);
 // rollingResistanceMultiplier scales the vehicle's rolling resistance.
+// widthGripExponent: >0 wide tyres grip more (lower contact pressure / floats
+// on loose ground), <0 wide tyres grip less (aquaplaning).
+// imperfectionCm: peak-to-peak height (cm) of the fixed pseudo-random bumps
+// the suspension rays feel on this surface (surfaceImperfections.js).
 export const SURFACE_COMPOUNDS = {
-  // Paved roads: the baseline every vehicle is tuned for.
-  road: { frictionMultiplier: 2.5, frictionSlipOffset: 1.0, maxForceN: Infinity, rollingResistanceMultiplier: 0.55 },
-  // Everything else: slightly less grip, a bit more rolling drag.
-  normal: { frictionMultiplier: 1.2, frictionSlipOffset: 0.5, maxForceN: Infinity, rollingResistanceMultiplier: 2.0 },
-  // Water: very little grip, capped regardless of load, high drag.
-  water: { frictionMultiplier: 1.0, frictionSlipOffset: 0.0, maxForceN: Infinity, rollingResistanceMultiplier: 8.0 },
+  // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
+  // drops off noticeably once it breaks loose.
+  road: {
+    frictionMultiplier: 2.5,
+    frictionSlipOffset: 1.0,
+    dynamicFrictionRatio: 0.7,
+    widthGripExponent: 0.3,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 0.55,
+    imperfectionCm: 0,
+  },
+  // Everything else: less grip, more rolling drag; loose ground slides more evenly.
+  normal: {
+    frictionMultiplier: 1.2,
+    frictionSlipOffset: 0.5,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.45,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 2.0,
+    imperfectionCm: 5,
+  },
+  // Water: very little grip, high drag, wide tyres aquaplane.
+  water: {
+    frictionMultiplier: 1.0,
+    frictionSlipOffset: 0.0,
+    dynamicFrictionRatio: 0.9,
+    widthGripExponent: -0.5,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 8.0,
+    imperfectionCm: 0,
+  },
 };
+
+// Tyre width (m) at which width has no effect on grip (a 225 mm tyre).
+export const REFERENCE_TYRE_WIDTH_M = 0.225;
 
 // Fallback for an unset surface: off-road, not road.
 export const DEFAULT_SURFACE_KEY = 'normal';

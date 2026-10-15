@@ -68,11 +68,11 @@ export function buildTileGeometry({ z, x, y, grid, elev, heightOffset, originLat
   }
 
   const mesh = buildGridMesh({ positions, normals, uvs, cols: grid, rows: grid, skirtDepth });
-  return { ...geometryFromGridMesh(mesh, grid, grid, { lineStride: 1, nwse: false }), anchor };
+  return { ...geometryFromGridMesh(mesh, grid, grid), anchor };
 }
 
 /** BufferGeometry + skirtless `surface` view of a buildGridMesh() result. */
-export function geometryFromGridMesh(mesh, cols, rows, { lineStride, nwse }) {
+export function geometryFromGridMesh(mesh, cols, rows) {
   const { positions, normals, uvs, indices, surfaceCount, surfaceIndexCount } = mesh;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -85,8 +85,6 @@ export function geometryFromGridMesh(mesh, cols, rows, { lineStride, nwse }) {
     surface: {
       cols,
       rows,
-      lineStride,
-      nwse,
       positions: positions.subarray(0, surfaceCount * 3),
       normals: normals.subarray(0, surfaceCount * 3),
       indices: indices.subarray(0, surfaceIndexCount),
@@ -94,17 +92,16 @@ export function geometryFromGridMesh(mesh, cols, rows, { lineStride, nwse }) {
   };
 }
 
-// Debug tile lines, lifted along vertex normals to avoid z-fighting; the
-// border sits above the grid. Fat lines (LineMaterial) because WebGL
-// ignores `linewidth` on basic lines; they need the viewport resolution.
+// Debug tile border, lifted along vertex normals to avoid z-fighting. Fat
+// line (LineMaterial) because WebGL ignores `linewidth` on basic lines; it
+// needs the viewport resolution.
 const BORDER_LIFT = 0.15;
-const GRID_LIFT = 0.1;
+const WIREFRAME_LIFT = 0.1;
 const LINE_COLOR = 0xffe14d;
 const borderMaterial = new LineMaterial({ color: LINE_COLOR, linewidth: 3, transparent: true, opacity: 0.85 });
-const gridMaterial = new LineMaterial({ color: LINE_COLOR, linewidth: 1.25, transparent: true, opacity: 0.25 });
+const wireframeMaterial = new THREE.MeshBasicMaterial({ color: LINE_COLOR, wireframe: true, transparent: true, opacity: 0.35, fog: false });
 function updateLineResolution() {
   borderMaterial.resolution.set(window.innerWidth, window.innerHeight);
-  gridMaterial.resolution.set(window.innerWidth, window.innerHeight);
 }
 updateLineResolution();
 window.addEventListener('resize', updateLineResolution);
@@ -123,29 +120,17 @@ function liftedSegments(surface, vertexPairs, lift) {
   return geometry;
 }
 
-/** Border loop + every `lineStride`-th grid line of a tile surface (and cell diagonals at stride 1). `liftScale` grows the lift for big, far tiles. */
-export function buildTileDebugLines(surface, liftScale = 1) {
-  const { cols, rows, lineStride: stride, nwse } = surface;
-  const row = cols + 1;
-  const perimeter = perimeterIndices(cols, rows);
-  const borderPairs = [];
-  for (let i = 0; i < perimeter.length; i++) borderPairs.push(perimeter[i], perimeter[(i + 1) % perimeter.length]);
+/** Border loop of a tile surface. `liftScale` grows the lift for big, far tiles. */
+export function buildTileBorder(surface, liftScale = 1) {
+  const perimeter = perimeterIndices(surface.cols, surface.rows);
+  const pairs = [];
+  for (let i = 0; i < perimeter.length; i++) pairs.push(perimeter[i], perimeter[(i + 1) % perimeter.length]);
+  return new LineSegments2(liftedSegments(surface, pairs, BORDER_LIFT * liftScale), borderMaterial);
+}
 
-  const gridPairs = [];
-  for (let iy = 0; iy <= rows; iy++) {
-    for (let ix = 0; ix <= cols; ix++) {
-      const a = iy * row + ix;
-      if (ix < cols && iy % stride === 0) gridPairs.push(a, a + 1);
-      if (iy < rows && ix % stride === 0) gridPairs.push(a, a + row);
-      if (stride === 1 && ix < cols && iy < rows) {
-        if (nwse) gridPairs.push(a, a + row + 1);
-        else gridPairs.push(a + row, a + 1);
-      }
-    }
-  }
-
-  return {
-    border: new LineSegments2(liftedSegments(surface, borderPairs, BORDER_LIFT * liftScale), borderMaterial),
-    grid: new LineSegments2(liftedSegments(surface, gridPairs, GRID_LIFT * liftScale), gridMaterial),
-  };
+/** Wireframe of the rendered tile geometry (shared, not copied; skirt included), lifted straight up. */
+export function buildTileWireframe(geometry, liftScale = 1) {
+  const wire = new THREE.Mesh(geometry, wireframeMaterial);
+  wire.position.y = WIREFRAME_LIFT * liftScale;
+  return wire;
 }

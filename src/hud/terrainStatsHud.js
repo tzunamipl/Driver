@@ -90,6 +90,8 @@ export function createTerrainStatsHud() {
       `ahead: ${aheadTx},${aheadTy}`,
       `buildings: ${b.buildings} in ${b.loaded} tiles${b.building ? ` (${b.building} building\u2026)` : ''}` +
         `${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
+      `far buildings: ${b.far.instances} boxes in ${b.far.tiles} tiles${b.far.pending ? ` (${b.far.pending} loading\u2026)` : ''}` +
+        `  ~${formatBytes(b.far.memoryBytes)}`,
     ];
     if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);

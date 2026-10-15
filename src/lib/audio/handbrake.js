@@ -3,8 +3,8 @@
 import { getAudio } from './audioContext.js';
 
 const CLICKS = 9;
-const CLICK_SPACING_S = 0.022;
-const CLICK_S = 0.012;
+const CLICK_SPACING_S = 0.062;
+const CLICK_S = 0.022;
 const GAIN = 0.35;
 
 export function createHandbrakeSound() {

@@ -49,6 +49,7 @@ import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { createVersionBadge } from './hud/versionBadge.js';
+import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
@@ -102,10 +103,10 @@ const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialV
   lat: ORIGIN_LAT,
   lon: ORIGIN_LON,
 });
-const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
-const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
-const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
-const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon);
+const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 
 const loadingEl = document.createElement('div');
 loadingEl.textContent = 'Loading real-world terrain\u2026';
@@ -164,6 +165,7 @@ const debugVisuals = createDebugVisualsToggle(
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
+    layersHudEl: document.getElementById('debug-layers-hud'),
   },
   IS_DEV_MODE
 );
@@ -190,6 +192,7 @@ const handbrakeSound = createHandbrakeSound();
 const input = createInputController({
   onHandbrakePull: () => handbrakeSound.play(),
   onHandbrakeLatch: () => handbrakeSound.play(3),
+  initialHandbrakeLatched: savedCarState?.handbrakeLatched === true,
 });
 const collapsibleHud = setupCollapsibleHud();
 setupTouchControls(input.keys);
@@ -204,6 +207,7 @@ const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
 const minimapHud = createMinimapHud();
 createVersionBadge();
+createFpsCounter();
 
 // ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({

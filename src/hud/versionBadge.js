@@ -6,7 +6,7 @@
 // exactly when it was produced. In dev (`vite dev`) there's no real
 // "build", so __BUILD_TIME__ is empty and only the bare version shows.
 export function createVersionBadge() {
-  const el = document.getElementById('version-badge');
+  const el = document.getElementById('version-text');
   if (!el) return;
   const version = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
   const buildTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';

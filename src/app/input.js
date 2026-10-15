@@ -9,8 +9,8 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
-/** @param {{ onHandbrakePull?: () => void, onHandbrakeLatch?: () => void }} [options] */
-export function createInputController({ onHandbrakePull, onHandbrakeLatch } = {}) {
+/** @param {{ onHandbrakePull?: () => void, onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean }} [options] */
+export function createInputController({ onHandbrakePull, onHandbrakeLatch, initialHandbrakeLatched = false } = {}) {
   const keys = new Set();
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
@@ -36,9 +36,9 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch } = {}
   // Held for HANDBRAKE_LATCH_S it stays pulled; the next press only releases it.
   let handbrakeWasPressed = false;
   let handbrakeHeldS = 0;
-  let handbrakeLatched = false;
+  let handbrakeLatched = initialHandbrakeLatched;
   let handbrakeReleasing = false;
-  let handbrakeOn = false;
+  let handbrakeOn = initialHandbrakeLatched;
 
   /**
    * Applies key state to the vehicle (engine, steering, brake, R reset).
@@ -89,9 +89,20 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch } = {}
       ? vehicle.engine.update(dt, {
           direction: pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
           throttle: pedalBraking || !(forward || backward) ? 0 : 1,
-          forwardSpeedAbs: Math.abs(forwardSpeed),
+          wheelSpeedAbs: Math.abs(vehicle.getDriveWheelSpeed?.() ?? forwardSpeed),
+          grounded: driveWheels.some((i) => vehicle.wheelInfos[i]?.isInContact),
         })
       : engineForceUnit;
+    if (vehicle.engine && vehicle.setDriveline) {
+      const { reflectedMass, limitWheelSpeed, engineBrakeForce } = vehicle.engine;
+      for (const i of driveWheels) {
+        vehicle.setDriveline(i, {
+          mass: reflectedMass / driveWheels.length,
+          speedLimit: limitWheelSpeed,
+          engineBrake: engineBrakeForce / driveWheels.length,
+        });
+      }
+    }
 
     throttle = forward ? 1 : 0;
 
@@ -161,10 +172,12 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch } = {}
     const pedalBrake = pedalBraking ? brakeForce : 0;
     // Handbrake locks only the rear wheels, so the rear breaks traction.
     const handbrakeForce = handbrake ? brakeForce : 0;
-    vehicle.setBrake(pedalBrake, 0);
-    vehicle.setBrake(pedalBrake, 1);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3);
+    // ABS only on the pedal brake; the handbrake must be able to lock.
+    const abs = vehicle.abs ?? false;
+    vehicle.setBrake(pedalBrake, 0, abs);
+    vehicle.setBrake(pedalBrake, 1, abs);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2, abs && !handbrake);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3, abs && !handbrake);
 
     const resetPressed = keys.has('KeyR');
     if (resetPressed && !resetWasPressed && reset) reset();

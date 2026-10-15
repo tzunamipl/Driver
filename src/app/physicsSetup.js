@@ -24,10 +24,11 @@ export function createPhysicsWorld() {
 
   // Chassis vs ground: only a rollover/bottom-out safety net (wheels do the
   // driving), so firm and non-bouncy - a bouncy contact snowballed into
-  // tumbles - with low friction so scrapes slide.
+  // tumbles. cannon caps friction per contact at mu*m*g regardless of load,
+  // and a sphere on a heightfield yields several contacts, so mu stays tiny.
   world.addContactMaterial(
     new CANNON.ContactMaterial(CHASSIS_MATERIAL, GROUND_MATERIAL, {
-      friction: 0.1,
+      friction: 0.02,
       restitution: 0,
     })
   );

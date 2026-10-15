@@ -1,8 +1,10 @@
 // Filled-polygon overlay (waterAreas.js) on top of tiles/vectorTileLayer.js.
 // Polygons are bucketed by outer-ring centroid like buildings.js, so a
 // polygon larger than a tile renders in its centroid's tile and pops as a
-// whole - acceptable for a debug overlay. Data always streams because
-// classifyAt() drives splash.js's wheel-on-water check.
+// whole - acceptable for a debug overlay. classifyAt() instead searches the
+// whole source vector tile, so large lakes are found anywhere on them.
+// Data always streams because classifyAt() drives splash.js's
+// wheel-on-water check and tyre grip.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -60,7 +62,7 @@ function classifyRings(rings) {
 }
 
 /**
- * Builds a manager class (call `new Cls(scene, world, originLat, originLon)`).
+ * Builds a manager class (call `new Cls(scene, world, originLat, originLon, terrain)`).
  *
  * @param {object} options
  * @param {number} options.tileZoom
@@ -82,8 +84,8 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
   }
 
   return class VectorPolygonLayerManager extends VectorTileLayer {
-    constructor(scene, world, originLat, originLon) {
-      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream: true });
+    constructor(scene, world, originLat, originLon, terrain) {
+      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream: true, terrain });
     }
 
     _decodeFeature(rings, style, toLatLon, add) {
@@ -91,14 +93,26 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
         const outerLatLon = outer.map(toLatLon);
         let sumLat = 0;
         let sumLon = 0;
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        let minLon = Infinity;
+        let maxLon = -Infinity;
         for (const p of outerLatLon) {
           sumLat += p.lat;
           sumLon += p.lon;
+          minLat = Math.min(minLat, p.lat);
+          maxLat = Math.max(maxLat, p.lat);
+          minLon = Math.min(minLon, p.lon);
+          maxLon = Math.max(maxLon, p.lon);
         }
         add(sumLat / outerLatLon.length, sumLon / outerLatLon.length, {
           outer: outerLatLon,
           holes: holes.map((h) => h.map(toLatLon)),
           style,
+          minLat,
+          maxLat,
+          minLon,
+          maxLon,
         });
       }
     }
@@ -154,7 +168,8 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
      */
     classifyAt(x, z) {
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
-      for (const entry of this._itemsNear(lat, lon)) {
+      for (const entry of this._itemsInSourceTile(lat, lon)) {
+        if (lat < entry.minLat || lat > entry.maxLat || lon < entry.minLon || lon > entry.maxLon) continue;
         if (!pointInLatLonRing(lat, lon, entry.outer)) continue;
         if (entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole))) continue;
         return entry.style.key;

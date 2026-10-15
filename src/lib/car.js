@@ -26,6 +26,7 @@ import {
   AXLE_HALF_WIDTH,
   WHEEL_FRONT_Z,
   WHEEL_BACK_Z,
+  fitChassisHitbox,
   createChassisBody,
   applyFootprintInertia,
   buildChassisHitboxMeshes,
@@ -40,6 +41,7 @@ const DEFAULT_BODY_COLOR = 0xffffff;
 const DEFAULT_CHASSIS_MASS = 1500; // kg
 const DEFAULT_BRAKE_FORCE = 100;
 const DEFAULT_DRIVE_WHEELS = [2, 3]; // RWD
+const DEFAULT_ABS = true;
 const DEFAULT_STEER_SPEED_D = 0.1;
 // Suspension force cap as a multiple of static per-wheel load. Caps grip on
 // hard landings so the car slides instead of snapping straight in one step.
@@ -56,9 +58,8 @@ const DEFAULT_WHEEL_OPTIONS = {
   suspensionRestLength: 0.55,
   axleLocal: new CANNON.Vec3(-1, 0, 0),
   maxSuspensionTravel: 0.35, // must clear static sag with headroom, or the car leans stuck
-  customSlidingRotationalSpeed: -30,
-  useCustomSlidingRotationalSpeed: true,
 };
+const DEFAULT_TYRE_WIDTH_MM = 225;
 
 /**
  * Creates the local, physics-driven vehicle. Returns the rig API used by
@@ -80,7 +81,9 @@ export function createCar(
   }
 
   const chassisMass = descriptor.mass ?? DEFAULT_CHASSIS_MASS;
-  const chassisBody = createChassisBody(chassisMass, startPosition, startQuaternion);
+  const { group: chassisMesh } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
+  const hitbox = fitChassisHitbox(chassisMesh);
+  const chassisBody = createChassisBody(chassisMass, startPosition, startQuaternion, hitbox);
 
   // Custom raycast vehicle (wheeledVehicle.js) instead of CANNON.RaycastVehicle.
   const vehicle = createWheeledVehicle({ chassisBody, indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2 });
@@ -90,6 +93,7 @@ export function createCar(
   const wheelOptions = {
     ...DEFAULT_WHEEL_OPTIONS,
     radius: wheelRadius,
+    width: (descriptor.tyre ?? DEFAULT_TYRE_WIDTH_MM) / 1000,
     maxSuspensionForce: ((chassisMass * GRAVITY) / WHEELS_PER_VEHICLE) * suspensionForceG,
     ...descriptor.suspension,
   };
@@ -113,6 +117,7 @@ export function createCar(
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
   vehicle.driveWheels = descriptor.driveWheels ?? DEFAULT_DRIVE_WHEELS; // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
+  vehicle.abs = descriptor.abs ?? DEFAULT_ABS; // pedal brake backs off before locking
   // Speed-sensitive steering lock; input.js lerps between these by speed.
   vehicle.steerSpeedD = descriptor.steerSpeedD ?? DEFAULT_STEER_SPEED_D;
   vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
@@ -125,6 +130,13 @@ export function createCar(
   vehicle.getForwardSpeed = () => {
     chassisBody.vectorToWorldFrame(forwardLocal, forwardWorld);
     return chassisBody.velocity.dot(forwardWorld);
+  };
+  // Mean tread speed of the driven wheels (m/s, + = forward); the engine's
+  // rpm follows this, so it revs on wheelspin and in the air.
+  vehicle.getDriveWheelSpeed = () => {
+    let sum = 0;
+    for (const i of vehicle.driveWheels) sum += vehicle.wheelInfos[i].spinSpeed;
+    return -sum / vehicle.driveWheels.length;
   };
 
   // Wheels stick out past the chassis shapes, so each gets a kinematic
@@ -164,9 +176,8 @@ export function createCar(
   world.addEventListener('preStep', stabilityAssistCallback);
 
   // --- Meshes ---
-  const { group: chassisMesh } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
   scene.add(chassisMesh);
-  const hitboxMeshes = buildChassisHitboxMeshes(chassisMesh);
+  const hitboxMeshes = buildChassisHitboxMeshes(chassisMesh, hitbox);
   function setHitboxVisible(visible) {
     for (const m of hitboxMeshes) m.visible = visible;
   }
@@ -247,6 +258,7 @@ export function createCar(
     chassisBody.type = CANNON.Body.KINEMATIC;
     chassisBody.velocity.set(0, 0, 0);
     chassisBody.angularVelocity.set(0, 0, 0);
+    vehicle.resetWheelSpin();
     resetInterpolation();
   }
 
@@ -261,6 +273,7 @@ export function createCar(
       chassisBody.type = CANNON.Body.DYNAMIC;
       chassisBody.velocity.set(0, 0, 0);
       chassisBody.angularVelocity.set(0, 0, 0);
+      vehicle.resetWheelSpin();
       liftAnim = null;
     }
   }

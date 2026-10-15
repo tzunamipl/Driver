@@ -22,6 +22,9 @@
   font-size: 10px;
   pointer-events: none;
 }
+#fps-counter:not(:empty)::after {
+  content: ' \00b7 ';
+}
 #music-volume {
   position: fixed;
   left: 292px;

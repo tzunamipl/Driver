@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { lon2tileX, lat2tileY, localToLatLon, latLonToLocal, tileX2lon, tileY2lat, tileSizeMeters } from './geo.js';
 import { loadTileData } from './terrain/tileLoader.js';
-import { buildTileGeometry, buildTileDebugLines, geometryFromGridMesh } from './terrain/tileMesh.js';
+import { AERIAL_MAX_ZOOM, AERIAL_MAX_REQUESTS } from './terrain/tileUrls.js';
+import { buildTileGeometry, buildTileBorder, buildTileWireframe, geometryFromGridMesh } from './terrain/tileMesh.js';
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
 
@@ -17,9 +18,8 @@ import { roadBedBorderPx } from './terrain/roadBed.js';
 // DETAIL_ZOOM tiles are built in the worker on a fine grid with OSM roads
 // carved in as a raised bed (terrain/detailSurface.js, terrain/roadBed.js).
 
-export const DETAIL_ZOOM = 15; // ~600-800m tiles at mid latitudes
-const DETAIL_CELLS = 256; // ~3 m cells across a DETAIL_ZOOM tile (mesh and physics Heightfield), fine enough for road beds
-const DETAIL_LINE_STRIDE = 16; // debug grid lines every this many detail cells
+export const DETAIL_ZOOM = 20; // how big tiles are
+const DETAIL_CELLS = 25; // ~3 m cells across a DETAIL_ZOOM tile (mesh and physics Heightfield), fine enough for road beds
 const DETAIL_SKIRT_DEPTH = 16; // metres; coarse neighbours still leave big cracks
 // Coarser tiles by zoom, finest first: [minZoom, grid]. Far tiles are hazed, so they get fewer vertices.
 const COARSE_GRIDS = [
@@ -27,7 +27,7 @@ const COARSE_GRIDS = [
   [11, 8], // ~6-12 km
   [0, 4], // ~25-150 km
 ];
-export const DETAIL_RADIUS = 2; // tiles
+export const DETAIL_RADIUS = 4; // tiles
 export const UNLOAD_MARGIN = 1; // tiles of slack before unloading (other streamers)
 export const HIGH_DETAIL_RADIUS = 1; // square, i.e. the 3x3 block
 export const DetailLevel = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
@@ -66,16 +66,16 @@ export function circleOffsets(radius) {
 }
 
 const DETAIL_OFFSETS = circleOffsets(DETAIL_RADIUS);
-const DETAIL_BOX = Math.max(...DETAIL_OFFSETS.map(({ dx }) => Math.abs(dx))); // square bound of DETAIL_OFFSETS
+export const DETAIL_BOX = Math.max(...DETAIL_OFFSETS.map(({ dx }) => Math.abs(dx))); // square bound of DETAIL_OFFSETS
 
 export const FAR_RADIUS_METERS = 120_000;
 const ROOT_ZOOM = 8; // ~100-150 km tiles
 const SPLIT_DISTANCE = 1.0; // in the tile's own widths, from the player to the tile's nearest point
-// Imagery is fetched at a higher zoom than the mesh and stitched into a mosaic.
-const DETAIL_AERIAL_BOOST = 2; // 4x4 child tiles = 1024px texture
-const NEAR_AERIAL_BOOST = 1; // 2x2 = 512px, for tiles from NEAR_AERIAL_MIN_ZOOM up
-const NEAR_AERIAL_MIN_ZOOM = 13; // coarser tiles are far and hazed: one native 256px tile
-const MAX_CONCURRENT_LOADS = 6; // ~the browser's per-host connection limit
+// Imagery is fetched at a higher zoom than the mesh and stitched into a mosaic (capped at AERIAL_MAX_ZOOM).
+const AERIAL_BOOST = { [DetailLevel.HIGH]: 2, [DetailLevel.MEDIUM]: 1, [DetailLevel.LOW]: 0 }; // 1024 / 512 / 256px textures
+// Detail tiles load geometry without imagery, then step up through MEDIUM to their level.
+const NO_IMAGERY = -1;
+const MAX_CONCURRENT_LOADS = 8; // jobs in flight; aerial requests are budgeted separately (AERIAL_MAX_REQUESTS)
 const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) that re-runs selection
 const HIDDEN_TILE_LINGER_MS = 8000; // keeps tiles around for back-and-forth driving
 const UNLOAD_CHECK_INTERVAL_MS = 500;
@@ -162,14 +162,18 @@ export class TerrainManager {
     this.heightOffset = 0; // subtracted from raw elevation so origin sits near y=0
     this._heightBaselineSet = false; // see init()
     this.bordersVisible = true;
+    this.wireframeVisible = true;
+    this.roadBed = true; // debug: false builds detail tiles without carved roads
 
-    this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, lines, aerialBoost, texBytes, meshBytes, hiddenSince }
+    this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, border, wireframe, aerialBoost, texBytes, meshBytes, hiddenSince }
     this._loadedBelow = new Map(); // key -> number of loaded tiles strictly inside it
     this.loading = new Map(); // key -> job in flight
+    this._aerialInFlight = 0; // aerial requests of the jobs in flight
     this._failedAt = new Map(); // key -> time of the last failed load
     this._leaves = []; // desired leaves: [{ z, x, y, key, distMeters, dirX, dirY, detail, covered }]
     this._leafKeys = new Set();
     this._visible = new Set();
+    this._displayDirty = false; // a load finished; _updateDisplay() runs on the next update()
     this._detailWaiters = [];
     // Bumped by recenter() so in-flight loads for the old origin bail out.
     this._loadEpoch = 0;
@@ -215,6 +219,82 @@ export class TerrainManager {
     return this.tiles.has(tileKey(DETAIL_ZOOM, tx, ty));
   }
 
+  /** Detail-tile surface y at (x, z) from its heightfield (no physics body needed), or null if not loaded. */
+  detailHeightAt(x, z) {
+    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+    const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
+    const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
+    const tile = this.tiles.get(tileKey(DETAIL_ZOOM, tx, ty));
+    if (!tile?.heightfield) return null;
+    const { heights, cols, rows, elementSize } = tile.heightfield;
+    const fx = Math.min(Math.max((x - tile.mesh.position.x) / elementSize, 0), cols - 1);
+    const fz = Math.min(Math.max((z - tile.mesh.position.z) / elementSize, 0), rows - 1);
+    const c = Math.min(Math.floor(fx), cols - 2);
+    const r = Math.min(Math.floor(fz), rows - 2);
+    const u = fx - c;
+    const v = fz - r;
+    const i = r * cols + c;
+    const top = heights[i] * (1 - u) + heights[i + 1] * u;
+    const bottom = heights[i + cols] * (1 - u) + heights[i + cols + 1] * u;
+    return top * (1 - v) + bottom * v;
+  }
+
+  /**
+   * Rendered ground y at (x, z) from the finest visible tile (else the finest
+   * loaded one), any zoom; null if no tile covers it.
+   */
+  surfaceHeightAt(x, z) {
+    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+    const fx = lon2tileX(lon, DETAIL_ZOOM);
+    const fy = lat2tileY(lat, DETAIL_ZOOM);
+    const tile = this._surfaceTileAt(fx, fy);
+    if (!tile) return null;
+    const s = 2 ** (tile.z - DETAIL_ZOOM);
+    return this._tileHeightAt(tile, x, z, fx * s, fy * s);
+  }
+
+  /**
+   * Tile surfaceHeightAt() reads at the centre of DETAIL_ZOOM tile (tx, ty),
+   * or null. Overlays compare it (and its surfaceRevision) to notice the ground changed.
+   */
+  surfaceTileAt(tx, ty) {
+    return this._surfaceTileAt(tx + 0.5, ty + 0.5);
+  }
+
+  /** Finest visible tile at fractional DETAIL_ZOOM coords, else the finest loaded one. */
+  _surfaceTileAt(fx, fy) {
+    let fallback = null;
+    for (let zoom = DETAIL_ZOOM; zoom >= ROOT_ZOOM; zoom--) {
+      const s = 2 ** (zoom - DETAIL_ZOOM);
+      const tile = this.tiles.get(tileKey(zoom, Math.floor(fx * s), Math.floor(fy * s)));
+      if (!tile) continue;
+      if (tile.mesh.visible) return tile;
+      fallback ??= tile;
+    }
+    return fallback;
+  }
+
+  /** Height on one tile's triangles; (tx, ty) are fractional tile coords at its zoom. */
+  _tileHeightAt(tile, x, z, tx, ty) {
+    if (tile.z === DETAIL_ZOOM) return this.detailHeightAt(x, z) ?? 0;
+    const { cols, rows, positions } = tile.surface;
+    const gu = Math.min(Math.max((tx - tile.x) * cols, 0), cols - 1e-6);
+    const gv = Math.min(Math.max((ty - tile.y) * rows, 0), rows - 1e-6);
+    const ix = Math.floor(gu);
+    const iy = Math.floor(gv);
+    const u = gu - ix;
+    const v = gv - iy;
+    const row = cols + 1;
+    const h = (i) => positions[i * 3 + 1];
+    const a = h(iy * row + ix); // NW
+    const b = h((iy + 1) * row + ix); // SW
+    const c = h((iy + 1) * row + ix + 1); // SE
+    const d = h(iy * row + ix + 1); // NE
+    // Coarse grids split each cell along SW-NE (see buildGridMesh).
+    if (u + v <= 1) return a + (d - a) * u + (b - a) * v;
+    return c + (b - c) * (1 - u) + (d - c) * (1 - v);
+  }
+
   /**
    * Teleport support: tears everything down and streams a fresh set around
    * a new lat/lon origin (the flat local projection is only accurate near
@@ -223,6 +303,7 @@ export class TerrainManager {
   async recenter(lat, lon) {
     this._loadEpoch++; // invalidate in-flight loads first
     for (const tile of Array.from(this.tiles.values())) this._disposeTile(tile);
+    for (const job of this.loading.values()) job.controller.abort();
     this.loading.clear();
     this._failedAt.clear();
     this._leaves = [];
@@ -310,6 +391,10 @@ export class TerrainManager {
     }
     this._leaves = leaves;
     this._leafKeys = new Set(leaves.map((leaf) => leaf.key));
+    // Frees load slots and connections from tiles the player has already passed.
+    for (const [key, job] of this.loading) {
+      if (!this._leafKeys.has(key)) job.controller.abort();
+    }
   }
 
   /** Loaded tiles that fully cover (z, x, y), pushed to `out`; false if there's a gap. */
@@ -337,7 +422,7 @@ export class TerrainManager {
   }
 
   _hasVisibleAncestor(tile, visible) {
-    return this._ancestorKeys(tile).some((key) => visible.has(key));
+    return tile.ancestorKeys.some((key) => visible.has(key));
   }
 
   _ancestorKeys({ z, x, y }) {
@@ -354,11 +439,15 @@ export class TerrainManager {
    * visibility, debug lines and physics bodies.
    */
   _updateDisplay() {
+    this._displayDirty = false;
     const visible = new Set();
     for (const leaf of this._leaves) {
       leaf.covered = true;
-      if (this.tiles.has(leaf.key)) {
-        visible.add(leaf.key);
+      const tile = this.tiles.get(leaf.key);
+      if (tile) {
+        // An ancestor stands in for a detail tile until its first imagery arrives.
+        const ancestor = tile.aerialBoost === NO_IMAGERY && this._loadedAncestor(leaf.z, leaf.x, leaf.y);
+        visible.add(ancestor || leaf.key);
         continue;
       }
       const cover = [];
@@ -388,17 +477,20 @@ export class TerrainManager {
   }
 
   _syncDebugLines(tile) {
-    const want = this.bordersVisible && tile.mesh.visible;
-    if (want && !tile.lines) {
-      tile.lines = buildTileDebugLines(tile.surface, 2 ** (DETAIL_ZOOM - tile.z));
-      tile.lines.border.position.copy(tile.mesh.position);
-      tile.lines.grid.position.copy(tile.mesh.position);
-      this.scene.add(tile.lines.border, tile.lines.grid);
+    const liftScale = 2 ** (DETAIL_ZOOM - tile.z);
+    const wantBorder = this.bordersVisible && tile.mesh.visible;
+    if (wantBorder && !tile.border) {
+      tile.border = buildTileBorder(tile.surface, liftScale);
+      tile.border.position.copy(tile.mesh.position);
+      this.scene.add(tile.border);
     }
-    if (tile.lines) {
-      tile.lines.border.visible = want;
-      tile.lines.grid.visible = want;
+    if (tile.border) tile.border.visible = wantBorder;
+    // Child of the tile mesh, so it follows the mesh's visibility.
+    if (this.wireframeVisible && !tile.wireframe) {
+      tile.wireframe = buildTileWireframe(tile.mesh.geometry, liftScale);
+      tile.mesh.add(tile.wireframe);
     }
+    if (tile.wireframe) tile.wireframe.visible = this.wireframeVisible;
   }
 
   /** Physics only on the DETAIL_RADIUS circle (kept even while an ancestor is drawn in its place). */
@@ -430,25 +522,39 @@ export class TerrainManager {
   }
 
   /**
-   * Lower = sooner: HIGH, then MEDIUM physics tiles, then their imagery
-   * upgrades, then holes (coarse first, so the view fills fast), then
-   * refinements by distance with tiles behind the player counted farther.
+   * Lower = sooner: HIGH physics tiles, their first imagery (so the ground
+   * under the car never waits behind the ring), MEDIUM physics tiles, their
+   * first imagery, sharper imagery, holes (coarse first, so the view fills
+   * fast), then refinements. Beyond HIGH, tiles behind the player count farther.
    */
   _jobScore(leaf, kind) {
-    if (leaf.detail) {
-      if (kind === 'texture') return 2e9 + leaf.distMeters;
-      const level = detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY);
-      return (level === DetailLevel.HIGH ? 0 : 1e9) + leaf.distMeters;
+    const high = leaf.detail && detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY) === DetailLevel.HIGH;
+    if (kind === 'texture') {
+      if (leaf.tileBoost !== NO_IMAGERY) return 3.5e9 + this._aheadDist(leaf);
+      return high ? 1e9 + leaf.distMeters : 3e9 + this._aheadDist(leaf);
     }
+    if (leaf.detail) return high ? leaf.distMeters : 2e9 + this._aheadDist(leaf);
     if (!leaf.covered) return 3e9 + leaf.z * 1e7 + leaf.distMeters;
+    return 5e9 + this._aheadDist(leaf);
+  }
+
+  /** distMeters, stretched up to 2x for tiles behind the player's heading. */
+  _aheadDist(leaf) {
     const dirLen = Math.hypot(leaf.dirX, leaf.dirY);
     const headingLen = Math.hypot(this._headingX, this._headingZ);
     const cos =
       dirLen && headingLen ? (leaf.dirX * this._headingX + leaf.dirY * this._headingZ) / (dirLen * headingLen) : 0;
-    return 4e9 + leaf.distMeters * (1 + 0.5 * (1 - cos));
+    return leaf.distMeters * (1 + 0.5 * (1 - cos));
   }
 
-  _nextJob() {
+  /** Aerial requests a job makes: its mosaic's quadrant count. */
+  _aerialCost(kind, aerialBoost) {
+    if (kind === 'surface' || aerialBoost === NO_IMAGERY) return 0;
+    return 4 ** aerialBoost;
+  }
+
+  /** Best job to start; with `aerialBudget` set, only ones needing at most that many aerial requests. */
+  _nextJob(aerialBudget = Infinity) {
     const now = performance.now();
     let best = null;
     let bestScore = Infinity;
@@ -460,23 +566,50 @@ export class TerrainManager {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'tile';
-      } else if (leaf.detail && tile.aerialBoost < DETAIL_AERIAL_BOOST) {
-        kind = 'texture';
+      } else if (leaf.detail && tile.roadBed !== this.roadBed) {
+        const failedAt = this._failedAt.get(leaf.key);
+        if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
+        kind = 'surface';
+      } else if (tile.aerialBoost < this._aerialBoost(leaf)) {
+        const failedAt = this._failedAt.get(leaf.key);
+        if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
+        kind = 'texture'; // never downgrades: a sharper texture is already paid for
       } else {
         continue;
       }
-      const score = this._jobScore(leaf, kind);
+      const aerialBoost = this._nextAerialBoost(leaf, tile);
+      const aerialCost = this._aerialCost(kind, aerialBoost);
+      if (aerialCost > aerialBudget) continue;
+      const job = { ...leaf, kind, aerialBoost, aerialCost, tileBoost: tile?.aerialBoost };
+      const score = this._jobScore(job, kind);
       if (score < bestScore) {
         bestScore = score;
-        best = { ...leaf, kind };
+        best = job;
       }
     }
     return best;
   }
 
+  /** Imagery boost for a leaf: by detail level inside the physics circle, LOW elsewhere; never past AERIAL_MAX_ZOOM. */
+  _aerialBoost(leaf) {
+    const level = leaf.detail ? detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY) : DetailLevel.LOW;
+    return Math.max(0, Math.min(AERIAL_BOOST[level], AERIAL_MAX_ZOOM - leaf.z));
+  }
+
+  /** Boost for the next load of a leaf: none for new detail tiles, MEDIUM before anything sharper. */
+  _nextAerialBoost(leaf, tile) {
+    if (!tile) return leaf.detail ? NO_IMAGERY : AERIAL_BOOST[DetailLevel.LOW];
+    const want = this._aerialBoost(leaf);
+    const medium = AERIAL_BOOST[DetailLevel.MEDIUM];
+    return tile.aerialBoost < medium && want > medium ? medium : want;
+  }
+
+  /** Starts jobs best first; once aerial requests would queue in the browser, only jobs that fit the budget. */
   _pump() {
     while (this.loading.size < MAX_CONCURRENT_LOADS) {
-      const job = this._nextJob();
+      // One job may always overshoot an idle budget, else a big mosaic could never start.
+      const budget = this._aerialInFlight ? AERIAL_MAX_REQUESTS - this._aerialInFlight : Infinity;
+      const job = this._nextJob(budget);
       if (!job) return;
       this._runJob(job);
     }
@@ -485,24 +618,40 @@ export class TerrainManager {
   async _runJob(job) {
     const { z, x, y, key } = job;
     const epoch = this._loadEpoch;
+    job.controller = new AbortController();
+    const { signal } = job.controller;
     this.loading.set(key, job);
+    this._aerialInFlight += job.aerialCost;
     try {
       if (job.kind === 'texture') {
-        const { bitmap } = await loadTileData({ z, x, y, elevation: false, aerialBoost: DETAIL_AERIAL_BOOST });
+        const { bitmap, aborted } = await loadTileData({ z, x, y, elevation: false, aerialBoost: job.aerialBoost, signal });
         const tile = this.tiles.get(key);
-        if (epoch !== this._loadEpoch || !tile || !bitmap) {
+        if (aborted || epoch !== this._loadEpoch || !tile || !bitmap) {
           bitmap?.close();
+          if (!aborted && tile && !bitmap) this._failedAt.set(key, performance.now()); // keeps the old texture
           return;
         }
-        this._setTileTexture(tile, bitmap, DETAIL_AERIAL_BOOST);
+        this._setTileTexture(tile, bitmap, job.aerialBoost);
+        return;
+      }
+      if (job.kind === 'surface') {
+        // Rebuilt in place (texture kept) so the car never loses its ground.
+        const detail = this._detailParams(x, y);
+        const elevationBorder = roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256);
+        const { elev, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, detail, signal });
+        const tile = this.tiles.get(key);
+        if (aborted || epoch !== this._loadEpoch || !tile) return;
+        if (surface && elev?.ok) this._replaceDetailSurface(tile, surface, detail.roadBed);
+        else this._failedAt.set(key, performance.now());
         return;
       }
 
-      const aerialBoost = job.detail ? DETAIL_AERIAL_BOOST : z >= NEAR_AERIAL_MIN_ZOOM ? NEAR_AERIAL_BOOST : 0;
+      const { aerialBoost } = job;
       const detail = z === DETAIL_ZOOM ? this._detailParams(x, y) : null;
       const elevationBorder = detail ? roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256) : 0;
-      const { elev, bitmap, surface } = await loadTileData({ z, x, y, elevationBorder, aerialBoost, detail });
-      if (epoch !== this._loadEpoch || this.tiles.has(key)) {
+      const imagery = aerialBoost === NO_IMAGERY ? null : aerialBoost;
+      const { elev, bitmap, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
+      if (aborted || epoch !== this._loadEpoch || this.tiles.has(key)) {
         bitmap?.close();
         return;
       }
@@ -523,15 +672,21 @@ export class TerrainManager {
           return;
         }
       }
-      if (detail) this._addDetailTile(job, surface, bitmap, aerialBoost);
+      if (detail) this._addDetailTile(job, surface, bitmap, aerialBoost, detail.roadBed);
       else this._addTile(job, heights, bitmap, aerialBoost);
     } catch (err) {
       console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
       if (this.loading.get(key) === job) this.loading.delete(key);
+      this._aerialInFlight -= job.aerialCost;
       if (epoch === this._loadEpoch) {
-        this._updateDisplay();
-        this._resolveDetailWaiters();
+        // Batched into the next update(), unless an awaitAll caller waits on the physics footprint.
+        if (this._detailWaiters.length) {
+          this._updateDisplay();
+          this._resolveDetailWaiters();
+        } else {
+          this._displayDirty = true;
+        }
         this._pump();
       }
     }
@@ -548,15 +703,45 @@ export class TerrainManager {
       cells: DETAIL_CELLS,
       heightOffset: this.heightOffset,
       skirtDepth: DETAIL_SKIRT_DEPTH,
+      roadBed: this.roadBed,
     };
   }
 
   /** Detail tile from the worker's surface: positions are relative to the NW corner. */
-  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield }, bitmap, aerialBoost) {
-    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows, { lineStride: DETAIL_LINE_STRIDE, nwse: true });
+  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield }, bitmap, aerialBoost, roadBed) {
+    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
     const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
     const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, bitmap, aerialBoost);
     tile.heightfield = heightfield;
+    tile.roadBed = roadBed;
+  }
+
+  /** Swaps a detail tile's mesh geometry, heightfield and physics body for a rebuilt surface. */
+  _replaceDetailSurface(tile, { mesh: gridMesh, cols, rows, heightfield }, roadBed) {
+    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
+    tile.mesh.geometry.dispose();
+    tile.mesh.geometry = geometry;
+    tile.surface = surface;
+    tile.heightfield = heightfield;
+    tile.roadBed = roadBed;
+    tile.surfaceRevision++;
+    this._failedAt.delete(tile.key);
+    tile.meshBytes = Object.values(geometry.attributes).reduce((n, attr) => n + attr.array.byteLength, geometry.index.array.byteLength);
+    if (tile.border) {
+      this.scene.remove(tile.border);
+      tile.border.geometry.dispose();
+      tile.border = null;
+    }
+    if (tile.wireframe) {
+      tile.mesh.remove(tile.wireframe); // shares the (already disposed) tile geometry
+      tile.wireframe = null;
+    }
+    if (tile.body) {
+      this.world.removeBody(tile.body);
+      tile.body = null;
+    }
+    this._syncDebugLines(tile);
+    this._syncBody(tile);
   }
 
   _addTile({ z, x, y, key }, elev, bitmap, aerialBoost) {
@@ -600,6 +785,7 @@ export class TerrainManager {
       mesh,
       surface,
       heightfield: null, // DETAIL_ZOOM only
+      surfaceRevision: 0, // bumped when the surface is rebuilt in place
       body: null,
       lines: null,
       aerialBoost: 0,
@@ -607,9 +793,10 @@ export class TerrainManager {
       meshBytes,
       hiddenSince: performance.now(),
     };
+    tile.ancestorKeys = this._ancestorKeys(tile);
     this._setTileTexture(tile, bitmap, aerialBoost);
     this.tiles.set(key, tile);
-    for (const k of this._ancestorKeys(tile)) this._loadedBelow.set(k, (this._loadedBelow.get(k) || 0) + 1);
+    for (const k of tile.ancestorKeys) this._loadedBelow.set(k, (this._loadedBelow.get(k) || 0) + 1);
     this._failedAt.delete(key);
     this.stats[z === DETAIL_ZOOM ? 'detail' : 'coarse'].created++;
     return tile;
@@ -648,14 +835,13 @@ export class TerrainManager {
       map.dispose();
     }
     tile.mesh.material.dispose();
-    if (tile.lines) {
-      this.scene.remove(tile.lines.border, tile.lines.grid);
-      tile.lines.border.geometry.dispose();
-      tile.lines.grid.geometry.dispose();
+    if (tile.border) {
+      this.scene.remove(tile.border);
+      tile.border.geometry.dispose();
     }
     if (tile.body) this.world.removeBody(tile.body);
     this.tiles.delete(tile.key);
-    for (const k of this._ancestorKeys(tile)) {
+    for (const k of tile.ancestorKeys) {
       const count = (this._loadedBelow.get(k) || 0) - 1;
       if (count > 0) this._loadedBelow.set(k, count);
       else this._loadedBelow.delete(k);
@@ -685,9 +871,22 @@ export class TerrainManager {
     waiters.forEach((resolve) => resolve());
   }
 
-  /** Toggles debug tile lines on current and future tiles. */
+  /** Toggles debug tile border loops on current and future tiles. */
   setBordersVisible(visible) {
     this.bordersVisible = visible;
+    for (const tile of this.tiles.values()) this._syncDebugLines(tile);
+  }
+
+  /** Debug: builds detail tiles with or without the carved road bed; loaded tiles rebuild in place. */
+  setRoadBedEnabled(enabled) {
+    if (enabled === this.roadBed) return;
+    this.roadBed = enabled;
+    this._pump();
+  }
+
+  /** Toggles the debug wireframe of the rendered terrain triangles on current and future tiles. */
+  setWireframeVisible(visible) {
+    this.wireframeVisible = visible;
     for (const tile of this.tiles.values()) this._syncDebugLines(tile);
   }
 
@@ -720,6 +919,8 @@ export class TerrainManager {
       this._select();
       this._updateDisplay();
       this._pump();
+    } else if (this._displayDirty) {
+      this._updateDisplay();
     }
 
     const now = performance.now();

@@ -14,16 +14,20 @@ function lerpColor(a, b, t) {
   return (r << 16) | (g << 8) | bl;
 }
 
-// Per-class parameters (add new ones here). smoothMeters = window the
-// terrain road bed averages the elevation over along the road (0 = exact).
+// Per-class parameters (add new ones here). Road bed profile (terrain/roadBed.js,
+// defaults there): smoothMeters = window the elevation is averaged over along
+// the road (0 = exact); rampMeters = length over which the road eases to a
+// junction's shared height; bankMeters = widest embankment/cutting beside the
+// road; fillSlope / cutSlope = their rise over run; maxGrade = steepest
+// rise over run along the road, cut / filled into the terrain (0 = none).
 const ROAD_CLASS_DEFS = {
-  motorway: { widthMeters: 28, smoothMeters: 150 },
-  trunk: { widthMeters: 24, smoothMeters: 120 },
-  primary: { widthMeters: 20, smoothMeters: 80 },
-  secondary: { widthMeters: 17, smoothMeters: 40 },
-  tertiary: { widthMeters: 14 },
-  minor: { widthMeters: 12 },
-  service: { widthMeters: 4 },
+  motorway: { widthMeters: 28, smoothMeters: 150, maxGrade: 0.05, rampMeters: 120, bankMeters: 40 },
+  trunk: { widthMeters: 24, smoothMeters: 120, maxGrade: 0.06, rampMeters: 100, bankMeters: 30 },
+  primary: { widthMeters: 20, smoothMeters: 80, maxGrade: 0.08, rampMeters: 80, bankMeters: 25 },
+  secondary: { widthMeters: 17, smoothMeters: 40, maxGrade: 0.1, rampMeters: 50, bankMeters: 18 },
+  tertiary: { widthMeters: 14, rampMeters: 30 },
+  minor: { widthMeters: 12, rampMeters: 25 },
+  service: { widthMeters: 4, rampMeters: 15 },
   track: { widthMeters: 3 },
   path: { widthMeters: 1.5 },
 };
@@ -50,7 +54,7 @@ ROAD_CLASSES.raceway = ROAD_CLASSES.tertiary;
 // Shipping lines aren't roads.
 export const SKIP_CLASSES = new Set(['ferry']);
 
-/** Feature props -> { key, color, width (m), smoothMeters }, or null if not a road class. */
+/** Feature props -> { key, color, width (m) }, or null if not a road class. */
 export function classifyRoad(props) {
   let cls = props?.class;
   if (!cls || SKIP_CLASSES.has(cls)) return null;
@@ -72,6 +76,5 @@ export function classifyRoad(props) {
     key: underConstruction ? `${cls}_construction` : cls,
     color: base.color,
     width,
-    smoothMeters: base.smoothMeters ?? 0,
   };
 }
