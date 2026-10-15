@@ -4,7 +4,7 @@ export default {
   id: 'gl',
   name: 'GL',
   category: 'cars',
-  defaultColor: 0xffffff, // white
+  defaultColor: 0x2e5a3c, // forest green
   rimColor: 0xcda434,
   buildBody,
   wheelRadius: 0.35,

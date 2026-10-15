@@ -47,12 +47,33 @@
   color: #fff;
   font: inherit;
 }
+#lobby-color-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+#lobby-color-reset {
+  flex: none;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+#lobby-color-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 #lobby-color {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 42px;
   box-sizing: border-box;
-  margin: 0 0 16px;
+  margin: 0;
   padding: 0;
   border: 2px solid rgba(255, 255, 255, 0.45);
   border-radius: 8px;

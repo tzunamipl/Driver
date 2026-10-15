@@ -12,6 +12,7 @@ import podRacer from './podRacer.js';
 import bigfoot from './bigfoot.js';
 import speeder from './speeder.js';
 import rally from './rally.js'
+import evo6 from './evo6.js';
 
 
 // Fixed set of tabs shown in the lobby's vehicle picker, in display order.
@@ -25,7 +26,7 @@ export const CATEGORIES = [
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [gc8, gl, levorg, podRacer, bigfoot, speeder, rally];
+export const VEHICLES = [gc8, gl, levorg, podRacer, bigfoot, speeder, rally, evo6];
 
 export const DEFAULT_VEHICLE_ID = bigfoot.id;
 

@@ -141,6 +141,7 @@ export const MINIMAP_SIZE_PX = 260;
 export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
 export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
 export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
+export const VEHICLE_COLORS_STORAGE_KEY = 'driver.vehicleColors.v1'; // per-vehicle paint
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';

@@ -4,7 +4,7 @@ export default {
   id: 'gc8',
   name: 'GC8',
   category: 'cars',
-  defaultColor: 0xffffff, // white
+  defaultColor: 0x1d3c8f, // WR blue
   rimColor: 0xcda434,
   buildBody,
   wheelRadius: 0.35,

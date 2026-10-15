@@ -74,9 +74,10 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     hookCar(vehicle, chassisMesh);
   }
 
-  /** Swaps the vehicle kind in place (same pose and velocity); debug picker. */
-  function setVehicleKind(vehicleId) {
+  /** Swaps the vehicle kind (and optionally colour) in place, same pose and velocity; debug picker. */
+  function setVehicleKind(vehicleId, color = currentColor) {
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    currentColor = color;
     if (!vehicle) return;
     const position = vehicle.chassisBody.position.clone();
     const quaternion = vehicle.chassisBody.quaternion.clone();

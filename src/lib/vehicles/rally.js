@@ -4,7 +4,7 @@ export default {
   id: 'rally',
   name: 'Rally',
   category: 'misc',
-  defaultColor: 0xffffff, // white
+  defaultColor: 0xf2c230, // yellow
   rimColor: 0xF5F5F5,
   buildBody,
   rimSize: 17,

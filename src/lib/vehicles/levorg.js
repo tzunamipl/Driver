@@ -4,7 +4,7 @@ export default {
   id: 'levorg',
   name: 'Levorg',
   category: 'cars',
-  defaultColor: 0xffffff, // white
+  defaultColor: 0xa9adb3, // silver
   rimColor: 0xcda434,
   buildBody,
   wheelRadius: 0.4,

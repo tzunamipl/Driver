@@ -5,6 +5,7 @@
 import { createVehiclePicker } from '../ui/vehiclePicker.js';
 import { DEFAULT_BODY_COLOR, DEV_CAR_STORAGE_KEY } from '../config.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
+import { getVehicleColor, setVehicleColor } from '../lib/vehicleColors.js';
 
 /** Saved dev-mode car/colour pick, if any. */
 export function loadDevCarChoice() {
@@ -47,9 +48,12 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
     listEl,
     initialVehicleId: initialVehicleId ?? carManager.getVehicleId(),
     onSelect: (vehicleId) => {
-      carManager.setVehicleKind(vehicleId);
+      const color = getVehicleColor(vehicleId);
+      carManager.setVehicleKind(vehicleId, color);
       net.setVehicleId(vehicleId);
-      saveDevCarChoice(carManager.getColor(), vehicleId);
+      net.setColor(color);
+      if (colorEl) colorEl.value = colorToHex(color);
+      saveDevCarChoice(color, vehicleId);
     },
   });
 
@@ -59,9 +63,11 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
       const hex = String(colorEl.value || '').replace('#', '');
       const n = Number.parseInt(hex, 16);
       const color = Number.isInteger(n) && n >= 0 && n <= 0xffffff ? n : DEFAULT_BODY_COLOR;
+      const vehicleId = carManager.getVehicleId() ?? DEFAULT_VEHICLE_ID;
       carManager.setColor(color);
       net.setColor(color);
-      saveDevCarChoice(color, carManager.getVehicleId() ?? DEFAULT_VEHICLE_ID);
+      setVehicleColor(vehicleId, color);
+      saveDevCarChoice(color, vehicleId);
     });
   }
 

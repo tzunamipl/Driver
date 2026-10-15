@@ -121,6 +121,7 @@ function lowerBodyGeometry(bodyTop) {
  *   rearFrame     [z0, z1] segments of the body-colour rear window frame
  *   blackPillars  front-top z of each blacked-out pillar
  *   sealEndZ      where the black belt seal stops
+ *   frontPlate    optional [x, y] of the front number plate (default centred)
  *   decorate(kit) variant-specific details
  */
 export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, style) {
@@ -263,7 +264,8 @@ export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BO
     ribbon(HEADLIGHT.map((column) => column.map(([x, y, z]) => [-x, y, z])).reverse(), materials.light);
     ribbon(GRILLE, trimMat);
     box(0.62, 0.06, 0.03, trimMat, 0, -0.27, 2.2);                   // lower intake
-    box(0.52, 0.11, 0.012, materials.plate, 0, -0.12, 2.23);
+    const [plateX, plateY] = style.frontPlate ?? [0, -0.12];
+    box(0.52, 0.11, 0.012, materials.plate, plateX, plateY, 2.23);
 
     style.decorate({ add, box, beam, materials, roof, belt });
 

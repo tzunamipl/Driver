@@ -26,7 +26,7 @@ import { WaterAreasManager } from './lib/waterAreas.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, DEFAULT_BODY_COLOR, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -48,6 +48,7 @@ import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
+import { getVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
@@ -185,7 +186,7 @@ const vehicleDebugPicker = createVehicleDebugPicker({
   listEl: document.getElementById('vehicle-debug-list'),
   colorEl: document.getElementById('vehicle-debug-color'),
   initialVehicleId: devCarChoice?.vehicleId,
-  initialColor: devCarChoice?.color,
+  initialColor: getVehicleColor(devCarChoice?.vehicleId),
 });
 
 // ---------- Input ----------
@@ -346,7 +347,7 @@ terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
     // Dev: skip the lobby and join with the saved debug pick, if any.
-    lobby.joinRoom('dev_mode', devCarChoice?.color ?? DEFAULT_BODY_COLOR, devCarChoice?.vehicleId);
+    lobby.joinRoom('dev_mode', getVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);
     return;
   }
   // Returning player: join straight away with the saved name/colour.

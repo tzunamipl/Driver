@@ -4,7 +4,7 @@ export default {
   id: 'speeder',
   name: 'Speeder',
   category: 'misc',
-  defaultColor: 0xffffff, // white
+  defaultColor: 0x1c1c1c, // black
   rimColor: 0xFF0000,
   buildBody,
   rimSize: 20,

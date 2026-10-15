@@ -1,6 +1,7 @@
 import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, IS_DEV_MODE, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
+import { getVehicleColor, setVehicleColor, defaultVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
 
 // Saved name/colour/vehicle pick; prefills the lobby and drives auto-join.
 function loadSavedChoices() {
@@ -22,6 +23,8 @@ function saveChoices(name, color, vehicleId) {
     // Storage unavailable: just don't persist.
   }
 }
+
+const toHex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 
 // Lobby: name/colour/vehicle form, join flow and network status.
 
@@ -45,8 +48,11 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
   const vehicleTabsEl = document.getElementById('vehicle-tabs');
   const vehicleListEl = document.getElementById('vehicle-list');
   const lobbyCancel = document.getElementById('lobby-cancel');
+  const lobbyColorReset = document.getElementById('lobby-color-reset');
 
   let joined = false;
+  // Colours edited in this lobby session, per vehicle id; stored only on join/apply.
+  const draftColors = new Map();
 
   // ---- Vehicle picker (category tabs + list) with a 3D preview + stats.
   const vehiclePreview = createVehiclePreview({
@@ -56,11 +62,37 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
   const vehiclePicker = createVehiclePicker({
     tabsEl: vehicleTabsEl,
     listEl: vehicleListEl,
-    onSelect: (id) => vehiclePreview.setVehicle(id),
+    onSelect: (id) => {
+      vehiclePreview.setVehicle(id);
+      showVehicleColor();
+    },
   });
-  lobbyColor.addEventListener('input', () => vehiclePreview.setColor(selectedColor()));
+  lobbyColor.addEventListener('input', () => {
+    draftColors.set(vehiclePicker.getSelectedId(), selectedColor());
+    showVehicleColor();
+  });
+  lobbyColorReset.addEventListener('click', () => {
+    const id = vehiclePicker.getSelectedId();
+    draftColors.set(id, defaultVehicleColor(id));
+    showVehicleColor();
+  });
+
+  /** Shows the selected vehicle's (draft or stored) colour in the input and preview. */
+  function showVehicleColor() {
+    const id = vehiclePicker.getSelectedId();
+    const color = draftColors.get(id) ?? getVehicleColor(id);
+    lobbyColor.value = toHex(color);
+    lobbyColorReset.disabled = color === defaultVehicleColor(id);
+    vehiclePreview.setColor(color);
+  }
+
+  function commitDraftColors() {
+    for (const [id, color] of draftColors) setVehicleColor(id, color);
+    draftColors.clear();
+  }
 
   function showLobby() {
+    draftColors.clear();
     lobbyEl.style.display = '';
     lobbyCancel.hidden = !joined;
     vehiclePreview.start();
@@ -75,12 +107,17 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
   const saved = loadSavedChoices();
   if (saved) {
     lobbyName.value = saved.name;
-    lobbyColor.value = saved.color;
     if (saved.vehicleId) vehiclePicker.select(saved.vehicleId);
+    // Carry over a colour picked before colours were per vehicle.
+    const id = vehiclePicker.getSelectedId();
+    if (saved.color !== '#ffffff' && !hasCustomVehicleColor(id)) {
+      const legacy = Number.parseInt(saved.color.replace('#', ''), 16);
+      if (Number.isInteger(legacy)) setVehicleColor(id, legacy);
+    }
     lobbyEl.style.display = 'none';
   }
   vehiclePreview.setVehicle(vehiclePicker.getSelectedId());
-  vehiclePreview.setColor(selectedColor());
+  showVehicleColor();
   if (lobbyEl.style.display !== 'none') vehiclePreview.start();
 
   function selectedColor() {
@@ -117,6 +154,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     }
 
     carManager.setLocalName(name.slice(0, 16));
+    commitDraftColors();
     saveChoices(name, lobbyColor.value, vehicleId);
     joined = true;
     hideLobby();
@@ -132,6 +170,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     net.setName(name);
     net.setColor(color);
     net.setVehicleId(vehicleId);
+    commitDraftColors();
     saveChoices(name, lobbyColor.value, vehicleId);
     hideLobby();
     onReset?.();
@@ -154,23 +193,20 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     if (joined) net.publishLeave();
   });
 
-  const toHex = (n) => `#${n.toString(16).padStart(6, '0')}`;
-
   // Help-menu "Change name/vehicle": reopen the form prefilled with the current pick.
   const changeChoicesBtn = document.getElementById('hud-change-choices');
   changeChoicesBtn?.addEventListener('click', () => {
     if (joined) {
-      // The debug picker can change vehicle/colour live, so read the car, not storage.
+      // The debug picker can change the vehicle live, so read the car, not storage.
       lobbyName.value = carManager.getLocalName() || lobbyName.value;
-      lobbyColor.value = toHex(carManager.getColor() ?? selectedColor());
       vehiclePicker.select(carManager.getVehicleId());
     }
     vehiclePreview.setVehicle(vehiclePicker.getSelectedId());
-    vehiclePreview.setColor(selectedColor());
+    showLobby();
+    showVehicleColor();
     lobbyJoin.disabled = false;
     lobbyJoin.textContent = joined ? 'Apply' : 'Drive in';
     setLobbyStatus('');
-    showLobby();
     lobbyName.focus();
   });
 
