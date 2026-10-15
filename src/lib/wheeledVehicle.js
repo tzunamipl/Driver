@@ -26,6 +26,7 @@ const DEFAULT_WHEEL_OPTIONS = {
   maxSuspensionForce: 1e6, // car.js passes a mass-derived cap
   frictionSlip: 1.6, // static tyre mu (sticky tarmac)
   width: REFERENCE_TYRE_WIDTH_M, // tyre tread width (m), scales grip per surface
+  sidewallHeight: 0.1, // tyre width * profile (m), soaks up surface bumps
   rollingResistance: 0.015, // Crr at low speed (asphalt)
   // Crr(v) = rollingResistance * (1 + factor * |v|), v in m/s.
   rollingResistanceSpeedFactor: 0.08,
@@ -45,6 +46,8 @@ const LONG_SLIP_WEIGHT = 0.25;
 const AIR_SPIN_DRAG_PER_S = 0.4;
 // Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
 const IMPERFECTION_MIN_NORMAL_Y = 0.7;
+// Share of the sidewall height that flattens bumps (subtracted from their peak-to-peak).
+const SIDEWALL_BUMP_ABSORPTION = 0.3;
 
 function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);
@@ -194,7 +197,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
 
   /** Raises the hit by the surface's pseudo-random bump and tilts its normal by the bump slope. */
   function applySurfaceImperfection(wheel) {
-    const amplitudeM = (getSurfaceCompound(wheel.surface).imperfectionCm ?? 0) / 100;
+    const surfaceM = (getSurfaceCompound(wheel.surface).imperfectionCm ?? 0) / 100;
+    const amplitudeM = surfaceM - wheel.sidewallHeight * SIDEWALL_BUMP_ABSORPTION;
     const hit = wheel.raycastResult;
     const normal = hit.hitNormalWorld;
     if (amplitudeM <= 0 || normal.y < IMPERFECTION_MIN_NORMAL_Y || hit.body?.mass > 0) return;

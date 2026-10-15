@@ -9,7 +9,8 @@
 // widthGripExponent: >0 wide tyres grip more (lower contact pressure / floats
 // on loose ground), <0 wide tyres grip less (aquaplaning).
 // imperfectionCm: peak-to-peak height (cm) of the fixed pseudo-random bumps
-// the suspension rays feel on this surface (surfaceImperfections.js).
+// the suspension rays feel on this surface (surfaceImperfections.js), less
+// 30% of the tyre sidewall height (wheeledVehicle.js).
 export const SURFACE_COMPOUNDS = {
   // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
   // drops off noticeably once it breaks loose.
@@ -30,7 +31,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
-    imperfectionCm: 5,
+    imperfectionCm: 7,
   },
   // Water: very little grip, high drag, wide tyres aquaplane.
   water: {

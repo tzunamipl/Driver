@@ -60,6 +60,7 @@ const DEFAULT_WHEEL_OPTIONS = {
   maxSuspensionTravel: 0.35, // must clear static sag with headroom, or the car leans stuck
 };
 const DEFAULT_TYRE_WIDTH_MM = 225;
+const DEFAULT_TYRE_PROFILE = 45;
 
 /**
  * Creates the local, physics-driven vehicle. Returns the rig API used by
@@ -90,10 +91,12 @@ export function createCar(
 
   const wheelRadius = wheelRadiusOf(descriptor);
   const suspensionForceG = descriptor.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G;
+  const tyreWidth = (descriptor.tyre ?? DEFAULT_TYRE_WIDTH_MM) / 1000;
   const wheelOptions = {
     ...DEFAULT_WHEEL_OPTIONS,
     radius: wheelRadius,
-    width: (descriptor.tyre ?? DEFAULT_TYRE_WIDTH_MM) / 1000,
+    width: tyreWidth,
+    sidewallHeight: (tyreWidth * (descriptor.profile ?? DEFAULT_TYRE_PROFILE)) / 100,
     maxSuspensionForce: ((chassisMass * GRAVITY) / WHEELS_PER_VEHICLE) * suspensionForceG,
     ...descriptor.suspension,
   };
