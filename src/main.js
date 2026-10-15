@@ -53,6 +53,7 @@ import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
+import { createDaylight } from './app/daylight.js';
 import { createLobby } from './ui/lobby.js';
 
 // ---------- Composition root ----------
@@ -60,7 +61,7 @@ import { createLobby } from './ui/lobby.js';
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
-const { sun, sunDisc, SUN_OFFSET } = createLighting(scene);
+const daylight = createDaylight({ scene, ...createLighting(scene) });
 
 // ---------- View frame ----------
 // Resume where the previous session left off (lib/carState.js).
@@ -274,9 +275,7 @@ const mainLoop = createMainLoop({
   scene,
   camera,
   renderer,
-  sun,
-  sunDisc,
-  SUN_OFFSET,
+  daylight,
   terrain,
   buildings,
   streets,

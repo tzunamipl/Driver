@@ -17,9 +17,7 @@ export function createMainLoop({
   scene,
   camera,
   renderer,
-  sun,
-  sunDisc,
-  SUN_OFFSET,
+  daylight,
   terrain,
   buildings,
   streets,
@@ -242,11 +240,11 @@ export function createMainLoop({
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
 
     if (currentChassisMesh) {
-      // Keep the sun and its shadow frustum centred on the car.
-      sun.position.copy(SUN_OFFSET).add(currentChassisMesh.position);
-      sun.target.position.copy(currentChassisMesh.position);
-      sun.target.updateMatrixWorld();
-      sunDisc.position.copy(SUN_OFFSET).multiplyScalar(5000).add(currentChassisMesh.position);
+      const { lat: carLat, lon: carLon } = viewFrame.toLatLon(
+        currentChassisMesh.position.x,
+        currentChassisMesh.position.z
+      );
+      daylight.update(currentChassisMesh.position, carLat, carLon);
 
       // Stream around the car, but not during a teleport: the origin has
       // already moved while the car hasn't, so tile math would be bogus.
@@ -259,10 +257,6 @@ export function createMainLoop({
         });
 
         // Same DETAIL_ZOOM tile centre as TerrainManager computes.
-        const { lat: carLat, lon: carLon } = viewFrame.toLatLon(
-          currentChassisMesh.position.x,
-          currentChassisMesh.position.z
-        );
         const tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
         const tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
         // Order: terrain (above), overlays, then buildings (most expensive).

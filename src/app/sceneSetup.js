@@ -42,12 +42,12 @@ export function createSceneEnvironment() {
   return { renderer, scene, camera };
 }
 
-/** Ambient + sun light; mainLoop keeps the sun centred on the car for shadows. */
+/** Ambient + one directional light (sun by day, moon by night); daylight.js drives them each frame. */
 export function createLighting(scene) {
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+  scene.add(ambient);
   const sun = new THREE.DirectionalLight(0xffffff, 3.2);
-  const SUN_OFFSET = new THREE.Vector3(0, 7, 30);
-  sun.position.copy(SUN_OFFSET);
+  sun.position.set(0, 7, 30);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -25;
@@ -63,8 +63,13 @@ export function createLighting(scene) {
       new THREE.SphereGeometry(8000, 6, 6),
       new THREE.MeshBasicMaterial({ color: 0xffee88, fog: false, })
   );
-  sunDisc.position.copy(SUN_OFFSET);
   scene.add(sunDisc);
 
-  return { sun, sunDisc, SUN_OFFSET };
+  const moonDisc = new THREE.Mesh(
+      new THREE.SphereGeometry(5000, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xdde4f0, fog: false, })
+  );
+  scene.add(moonDisc);
+
+  return { sun, ambient, sunDisc, moonDisc };
 }

@@ -16,6 +16,10 @@ export const CAN_USE_NETWORK = !IS_DEV_MODE;
 export const ORIGIN_LAT = 51.1079;
 export const ORIGIN_LON = 17.0385;
 
+// Day-night cycle speed: 1 = real time. Faster cycles wrap within today's
+// real date, so the sun's seasonal path always matches the actual date.
+export const TIME_SCALE = 4800;
+
 // Body colour when the lobby is skipped (dev mode).
 export const DEFAULT_BODY_COLOR = 0xffffff;
 

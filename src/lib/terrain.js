@@ -117,15 +117,22 @@ export const SKY_COLOR = new THREE.Color(0x87ceeb);
 const HAZE_DISTANCE_METERS = 40_000; // e-folding distance
 const HAZE_EDGE_START_METERS = FAR_RADIUS_METERS * 0.8;
 const HAZE_MAX_HEIGHT_METERS = 10_000; // world y (relative to the fixed origin baseline)
-const HAZE_COLOR = SKY_COLOR.clone().multiplyScalar(0.99);
+// Shared by every tile's program; driven by the day-night cycle.
+const hazeColorUniform = { value: SKY_COLOR.clone() };
+
+/** Sets the ground haze colour (slightly darker than `skyColor`). */
+export function setHazeColor(skyColor) {
+  hazeColorUniform.value.copy(skyColor).multiplyScalar(0.99);
+}
 
 /** onBeforeCompile hook adding the ground haze (one shared program for every tile). */
 function applyGroundHaze(shader) {
+  shader.uniforms.hazeColor = hazeColorUniform;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
+    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;\nuniform vec3 hazeColor;')
     .replace(
       '#include <opaque_fragment>',
       `
@@ -135,7 +142,7 @@ function applyGroundHaze(shader) {
         (1.0 - exp(-hazeDist / ${HAZE_DISTANCE_METERS.toFixed(1)})) * hazeHeight,
         smoothstep(${HAZE_EDGE_START_METERS.toFixed(1)}, ${FAR_RADIUS_METERS.toFixed(1)}, hazeDist)
       );
-      outgoingLight = mix(outgoingLight, vec3(${HAZE_COLOR.r.toFixed(3)}, ${HAZE_COLOR.g.toFixed(3)}, ${HAZE_COLOR.b.toFixed(3)}), groundHaze);
+      outgoingLight = mix(outgoingLight, hazeColor, groundHaze);
       #include <opaque_fragment>`
     );
 }
