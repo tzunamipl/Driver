@@ -5,11 +5,13 @@ import * as THREE from 'three';
 import { isWheelGrounded } from './wheelContact.js';
 
 // Sized so a burst never cuts a visible particle short.
-const POOL_SIZE = 96;
+const POOL_SIZE = 160;
 const PARTICLE_RADIUS = 0.07;
 // Unlit, so it always pops regardless of lighting.
 const PARTICLE_COLOR = 0x29d6ff;
 const PARTICLES_PER_BURST = 3;
+// Wading deeper (vehicle.wheelSinks, m) throws more water per burst.
+const EXTRA_PARTICLES_PER_SINK_M = 3;
 const PARTICLE_LIFETIME_S = 0.45;
 const GRAVITY = 9.82;
 // Below this speed (m/s) the car is just floating: no splash.
@@ -38,8 +40,8 @@ export function createSplash(scene, { onWade } = {}) {
   // Per-wheel timers, resized when the wheel count changes.
   let wheelTimers = [];
 
-  function spawnBurst(x, y, z, speed) {
-    for (let n = 0; n < PARTICLES_PER_BURST; n++) {
+  function spawnBurst(x, y, z, speed, count) {
+    for (let n = 0; n < count; n++) {
       const p = pool[nextSlot];
       nextSlot = (nextSlot + 1) % POOL_SIZE;
       p.life = PARTICLE_LIFETIME_S;
@@ -100,7 +102,10 @@ export function createSplash(scene, { onWade } = {}) {
       wetWheels++;
 
       if (speed < MIN_SPLASH_SPEED || wheelTimers[i] > 0) return;
-      spawnBurst(pos.x, pos.y - wheel.radius, pos.z, speed);
+      // Ground contact = water surface (the visible wheel may be sunk below it).
+      const surfaceY = wheel.isInContact ? wheel.raycastResult.hitPointWorld.y : pos.y - wheel.radius;
+      const count = PARTICLES_PER_BURST + Math.round((vehicle.wheelSinks?.[i] ?? 0) * EXTRA_PARTICLES_PER_SINK_M);
+      spawnBurst(pos.x, surfaceY, pos.z, speed, count);
       const speedFrac = Math.min(1, speed / EMIT_SPEED_FOR_MIN_INTERVAL);
       wheelTimers[i] = EMIT_INTERVAL_MAX_S - (EMIT_INTERVAL_MAX_S - EMIT_INTERVAL_MIN_S) * speedFrac;
     });

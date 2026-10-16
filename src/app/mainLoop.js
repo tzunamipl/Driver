@@ -58,6 +58,7 @@ export function createMainLoop({
   suspensionThud,
   jump,
   splash,
+  waterImmersion,
   tireSmoke,
   terrainDust,
   bodyDust,
@@ -264,12 +265,15 @@ export function createMainLoop({
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
         const pos = wheel.worldTransform.position;
-        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas });
+        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas, rivers });
       }
     }
+    // Water depth for the next physics steps' hull drag + visual sink (next frame's syncMeshes).
+    waterImmersion.update(frameDelta, currentVehicle);
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world, {
       streets,
       waterAreas,
+      rivers,
     });
     // Effects run regardless of debug state. Splash also takes streets
     // (bridges don't splash) and rivers (narrow waterways).

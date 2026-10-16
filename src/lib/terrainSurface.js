@@ -6,8 +6,8 @@
 //
 // Priority mirrors suspensionHud.js's original convention: road is checked
 // first ("on road and water" - e.g. a bridge over a river - counts as
-// road), then water, else the generic/default surface. Both `streets` and
-// `waterAreas` are optional (debugVisuals.js/main.js only wire them up once
+// road), then water (polygons or narrow waterways), else the generic/default
+// surface. `streets`, `waterAreas` and `rivers` are optional (debugVisuals.js/main.js only wire them up once
 // loaded) and their underlying classification methods are themselves safe
 // to call before any tile data has streamed in for this spot yet (see
 // their own containsPoint/classifyAt doc comments) - this degrades to the
@@ -18,11 +18,11 @@ import { DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 /**
  * @param {number} x
  * @param {number} z
- * @param {{ streets?: {containsPoint(x: number, z: number): boolean}, waterAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
+ * @param {{ streets?: {containsPoint(x: number, z: number): boolean}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean} }} [layers]
  * @returns {'road'|'water'|'normal'}
  */
-export function classifySurfaceAt(x, z, { streets, waterAreas } = {}) {
+export function classifySurfaceAt(x, z, { streets, waterAreas, rivers } = {}) {
   if (streets?.containsPoint(x, z)) return 'road';
-  if (waterAreas?.classifyAt(x, z)) return 'water';
+  if (waterAreas?.classifyAt(x, z) || rivers?.containsPoint(x, z)) return 'water';
   return DEFAULT_SURFACE_KEY;
 }

@@ -15,6 +15,7 @@ import {
 } from './vehicleShared.js';
 import { createChariotVehicle, createRemoteChariot } from './chariot.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
+import { applyWaterDrag } from './waterDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { createEngineState } from './engine.js';
 import { MAX_STEER } from '../config.js';
@@ -67,6 +68,57 @@ const DEFAULT_TYRE_WIDTH_MM = 225;
 const DEFAULT_TYRE_PROFILE = 45;
 
 const vec3 = (v) => new CANNON.Vec3(v[0], v[1], v[2]);
+const clampUnit = (v) => Math.max(-1, Math.min(1, v));
+
+/**
+ * Moves `mesh`'s children into an inner group (added back to `mesh`) so the
+ * visible body can sink in water while `mesh` itself tracks the physics body.
+ */
+function wrapInSinkGroup(mesh) {
+  const group = new THREE.Group();
+  group.add(...mesh.children);
+  mesh.add(group);
+  mesh.userData.contentGroup = group; // headlights.js attaches flares here
+  return group;
+}
+
+/**
+ * Least-squares plane sink = a + b*x + c*z through wheel points (body-local
+ * x/z) into `out`; flat (mean) when the points can't define a plane.
+ */
+function fitSinkPlane(wheels, sinks, out) {
+  const n = wheels.length;
+  let mx = 0;
+  let mz = 0;
+  let ms = 0;
+  for (const w of wheels) {
+    mx += w.x / n;
+    mz += w.z / n;
+    ms += sinks[w.index] / n;
+  }
+  // Centred normal equations for the two slopes.
+  let xx = 0;
+  let zz = 0;
+  let xz = 0;
+  let xs = 0;
+  let zs = 0;
+  for (const w of wheels) {
+    const dx = w.x - mx;
+    const dz = w.z - mz;
+    const ds = sinks[w.index] - ms;
+    xx += dx * dx;
+    zz += dz * dz;
+    xz += dx * dz;
+    xs += dx * ds;
+    zs += dz * ds;
+  }
+  const det = xx * zz - xz * xz;
+  const flat = n < 3 || Math.abs(det) < 1e-6;
+  out.b = flat ? 0 : (xs * zz - zs * xz) / det;
+  out.c = flat ? 0 : (zs * xx - xs * xz) / det;
+  out.a = n ? ms - out.b * mx - out.c * mz : 0;
+  return out;
+}
 
 /**
  * addWheel options shared by every wheel on one body. `spec` holds the tyre +
@@ -271,15 +323,20 @@ export function createCar(
   const stabilityAssistCallback = () => {
     chassisBody.vectorToWorldFrame(forwardLocal, forwardWorld);
     applyAirDrag(chassisBody, forwardWorld, dragProfile);
+    applyWaterDrag(chassisBody, vehicle.waterDepth);
     if (trailer) {
       trailer.body.vectorToWorldFrame(forwardLocal, trailerForward);
       applyAirDrag(trailer.body, trailerForward, trailerDragProfile);
+      applyWaterDrag(trailer.body, vehicle.waterDepth);
     }
   };
   world.addEventListener('preStep', stabilityAssistCallback);
 
   // --- Meshes ---
   scene.add(chassisMesh);
+  // Before the hitbox meshes, so those stay on the physics pose.
+  const sinkGroups = [wrapInSinkGroup(chassisMesh)];
+  if (trailer) sinkGroups.push(wrapInSinkGroup(trailer.mesh));
   const hitboxMeshes = buildChassisHitboxMeshes(chassisMesh, hitbox);
   if (trailer) {
     scene.add(trailer.mesh);
@@ -346,14 +403,32 @@ export function createCar(
     }
   }
 
+  // Per-wheel visual sink (m, world down), set each frame by waterImmersion.js.
+  // Each body tilts through the plane of its own wheels' sinks.
+  vehicle.wheelSinks = allWheels.map(() => 0);
+  const sinkWheelsByBody = tracked.map((t) =>
+    allWheels.flatMap((w, index) => (w.body === t.body ? [{ x: w.x, z: w.z, index }] : []))
+  );
+  const sinkPlane = { a: 0, b: 0, c: 0 };
+  const sinkQuat = new THREE.Quaternion();
+  const sinkEuler = new THREE.Euler();
+
   /** @param {number} alpha - 0..1 between previous and current physics step. */
   function syncMeshes(alpha = 1) {
-    for (const t of tracked) {
+    const sinks = vehicle.wheelSinks;
+    tracked.forEach((t, i) => {
       t.mesh.position.lerpVectors(t.prevPos, t.currPos, alpha);
       t.mesh.quaternion.slerpQuaternions(t.prevQuat, t.currQuat, alpha);
-    }
+      const { a, b, c } = fitSinkPlane(sinkWheelsByBody[i], sinks, sinkPlane);
+      const group = sinkGroups[i];
+      // Centre drop: world-down offset expressed in the body's local frame.
+      group.position.set(0, -a, 0).applyQuaternion(sinkQuat.copy(t.mesh.quaternion).invert());
+      // Tilt so a local point (x, z) drops by b*x + c*z (pitch about x, roll about z).
+      group.quaternion.setFromEuler(sinkEuler.set(Math.asin(clampUnit(c)), 0, -Math.asin(clampUnit(b))));
+    });
     wheelMeshes.forEach((mesh, i) => {
       mesh.position.lerpVectors(prevWheelPos[i], currWheelPos[i], alpha);
+      mesh.position.y -= sinks[i];
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
     });
   }

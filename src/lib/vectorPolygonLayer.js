@@ -13,6 +13,7 @@ import { VectorTileLayer } from './tiles/vectorTileLayer.js';
 
 const MIN_RING_POINTS = 3;
 const MAX_POLYGON_SPAN_METERS = 2000; // larger = bad data at this scale
+const METERS_PER_DEGREE = 111_320;
 
 /** Ray-casting point-in-polygon in lat/lon space (fine at few-km scale). */
 function pointInLatLonRing(lat, lon, ring) {
@@ -24,6 +25,34 @@ function pointInLatLonRing(lat, lon, ring) {
     if (intersects) inside = !inside;
   }
   return inside;
+}
+
+/**
+ * Per edge i -> i+1: true if it runs along the tile's clip border (both ends
+ * past the same side), i.e. not a real shoreline.
+ */
+function clipEdgeFlags(ring, extent) {
+  const side = (p) => (p.x <= 0 ? 1 : 0) | (p.x >= extent ? 2 : 0) | (p.y <= 0 ? 4 : 0) | (p.y >= extent ? 8 : 0);
+  return ring.map((p, i) => (side(p) & side(ring[(i + 1) % ring.length])) !== 0);
+}
+
+/** Metres from (lat, lon) to the nearest non-clip edge of `ring` (Infinity if none). */
+function distanceToRingEdges(lat, lon, ring, clipFlags) {
+  const mPerLon = METERS_PER_DEGREE * Math.cos((lat * Math.PI) / 180);
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    if (clipFlags[i]) continue;
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const ax = (a.lon - lon) * mPerLon;
+    const az = (a.lat - lat) * METERS_PER_DEGREE;
+    const abx = (b.lon - a.lon) * mPerLon;
+    const abz = (b.lat - a.lat) * METERS_PER_DEGREE;
+    const lenSq = abx * abx + abz * abz;
+    const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, -(ax * abx + az * abz) / lenSq)) : 0;
+    best = Math.min(best, Math.hypot(ax + abx * t, az + abz * t));
+  }
+  return best;
 }
 
 /** Shoelace signed area in tile-pixel coords (only the sign is used). */
@@ -88,7 +117,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream: true, terrain });
     }
 
-    _decodeFeature(rings, style, toLatLon, add) {
+    _decodeFeature(rings, style, toLatLon, add, extent) {
       for (const { outer, holes } of classifyRings(rings)) {
         const outerLatLon = outer.map(toLatLon);
         let sumLat = 0;
@@ -108,6 +137,8 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
         add(sumLat / outerLatLon.length, sumLon / outerLatLon.length, {
           outer: outerLatLon,
           holes: holes.map((h) => h.map(toLatLon)),
+          outerClip: clipEdgeFlags(outer, extent),
+          holesClip: holes.map((h) => clipEdgeFlags(h, extent)),
           style,
           minLat,
           maxLat,
@@ -168,11 +199,31 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
      */
     classifyAt(x, z) {
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      return this._entryAt(lat, lon)?.style.key ?? null;
+    }
+
+    /**
+     * Metres from world (x, z) to the nearest real edge of the polygon
+     * containing it (tile clip borders don't count), or 0 outside every polygon.
+     */
+    shoreDistanceAt(x, z) {
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      const entry = this._entryAt(lat, lon);
+      if (!entry) return 0;
+      let best = distanceToRingEdges(lat, lon, entry.outer, entry.outerClip);
+      entry.holes.forEach((hole, i) => {
+        best = Math.min(best, distanceToRingEdges(lat, lon, hole, entry.holesClip[i]));
+      });
+      // Every edge clipped: the whole tile is water, so the shore is far off.
+      return Number.isFinite(best) ? best : MAX_POLYGON_SPAN_METERS;
+    }
+
+    _entryAt(lat, lon) {
       for (const entry of this._itemsInSourceTile(lat, lon)) {
         if (lat < entry.minLat || lat > entry.maxLat || lon < entry.minLon || lon > entry.maxLon) continue;
         if (!pointInLatLonRing(lat, lon, entry.outer)) continue;
         if (entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole))) continue;
-        return entry.style.key;
+        return entry;
       }
       return null;
     }
