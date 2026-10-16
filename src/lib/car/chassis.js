@@ -21,9 +21,11 @@ const MAX_ROOF_SPHERE_RADIUS = 0.25;
  * Collision layout fitted to the body mesh (chassis-local, built at the
  * origin): a lower-body box over the full bounds up to the belt, a cabin box
  * over whatever sits above mid-window height, and ground spheres rounding
- * the lower-body corners and the roof corners.
+ * the lower-body corners and the roof corners. `groundSpheres` ([{ z, y, radius }],
+ * mirrored to both sides) replace the lower corner spheres, e.g. to tuck them
+ * up for approach/departure angles on off-roaders.
  */
-export function fitChassisHitbox(mesh) {
+export function fitChassisHitbox(mesh, groundSpheres) {
   mesh.updateMatrixWorld(true);
   const points = [];
   mesh.traverse((obj) => {
@@ -55,15 +57,20 @@ export function fitChassisHitbox(mesh) {
   const roofRadius = Math.min(MAX_ROOF_SPHERE_RADIUS, cabin.halfExtents.y, cabin.halfExtents.x, cabin.halfExtents.z);
   const spheres = [];
   for (const sx of [-1, 1]) {
+    for (const { z, y, radius } of groundSpheres ?? []) {
+      spheres.push({ radius, offset: new CANNON.Vec3(sx * (lowerHalfWidth - radius), y, z) });
+    }
     for (const sz of [-1, 1]) {
-      spheres.push({
-        radius: lowerRadius,
-        offset: new CANNON.Vec3(
-          sx * (lower.halfExtents.x - lowerRadius),
-          lower.offset.y,
-          lower.offset.z + sz * (lower.halfExtents.z - lowerRadius)
-        ),
-      });
+      if (!groundSpheres) {
+        spheres.push({
+          radius: lowerRadius,
+          offset: new CANNON.Vec3(
+            sx * (lower.halfExtents.x - lowerRadius),
+            lower.offset.y,
+            lower.offset.z + sz * (lower.halfExtents.z - lowerRadius)
+          ),
+        });
+      }
       spheres.push({
         radius: roofRadius,
         offset: new CANNON.Vec3(

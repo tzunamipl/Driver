@@ -30,6 +30,10 @@ const DEFAULT_WHEEL_OPTIONS = {
   rollingResistance: 0.015, // Crr at low speed (asphalt)
   // Crr(v) = rollingResistance * (1 + factor * |v|), v in m/s.
   rollingResistanceSpeedFactor: 0.08,
+  // Long-slip weight under power wheelspin (see LONG_SLIP_WEIGHT): higher =
+  // spinning driven tyres give up more cornering grip (power oversteer).
+  spinSlipWeight: 0.7,
+  slideGripScale: 1, // share of the surface's dynamic grip kept while sliding
   rollInfluence: 0.09, // share of the lateral impulse's lever arm kept
   pitchInfluence: 0.65, // share of the forward impulse's lever arm kept
   // Ray starts this far above the attachment point, so a wheel whose mount sank
@@ -48,6 +52,14 @@ const LONG_SLIP_WEIGHT = 0.25;
 // A handbrake-locked tyre gives up more cornering grip, so the rear swings out.
 const HANDBRAKE_LONG_SLIP_WEIGHT = 1;
 const HANDBRAKE_DYNAMIC_GRIP = 0.7;
+// Over-limit tyres only slide (dynamic grip) past this slip; below it they hold
+// static grip at a slip angle. Thresholds scale with patch speed (peak slip
+// angle in rad, peak slip ratio), with a floor in m/s for low speeds.
+const PEAK_SLIP_ANGLE = 0.12;
+const PEAK_SLIP_RATIO = 0.15;
+const MIN_SLIDE_SLIP_SPEED = 0.5;
+// A sliding tyre regrips only below this share of the slide threshold.
+const REGRIP_SLIP_SHARE = 0.5;
 // Bearing/air drag on a wheel spinning in the air, 1/s.
 const AIR_SPIN_DRAG_PER_S = 0.4;
 // Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
@@ -363,6 +375,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   }
 
   function applyFriction(wheel, dt) {
+    const wasSliding = wheel.sliding;
     wheel.sliding = false;
     wheel.gripFraction = 0;
     const spinMass = wheel.spinMass + wheel.drivelineMass;
@@ -378,7 +391,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       w = approachZero(wDrive * (1 - Math.min(1, AIR_SPIN_DRAG_PER_S * dt)), brakeLimit / spinMass);
       wheel.spinSlipSpeed = 0;
     } else {
-      w = applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit);
+      w = applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit, wasSliding);
     }
     if (drive !== 0 && Math.sign(drive) * w > wheel.driveSpeedLimit) w = Math.sign(drive) * wheel.driveSpeedLimit;
     wheel.spinSpeed = w;
@@ -386,7 +399,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   }
 
   /** Grounded tyre solve; applies the patch impulses and returns the new tread speed. */
-  function applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit) {
+  function applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit, wasSliding) {
     const body = wheel.body;
     const groundBody = wheel.raycastResult.body?.mass > 0 ? wheel.raycastResult.body : null;
     const normal = wheel.raycastResult.hitNormalWorld;
@@ -455,18 +468,33 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const needed = Math.hypot(longRoll, sideRoll);
     wheel.gripFraction = staticGrip > 0 ? Math.min(1, needed / staticGrip) : 1; // debug HUD only
 
+    const wFree = approachZero(wDrive, brakeLimit / spinMass);
+    // Patch slip relative to the slide threshold (1 = at the limit).
+    const latThreshold = Math.max(MIN_SLIDE_SLIP_SPEED, Math.abs(vLong) * PEAK_SLIP_ANGLE);
+    const longThreshold = Math.max(MIN_SLIDE_SLIP_SPEED, Math.abs(vLong) * PEAK_SLIP_RATIO);
+    const slip = Math.hypot(vLat / latThreshold, (vLong - wFree) / longThreshold);
+
     let longImpulse, sideImpulse, w;
     if (needed <= staticGrip * (1 + 1e-6)) { // tolerance: ABS trims to exactly staticGrip
       longImpulse = longRoll;
       sideImpulse = sideRoll;
       w = u;
+    } else if (slip < (wasSliding ? REGRIP_SLIP_SHARE : 1)) {
+      // Over the limit for this step but barely slipping: full static grip
+      // along the rolling solution, the rest carries over as slip angle.
+      const scale = staticGrip / needed;
+      longImpulse = longRoll * scale;
+      sideImpulse = sideRoll * scale;
+      w = approachZero(wDrive - longImpulse / spinMass, brakeLimit / spinMass);
     } else {
       // Sliding: dynamic grip opposes the patch slip direction, so a spinning
       // or locked wheel also loses most of its cornering grip.
       wheel.sliding = true;
-      const wFree = approachZero(wDrive, brakeLimit / spinMass);
-      const slipLong = (vLong - wFree) * (wheel.handbrake ? HANDBRAKE_LONG_SLIP_WEIGHT : LONG_SLIP_WEIGHT);
-      const slideGrip = wheel.handbrake ? dynamicGrip * HANDBRAKE_DYNAMIC_GRIP : dynamicGrip;
+      // Power wheelspin: the tread overruns the patch in the drive direction.
+      const wheelspin = wheel.engineForce !== 0 && Math.sign(wFree - vLong) === Math.sign(wheel.engineForce);
+      const slipWeight = wheel.handbrake ? HANDBRAKE_LONG_SLIP_WEIGHT : wheelspin ? wheel.spinSlipWeight : LONG_SLIP_WEIGHT;
+      const slipLong = (vLong - wFree) * slipWeight;
+      const slideGrip = dynamicGrip * wheel.slideGripScale * (wheel.handbrake ? HANDBRAKE_DYNAMIC_GRIP : 1);
       const slipMag = Math.hypot(slipLong, vLat);
       const dirLong = slipMag > 1e-3 ? slipLong / slipMag : -longRoll / needed;
       const dirLat = slipMag > 1e-3 ? vLat / slipMag : -sideRoll / needed;

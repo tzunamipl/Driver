@@ -29,7 +29,7 @@ export const MAX_STEER = 0.5;
 // Flat per-wheel handbrake force, independent of vehicle power.
 export const BRAKE_FORCE = 3000;
 // Holding the handbrake this long leaves it pulled until the next press.
-export const HANDBRAKE_LATCH_S = 5;
+export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;
 // Hold to charge, release to jump; full charge = max speed.
 export const JUMP_CHARGE_S = 1.2;

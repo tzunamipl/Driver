@@ -14,9 +14,16 @@ const DEFAULT_ENGINE_INERTIA = 0.2;
 // (scales linearly from 0 at idle).
 const ENGINE_BRAKE_FRACTION = 0.2;
 // Auto-shift points as fractions of redline (downshift only if the lower
-// gear wouldn't hit redline).
+// gear wouldn't hit redline). Upshifts go by road speed, so wheelspin holds
+// the gear and revs into the limiter instead.
 const UPSHIFT_RPM_FRACTION = 0.95;
 const DOWNSHIFT_RPM_FRACTION = 0.4;
+// On throttle in a slide: drop a gear below this rpm if the lower gear lands
+// under SLIDE_TARGET_RPM_FRACTION (gap below the upshift point avoids hunting).
+const SLIDE_DOWNSHIFT_RPM_FRACTION = 0.65;
+const SLIDE_TARGET_RPM_FRACTION = 0.85;
+// Pull-away clutch slip: in 1st/reverse on throttle the engine revs to
+// launchRpm (default peakTorqueRpm) and drives from there until the wheels catch up.
 // Shift duration and the leading fraction with the clutch open (no torque).
 const SHIFT_DURATION_S = 0.35;
 const SHIFT_TORQUE_CUT_FRACTION = 0.6;
@@ -64,6 +71,7 @@ export function createEngineState(descriptor, wheelRadius) {
     finalDriveRatio: descriptor.finalDriveRatio ?? DEFAULT_ENGINE_PROFILE.finalDriveRatio,
     reverseRatio: descriptor.reverseRatio ?? DEFAULT_ENGINE_PROFILE.reverseRatio,
     shiftDurationS: descriptor.shiftDurationS,
+    launchRpm: descriptor.launchRpm ?? descriptor.peakTorqueRpm ?? DEFAULT_ENGINE_PROFILE.peakTorqueRpm,
     engineInertia: descriptor.engineInertia ?? DEFAULT_ENGINE_INERTIA,
   };
 
@@ -93,10 +101,12 @@ export function createEngineState(descriptor, wheelRadius) {
    * Advances rpm/gearbox by `dt` and returns the drive force (N, unsigned).
    * direction: 1 forward, -1 reverse, 0 coasting/braking (rpm still tracks).
    * throttle: 0..1. wheelSpeedAbs: unsigned driven-wheel tread speed (m/s),
-   * so wheelspin and airborne throttle rev the engine. grounded: no
-   * upshifts while the driven wheels are in the air.
+   * so wheelspin and airborne throttle rev the engine. groundSpeedAbs:
+   * unsigned chassis speed (m/s), picks the upshift point. grounded: no
+   * upshifts while the driven wheels are in the air. slipping: driven wheels
+   * sliding: on throttle it drops gears to keep rpm high, else it holds.
    */
-  function update(dt, { direction, throttle, wheelSpeedAbs, grounded = true }) {
+  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, grounded = true, slipping = false }) {
     if (engine.shiftTimer > 0) engine.shiftTimer = Math.max(0, engine.shiftTimer - dt);
 
     // Engage the gear for the requested direction; forward restarts in 1st.
@@ -112,22 +122,34 @@ export function createEngineState(descriptor, wheelRadius) {
     const ratio = Math.abs(ratioForGear(engine.gear));
     // Below idle the clutch slips, so the engine never stalls.
     const wheelRpm = Math.max(profile.idleRpm, wheelAngularSpeed * ratio * profile.finalDriveRatio * RAD_S_TO_RPM);
+    const launching = engine.gear <= 1 && direction !== 0 && throttle > 0 && wheelRpm < profile.launchRpm;
     const smoothing = Math.min(1, dt * RPM_RESPONSE_PER_S);
-    engine.rpm += (wheelRpm - engine.rpm) * smoothing;
+    engine.rpm += ((launching ? profile.launchRpm : wheelRpm) - engine.rpm) * smoothing;
     engine.rpm = Math.min(engine.rpm, profile.redlineRpm * 1.02);
 
     // Auto-shift (forward only, on the ground), one shift at a time.
     if (engine.gear >= 1 && engine.shiftTimer <= 0 && grounded) {
-      if (engine.rpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) {
+      const groundRpm = (Math.max(0, groundSpeedAbs) / wheelRadius) * ratio * profile.finalDriveRatio * RAD_S_TO_RPM;
+      const upshiftRpm = Math.min(engine.rpm, groundRpm);
+      if (upshiftRpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) {
         engine.gear++;
         engine.shiftTimer = profile.shiftDurationS;
       } else if (engine.gear > 1) {
         const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
         const lowerRpm = wheelAngularSpeed * lowerRatio * profile.finalDriveRatio * RAD_S_TO_RPM;
-        if (
+        // Road speed too, so locked (handbraked) wheels don't drop it into an over-revving gear.
+        const lowerGroundRpm = groundRpm * (lowerRatio / ratio);
+        const slideDownshift =
+          slipping &&
+          direction === 1 &&
+          throttle > 0 &&
+          engine.rpm < profile.redlineRpm * SLIDE_DOWNSHIFT_RPM_FRACTION &&
+          Math.max(lowerRpm, lowerGroundRpm) < profile.redlineRpm * SLIDE_TARGET_RPM_FRACTION;
+        const normalDownshift =
+          !slipping &&
           engine.rpm < profile.redlineRpm * DOWNSHIFT_RPM_FRACTION &&
-          lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION
-        ) {
+          lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION;
+        if (slideDownshift || normalDownshift) {
           engine.gear--;
           engine.shiftTimer = profile.shiftDurationS;
         }
@@ -138,14 +160,17 @@ export function createEngineState(descriptor, wheelRadius) {
     const totalRatio = Math.abs(ratioForGear(engine.gear)) * profile.finalDriveRatio;
     const inTorqueCut = engine.shiftTimer > profile.shiftDurationS * (1 - SHIFT_TORQUE_CUT_FRACTION);
     const clampedThrottle = direction === 0 ? 0 : Math.max(0, throttle);
-    // Torque from the unsmoothed wheel rpm, so the limiter bites immediately.
-    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(wheelRpm, profile) * clampedThrottle;
+    // Torque from the unsmoothed wheel rpm, so the limiter bites immediately;
+    // while the clutch slips at pull-away, from the revving engine instead.
+    const torqueRpm = launching ? Math.max(wheelRpm, engine.rpm) : wheelRpm;
+    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle;
     const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY * DRIVETRAIN_EFFICIENCY_MODIFIER) / wheelRadius;
     const totalDrivetrainForce = engineTorqueNm * torqueToForce;
 
     const rpmFraction = Math.max(0, (wheelRpm - profile.idleRpm) / (profile.redlineRpm - profile.idleRpm));
     const brakeTorqueNm = clampedThrottle > 0 ? 0 : profile.peakTorqueNm * ENGINE_BRAKE_FRACTION * Math.min(1, rpmFraction);
-    engine.reflectedMass = inTorqueCut ? 0 : (profile.engineInertia * totalRatio * totalRatio) / (wheelRadius * wheelRadius);
+    // A slipping clutch doesn't couple the engine's inertia to the wheels.
+    engine.reflectedMass = inTorqueCut || launching ? 0 : (profile.engineInertia * totalRatio * totalRatio) / (wheelRadius * wheelRadius);
     engine.limitWheelSpeed = inTorqueCut ? Infinity : ((profile.redlineRpm / RAD_S_TO_RPM) / totalRatio) * wheelRadius;
     engine.engineBrakeForce = inTorqueCut ? 0 : brakeTorqueNm * torqueToForce;
 
