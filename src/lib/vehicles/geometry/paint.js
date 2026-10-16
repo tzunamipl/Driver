@@ -78,6 +78,13 @@ export function createPaintMaterial(color, options = {}) {
   return createGlossyMaterial({ color, metalness: 0.3, roughness: 0.4, ...options });
 }
 
+/** Paint gloss 0 (satin, no clearcoat sheen) .. 1 (full clearcoat, the default). */
+export function setPaintGloss(material, gloss) {
+  const g = THREE.MathUtils.clamp(gloss, 0, 1);
+  material.clearcoat = g;
+  material.clearcoatRoughness = THREE.MathUtils.lerp(0.6, 0.05, g);
+}
+
 /** Scales reflections with sky brightness so vehicles don't glow at night. */
 export function setPaintReflection(skyColor) {
   const brightness = (skyColor.r + skyColor.g + skyColor.b) / 3;

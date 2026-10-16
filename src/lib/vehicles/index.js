@@ -13,6 +13,17 @@ import bigfoot from './bigfoot.js';
 import speeder from './speeder.js';
 import rally from './rally.js'
 import evo6 from './evo6.js';
+import hemtt from './hemtt.js';
+import warRig from './warRig.js';
+import impreza22b from './impreza22b.js';
+import focusWrc from './focusWrc.js';
+import { setPaintGloss } from './geometry/paint.js';
+import scaniaR from './scaniaR.js';
+import actros from './actros.js';
+import interceptor from './interceptor.js';
+import gigahorse from './gigahorse.js';
+import cinquecento from './cinquecento.js';
+import golf5 from './golf5.js';
 
 
 // Fixed set of tabs shown in the lobby's vehicle picker, in display order.
@@ -21,12 +32,32 @@ export const CATEGORIES = [
   { id: 'misc', label: 'Misc' },
   { id: 'cars', label: 'Cars' },
   { id: 'chariots-of-fire', label: 'Chariots of Fire' },
+  { id: 'wrc', label: 'WRC' },
+  { id: 'trucks', label: 'Trucks' },
+  { id: 'fury-road', label: 'Fury Road' },
 ];
 
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [gc8, gl, levorg, podRacer, bigfoot, speeder, rally, evo6];
+export const VEHICLES = [gc8, gl, levorg, cinquecento, golf5, podRacer, bigfoot, speeder, rally, evo6, impreza22b, focusWrc, hemtt, actros, scaniaR, warRig, gigahorse, interceptor];
+
+// Optional descriptor `gloss` (0 matte .. 1 full clearcoat, default) for the body paint;
+// a trailer may set its own `gloss`, otherwise it inherits the tractor's.
+
+/** Wraps a body builder so the paint it returns gets the descriptor's `gloss`. */
+function withGloss(build, gloss) {
+  return (...args) => {
+    const built = build(...args);
+    if (built.bodyMat) setPaintGloss(built.bodyMat, gloss);
+    return built;
+  };
+}
+for (const v of VEHICLES) {
+  if (v.gloss !== undefined) v.buildBody = withGloss(v.buildBody, v.gloss);
+  const trailerGloss = v.trailer?.gloss ?? v.gloss;
+  if (v.trailer && trailerGloss !== undefined) v.trailer.buildBody = withGloss(v.trailer.buildBody, trailerGloss);
+}
 
 export const DEFAULT_VEHICLE_ID = bigfoot.id;
 

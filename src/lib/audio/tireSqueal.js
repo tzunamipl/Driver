@@ -21,7 +21,7 @@ export function createTireSqueal() {
     osc.frequency.value = tone.freq;
     gain.gain.value = 0;
     osc.connect(gain);
-    gain.connect(buses.sfx);
+    gain.connect(buses.carSfx);
     osc.start();
     return { ...tone, osc, gainNode: gain };
   });

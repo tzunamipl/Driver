@@ -4,7 +4,7 @@ import { createGlossyMaterial } from './paint.js';
 
 // Impreza WRX sedan (GC8): short roof, raked rear window, trunk deck,
 // hood scoop, round fog lights and a trunk wing.
-const SEDAN = {
+export const SEDAN = {
     rearTop: [[-1.4, 0.27], [-2.05, 0.3], [-2.14, 0.27], [-2.17, 0.15]],
     roofTail: (belt) => [[-0.95, 0.755], [-1.1, 0.73], [-1.55, belt(-1.55) + 0.005]],
     rearPinchZ: -0.9,
@@ -14,7 +14,7 @@ const SEDAN = {
     blackPillars: [-0.42],
     sealEndZ: -0.87,
     decorate({ add, box, materials }) {
-        const fogMat = createGlossyMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3 });
+        const fogMat = createGlossyMaterial({ color: 0xffe28a, emissive: 0x7a5410, roughness: 0.3, userData: { lamp: 'fog' } });
 
         // Hood scoop, following the hood's forward slope
         const scoop = box(0.46, 0.07, 0.4, materials.body, 0, 0.225, 1.25);

@@ -18,7 +18,7 @@ export function createHandbrakeSound() {
     filter.type = 'bandpass';
     filter.frequency.value = 2600;
     filter.Q.value = 3;
-    filter.connect(buses.sfx);
+    filter.connect(buses.carSfx);
     for (let i = 0; i < clicks; i++) {
       // Teeth get closer as the lever tightens.
       const t = now + i * CLICK_SPACING_S * (1 - i / (clicks * 3));

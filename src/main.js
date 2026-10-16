@@ -14,11 +14,17 @@ import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
+import { createMasterVolume } from './lib/audio/masterVolume.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
 import { createImpactSound } from './lib/audio/impact.js';
+import { createPedestrianSounds } from './lib/audio/pedestrian.js';
+import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
+import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
+import { createHeadlights } from './lib/headlights.js';
+import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
@@ -47,8 +53,9 @@ import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
+import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
-import { getVehicleColor } from './lib/vehicleColors.js';
+import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
@@ -130,6 +137,13 @@ const engineSound = createEngineSound();
 const tireSqueal = createTireSqueal();
 const waterWadeSound = createWaterWadeSound();
 const impactSound = createImpactSound();
+const suspensionThud = createSuspensionThud();
+const pedestrianSounds = createPedestrianSounds();
+pedestrians.setSoundCallbacks({
+  onHit: pedestrianSounds.hit,
+  onBounce: (id, speed, p) => pedestrianSounds.bounce(id, speed, camera.position.distanceTo(p)),
+  onNearMiss: (id, p) => pedestrianSounds.gasp(id, camera.position.distanceTo(p)),
+});
 
 // ---------- Networking ----------
 // Stable clientId across reloads, so a refresh isn't a new peer.
@@ -171,11 +185,12 @@ const debugVisuals = createDebugVisualsToggle(
   },
   IS_DEV_MODE
 );
+createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
 const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
@@ -186,24 +201,32 @@ const vehicleDebugPicker = createVehicleDebugPicker({
   listEl: document.getElementById('vehicle-debug-list'),
   colorEl: document.getElementById('vehicle-debug-color'),
   initialVehicleId: devCarChoice?.vehicleId,
-  initialColor: getVehicleColor(devCarChoice?.vehicleId),
+  initialColor: devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId),
 });
 
 // ---------- Input ----------
 const handbrakeSound = createHandbrakeSound();
 const input = createInputController({
-  onHandbrakePull: () => handbrakeSound.play(),
   onHandbrakeLatch: () => handbrakeSound.play(3),
   initialHandbrakeLatched: savedCarState?.handbrakeLatched === true,
 });
+const lightSwitchSound = createLightSwitchSound();
+const headlightSwitch = createHeadlightSwitch({ onToggle: lightSwitchSound.play });
+const headlights = createHeadlights(scene);
 const collapsibleHud = setupCollapsibleHud();
 setupTouchControls(input.keys);
 
 // ---------- Camera ----------
-const cameraFollow = createCameraFollow(camera);
+const cameraFollow = createCameraFollow(camera, {
+  groundHeightAt: (x, z) => {
+    const ground = terrain.surfaceHeightAt(x, z);
+    const roof = buildings.roofHeightAt(x, z);
+    return roof == null ? ground : Math.max(roof, ground ?? -Infinity);
+  },
+});
 
 // ---------- HUD ----------
-const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0 });
+const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle });
 const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
@@ -241,6 +264,7 @@ const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
+createMasterVolume();
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -286,8 +310,11 @@ const mainLoop = createMainLoop({
   pedestrians,
   shots,
   horn,
+  headlights,
+  headlightSwitch,
   engineSound,
   tireSqueal,
+  suspensionThud,
   jump,
   splash,
   tireSmoke,
@@ -347,7 +374,7 @@ terrain.init().then(() => {
   loadingEl.remove();
   if (IS_DEV_MODE) {
     // Dev: skip the lobby and join with the saved debug pick, if any.
-    lobby.joinRoom('dev_mode', getVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);
+    lobby.joinRoom('dev_mode', devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);
     return;
   }
   // Returning player: join straight away with the saved name/colour.

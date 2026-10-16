@@ -128,7 +128,7 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
   const ray = { rayFrom: new CANNON.Vec3(), rayTo: new CANNON.Vec3(), rayResult: new CANNON.RaycastResult() };
   const quatScratch = new THREE.Quaternion();
 
-  // Virtual wheelInfos (each engine, then the pod) so scoring's airtime
+  // Virtual wheelInfos (each engine, then the pod) so scoring's landed
   // check and suspensionHud work unchanged; length = hover clearance.
   const wheelInfos = Array.from({ length: engineCount + 1 }, () => ({
     radius: ENGINE_RADIUS,
@@ -391,6 +391,7 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
     // All engines, so collisions.js's tunnel guards catch the outer ones too.
     tunnelGuardBodies: engineBodies,
     vehicleType: descriptor.vehicleType,
+    scoresAirtime: descriptor.scoresAirtime ?? true,
   };
 
   return {

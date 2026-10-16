@@ -55,7 +55,7 @@ export function createWaterWadeSound() {
     const { ctx, buses, noise } = audio;
     if (!voices) {
       if (wetFraction <= 0) return; // don't start the graph until first needed
-      voices = build(ctx, buses.sfx, noise);
+      voices = build(ctx, buses.carSfx, noise);
     }
     const now = ctx.currentTime;
     const speedFrac = Math.min(1, speed / FULL_SPEED_MPS);

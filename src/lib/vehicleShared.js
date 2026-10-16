@@ -138,5 +138,5 @@ export function createRemoteShell(scene, group, bodyMat, color, name, score) {
     }
   }
 
-  return { setAppearance, dispose };
+  return { setAppearance, dispose, mesh: group };
 }

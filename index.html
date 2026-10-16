@@ -65,9 +65,9 @@
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
     <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
-    <label id="music-volume">
-      Music
-      <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="0.4" aria-label="Music volume" />
+    <label id="volume">
+      Volume
+      <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
     </label>
     <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
     <form id="address-search" autocomplete="off">
@@ -88,6 +88,7 @@
           Shift &mdash; turbo<br />
           F &mdash; shoot<br />
           H &mdash; horn<br />
+          L &mdash; headlights (automatic at night)<br />
           J &mdash; jump (hold longer for a higher jump)<br />
           R &mdash; reset car<br />
           C &mdash; switch camera view<br />
@@ -122,6 +123,8 @@
         <div id="debug-layers-hud">
           <div class="susp-title">LAYERS</div>
           <div class="debug-layers-list"></div>
+          <div class="susp-title debug-time-title">TIME</div>
+          <div class="debug-time-list"></div>
         </div>
       </div>
     </div>
@@ -181,6 +184,11 @@
           <circle cx="16" cy="12" r="8" />
           <path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15" />
           <text x="16" y="16.2" text-anchor="middle">P</text>
+        </svg>
+        <svg id="lights-icon" viewBox="0 0 32 24" role="button" aria-label="Światła mijania" aria-pressed="false">
+          <title>Headlights (L)</title>
+          <path class="lamp" d="M17 5c6 0 9.5 3 9.5 7s-3.5 7-9.5 7z" />
+          <path d="M13.5 6.5L5 8.5M13.5 10.5L5 12.5M13.5 14.5L5 16.5" />
         </svg>
         <div id="odometer" aria-label="Licznik 0.0 kilometrów">
           <div class="odo-bezel">

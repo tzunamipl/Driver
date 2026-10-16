@@ -25,19 +25,22 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
     const headlightMat = createGlossyMaterial({
         color: 0xfff5d8,
         emissive: 0x403817,
-        roughness: 0.22
+        roughness: 0.22,
+        userData: { lamp: 'head' }
     });
 
     const tailLightMat = createGlossyMaterial({
         color: 0x7d1014,
         emissive: 0x300000,
-        roughness: 0.3
+        roughness: 0.3,
+        userData: { lamp: 'tail' }
     });
 
     const fogMat = createGlossyMaterial({
         color: 0xffd77a,
         emissive: 0x664400,
-        roughness: 0.3
+        roughness: 0.3,
+        userData: { lamp: 'fog' }
     });
 
     const parts = [];

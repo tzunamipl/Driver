@@ -25,7 +25,7 @@
 #fps-counter:not(:empty)::after {
   content: ' \00b7 ';
 }
-#music-volume {
+#volume {
   position: fixed;
   left: 292px;
   bottom: 28px;
@@ -41,7 +41,7 @@
   font: 600 12px system-ui, sans-serif;
   pointer-events: auto;
 }
-#music-volume input {
+#volume input {
   width: 110px;
   margin: 0;
   accent-color: #4fc3ff;

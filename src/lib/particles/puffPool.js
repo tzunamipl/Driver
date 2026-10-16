@@ -5,6 +5,13 @@
 import * as THREE from 'three';
 
 const PUFF_GEO = new THREE.SphereGeometry(1, 6, 5);
+// Puffs are unlit, so the day-night cycle tints them at spawn instead (white = daylight).
+const tint = new THREE.Color(1, 1, 1);
+
+/** Sets the light colour multiplied into newly spawned puffs. */
+export function setPuffTint(color) {
+  tint.copy(color);
+}
 
 const randIn = ([min, max]) => min + Math.random() * (max - min);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -45,7 +52,7 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
     p.mesh.visible = true;
     p.mesh.scale.setScalar(startScale);
     p.mesh.position.set(x, y, z);
-    p.material.color.setHex(colors[Math.random() < 0.5 ? 0 : 1]);
+    p.material.color.setHex(colors[Math.random() < 0.5 ? 0 : 1]).multiply(tint);
     p.material.opacity = opacity;
     const angle = Math.random() * Math.PI * 2;
     const h = randIn(out);

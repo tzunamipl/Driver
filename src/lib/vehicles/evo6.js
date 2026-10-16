@@ -1,3 +1,4 @@
+import { carAxles } from '../car/axles.js';
 import { buildBody } from './geometry/evo6.js';
 
 // Mitsubishi Lancer Evolution VI, Group A rally spec (gravel 205/65 R15,
@@ -5,7 +6,7 @@ import { buildBody } from './geometry/evo6.js';
 export default {
   id: 'evo6',
   name: 'Evo VI',
-  category: 'cars',
+  category: 'wrc',
   defaultColor: 0xc8102e, // red
   rimColor: 0xf5f5f5,
   buildBody,
@@ -40,5 +41,5 @@ export default {
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.8, side: 2.2, rear: 1.2 },
-  driveWheels: [0, 1, 2, 3],
+  axles: carAxles('awd'),
 };

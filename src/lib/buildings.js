@@ -88,6 +88,32 @@ async function fetchBuildingTile(tx14, ty14) {
 }
 
 /** Rough memory estimate for the debug HUD. */
+/** Edges of every body's ConvexPolyhedron in world space, as one LineSegments geometry. */
+function buildHitboxGeometry(bodies) {
+  const positions = [];
+  const seen = new Set();
+  for (const body of bodies) {
+    const { vertices, faces } = body.shapes[0];
+    const { x, y, z } = body.position;
+    seen.clear();
+    for (const face of faces) {
+      for (let i = 0; i < face.length; i++) {
+        const a = Math.min(face[i], face[(i + 1) % face.length]);
+        const b = Math.max(face[i], face[(i + 1) % face.length]);
+        const edge = a * 65536 + b;
+        if (seen.has(edge)) continue;
+        seen.add(edge);
+        const va = vertices[a];
+        const vb = vertices[b];
+        positions.push(x + va.x, y + va.y, z + va.z, x + vb.x, y + vb.y, z + vb.z);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
+}
+
 function estimateTileBytes(mergedGeometry, bodyCount) {
   const position = mergedGeometry?.attributes?.position;
   const vertexBytes = position ? position.array.length * 2 * 4 : 0; // position + normal, 4 bytes/float
@@ -165,6 +191,10 @@ function buildFootprintGeometry(points, height) {
 }
 
 /** Streams building meshes + physics per detail tile from a buffered fetched region. */
+const _roofRayFrom = new CANNON.Vec3();
+const _roofRayTo = new CANNON.Vec3();
+const _roofRayResult = new CANNON.RaycastResult();
+
 export class BuildingsManager {
   constructor(scene, world, originLat, originLon, terrain) {
     this.scene = scene;
@@ -174,7 +204,7 @@ export class BuildingsManager {
     this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
     // Tiles wait for their terrain tile: ground height comes from its heightfield.
     this.terrain = terrain;
-    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxMeshes[], tx, ty, bytes, physics }
+    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxLines[], tx, ty, bytes, physics }
     this.pendingRemoval = new Map();
     this.stats = { created: 0, removed: 0, buildings: 0 };
     this._buildQueue = []; // [{ tx, ty, key }] not yet started
@@ -187,14 +217,13 @@ export class BuildingsManager {
     });
     // Debug hitbox wireframes as an x-ray pair sharing geometry: bright
     // where visible (normal depth test), dark where occluded (GreaterDepth).
-    this._hitboxMaterial = new THREE.MeshBasicMaterial({
+    // Built per chunk only while shown: idle scene objects still cost a matrix update per frame.
+    this._hitboxMaterial = new THREE.LineBasicMaterial({
       color: 0xff33ff,
-      wireframe: true,
       depthWrite: false,
     });
-    this._hitboxMaterialOccluded = new THREE.MeshBasicMaterial({
+    this._hitboxMaterialOccluded = new THREE.LineBasicMaterial({
       color: 0x660066,
-      wireframe: true,
       depthTest: true,
       depthFunc: THREE.GreaterDepth,
       depthWrite: false,
@@ -349,6 +378,15 @@ export class BuildingsManager {
     return result.hasHit ? result.hitPointWorld.y : null;
   }
 
+  /** Roof height at (x, z) from the building hitboxes (physics circle only); null if no building there. */
+  roofHeightAt(x, z) {
+    _roofRayFrom.set(x, 2000, z);
+    _roofRayTo.set(x, -2000, z);
+    _roofRayResult.reset();
+    this.world.raycastClosest(_roofRayFrom, _roofRayTo, { collisionFilterMask: BUILDING_COLLISION_GROUP }, _roofRayResult);
+    return _roofRayResult.hasHit ? _roofRayResult.hitPointWorld.y : null;
+  }
+
   /** Lowest ground under the hull corners/centre - bottom of the physics prism only. */
   _minGroundHeightAt(hull, centerX, centerZ, centerGroundY) {
     let min = centerGroundY;
@@ -370,7 +408,6 @@ export class BuildingsManager {
       index: 0,
       geometries: [],
       bodies: [],
-      hitboxMeshes: [],
       skipped: 0,
     };
   }
@@ -409,35 +446,6 @@ export class BuildingsManager {
         body.position.set(center.x, physicsCenterY, center.z);
         build.bodies.push(body); // added to the world by _syncChunkPhysics
 
-        // Debug wireframe of the same hull prism (visible + occluded pair).
-        const hullShape = new THREE.Shape();
-        built.hull.forEach((p, i) => {
-          const lx = p.x - center.x;
-          const lz = p.z - center.z;
-          if (i === 0) hullShape.moveTo(lx, -lz);
-          else hullShape.lineTo(lx, -lz);
-        });
-        const hitboxGeometry = new THREE.ExtrudeGeometry(hullShape, {
-          depth: physicsHalfHeight * 2,
-          bevelEnabled: false,
-          curveSegments: 1,
-        });
-        hitboxGeometry.rotateX(-Math.PI / 2);
-        hitboxGeometry.translate(0, -physicsHalfHeight, 0);
-        const hitboxMesh = new THREE.Mesh(hitboxGeometry, this._hitboxMaterial);
-        hitboxMesh.position.copy(body.position);
-        hitboxMesh.visible = false; // _syncChunkPhysics shows it with the body
-        hitboxMesh.renderOrder = 999;
-        this.scene.add(hitboxMesh);
-        build.hitboxMeshes.push(hitboxMesh);
-
-        const hitboxMeshOccluded = new THREE.Mesh(hitboxGeometry, this._hitboxMaterialOccluded);
-        hitboxMeshOccluded.position.copy(body.position);
-        hitboxMeshOccluded.visible = false;
-        hitboxMeshOccluded.renderOrder = 999;
-        this.scene.add(hitboxMeshOccluded);
-        build.hitboxMeshes.push(hitboxMeshOccluded);
-
         built.geometry.translate(0, groundY, 0);
 
         // Per-vertex colour (tiles are merged into one mesh). `color` is
@@ -463,7 +471,7 @@ export class BuildingsManager {
 
   /** Merges a finished build into one mesh and registers the chunk. */
   _finishChunkBuild(build) {
-    const { tx, ty, key, geometries, bodies, hitboxMeshes, skipped } = build;
+    const { tx, ty, key, geometries, bodies, skipped } = build;
     let mesh = null;
     if (geometries.length) {
       const merged = mergeGeometries(geometries, false);
@@ -476,7 +484,7 @@ export class BuildingsManager {
     if (skipped) console.warn(`Buildings tile ${tx},${ty}: ${skipped} malformed footprints skipped`);
 
     const bytes = estimateTileBytes(mesh?.geometry, bodies.length);
-    const chunk = { mesh, bodies, hitboxMeshes, tx, ty, bytes, physics: false };
+    const chunk = { mesh, bodies, hitboxLines: [], tx, ty, bytes, physics: false };
     this.chunks.set(key, chunk);
     this._syncChunkPhysics(chunk);
     this.stats.created++;
@@ -485,10 +493,6 @@ export class BuildingsManager {
 
   /** Removes the partial bodies/meshes of a build paused mid-tile. */
   _abandonChunkBuild(build) {
-    for (const hitboxMesh of build.hitboxMeshes) {
-      this.scene.remove(hitboxMesh);
-      hitboxMesh.geometry.dispose();
-    }
     for (const g of build.geometries) g.dispose();
   }
 
@@ -505,11 +509,7 @@ export class BuildingsManager {
       chunk.mesh.geometry.dispose();
     }
     if (chunk.physics) for (const body of chunk.bodies) this.world.removeBody(body);
-    // Hitbox pairs share a geometry; double dispose is a no-op.
-    for (const hitboxMesh of chunk.hitboxMeshes) {
-      this.scene.remove(hitboxMesh);
-      hitboxMesh.geometry.dispose();
-    }
+    this._syncChunkHitboxes(chunk, false);
     this.stats.buildings -= chunk.bodies.length;
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
@@ -519,8 +519,26 @@ export class BuildingsManager {
   /** M-key debug toggle for hitbox wireframes. */
   setHitboxesVisible(visible) {
     this._hitboxesVisible = visible;
-    for (const chunk of this.chunks.values()) {
-      for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = visible && chunk.physics;
+    for (const chunk of this.chunks.values()) this._syncChunkHitboxes(chunk, visible && chunk.physics);
+  }
+
+  /** Creates or drops a chunk's hitbox wireframe pair. */
+  _syncChunkHitboxes(chunk, want) {
+    if (want === chunk.hitboxLines.length > 0) return;
+    if (want) {
+      if (!chunk.bodies.length) return;
+      // Bodies are in world space; the lines sit at the origin and follow floating-origin shifts as scene children.
+      const geometry = buildHitboxGeometry(chunk.bodies);
+      for (const material of [this._hitboxMaterial, this._hitboxMaterialOccluded]) {
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.renderOrder = 999;
+        this.scene.add(lines);
+        chunk.hitboxLines.push(lines);
+      }
+    } else {
+      for (const lines of chunk.hitboxLines) this.scene.remove(lines);
+      chunk.hitboxLines[0].geometry.dispose(); // the pair shares one geometry
+      chunk.hitboxLines = [];
     }
   }
 
@@ -533,7 +551,7 @@ export class BuildingsManager {
       if (want) this.world.addBody(body);
       else this.world.removeBody(body);
     }
-    for (const hitboxMesh of chunk.hitboxMeshes) hitboxMesh.visible = this._hitboxesVisible && want;
+    this._syncChunkHitboxes(chunk, this._hitboxesVisible && want);
   }
 
   /** Drops everything (incl. in-progress builds and region) for a new origin. */

@@ -100,8 +100,12 @@ const WIREFRAME_LIFT = 0.1;
 const LINE_COLOR = 0xffe14d;
 const borderMaterial = new LineMaterial({ color: LINE_COLOR, linewidth: 3, transparent: true, opacity: 0.85 });
 const wireframeMaterial = new THREE.MeshBasicMaterial({ color: LINE_COLOR, wireframe: true, transparent: true, opacity: 0.35, fog: false });
+// Road profiles draw through the ground: the original terrain is mostly buried under fills.
+const profileMaterial = (color) => new LineMaterial({ color, linewidth: 2, depthTest: false, transparent: true, opacity: 0.9 });
+const profileOriginalMaterial = profileMaterial(0xff4040);
+const profileAdjustedMaterial = profileMaterial(0x40e0ff);
 function updateLineResolution() {
-  borderMaterial.resolution.set(window.innerWidth, window.innerHeight);
+  for (const m of [borderMaterial, profileOriginalMaterial, profileAdjustedMaterial]) m.resolution.set(window.innerWidth, window.innerHeight);
 }
 updateLineResolution();
 window.addEventListener('resize', updateLineResolution);
@@ -126,6 +130,20 @@ export function buildTileBorder(surface, liftScale = 1) {
   const pairs = [];
   for (let i = 0; i < perimeter.length; i++) pairs.push(perimeter[i], perimeter[(i + 1) % perimeter.length]);
   return new LineSegments2(liftedSegments(surface, pairs, BORDER_LIFT * liftScale), borderMaterial);
+}
+
+/** Road centreline profiles (roadBed.js `profileLines`): original terrain in red, the road's own height in cyan. */
+export function buildRoadProfileLines({ original, adjusted }) {
+  const group = new THREE.Group();
+  for (const [positions, material] of [[original, profileOriginalMaterial], [adjusted, profileAdjustedMaterial]]) {
+    if (!positions.length) continue;
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    const line = new LineSegments2(geometry, material);
+    line.renderOrder = 10;
+    group.add(line);
+  }
+  return group;
 }
 
 /** Wireframe of the rendered tile geometry (shared, not copied; skirt included), lifted straight up. */

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SKY_COLOR } from '../lib/terrain.js';
+import { createStars } from '../lib/stars.js';
 
 // Renderer, scene, camera and lights.
 
@@ -71,5 +72,5 @@ export function createLighting(scene) {
   );
   scene.add(moonDisc);
 
-  return { sun, ambient, sunDisc, moonDisc };
+  return { sun, ambient, sunDisc, moonDisc, stars: createStars(scene) };
 }

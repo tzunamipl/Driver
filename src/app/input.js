@@ -2,6 +2,12 @@ import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S } fr
 
 // Keyboard -> vehicle controls, applied each frame.
 
+/** Wheeled rigs spread the input over every steered wheel; hover rigs take it as is. */
+function steer(vehicle, value, speedKmh) {
+  if (vehicle.applySteer) vehicle.applySteer(value, speedKmh);
+  else vehicle.setSteeringValue(value, 0);
+}
+
 function isTypingInField() {
   const el = document.activeElement;
   if (!el) return false;
@@ -9,8 +15,8 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
-/** @param {{ onHandbrakePull?: () => void, onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean }} [options] */
-export function createInputController({ onHandbrakePull, onHandbrakeLatch, initialHandbrakeLatched = false } = {}) {
+/** @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean }} [options] */
+export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false } = {}) {
   const keys = new Set();
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
@@ -26,13 +32,10 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch, initi
   window.addEventListener('keyup', (e) => keys.delete(e.code));
   // Edge-triggered: R starts one reset animation per press.
   let resetWasPressed = false;
-  // Brake-only latches: pressing the opposite direction while moving brakes,
-  // and keeps braking until that key is released - reverse/forward needs a
-  // fresh press after stopping.
+  // Backward pressed while moving forward only brakes, until released - reversing
+  // needs a fresh press. Forward has no latch: it brakes, then drives forward.
   let backwardWasPressed = false;
-  let forwardWasPressed = false;
   let backwardBrakeOnly = false;
-  let forwardBrakeOnly = false;
   // Held for HANDBRAKE_LATCH_S it stays pulled; the next press only releases it.
   let handbrakeWasPressed = false;
   let handbrakeHeldS = 0;
@@ -51,8 +54,7 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch, initi
     const driveWheels = vehicle.driveWheels ?? [2, 3];
     if (isTypingInField()) {
       for (const i of driveWheels) vehicle.applyEngineForce(0, i);
-      vehicle.setSteeringValue(0, 0);
-      vehicle.setSteeringValue(0, 1);
+      steer(vehicle, 0, 0);
       vehicle.airControlYaw = 0;
       return;
     }
@@ -75,14 +77,10 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch, initi
     const movingBackward = forwardSpeed < -STOP_SPEED;
     if (backward && !backwardWasPressed && movingForward) backwardBrakeOnly = true;
     if (!backward) backwardBrakeOnly = false;
-    if (forward && !forwardWasPressed && movingBackward) forwardBrakeOnly = true;
-    if (!forward) forwardBrakeOnly = false;
     backwardWasPressed = backward;
-    forwardWasPressed = forward;
     // Opposite key while still moving = brake (at brakeForce), not reverse thrust.
     const pedalBraking =
-      (forward && (movingBackward || forwardBrakeOnly)) ||
-      (backward && (movingForward || backwardBrakeOnly));
+      (forward && movingBackward) || (backward && (movingForward || backwardBrakeOnly));
     // Gearbox force for wheeled cars. direction 0 while pedal-braking (no
     // premature reverse) but rpm/gear still track wheel speed for the HUD.
     const engineMagnitude = vehicle.engine
@@ -143,18 +141,13 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch, initi
       steerValue += Math.sign(delta) * Math.min(Math.abs(delta), maxStep);
     }
 
-    vehicle.setSteeringValue(steerValue, 0);
-    vehicle.setSteeringValue(steerValue, 1);
+    steer(vehicle, steerValue, speedKmh);
 
     vehicle.airControlYaw = left ? 1 : right ? -1 : 0;
 
-    if (handbrakePressed && !handbrakeWasPressed) {
-      if (handbrakeLatched) {
-        handbrakeLatched = false;
-        handbrakeReleasing = true;
-      } else {
-        onHandbrakePull?.();
-      }
+    if (handbrakePressed && !handbrakeWasPressed && handbrakeLatched) {
+      handbrakeLatched = false;
+      handbrakeReleasing = true;
     }
     if (!handbrakePressed) handbrakeReleasing = false;
     handbrakeWasPressed = handbrakePressed;
@@ -170,18 +163,27 @@ export function createInputController({ onHandbrakePull, onHandbrakeLatch, initi
     // Per-vehicle brake strength; BRAKE_FORCE fallback.
     const brakeForce = (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale;
     const pedalBrake = pedalBraking ? brakeForce : 0;
-    // Handbrake locks only the rear wheels, so the rear breaks traction.
+    // Handbrake locks only the rear (handbrake-axle) wheels, so the rear breaks traction.
     const handbrakeForce = handbrake ? brakeForce : 0;
     // ABS only on the pedal brake; the handbrake must be able to lock.
     const abs = vehicle.abs ?? false;
-    vehicle.setBrake(pedalBrake, 0, abs);
-    vehicle.setBrake(pedalBrake, 1, abs);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2, abs && !handbrake);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3, abs && !handbrake);
+    if (vehicle.applyBrakes) {
+      vehicle.applyBrakes(pedalBrake, handbrakeForce, abs);
+    } else {
+      setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs);
+    }
 
     const resetPressed = keys.has('KeyR');
     if (resetPressed && !resetWasPressed && reset) reset();
     resetWasPressed = resetPressed;
+  }
+
+  /** Brakes for rigs without applyBrakes (hover): front pair pedal only, rear pair + handbrake. */
+  function setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs) {
+    vehicle.setBrake(pedalBrake, 0, abs);
+    vehicle.setBrake(pedalBrake, 1, abs);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2, abs && !handbrake, handbrake);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3, abs && !handbrake, handbrake);
   }
 
   function isTyping() {

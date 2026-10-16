@@ -2,7 +2,8 @@
 // ground into a slightly raised, level-across strip whose height follows
 // the terrain along the centreline (smoothed for higher classes), with
 // embankments / cuttings at set slopes back to the ground. Roads meeting at
-// a junction share its height, easing to it along each road. Higher classes
+// a junction share its height, easing to it along each road; free road ends
+// run on a little, fading into the terrain. Higher classes
 // override lower ones; overlapping roads of one class share evenly.
 
 import { fetchVectorTileLayer } from '../tiles/openFreeMap.js';
@@ -17,7 +18,11 @@ const JOIN_MIN_STRAIGHTNESS = 0.5; // cos of the sharpest turn a road continues 
 const SNAP_CELL_METERS = 32; // spatial hash cell for snapping line ends onto other lines
 const GRADE_WINDOW_METERS = 200; // how far along the road a max grade looks for terrain to cut / fill
 const BANK_FADE_METERS = 6; // a bank still off the ground at its widest blends into it over this
+const NEAREST_BLEND_METERS = 4; // a node's height blends roads whose edges are within this of its nearest one
 const OVERSHOOT_METERS = 0.5; // past a vertex the road continues through, the segment hands over to the next one
+// The terrain grid only has heights at its nodes, so the bed is shaped in grid cells too:
+const ROAD_PAD_CELLS = 1; // road top widened by this each side, so triangles across the road don't dip to off-road nodes
+const BANK_MIN_CELLS = 2; // banks span at least this, so no node jumps from road height straight to the bare ground
 // Profile defaults for classes that don't set them (see roadClasses.js).
 const DEFAULT_SMOOTH_METERS = 0;
 const DEFAULT_MAX_GRADE = 0; // 0 = follow the terrain's grade
@@ -29,6 +34,7 @@ const DEFAULT_CUT_SLOPE = 0.6; // 1:1.5 cutting
 const SKIP_CLASSES = new Set(['path', 'track']);
 const SKIP_BRUNNELS = new Set(['bridge', 'tunnel']);
 const CACHE_SIZE = 32;
+const PROFILE_SAMPLE_METERS = 1; // debug profile lines: spacing of the terrain samples along a road
 
 /** Road bed profile of a class key (aliases and `_construction` share their base class's). */
 function roadProfile(key) {
@@ -48,15 +54,21 @@ const maxOf = (fn) => Math.max(...bedClasses.map(fn));
 // Farthest a road can reach from its centreline (m).
 const ROAD_REACH_METERS = maxOf((cls) => ROAD_CLASSES[cls].widthMeters / 2 + roadProfile(cls).bankMeters);
 // Farthest road data (and the terrain under it) matters outside a tile: reach,
-// plus a junction's ramp (and its top road's half width), plus the smoothing window there.
+// plus a free end's tail, plus a junction's ramp (and its top road's half width), plus the smoothing window there.
 const ROAD_MARGIN_METERS =
   ROAD_REACH_METERS +
+  maxOf((cls) => tailLength(roadProfile(cls))) +
   maxOf((cls) => roadProfile(cls).rampMeters + ROAD_CLASSES[cls].widthMeters / 2) +
   maxOf((cls) => profileRadius(roadProfile(cls)) + (roadProfile(cls).maxGrade ? GRADE_WINDOW_METERS : 0)) +
   SUBDIVIDE_METERS;
-/** Elevation border (px) the road bed samples outside its tile: margin + bilinear slack. */
-export function roadBedBorderPx(pixelMeters) {
-  return Math.ceil(ROAD_MARGIN_METERS / pixelMeters) + 2;
+/** ROAD_MARGIN_METERS plus the most the grid (cells of `cellMeters`) widens a road's reach. */
+function roadMarginMeters(cellMeters) {
+  return ROAD_MARGIN_METERS + (ROAD_PAD_CELLS + BANK_MIN_CELLS) * cellMeters;
+}
+
+/** Elevation border (px) the road bed samples outside its tile (grid cells of `cellMeters`): margin + bilinear slack. */
+export function roadBedBorderPx(pixelMeters, cellMeters) {
+  return Math.ceil(roadMarginMeters(cellMeters) / pixelMeters) + 2;
 }
 
 /** Class key -> priority (higher = more important); aliases rank as the class they share a style with. */
@@ -255,19 +267,23 @@ function subdivide(points, maxLength) {
 /**
  * Road lines around detail tile (z, x, y), in its own frame: metres from
  * the NW corner, x east (tile width `widthMeters`), z south (`heightMeters`).
- * Each is { points: [x, z, ...], halfWidth, priority, ...roadProfile },
- * joined into strokes per class. Resolves to [] if the road tiles fail
+ * Each is { points: [x, z, ...], halfWidth, priority, cutStart, cutEnd, ...roadProfile },
+ * joined into strokes per class; `cut*` = that end is only where the loaded
+ * road data stops, not the road's. Resolves to [] if the road tiles fail
  * (terrain still builds).
  */
-export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
+export async function loadRoadLines(z, x, y, widthMeters, heightMeters, cellMeters) {
   const scale = 2 ** (z - ROAD_TILE_ZOOM);
+  const reach = roadMarginMeters(cellMeters);
   // Neighbouring road tiles within the margin too, so tiles on both sides of a road tile edge build the same bed.
-  const margin = ROAD_MARGIN_METERS / widthMeters / scale; // in road tiles
+  const margin = reach / widthMeters / scale; // in road tiles
+  const tx0 = Math.floor(x / scale - margin);
+  const tx1 = Math.floor((x + 1) / scale + margin);
+  const ty0 = Math.floor(y / scale - margin);
+  const ty1 = Math.floor((y + 1) / scale + margin);
   const tiles = [];
-  for (let ty = Math.floor(y / scale - margin); ty <= Math.floor((y + 1) / scale + margin); ty++) {
-    for (let tx = Math.floor(x / scale - margin); tx <= Math.floor((x + 1) / scale + margin); tx++) {
-      tiles.push(cachedRoadTile(tx, ty));
-    }
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) tiles.push(cachedRoadTile(tx, ty));
   }
   let lists;
   try {
@@ -276,7 +292,6 @@ export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
     console.warn('Road bed: road tiles failed, building plain terrain', z, x, y, err);
     return [];
   }
-  const reach = ROAD_MARGIN_METERS;
   const groups = new Map(); // lines by class, to join
   for (const list of lists) {
     for (const line of list) {
@@ -302,8 +317,20 @@ export async function loadRoadLines(z, x, y, widthMeters, heightMeters) {
       groups.get(key).push({ ...line, points });
     }
   }
+  // Loaded area in this tile's metres: ends on its edge are cuts.
+  const west = (tx0 * scale - x) * widthMeters;
+  const east = ((tx1 + 1) * scale - x) * widthMeters;
+  const north = (ty0 * scale - y) * heightMeters;
+  const south = ((ty1 + 1) * scale - y) * heightMeters;
+  const isCut = (px, pz) =>
+    px - west < JOIN_METERS || east - px < JOIN_METERS || pz - north < JOIN_METERS || south - pz < JOIN_METERS;
   const lines = [];
-  for (const group of groups.values()) lines.push(...joinPieces(group));
+  for (const group of groups.values()) {
+    for (const line of joinPieces(group)) {
+      const p = line.points;
+      lines.push({ ...line, cutStart: isCut(p[0], p[1]), cutEnd: isCut(p[p.length - 2], p[p.length - 1]) });
+    }
+  }
   return lines;
 }
 
@@ -365,6 +392,11 @@ function snapEnds(lines) {
     }
     return { ...line, points };
   });
+}
+
+/** Length (m) a free road end keeps levelling the ground past its end, fading out (0 for unsmoothed classes). */
+function tailLength({ smoothMeters }) {
+  return smoothMeters;
 }
 
 /** Tent half-width (m) a class's profile is averaged under; 0 = follows the terrain exactly. */
@@ -475,16 +507,52 @@ function baseAt({ arc, base }, s) {
   return base[lo] + (base[hi] - base[lo]) * t;
 }
 
+/** Flat polyline run on straight past its first / last vertex by `before` / `after` metres. */
+function extendEnds(p, before, after) {
+  const n = p.length;
+  const out = p.slice();
+  for (const [len, x, z, fromX, fromZ, add] of [
+    [before, p[0], p[1], p[2], p[3], (...v) => out.unshift(...v)],
+    [after, p[n - 2], p[n - 1], p[n - 4], p[n - 3], (...v) => out.push(...v)],
+  ]) {
+    if (!len) continue;
+    const l = Math.hypot(x - fromX, z - fromZ) || 1;
+    add(x + ((x - fromX) / l) * len, z + ((z - fromZ) / l) * len);
+  }
+  return out;
+}
+
 /**
  * Centreline profiles: each line's base height (smoothed terrain, or the
  * terrain itself) gets corrected so all roads at a junction meet at one
- * height - the mean of the most important ones there. Returns lines with
+ * height - the mean of the most important ones there. Free ends run on
+ * for a tail (see tailLength) pinned to the terrain at its tip, with
+ * per-vertex `fades` easing the bed out along it. Returns lines with
  * subdivided points plus per-vertex `heights` (absolute) or `deltas` (on
  * top of the terrain), or the line as is when it just follows the terrain.
  */
 function buildProfiles(lines, terrainAt) {
-  const profiled = snapEnds(lines).map((line) => {
-    const { points, rawIndex } = subdivide(line.points, SUBDIVIDE_METERS);
+  const snapped = snapEnds(lines);
+  const { at: nodeAt, nodes } = createNodeIndex();
+  snapped.forEach(({ points: p }, li) => {
+    for (let r = 0; r < p.length / 2; r++) nodeAt(p[r * 2], p[r * 2 + 1]).items.push({ li, r });
+  });
+  // Ends meeting no other road (and not just where the loaded road data stops).
+  const freeStart = new Uint8Array(snapped.length);
+  const freeEnd = new Uint8Array(snapped.length);
+  for (const { items } of nodes) {
+    if (items.length !== 1) continue;
+    const [{ li, r }] = items;
+    const line = snapped[li];
+    if (r === 0 && !line.cutStart) freeStart[li] = 1;
+    if (r === line.points.length / 2 - 1 && !line.cutEnd) freeEnd[li] = 1;
+  }
+
+  const profiled = snapped.map((line, li) => {
+    const tail = tailLength(line);
+    const before = freeStart[li] ? tail : 0;
+    const after = freeEnd[li] ? tail : 0;
+    const { points, rawIndex } = subdivide(extendEnds(line.points, before, after), SUBDIVIDE_METERS);
     const n = points.length / 2;
     const arc = new Float64Array(n);
     for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(points[i * 2] - points[i * 2 - 2], points[i * 2 + 1] - points[i * 2 - 1]);
@@ -492,26 +560,32 @@ function buildProfiles(lines, terrainAt) {
     const base = radius
       ? smoothedHeights(points, radius, terrainAt, line.maxGrade)
       : Float64Array.from({ length: n }, (_, i) => terrainAt(points[i * 2], points[i * 2 + 1]));
-    return { line, raw: line.points, points, rawIndex, arc, base, pins: [] };
+    const total = arc[n - 1];
+    const fades = before || after
+      ? Float64Array.from(arc, (s) => Math.min(1, before ? s / before : 1, after ? (total - s) / after : 1))
+      : null;
+    const pins = [];
+    if (freeStart[li]) pins.push({ s: 0, d: terrainAt(points[0], points[1]) - base[0] });
+    if (freeEnd[li]) pins.push({ s: total, d: terrainAt(points[n * 2 - 2], points[n * 2 - 1]) - base[n - 1] });
+    // Raw vertex r sits at subdivided vertex rawIndex[r + 1] when a tail was put in front.
+    const at = (r) => rawIndex[r + (before ? 1 : 0)];
+    return { line, points, at, arc, base, fades, pins };
   });
 
-  const { at: nodeAt, nodes } = createNodeIndex();
-  for (const p of profiled) {
-    for (let r = 0; r < p.rawIndex.length; r++) nodeAt(p.raw[r * 2], p.raw[r * 2 + 1]).items.push({ p, i: p.rawIndex[r] });
-  }
   for (const { items } of nodes) {
     if (items.length < 2) continue;
-    const top = Math.max(...items.map((it) => it.p.line.priority));
+    const junction = items.map(({ li, r }) => ({ p: profiled[li], i: profiled[li].at(r) }));
+    const top = Math.max(...junction.map((it) => it.p.line.priority));
     let sum = 0;
     let count = 0;
-    for (const { p, i } of items) {
+    for (const { p, i } of junction) {
       if (p.line.priority !== top) continue;
       sum += p.base[i];
       count++;
     }
     const target = sum / count;
-    const topHalfWidth = Math.max(...items.filter((it) => it.p.line.priority === top).map((it) => it.p.line.halfWidth));
-    for (const { p, i } of items) {
+    const topHalfWidth = Math.max(...junction.filter((it) => it.p.line.priority === top).map((it) => it.p.line.halfWidth));
+    for (const { p, i } of junction) {
       p.pins.push({ s: p.arc[i], d: target - p.base[i] });
       if (p.line.priority === top) continue;
       // A lower road reaches the junction height at the top road's edges, not just its centreline.
@@ -521,26 +595,31 @@ function buildProfiles(lines, terrainAt) {
     }
   }
 
-  return profiled.map(({ line, points, arc, base, pins }) => {
+  return profiled.map(({ line, points, arc, base, fades, pins }) => {
     const deltas = pins.some((pin) => Math.abs(pin.d) > 1e-3) ? pinDeltas(arc, pins, line.rampMeters) : null;
-    if (profileRadius(line)) return { ...line, points, heights: deltas ? base.map((h, i) => h + deltas[i]) : base };
+    if (profileRadius(line)) return { ...line, points, fades, heights: deltas ? base.map((h, i) => h + deltas[i]) : base };
     return deltas ? { ...line, points, deltas } : line;
   });
 }
 
 /**
  * Height sampler for one detail tile in its own frame (see loadRoadLines):
- * `evaluateGrid` fills a regular grid with terrain + road bed.
+ * `evaluateGrid` fills a regular grid of `cellMeters` cells with terrain + road bed;
+ * `profileLines` gives the centreline profiles for debug drawing.
  * `elev` null = flat ground.
  */
-export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, lines }) {
+export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters, lines }) {
   const terrainAt = elev
     ? (x, z) => sampleHeight(elev, x / widthMeters, z / heightMeters) - heightOffset
     : () => 0;
-  // Centreline height per vertex: absolute (ha, hb), terrain + offset (da, db), or the terrain exactly.
+  // Centreline height per vertex: absolute (ha, hb), terrain + offset (da, db), or the terrain exactly;
+  // (fa, fb) = how much of the bed applies (below 1 on a free end's tail).
   const segments = [];
   for (const line of elev ? buildProfiles(lines, terrainAt) : lines) {
-    const { points: p, halfWidth, priority, bankMeters, fillSlope, cutSlope, heights, deltas } = line;
+    const { points: p, priority, fillSlope, cutSlope, heights, deltas, fades } = line;
+    // Shaped to the grid (see ROAD_PAD_CELLS); `line` keeps the real width for the profile maths.
+    const halfWidth = line.halfWidth + ROAD_PAD_CELLS * cellMeters;
+    const bankMeters = Math.max(line.bankMeters, BANK_MIN_CELLS * cellMeters);
     const reach = halfWidth + bankMeters;
     for (let i = 0; i + 3 < p.length; i += 2) {
       const [ax, az, bx, bz] = [p[i], p[i + 1], p[i + 2], p[i + 3]];
@@ -549,6 +628,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
       segments.push({
         ax, az, bx, bz, halfWidth, priority, bankMeters, fillSlope, cutSlope, joinA: i > 0, joinB: i + 4 < p.length,
         ha: heights?.[i / 2], hb: heights?.[i / 2 + 1], da: deltas?.[i / 2], db: deltas?.[i / 2 + 1],
+        fa: fades?.[i / 2] ?? 1, fb: fades?.[i / 2 + 1] ?? 1,
       });
     }
   }
@@ -563,36 +643,43 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
     }
     if (!segments.length) return out;
 
-    // Per node, within one priority: weighted mean of road heights, and the distance to the nearest road edge.
+    // Per node, within one priority: weighted mean of road heights, and the signed distance to the nearest road edge.
     const weightSum = new Float32Array(out.length);
     const targetSum = new Float32Array(out.length);
     const edgeDist = new Float32Array(out.length).fill(Infinity);
+    const fadeSum = new Float32Array(out.length);
     // Road top inside the edges; outside, a bank at the class's slope down/up to the ground below (incl. lower roads).
     const applyLayer = ({ bankMeters, fillSlope, cutSlope }) => {
-      const fade = Math.min(BANK_FADE_METERS, bankMeters);
+      // At least a cell, or the fade falls between nodes.
+      const fade = Math.min(Math.max(BANK_FADE_METERS, step), bankMeters);
       for (let i = 0; i < out.length; i++) {
         if (!(weightSum[i] > 0)) continue;
         const g = out[i];
         const target = targetSum[i] / weightSum[i];
-        const e = edgeDist[i];
+        const e = Math.max(0, edgeDist[i]);
         let h = target > g ? Math.max(g, target - e * fillSlope) : Math.min(g, target + e * cutSlope);
         const s = Math.min(1, (bankMeters - e) / fade);
         if (s < 1) h = g + (h - g) * s * s * (3 - 2 * s);
+        const k = fadeSum[i] / weightSum[i];
+        if (k < 1) h = g + (h - g) * (1 - falloff(k));
         out[i] = h;
       }
       weightSum.fill(0);
+      fadeSum.fill(0);
       targetSum.fill(0);
       edgeDist.fill(Infinity);
     };
-    for (let k = 0; k < segments.length; k++) {
-      const { ax, az, bx, bz, halfWidth, priority, bankMeters, joinA, joinB, ha, hb, da, db } = segments[k];
-      if (k > 0 && priority !== segments[k - 1].priority) applyLayer(segments[k - 1]);
+    // Signed distance past the edge (negative on the road) per node to the nearest road of the layer; heights
+    // are weighted toward it, so a bend's other leg or a later stretch of the curve can't drag the road top.
+    const nearBlend = Math.max(NEAREST_BLEND_METERS, 2 * step);
+    const visit = (seg, accumulate) => {
+      const { ax, az, bx, bz, halfWidth, bankMeters, joinA, joinB, ha, hb, da, db, fa, fb } = seg;
       const reach = halfWidth + bankMeters;
       const c0 = Math.max(0, Math.ceil((Math.min(ax, bx) - reach - x0) / step));
       const c1 = Math.min(cols - 1, Math.floor((Math.max(ax, bx) + reach - x0) / step));
       const r0 = Math.max(0, Math.ceil((Math.min(az, bz) - reach - z0) / step));
       const r1 = Math.min(rows - 1, Math.floor((Math.max(az, bz) + reach - z0) / step));
-      if (c0 > c1 || r0 > r1) continue;
+      if (c0 > c1 || r0 > r1) return;
       const dx = bx - ax;
       const dz = bz - az;
       const lenSq = dx * dx + dz * dz;
@@ -606,26 +693,70 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
           // Height comes from the nearest centreline point: level across the road.
           const cx = ax + dx * t;
           const cz = az + dz * t;
-          const e = Math.max(0, Math.hypot(px - cx, pz - cz) - halfWidth);
+          const eSigned = Math.hypot(px - cx, pz - cz) - halfWidth;
+          const e = Math.max(0, eSigned);
           if (e >= bankMeters) continue;
+          const i = r * cols + c;
+          if (!accumulate) {
+            if (eSigned < edgeDist[i]) edgeDist[i] = eSigned;
+            continue;
+          }
           const s = (bankMeters - e) / bankMeters;
-          let w = s * s * (3 - 2 * s);
+          let w = s * s * (3 - 2 * s) * falloff((eSigned - edgeDist[i]) / nearBlend);
           // Caps only stand in at road ends and bends' outer wedges, else they'd terrace the profile at every vertex.
           const overshoot = tRaw < 0 ? (joinA ? -tRaw * len : 0) : tRaw > 1 ? (joinB ? (tRaw - 1) * len : 0) : 0;
           if (overshoot > 0) w /= 1 + (overshoot / OVERSHOOT_METERS) ** 2;
-          const i = r * cols + c;
+          if (!(w > 0)) continue;
           weightSum[i] += w;
-          if (e < edgeDist[i]) edgeDist[i] = e;
+          fadeSum[i] += w * (fa + (fb - fa) * t);
           let base;
           if (ha !== undefined) base = ha + (hb - ha) * t;
           else base = terrainAt(cx, cz) + (da === undefined ? 0 : da + (db - da) * t);
           targetSum[i] += w * (base + ROAD_LIFT);
         }
       }
+    };
+    for (let k0 = 0; k0 < segments.length; ) {
+      let k1 = k0;
+      while (k1 < segments.length && segments[k1].priority === segments[k0].priority) k1++;
+      for (let k = k0; k < k1; k++) visit(segments[k], false);
+      for (let k = k0; k < k1; k++) visit(segments[k], true);
+      applyLayer(segments[k0]);
+      k0 = k1;
     }
-    applyLayer(segments[segments.length - 1]);
     return out;
   }
 
-  return { evaluateGrid };
+  /**
+   * Debug: centreline profiles inside the tile as line-segment pairs
+   * [x, y, z, ...]: `original` = the terrain under it, `adjusted` = the
+   * road's own height (lift included, faded out along free ends' tails).
+   */
+  function profileLines() {
+    const original = [];
+    const adjusted = [];
+    for (const { ax, az, bx, bz, ha, hb, da, db, fa, fb } of segments) {
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / PROFILE_SAMPLE_METERS));
+      let prev = null;
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        const x = ax + (bx - ax) * t;
+        const z = az + (bz - az) * t;
+        const g = terrainAt(x, z);
+        const bed = (ha !== undefined ? ha + (hb - ha) * t : g + (da === undefined ? 0 : da + (db - da) * t)) + ROAD_LIFT;
+        const road = g + (bed - g) * (1 - falloff(fa + (fb - fa) * t));
+        const mx = prev && (prev[0] + x) / 2;
+        const mz = prev && (prev[1] + z) / 2;
+        // Only the tile's own stretch, so neighbouring tiles don't draw it twice.
+        if (prev && mx >= 0 && mx < widthMeters && mz >= 0 && mz < heightMeters) {
+          original.push(prev[0], prev[2], prev[1], x, g, z);
+          adjusted.push(prev[0], prev[3], prev[1], x, road, z);
+        }
+        prev = [x, z, g, road];
+      }
+    }
+    return { original: new Float32Array(original), adjusted: new Float32Array(adjusted) };
+  }
+
+  return { evaluateGrid, profileLines };
 }

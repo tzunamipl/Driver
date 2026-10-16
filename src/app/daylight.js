@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sunDirection } from '../lib/sunPosition.js';
 import { setHazeColor } from '../lib/terrain.js';
 import { setPaintReflection } from '../lib/vehicles/geometry/paint.js';
+import { setPuffTint } from '../lib/particles/puffPool.js';
 import { TIME_SCALE } from '../config.js';
 
 // Day-night cycle: sun direction from the simulated clock and the car's
@@ -18,6 +19,8 @@ const SUN_DISC_MIN_ELEVATION_DEG = -2;
 // intensities are 0 here, so the swap is invisible.
 const MOON_TAKEOVER_ELEVATION_DEG = -1;
 const MOON_LIGHT_COLOR = new THREE.Color(0x9fb4e0);
+const MS_PER_HOUR = 3_600_000;
+const SUNSET_ELEVATION_DEG = 1.5; // low enough for the orange palette, disc still above the horizon
 
 // Palette by sun elevation (deg), linearly interpolated. Night keeps a
 // bluish ambient floor so the map stays drivable; moonI is the moonlight.
@@ -46,10 +49,46 @@ function simulatedTimeMs(realMs) {
   return dayStart + ((realMs - dayStart) * TIME_SCALE) % MS_PER_DAY;
 }
 
-export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
+/** Sun elevation (deg) at `timeMs` for lat/lon. */
+function elevationAt(timeMs, lat, lon) {
+  return Math.asin(THREE.MathUtils.clamp(sunDirection(timeMs, lat, lon).up, -1, 1)) / (Math.PI / 180);
+}
+
+/** Fixed simulated instant on the current simulated day for a debug preset ('noon' | 'sunset' | 'night'). */
+function presetTimeMs(preset, lat, lon) {
+  const now = simulatedTimeMs(Date.now());
+  const dayStart = now - (now % MS_PER_DAY);
+  // Solar noon ignoring the equation of time, then refined by a ternary search for peak elevation.
+  let lo = dayStart + (12 - lon / 15) * MS_PER_HOUR - 2 * MS_PER_HOUR;
+  let hi = lo + 4 * MS_PER_HOUR;
+  for (let i = 0; i < 40; i++) {
+    const m1 = lo + (hi - lo) / 3;
+    const m2 = hi - (hi - lo) / 3;
+    if (elevationAt(m1, lat, lon) < elevationAt(m2, lat, lon)) lo = m1;
+    else hi = m2;
+  }
+  const noon = (lo + hi) / 2;
+  if (preset === 'noon') return noon;
+  if (preset === 'night') return noon + 12 * MS_PER_HOUR;
+  // Sunset: elevation falls monotonically from noon to midnight; bisect for the target.
+  lo = noon;
+  hi = noon + 12 * MS_PER_HOUR;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (elevationAt(mid, lat, lon) > SUNSET_ELEVATION_DEG) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }) {
   const sunDir = new THREE.Vector3();
   const lightDir = new THREE.Vector3();
   const sky = new THREE.Color();
+  // Debug time override: null = live cycle; otherwise a preset frozen at its instant.
+  let preset = null;
+  let presetMs = null;
+  let sunElevationDeg = 90;
 
   function applyPalette(elevationDeg) {
     let i = 0;
@@ -72,15 +111,19 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
     }
     ambient.color.lerpColors(a.amb, b.amb, t);
     ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t);
+    setPuffTint(ambient.color);
     sunDisc.material.color.lerpColors(a.disc, b.disc, t);
   }
 
   /** Call once per frame with the car's world position and lat/lon. */
   function update(position, lat, lon) {
-    const { east, north, up } = sunDirection(simulatedTimeMs(Date.now()), lat, lon);
+    if (preset && presetMs === null) presetMs = presetTimeMs(preset, lat, lon);
+    const timeMs = preset ? presetMs : simulatedTimeMs(Date.now());
+    const { east, north, up } = sunDirection(timeMs, lat, lon);
     // World axes: x = east, y = up, z = south.
     sunDir.set(east, up, -north);
     const elevationDeg = Math.asin(THREE.MathUtils.clamp(up, -1, 1)) / (Math.PI / 180);
+    sunElevationDeg = elevationDeg;
 
     applyPalette(elevationDeg);
 
@@ -94,7 +137,14 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc }) {
     sunDisc.visible = elevationDeg > SUN_DISC_MIN_ELEVATION_DEG;
     moonDisc.position.copy(sunDir).multiplyScalar(-SUN_DISC_DISTANCE_M).add(position);
     moonDisc.visible = -elevationDeg > SUN_DISC_MIN_ELEVATION_DEG;
+    stars.update(timeMs, lat, lon, position, elevationDeg);
   }
 
-  return { update };
+  /** Debug: freeze the clock at 'noon' | 'sunset' | 'night' for the current location, or null for the live cycle. */
+  function setTimePreset(next) {
+    preset = next;
+    presetMs = null; // resolved on the next update, where lat/lon are known
+  }
+
+  return { update, setTimePreset, getTimePreset: () => preset, getSunElevation: () => sunElevationDeg };
 }

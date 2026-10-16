@@ -1,37 +1,52 @@
 // Engine sound built from exhaust pulses. One oscillator period = one
 // four-stroke cycle (720 deg crank) holding a pulse per cylinder, so pitch
-// tracks rpm exactly. Uneven pulse timing/strength is what makes a Subaru
-// boxer with unequal-length headers "burble" instead of buzz.
-// Per-vehicle profile from the descriptor's `engineSound`.
+// tracks rpm exactly. Pulse timing/strength per profile sets the character
+// (paired pulses burble, even ones buzz).
+// Profile from the descriptor's `engineSound`, else by its `engine` type.
 
 import { getAudio } from './audioContext.js';
+import { DEFAULT_ENGINE_SOUND, ENGINE_SOUNDS } from './engineProfiles.js';
 
 const MASTER_GAIN = 0.025;
 const FALLBACK_IDLE_RPM = 900; // hover rigs have no engine.js state
 const FALLBACK_REDLINE_RPM = 6500;
 const WAVE_SAMPLES = 2048;
 const WAVE_HARMONICS = 96;
-const SECOND_BANK_DETUNE = 1.004; // slight beat between the two exhaust paths
 const BOV_MIN_RPM_FRAC = 0.45;
+const CLATTER_DECAY = 0.004; // cycle fractions: near-instant injector knock
+const CLATTER_HZ = 2600;
 
-export const DEFAULT_ENGINE_SOUND = {
-  // Firing events as a fraction of the cycle, relative to even spacing.
-  // Firing order 1-3-2-4: long-header cylinders arrive late, pairing pulses.
-  pulseOffsets: [0, 0.035, -0.012, 0.05],
-  pulseAmps: [1, 0.72, 0.93, 0.66],
-  pulseDecay: 0.03, // cycle fractions
-  pulseRing: 0.075, // cycle fractions per ring oscillation
-  idleLope: 0.025, // random pitch wander at idle, fraction
-  turbo: true, // whistle under boost + blow-off valve on lift
-};
+// Optional profile tuning (profile.x ?? DEFAULT_X).
+const DEFAULT_BANK_MIX = 0.5;
+const DEFAULT_BANK_DETUNE = 1.004; // slight beat between the two exhaust paths
+const DEFAULT_BODY = 1;
+const DEFAULT_BRIGHTNESS = 1; // lowpass cutoff scale
+const DEFAULT_HISS = 1;
+const DEFAULT_CLATTER = 0; // diesel knock level
+const DEFAULT_WHISTLE_PITCH = 1;
 
-// PeriodicWave per profile; built once.
+// PeriodicWaves per profile; built once.
 const waves = new WeakMap();
+const clatterWaves = new WeakMap();
 
 function pulseWave(ctx, profile) {
   let wave = waves.get(profile);
   if (wave) return wave;
-  const { pulseOffsets, pulseAmps, pulseDecay, pulseRing } = profile;
+  wave = buildWave(ctx, profile.pulseOffsets, profile.pulseAmps, profile.pulseDecay, profile.pulseRing);
+  waves.set(profile, wave);
+  return wave;
+}
+
+// Spike per firing event (no ring), used as an envelope for clatter noise.
+function clatterWave(ctx, profile) {
+  let wave = clatterWaves.get(profile);
+  if (wave) return wave;
+  wave = buildWave(ctx, profile.pulseOffsets, profile.pulseAmps, CLATTER_DECAY, Infinity);
+  clatterWaves.set(profile, wave);
+  return wave;
+}
+
+function buildWave(ctx, pulseOffsets, pulseAmps, pulseDecay, pulseRing) {
   const cylinders = pulseOffsets.length;
   const samples = new Float32Array(WAVE_SAMPLES);
   for (let c = 0; c < cylinders; c++) {
@@ -55,9 +70,7 @@ function pulseWave(ctx, profile) {
     real[k] = (2 * re) / WAVE_SAMPLES;
     imag[k] = (2 * im) / WAVE_SAMPLES;
   }
-  wave = ctx.createPeriodicWave(real, imag);
-  waves.set(profile, wave);
-  return wave;
+  return ctx.createPeriodicWave(real, imag);
 }
 
 function softClipCurve(drive) {
@@ -76,7 +89,7 @@ export function createEngineSound() {
 
   const out = ctx.createGain();
   out.gain.value = 0;
-  out.connect(buses.engine);
+  out.connect(buses.carEngine);
 
   // Exhaust: two pulse oscillators -> soft clip -> lowpass (opens with rpm/load).
   const lowpass = ctx.createBiquadFilter();
@@ -92,7 +105,6 @@ export function createEngineSound() {
   const bankA = ctx.createOscillator();
   const bankB = ctx.createOscillator();
   const bankBGain = ctx.createGain();
-  bankBGain.gain.value = 0.5;
   bankA.connect(bodyGain);
   bankB.connect(bankBGain);
   bankBGain.connect(bodyGain);
@@ -110,6 +122,23 @@ export function createEngineSound() {
   hissFilter.connect(hissGain);
   hissGain.connect(out);
 
+  // Diesel clatter: bandpassed noise gated by a spike per firing event.
+  // The spike wave is zero-mean, so the gain gets a small positive base.
+  const clatterFilter = ctx.createBiquadFilter();
+  clatterFilter.type = 'bandpass';
+  clatterFilter.frequency.value = CLATTER_HZ;
+  clatterFilter.Q.value = 1.4;
+  const clatterGain = ctx.createGain();
+  clatterGain.gain.value = 0;
+  const clatterEnv = ctx.createOscillator();
+  const clatterDepth = ctx.createGain();
+  clatterDepth.gain.value = 0;
+  hiss.connect(clatterFilter);
+  clatterFilter.connect(clatterGain);
+  clatterGain.connect(out);
+  clatterEnv.connect(clatterDepth);
+  clatterDepth.connect(clatterGain.gain);
+
   // Turbo whistle.
   const whistle = ctx.createOscillator();
   whistle.type = 'sine';
@@ -122,6 +151,7 @@ export function createEngineSound() {
   bankB.start();
   hiss.start();
   whistle.start();
+  clatterEnv.start();
 
   let profile = null;
   let lastThrottle = 0;
@@ -132,6 +162,8 @@ export function createEngineSound() {
     const wave = pulseWave(ctx, profile);
     bankA.setPeriodicWave(wave);
     bankB.setPeriodicWave(wave);
+    bankBGain.gain.value = profile.bankMix ?? DEFAULT_BANK_MIX;
+    clatterEnv.setPeriodicWave(clatterWave(ctx, profile));
   }
 
   function blowOff(now) {
@@ -155,11 +187,11 @@ export function createEngineSound() {
 
   /**
    * @param {object|null} vehicle - silent when null.
-   * @param {object|null} descriptor - vehicles/ descriptor (engineSound).
+   * @param {object|null} descriptor - vehicles/ descriptor (engineSound or engine).
    * @param {number} throttle - 0..1.
    */
   function update(vehicle, descriptor, throttle) {
-    setProfile(descriptor?.engineSound ?? DEFAULT_ENGINE_SOUND);
+    setProfile(descriptor?.engineSound ?? ENGINE_SOUNDS[descriptor?.engine] ?? DEFAULT_ENGINE_SOUND);
     const now = ctx.currentTime;
     const engine = vehicle?.engine;
     const idle = engine?.idleRpm ?? FALLBACK_IDLE_RPM;
@@ -171,21 +203,32 @@ export function createEngineSound() {
     const lope = 1 + (Math.random() - 0.5) * 2 * profile.idleLope * (1 - r);
     const cycleHz = (rpm / 120) * lope;
     bankA.frequency.setTargetAtTime(cycleHz, now, 0.03);
-    bankB.frequency.setTargetAtTime(cycleHz * SECOND_BANK_DETUNE, now, 0.03);
+    bankB.frequency.setTargetAtTime(cycleHz * (profile.bankDetune ?? DEFAULT_BANK_DETUNE), now, 0.03);
+    clatterEnv.frequency.setTargetAtTime(cycleHz, now, 0.03);
 
     out.gain.setTargetAtTime(vehicle ? MASTER_GAIN : 0, now, 0.1);
-    bodyGain.gain.setTargetAtTime(0.5 + 0.4 * throttle + 0.3 * r, now, 0.08);
-    lowpass.frequency.setTargetAtTime(220 + r * 1600 + throttle * (300 + r * 900), now, 0.08);
+    const body = profile.body ?? DEFAULT_BODY;
+    bodyGain.gain.setTargetAtTime(body * (0.5 + 0.4 * throttle + 0.3 * r), now, 0.08);
+    const brightness = profile.brightness ?? DEFAULT_BRIGHTNESS;
+    lowpass.frequency.setTargetAtTime(brightness * (220 + r * 1600 + throttle * (300 + r * 900)), now, 0.08);
 
     const firingHz = (rpm / 120) * profile.pulseOffsets.length;
+    const hissLevel = profile.hiss ?? DEFAULT_HISS;
     hissFilter.frequency.setTargetAtTime(firingHz * 6, now, 0.05);
-    hissGain.gain.setTargetAtTime(0.01 + throttle * (0.02 + 0.08 * r), now, 0.08);
+    hissGain.gain.setTargetAtTime(hissLevel * (0.01 + throttle * (0.02 + 0.08 * r)), now, 0.08);
+
+    // Knock is loudest at idle and under load, smoothing out at high revs.
+    const clatter = (profile.clatter ?? DEFAULT_CLATTER) * (0.25 + 0.2 * throttle) * (1 - 0.5 * r);
+    clatterDepth.gain.setTargetAtTime(clatter, now, 0.08);
+    clatterGain.gain.setTargetAtTime(clatter * 0.2, now, 0.08);
 
     const boost = profile.turbo ? throttle * r * r : 0;
-    whistle.frequency.setTargetAtTime(1600 + r * 4200, now, 0.2);
+    const whistlePitch = profile.whistlePitch ?? DEFAULT_WHISTLE_PITCH;
+    whistle.frequency.setTargetAtTime(whistlePitch * (1600 + r * 4200), now, 0.2);
     whistleGain.gain.setTargetAtTime(boost * 0.012, now, 0.3);
 
-    if (profile.turbo && vehicle && lastThrottle > 0.5 && throttle < 0.5 && r > BOV_MIN_RPM_FRAC) blowOff(now);
+    const hasBlowOff = profile.blowOff ?? profile.turbo;
+    if (hasBlowOff && vehicle && lastThrottle > 0.5 && throttle < 0.5 && r > BOV_MIN_RPM_FRAC) blowOff(now);
     lastThrottle = throttle;
   }
 

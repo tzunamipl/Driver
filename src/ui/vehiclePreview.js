@@ -4,18 +4,12 @@
 import * as THREE from 'three';
 import { createRemoteCar } from '../lib/car.js';
 import { getVehicle } from '../lib/vehicles/index.js';
+import { driveLabel } from '../lib/car/axles.js';
 
 const SPIN_RAD_PER_S = 0.6;
 const CAMERA_FOV_DEG = 30;
 const CAMERA_DIR = new THREE.Vector3(0.75, 0.38, 1).normalize(); // front-right quarter, slightly above
 const G = 9.81;
-
-function driveLabel(driveWheels = [2, 3]) {
-  const front = driveWheels.some((i) => i < 2);
-  const rear = driveWheels.some((i) => i >= 2);
-  if (front && rear) return 'AWD';
-  return front ? 'FWD' : 'RWD';
-}
 
 /** [label, value] rows describing a vehicle. */
 export function vehicleStats(d) {
@@ -32,9 +26,9 @@ export function vehicleStats(d) {
   return [
     ['Power', `${d.enginePowerHp} hp`],
     ['Torque', `${d.peakTorqueNm} Nm`],
-    ['Mass', `${d.mass} kg`],
-    ['Power/wt', `${Math.round(d.enginePowerHp / (d.mass / 1000))} hp/t`],
-    ['Drive', `${driveLabel(d.driveWheels)} · ${d.gearRatios?.length ?? '?'} gears`],
+    ['Mass', `${d.mass + (d.trailer?.mass ?? 0)} kg`],
+    ['Power/wt', `${Math.round(d.enginePowerHp / ((d.mass + (d.trailer?.mass ?? 0)) / 1000))} hp/t`],
+    ['Drive', `${driveLabel(d)} · ${d.gearRatios?.length ?? '?'} gears`],
   ];
 }
 

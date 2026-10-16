@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { createGlossyMaterial, createPaintMaterial } from './paint.js';
 import { DEFAULT_BODY_COLOR } from '../../../config.js';
 
-// Shared low-poly 1993-2000 Subaru Impreza body; gl.js (wagon) and gc8.js
-// (sedan) supply the rear profile and details. Modelled in metres for a
-// 1.8 x 4 m chassis and scaled to the requested size; wheels sit at z = ±1.3.
-// Overhangs run past the 4 m chassis to keep the real car's long, low stance.
+// Shared low-poly 1993-2000 Subaru Impreza body; gl.js (wagon), gc8.js
+// (sedan) and impreza22b.js (widebody coupe) supply the rear profile and
+// details. Modelled in metres for a 1.8 x 4 m chassis and scaled to the
+// requested size; wheels sit at z = ±1.3. Overhangs run past the 4 m chassis
+// to keep the real car's long, low stance.
 
 const REF_WIDTH = 1.8;
 const REF_LENGTH = 4;
@@ -22,6 +23,15 @@ const BODY_BOTTOM = [
 const BODY_HALF_WIDTH = [
     [2.22, 0.76], [2.15, 0.84], [1.9, 0.9], [-1.9, 0.9], [-2.12, 0.84], [-2.17, 0.8],
 ];
+// Lower-shell outline for lowerBodyGeometry: loft stations at the nose/tail plus
+// a semicircular wheel arch around each axle.
+const IMPREZA_SHELL = {
+    bottom: BODY_BOTTOM,
+    halfWidth: BODY_HALF_WIDTH,
+    noseZ: [2.22, 2.17, 2.05],
+    tailZ: [-2.05, -2.12, -2.17],
+    arch: { z: ARCH_Z, y: ARCH_Y, r: ARCH_R },
+};
 
 // Right headlight as [bottom, top] columns sitting just proud of the nose:
 // narrow inner tip, taller outer end wrapping round the corner onto the side.
@@ -54,7 +64,7 @@ export function lerpTable(table, z) {
  * Lofts rings (one per station, all with the same point count) into a
  * flat-shaded shell with end caps. Rings must run clockwise seen from +z.
  */
-function loft(rings, segmentGroup = () => 0) {
+export function loft(rings, segmentGroup = () => 0) {
     const groups = [[], []];
     const tri = (g, a, b, c) => groups[g].push(...a, ...b, ...c);
     const n = rings[0].length;
@@ -87,20 +97,22 @@ function loft(rings, segmentGroup = () => 0) {
     return geometry;
 }
 
-function lowerBodyGeometry(bodyTop) {
+/** Lower body shell (material groups: 0 paint, 1 underside), top edge following `bodyTop`. */
+export function lowerBodyGeometry(bodyTop, shell = IMPREZA_SHELL) {
+    const { r, y } = shell.arch;
     const arch = (cz) => Array.from({ length: 5 }, (_, k) => {
         const t = (k / 4) * Math.PI;
-        return { z: cz + ARCH_R * Math.cos(t), yb: ARCH_Y + ARCH_R * Math.sin(t) };
+        return { z: cz + r * Math.cos(t), yb: y + r * Math.sin(t) };
     });
     const stations = [
-        ...[2.22, 2.17, 2.05].map((z) => ({ z })),
-        ...arch(ARCH_Z),
-        ...arch(-ARCH_Z),
-        ...[-2.05, -2.12, -2.17].map((z) => ({ z })),
+        ...shell.noseZ.map((z) => ({ z })),
+        ...arch(shell.arch.z),
+        ...arch(-shell.arch.z),
+        ...shell.tailZ.map((z) => ({ z })),
     ];
-    const rings = stations.map(({ z, yb = lerpTable(BODY_BOTTOM, z) }) => {
+    const rings = stations.map(({ z, yb = lerpTable(shell.bottom, z) }) => {
         const yt = lerpTable(bodyTop, z);
-        const w = lerpTable(BODY_HALF_WIDTH, z);
+        const w = lerpTable(shell.halfWidth, z);
         const sh = Math.min(0.07, (yt - yb) * 0.35);
         return [
             [-w, yb], [-w, yt - sh], [-w + 0.06, yt],
@@ -121,7 +133,7 @@ function lowerBodyGeometry(bodyTop) {
  *   rearFrame     [z0, z1] segments of the body-colour rear window frame
  *   blackPillars  front-top z of each blacked-out pillar
  *   sealEndZ      where the black belt seal stops
- *   frontPlate    optional [x, y] of the front number plate (default centred)
+ *   bodyHalfWidth optional lower-body half width, [z, x] descending (widebody)
  *   decorate(kit) variant-specific details
  */
 export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLOR, style) {
@@ -148,8 +160,8 @@ export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BO
         glass: createGlossyMaterial({ color: 0x18222c, metalness: 0.5, roughness: 0.15, flatShading: true }),
         trim: new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.8 }),
         plate: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.6 }),
-        light: createGlossyMaterial({ color: 0xfff0c8, emissive: 0x403418, roughness: 0.2 }),
-        tail: createGlossyMaterial({ color: 0x9a1016, emissive: 0x2a0000, roughness: 0.3 }),
+        light: createGlossyMaterial({ color: 0xfff0c8, emissive: 0x403418, roughness: 0.2, userData: { lamp: 'head' } }),
+        tail: createGlossyMaterial({ color: 0x9a1016, emissive: 0x2a0000, roughness: 0.3, userData: { lamp: 'tail' } }),
     };
     const { body: bodyMat, glass: glassMat, trim: trimMat } = materials;
 
@@ -222,7 +234,8 @@ export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BO
     };
 
     // Shell
-    add(lowerBodyGeometry(bodyTop), [bodyMat, trimMat]);
+    const shell = style.bodyHalfWidth ? { ...IMPREZA_SHELL, halfWidth: style.bodyHalfWidth } : IMPREZA_SHELL;
+    add(lowerBodyGeometry(bodyTop, shell), [bodyMat, trimMat]);
     const cabinRings = roofTable.map(([z, yt]) => {
         const yb = belt(z);
         const wb = cabinHalfWidth(yb, z);
@@ -264,8 +277,7 @@ export function buildImprezaBody(chassisWidth, chassisLength, color = DEFAULT_BO
     ribbon(HEADLIGHT.map((column) => column.map(([x, y, z]) => [-x, y, z])).reverse(), materials.light);
     ribbon(GRILLE, trimMat);
     box(0.62, 0.06, 0.03, trimMat, 0, -0.27, 2.2);                   // lower intake
-    const [plateX, plateY] = style.frontPlate ?? [0, -0.12];
-    box(0.52, 0.11, 0.012, materials.plate, plateX, plateY, 2.23);
+    box(0.52, 0.11, 0.012, materials.plate, 0, -0.12, 2.23);
 
     style.decorate({ add, box, beam, materials, roof, belt });
 

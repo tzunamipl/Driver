@@ -11,14 +11,14 @@
 
 import * as CANNON from 'cannon-es';
 import { CHASSIS_MATERIAL } from './car.js';
+import { getVehicle } from './vehicles/index.js';
 
-// Same outer size as the local chassis. A box, not the local car's eight
+// Same outer size as the local chassis (or the descriptor's proxyBox:
+// [width, height, length, zOffset]). A box, not the local car's eight
 // corner spheres: those leave a gap down the middle, and a head-on hit
 // slips through. Sphere-vs-box is implemented; the box never touches the
 // terrain trimesh because of the mask above.
-const CHASSIS_WIDTH = 1.8;
-const CHASSIS_HEIGHT = 0.6;
-const CHASSIS_LENGTH = 4;
+const DEFAULT_PROXY_BOX = [1.8, 0.6, 4, 0];
 
 export const REMOTE_CAR_GROUP = 8;
 export const BULLET_COLLISION_GROUP = 32;
@@ -44,8 +44,12 @@ export function createRemoteCollisions(world) {
     for (const pose of poses) {
       seen.add(pose.id);
       let body = bodies.get(pose.id);
+      if (body && body.vehicleId !== pose.vehicleId) {
+        world.removeBody(body);
+        body = null;
+      }
       if (!body) {
-        body = createProxyBody();
+        body = createProxyBody(pose.vehicleId);
         world.addBody(body);
         bodies.set(pose.id, body);
       }
@@ -61,7 +65,7 @@ export function createRemoteCollisions(world) {
   return { sync };
 }
 
-function createProxyBody() {
+function createProxyBody(vehicleId) {
   const body = new CANNON.Body({
     mass: 150,
     type: CANNON.Body.KINEMATIC,
@@ -70,7 +74,9 @@ function createProxyBody() {
     collisionFilterMask: LOCAL_CHASSIS_GROUP | BULLET_COLLISION_GROUP,
     allowSleep: false,
   });
-  body.addShape(new CANNON.Box(new CANNON.Vec3(CHASSIS_WIDTH / 2, CHASSIS_HEIGHT / 2, CHASSIS_LENGTH / 2)));
+  const [width, height, length, zOffset] = getVehicle(vehicleId).proxyBox ?? DEFAULT_PROXY_BOX;
+  body.addShape(new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, length / 2)), new CANNON.Vec3(0, 0, zOffset));
+  body.vehicleId = vehicleId;
   return body;
 }
 

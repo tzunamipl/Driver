@@ -6,9 +6,18 @@ const MS_PER_DAY = 86_400_000;
 const UNIX_EPOCH_JD = 2440587.5;
 const J2000_JD = 2451545.0;
 
+function daysSinceJ2000(timeMs) {
+  return timeMs / MS_PER_DAY + UNIX_EPOCH_JD - J2000_JD;
+}
+
+/** Local sidereal time (rad) for `timeMs` (Unix ms) at longitude `lon` (deg). */
+export function localSiderealRad(timeMs, lon) {
+  return ((18.697374558 + 24.06570982441908 * daysSinceJ2000(timeMs)) * 15 + lon) * DEG;
+}
+
 /** Unit vector to the sun as { east, north, up } for `timeMs` (Unix ms) at lat/lon (deg). */
 export function sunDirection(timeMs, lat, lon) {
-  const d = timeMs / MS_PER_DAY + UNIX_EPOCH_JD - J2000_JD;
+  const d = daysSinceJ2000(timeMs);
 
   const meanAnomaly = (357.529 + 0.98560028 * d) * DEG;
   const meanLongitude = 280.459 + 0.98564736 * d;
@@ -18,8 +27,7 @@ export function sunDirection(timeMs, lat, lon) {
   const rightAscension = Math.atan2(Math.cos(obliquity) * Math.sin(eclipticLon), Math.cos(eclipticLon));
   const declination = Math.asin(Math.sin(obliquity) * Math.sin(eclipticLon));
 
-  const siderealDeg = (18.697374558 + 24.06570982441908 * d) * 15 + lon;
-  const hourAngle = siderealDeg * DEG - rightAscension;
+  const hourAngle = localSiderealRad(timeMs, lon) - rightAscension;
 
   const latRad = lat * DEG;
   const sinDec = Math.sin(declination);

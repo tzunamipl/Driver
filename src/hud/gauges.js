@@ -16,8 +16,9 @@ const ODO_TELEPORT_M = 20;
  * @param {number} [options.initialKm] - odometer reading to resume from
  *   (e.g. restored from a previous session - see src/lib/carState.js),
  *   instead of always starting back at zero.
+ * @param {() => void} [options.onLightsClick] - dash headlight lamp clicked
  */
-export function createGaugesHud({ initialKm = 0 } = {}) {
+export function createGaugesHud({ initialKm = 0, onLightsClick } = {}) {
   const speedoNeedle = document.getElementById('speedo-needle');
   const speedoValue = document.getElementById('speedo-value');
   const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), initialKm);
@@ -28,8 +29,17 @@ export function createGaugesHud({ initialKm = 0 } = {}) {
   const tachTicks = document.getElementById('tach-ticks');
   let tachTicksRedline = -1; // redlineRpm the ticks were last built for
   const handbrakeIcon = document.getElementById('handbrake-icon');
+  const lightsIcon = document.getElementById('lights-icon');
+  if (onLightsClick) lightsIcon?.addEventListener('click', onLightsClick);
+  let lightsShown = null;
 
-  function updateGauges(chassisMesh, vehicle, handbrake) {
+  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false) {
+    const lights = !!vehicle && lightsOn;
+    if (lights !== lightsShown) {
+      lightsShown = lights;
+      lightsIcon?.classList.toggle('on', lights);
+      lightsIcon?.setAttribute('aria-pressed', String(lights));
+    }
     handbrakeIcon?.classList.toggle('on', !!vehicle && !!handbrake?.on);
     handbrakeIcon?.classList.toggle('latched', !!vehicle && !!handbrake?.latched);
     if (!chassisMesh || !vehicle) {

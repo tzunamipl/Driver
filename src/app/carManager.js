@@ -1,13 +1,13 @@
 import { createCar, createRemoteCar } from '../lib/car.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
-import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
+import { DEFAULT_VEHICLE_ID, getVehicle } from '../lib/vehicles/index.js';
 import { DEFAULT_BODY_COLOR } from '../config.js';
 import { applyImpactRoll } from './collisions.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, playerSpawnPos, startQuat, playerSpawnQuat }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, impactSound, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -29,20 +29,28 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
 
   function hookCar(nextVehicle, mesh) {
-    nextVehicle.chassisBody.addEventListener('collide', (event) => {
+    const onCollide = (body) => (event) => {
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
-        applyImpactRoll(nextVehicle.chassisBody, event.contact);
+        applyImpactRoll(body, event.contact);
+        impactSound?.play(Math.abs(event.contact.getImpactVelocityAlongNormal()));
         return;
       }
       // Ground contact: body dust scaled by impact speed.
       if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP && bodyDust) {
         const contact = event.contact;
-        const chassis = nextVehicle.chassisBody;
-        // From the chassis centre, so it reads as the body, not the wheels.
+        const chassis = body;
+        // From the body centre, so it reads as the body, not the wheels.
         bodyDust.onGroundContact(chassis.position, Math.abs(contact.getImpactVelocityAlongNormal()), chassis.velocity);
       }
-    });
-    pedestrians.bindChassis(nextVehicle.chassisBody, nextVehicle.wheelHitboxBodies ?? []);
+    };
+    // Extra bodies (a trailer) get the same building/ground responses.
+    for (const body of [nextVehicle.chassisBody, ...(nextVehicle.extraBodies ?? [])]) {
+      body.addEventListener('collide', onCollide(body));
+    }
+    pedestrians.bindChassis(nextVehicle.chassisBody, [
+      ...(nextVehicle.wheelHitboxBodies ?? []),
+      ...(nextVehicle.extraBodies ?? []),
+    ]);
     // No name tag on our own car (others render their own copy).
   }
 
@@ -91,7 +99,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       currentColor,
       currentVehicleId
     ));
-    vehicle.chassisBody.velocity.copy(velocity);
+    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
   }
@@ -112,7 +120,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       currentColor,
       currentVehicleId
     ));
-    vehicle.chassisBody.velocity.copy(velocity);
+    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
   }
@@ -138,11 +146,13 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       let remote = remotes.get(pose.id);
       if (!remote) {
         remote = createRemoteCar(scene, pose.color, pose.name, pose.score ?? 0, pose.vehicleId);
+        remote.wheeled = getVehicle(pose.vehicleId).vehicleType !== 'hover';
         remotes.set(pose.id, remote);
       } else {
         remote.setAppearance(pose.color, pose.name, pose.score ?? 0);
       }
       remote.setPose(pose, dt);
+      remote.lights = pose.lights;
     }
     for (const [id, remote] of remotes) {
       if (seen.has(id)) continue;
@@ -166,6 +176,13 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     }
   }
 
+  /** Remote cars for the headlights pass; `defaultOn` covers peers that don't send a light state. */
+  function getRemoteLights(defaultOn) {
+    const list = [];
+    for (const remote of remotes.values()) list.push({ mesh: remote.mesh, wheeled: remote.wheeled, on: remote.lights ?? defaultOn });
+    return list;
+  }
+
   function addScore(delta) {
     score += delta;
   }
@@ -181,6 +198,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     setVehicleKind,
     setColor,
     updateRemotes,
+    getRemoteLights,
     shiftOrigin,
     addScore,
     setLocalName,

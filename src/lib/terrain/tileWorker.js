@@ -173,7 +173,7 @@ self.onmessage = async ({ data: job }) => {
   const [elev, bitmap, roadLines] = await Promise.all([
     elevation ? loadElevation(z, x, y, elevationBorder) : null,
     aerialBoost != null ? loadAerial(z, x, y, aerialBoost, controller.signal).catch(() => null) : null,
-    detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters) : null,
+    detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters, detail.widthMeters / detail.cells) : null,
   ]);
   controllers.delete(id);
   if (controller.signal.aborted) {
@@ -192,8 +192,9 @@ self.onmessage = async ({ data: job }) => {
       self.postMessage({ id, elev: { error: String(err) }, bitmap, surface: null }, transfer);
       return;
     }
-    const { mesh, heightfield } = surface;
+    const { mesh, heightfield, roadProfile } = surface;
     transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
+    transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer);
     self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, bitmap, surface }, transfer);
     return;
   }

@@ -74,9 +74,10 @@ function flashViewLabel(label) {
 
 /**
  * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }),
+ * groundHeightAt(x, z) -> y | null keeps the drone view above terrain and roofs;
  * with .cycleView/.setView/.getViewId/.getViews attached.
  */
-export function createCameraFollow(camera) {
+export function createCameraFollow(camera, { groundHeightAt = () => null } = {}) {
   const tmpVec = new THREE.Vector3();
   const tmpOffsetVec = new THREE.Vector3();
   const tmpLookOffsetVec = new THREE.Vector3();
@@ -97,6 +98,7 @@ export function createCameraFollow(camera) {
   let smoothedPitch = 0;
   let smoothedPitchInit = false;
   let smoothedCloseScale = 1;
+  let droneSweep = null; // side-to-side sweep phase; null = just switched to the drone
 
   let viewId = loadSavedViewId() ?? DEFAULT_CAMERA_VIEW_ID;
   // Current vehicle's vehicleType, refreshed each frame, used to filter
@@ -121,6 +123,7 @@ export function createCameraFollow(camera) {
     smoothedYawInit = false;
     smoothedPitchInit = false;
     smoothedCloseScale = 1;
+    droneSweep = null;
   }
 
   function setView(id) {
@@ -157,9 +160,128 @@ export function createCameraFollow(camera) {
     camera.lookAt(tmpVec);
   }
 
+  const droneVel = new THREE.Vector3();
+  const droneTmp = new THREE.Vector3();
+  const droneLookOffset = new THREE.Vector3();
+  // Lagged picture of the car the drone flies by: horizontal velocity, heading,
+  // and position kept as an offset from the car (no floating-origin shift needed).
+  const droneRefVel = new THREE.Vector3();
+  const droneRefOffset = new THREE.Vector3();
+  const droneRefPos = new THREE.Vector3();
+  let droneRefYaw = 0;
+  let droneTime = 0;
+  // Random phases so each session wanders differently.
+  const dronePhases = Array.from({ length: 15 }, () => Math.random() * Math.PI * 2);
+  /** Smooth pseudo-random signal in [-1, 1] from three incommensurate slow sines. */
+  function droneNoise(channel) {
+    const p = dronePhases;
+    const i = channel * 3;
+    return (
+      Math.sin(droneTime * 0.13 + p[i]) * 0.5 +
+      Math.sin(droneTime * 0.071 + p[i + 1]) * 0.3 +
+      Math.sin(droneTime * 0.037 + p[i + 2]) * 0.2
+    );
+  }
+
+  /** Free-flying drone steered toward a point sweeping round the car; speed narrows the sweep behind it. */
+  function updateDrone(delta, view, carPos, vel, cameraScale, lookAtSpeed) {
+    droneTime += delta;
+
+    if (droneSweep === null) {
+      droneSweep = Math.random() * Math.PI * 2;
+      droneVel.set(vel.x, vel.y, vel.z); // take off from wherever the previous view left the camera
+      droneRefVel.set(vel.x, 0, vel.z);
+      droneRefOffset.set(0, 0, 0);
+      droneRefYaw = smoothedYaw;
+    }
+
+    // Reacts to the car about `reactionTime` late: velocity and heading ease toward the
+    // car's, the reference position runs on that velocity and drifts back onto the car.
+    const react = 1 - Math.exp(-delta / view.reactionTime);
+    droneRefOffset.x += (droneRefVel.x - vel.x) * delta;
+    droneRefOffset.z += (droneRefVel.z - vel.z) * delta;
+    droneRefOffset.multiplyScalar(1 - react);
+    droneRefVel.x += (vel.x - droneRefVel.x) * react;
+    droneRefVel.z += (vel.z - droneRefVel.z) * react;
+    droneRefYaw += Math.atan2(Math.sin(smoothedYaw - droneRefYaw), Math.cos(smoothedYaw - droneRefYaw)) * react;
+    const refPos = droneRefPos.copy(carPos).add(droneRefOffset);
+
+    const speed = Math.hypot(droneRefVel.x, droneRefVel.z);
+    const follow = THREE.MathUtils.smoothstep(speed, view.followMinSpeed, view.followMaxSpeed);
+
+    // Keeps sweeping from one side of the car to the other at a drifting pace,
+    // around the rear when fast, all the way round to the front when slow.
+    droneSweep += view.sweepRate * (1 + 0.5 * droneNoise(0)) * delta;
+    const swing =
+      THREE.MathUtils.lerp(view.sideSwingSlow, view.sideSwingFast, follow) * (0.8 + 0.2 * droneNoise(4));
+    const angle = droneRefYaw + Math.PI + swing * Math.sin(droneSweep);
+
+    // Occasional swoop: this channel's peaks bring it low and close.
+    const swoop = THREE.MathUtils.smoothstep(droneNoise(3), 0.35, 0.75);
+    const radius =
+      THREE.MathUtils.lerp(view.orbitRadius, view.followDistance, follow) *
+      (1 + view.radiusWander * droneNoise(1)) *
+      THREE.MathUtils.lerp(1, view.swoopRadius, swoop) *
+      cameraScale;
+    const height = THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(view.orbitHeight, view.followHeight, follow) * (1 + view.heightWander * droneNoise(2)) * cameraScale,
+      view.swoopHeight,
+      swoop
+    );
+    const target = tmpVec.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius).add(refPos);
+    target.y = carPos.y + height; // vertical stays on the real car so it never sinks below a drop
+
+    // Respawn/teleport or first use from far away: jump there.
+    if (camera.position.distanceToSquared(target) > 300 * 300) {
+      droneRefOffset.set(0, 0, 0);
+      droneRefVel.set(vel.x, 0, vel.z);
+      target.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius).add(carPos);
+      camera.position.copy(target);
+      droneVel.set(vel.x, vel.y, vel.z);
+    }
+
+    // Steers toward the target on its own; only at speed does it inherit the car's velocity
+    // (else it couldn't keep up). Acceleration-limited so it drifts like a body.
+    const desired = droneTmp.subVectors(target, camera.position).multiplyScalar(view.steer);
+    desired.clampLength(0, view.maxOwnSpeed);
+    const carry = THREE.MathUtils.lerp(view.carryMin, 1, THREE.MathUtils.smoothstep(speed, 0, view.carryFullSpeed));
+    desired.x += droneRefVel.x * carry;
+    desired.y += vel.y; // always fall/climb with the car or it's left hanging above a drop
+    desired.z += droneRefVel.z * carry;
+    const accel = desired.sub(droneVel).clampLength(0, view.maxAccel * delta);
+    droneVel.add(accel);
+    camera.position.addScaledVector(droneVel, delta);
+    // Ground under it and slightly ahead along its flight, so it climbs before a slope.
+    const pos = camera.position;
+    const groundHere = groundHeightAt(pos.x, pos.z);
+    const groundAhead = groundHeightAt(pos.x + droneVel.x * 0.5, pos.z + droneVel.z * 0.5);
+    const ground = Math.max(groundHere ?? -Infinity, groundAhead ?? -Infinity);
+    const floor = (Number.isFinite(ground) ? ground : carPos.y) + view.groundClearance;
+    if (pos.y < floor) {
+      camera.position.y = floor;
+      if (droneVel.y < 0) droneVel.y = 0;
+    }
+
+    // Aim at the car, shifting ahead along its travel as follow rises. Only the
+    // offset from the car is smoothed, so the aim never lags a falling car.
+    const lookOffset = tmpLeadLook.set(Math.sin(droneRefYaw), 0, Math.cos(droneRefYaw));
+    lookOffset.multiplyScalar(view.lookAhead * follow * cameraScale);
+    lookOffset.y += 1;
+    if (!smoothedLookAtInit) {
+      droneLookOffset.copy(lookOffset);
+      smoothedLookAtInit = true;
+    } else {
+      droneLookOffset.lerp(lookOffset, 1 - Math.exp(-lookAtSpeed * delta));
+    }
+    smoothedLookAt.copy(carPos).add(droneLookOffset);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(smoothedLookAt);
+  }
+
   const updateCamera = function updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }) {
     if (!chassisMesh || !vehicle) return;
-    currentVehicleType = getVehicle(vehicleId)?.vehicleType; // vehicle can change mid-drive
+    const descriptor = getVehicle(vehicleId);
+    currentVehicleType = descriptor?.vehicleType; // vehicle can change mid-drive
     const { view, offset, lookAtOffset, positionSpeed, lookAtSpeed } = activeParams();
 
     if (view.rigid) {
@@ -167,12 +289,15 @@ export function createCameraFollow(camera) {
       // aim at the centre engine (the pod's own facing lags it).
       const mountMesh = view.mountPoint === 'pod' && podMesh ? podMesh : chassisMesh;
       const lookAtMesh = view.lookAtTarget === 'chassis' ? chassisMesh : null;
-      updateRigid(view, mountMesh, lookAtMesh);
+      // Big vehicles move rigid mounts (cab height) via descriptor.cameraMounts[viewId].
+      updateRigid({ ...view, ...descriptor?.cameraMounts?.[view.id] }, mountMesh, lookAtMesh);
       return;
     }
 
-    const cameraOffset = tmpOffsetVec.set(offset[0], offset[1], offset[2]);
-    const cameraLookOffset = tmpLookOffsetVec.set(lookAtOffset[0], lookAtOffset[1], lookAtOffset[2]);
+    // Chase views pull back for long vehicles (descriptor.cameraScale).
+    const cameraScale = descriptor?.cameraScale ?? 1;
+    const cameraOffset = tmpOffsetVec.set(offset[0], offset[1], offset[2]).multiplyScalar(cameraScale);
+    const cameraLookOffset = tmpLookOffsetVec.set(lookAtOffset[0], lookAtOffset[1], lookAtOffset[2]).multiplyScalar(cameraScale);
 
     const carPos = chassisMesh.position;
     const carQuat = chassisMesh.quaternion;
@@ -206,6 +331,11 @@ export function createCameraFollow(camera) {
       smoothedYaw += yawDiff * yawFactor;
     }
     yawQuat.setFromAxisAngle(upVec, smoothedYaw);
+
+    if (view.drone) {
+      updateDrone(delta, view, carPos, vehicle.chassisBody.velocity, cameraScale, lookAtSpeed);
+      return;
+    }
 
     // Pitch from the velocity's slope, clamped and smoothed; level when slow.
     const vel = vehicle.chassisBody.velocity;

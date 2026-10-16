@@ -106,8 +106,10 @@ export function createNet({ clientId } = {}) {
       qw: pose.qw,
       speed: pose.speed,
       steer: pose.steer,
+      trailerQuat: pose.trailerQuat,
       score: sanitizeScore(pose.score),
       horn: sanitizeHorn(pose.horn),
+      lights: pose.lights ? 1 : 0,
     }, false);
   }
 
@@ -153,7 +155,10 @@ export function createNet({ clientId } = {}) {
       qw: msg.qw,
       speed: Number.isFinite(msg.speed) ? msg.speed : 0,
       steer: Number.isFinite(msg.steer) ? msg.steer : 0,
+      trailerQuat: sanitizeQuat(msg.trailerQuat),
       horn: sanitizeHorn(msg.horn),
+      // null = sender predates headlights; the receiver falls back to its own night state.
+      lights: msg.lights === 1 ? true : msg.lights === 0 ? false : null,
     };
     const last = peer.samples[peer.samples.length - 1];
     if (last) {
@@ -321,8 +326,21 @@ function interpolate(samples, renderT) {
     qw: quat.w,
     speed: a.speed + (b.speed - a.speed) * u,
     steer: a.steer + (b.steer - a.steer) * u,
+    trailerQuat: interpolateTrailerQuat(a.trailerQuat, b.trailerQuat, u),
     horn: (a.horn || 0) + ((b.horn || 0) - (a.horn || 0)) * u,
+    lights: b.lights,
   };
+}
+
+/** [x, y, z, w] or null. */
+function sanitizeQuat(q) {
+  return Array.isArray(q) && q.length === 4 && q.every(Number.isFinite) ? q : null;
+}
+
+function interpolateTrailerQuat(a, b, u) {
+  if (!a || !b) return b ?? a;
+  const q = slerpQuat({ qx: a[0], qy: a[1], qz: a[2], qw: a[3] }, { qx: b[0], qy: b[1], qz: b[2], qw: b[3] }, u);
+  return [q.x, q.y, q.z, q.w];
 }
 
 function slerpQuat(a, b, t) {

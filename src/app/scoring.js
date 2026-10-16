@@ -118,7 +118,7 @@ export function createScoring({
 
     const wheels = vehicle.wheelInfos;
     if (wheels.some((wheel) => isWheelGrounded(world, wheel))) hasLanded = true;
-    if (!hasLanded || wheels.length === 0) return;
+    if (!hasLanded || wheels.length === 0 || vehicle.scoresAirtime === false) return;
 
     const airborne =
       wheels.every((wheel) => !isWheelGrounded(world, wheel)) &&

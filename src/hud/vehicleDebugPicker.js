@@ -1,11 +1,12 @@
 // Debug-view vehicle/colour picker (dev mode has no lobby): swaps the car
 // live via carManager, broadcasts via net, and persists the pick to
-// DEV_CAR_STORAGE_KEY for the next dev-mode join.
+// DEV_CAR_STORAGE_KEY for the next dev-mode join. Switching vehicles always
+// starts from the vehicle's default colour.
 
 import { createVehiclePicker } from '../ui/vehiclePicker.js';
 import { DEFAULT_BODY_COLOR, DEV_CAR_STORAGE_KEY } from '../config.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
-import { getVehicleColor, setVehicleColor } from '../lib/vehicleColors.js';
+import { defaultVehicleColor } from '../lib/vehicleColors.js';
 
 /** Saved dev-mode car/colour pick, if any. */
 export function loadDevCarChoice() {
@@ -48,7 +49,7 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
     listEl,
     initialVehicleId: initialVehicleId ?? carManager.getVehicleId(),
     onSelect: (vehicleId) => {
-      const color = getVehicleColor(vehicleId);
+      const color = defaultVehicleColor(vehicleId);
       carManager.setVehicleKind(vehicleId, color);
       net.setVehicleId(vehicleId);
       net.setColor(color);
@@ -66,7 +67,6 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
       const vehicleId = carManager.getVehicleId() ?? DEFAULT_VEHICLE_ID;
       carManager.setColor(color);
       net.setColor(color);
-      setVehicleColor(vehicleId, color);
       saveDevCarChoice(color, vehicleId);
     });
   }

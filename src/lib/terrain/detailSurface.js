@@ -9,13 +9,14 @@ import { createTileHeights } from './roadBed.js';
 
 /**
  * @returns {{ mesh: object, cols: number, rows: number,
- *   heightfield: { heights: Float32Array, cols: number, rows: number, elementSize: number } }}
+ *   heightfield: { heights: Float32Array, cols: number, rows: number, elementSize: number },
+ *   roadProfile: { original: Float32Array, adjusted: Float32Array } }}
  *   `heightfield.heights` is row-major from the north edge, square, and
  *   may overshoot the east/south edge.
  */
 export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMeters, cells, skirtDepth, lines }) {
-  const { evaluateGrid } = createTileHeights({ elev, heightOffset, widthMeters, heightMeters, lines });
   const step = widthMeters / cells;
+  const { evaluateGrid, profileLines } = createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters: step, lines });
   const lastRow = Math.ceil(heightMeters / step - 1e-6) - 1; // last whole-step row inside the tile
   const cols = cells; // cells across
   const rows = lastRow + 1; // cells down (incl. the partial one at the south edge)
@@ -66,5 +67,6 @@ export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMete
     cols,
     rows,
     heightfield: { heights, cols: size, rows: size, elementSize: step },
+    roadProfile: profileLines(),
   };
 }

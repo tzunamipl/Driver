@@ -200,6 +200,7 @@ function createPodRacerVehicle(engineCount, { id, name, engineThrustForce, mass 
     category: 'chariots-of-fire',
     defaultColor: DEFAULT_BODY_COLOR,
     vehicleType: 'hover', // car.js dispatches to chariot.js
+    scoresAirtime: false,
     engineCount,
     engineThrustForce: engineThrustForce ?? ENGINE_THRUST_FORCE,
     mass: mass ?? MASS,

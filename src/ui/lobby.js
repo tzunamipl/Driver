@@ -63,6 +63,8 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     tabsEl: vehicleTabsEl,
     listEl: vehicleListEl,
     onSelect: (id) => {
+      // A newly picked vehicle starts in its own paint; repaint before joining to keep another.
+      draftColors.set(id, defaultVehicleColor(id));
       vehiclePreview.setVehicle(id);
       showVehicleColor();
     },

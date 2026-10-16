@@ -48,7 +48,7 @@ export function createHorn() {
     if (!audio || localGain) return;
     localGain = audio.createGain();
     localGain.gain.value = 0;
-    localGain.connect(output());
+    localGain.connect(getAudio().buses.carSfx);
     tonePair(localGain);
   }
 

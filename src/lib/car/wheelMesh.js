@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { tyreOffsets } from './axles.js';
 
 const DEFAULT_WHEEL_RADIUS = 0.4;
 
@@ -54,4 +55,15 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
 
   parent.add(group);
   return group;
+}
+
+/** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set. */
+export function buildWheelSet(descriptor, parent, dual = false) {
+  const tyreWidth = (descriptor.tyre ?? 225) / 1000;
+  const offsets = tyreOffsets(tyreWidth, dual);
+  if (offsets.length === 1) return buildWheelMesh(descriptor, parent);
+  const set = new THREE.Group();
+  for (const x of offsets) buildWheelMesh(descriptor, set).position.x = x;
+  parent.add(set);
+  return set;
 }

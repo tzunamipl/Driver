@@ -9,9 +9,10 @@ import hood from './hood.js';
 import rearSide from './rearSide.js';
 import side from './side.js';
 import pod from './pod.js';
+import drone from './drone.js';
 
 // Cycle order.
-export const CAMERA_VIEWS = [chase, close, far, hood, rearSide, side, pod];
+export const CAMERA_VIEWS = [chase, close, far, hood, rearSide, side, pod, drone];
 
 export const DEFAULT_CAMERA_VIEW_ID = chase.id;
 

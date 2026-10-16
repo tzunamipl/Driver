@@ -237,3 +237,22 @@
 }
 #handbrake-icon.on { color: #ff3b3b; }
 #handbrake-icon.latched { filter: drop-shadow(0 0 4px #ff3b3b); }
+/* Low-beam lamp: dim when off, green while on; clickable (touch) unlike the rest of the dash. */
+#lights-icon {
+  position: absolute;
+  left: 79%;
+  top: 54%;
+  width: 30px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: rgba(255, 255, 255, 0.18);
+  pointer-events: auto;
+  cursor: pointer;
+}
+#lights-icon .lamp { fill: currentColor; fill-opacity: 0.25; }
+#lights-icon.on { color: #3ee36b; filter: drop-shadow(0 0 4px #3ee36b); }

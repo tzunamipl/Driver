@@ -1,3 +1,4 @@
+import { carAxles } from '../car/axles.js';
 import { buildBody } from './geometry/rally.js';
 
 export default {
@@ -38,5 +39,5 @@ export default {
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.75, side: 2.0, rear: 1.2 },
-  driveWheels: [0, 1, 2, 3],
+  axles: carAxles('awd'),
 };

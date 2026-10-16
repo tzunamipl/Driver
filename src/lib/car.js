@@ -23,15 +23,14 @@ import {
   CHASSIS_WIDTH,
   CHASSIS_HEIGHT,
   CHASSIS_LENGTH,
-  AXLE_HALF_WIDTH,
-  WHEEL_FRONT_Z,
-  WHEEL_BACK_Z,
   fitChassisHitbox,
   createChassisBody,
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelMesh } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet } from './car/wheelMesh.js';
+import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
+import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
 
 export { CHASSIS_MATERIAL, createNameTag };
@@ -39,18 +38,20 @@ export { CHASSIS_MATERIAL, createNameTag };
 const DEFAULT_BODY_COLOR = 0xffffff;
 // Descriptor fallbacks (each vehicle normally sets its own).
 const DEFAULT_CHASSIS_MASS = 1500; // kg
+const DEFAULT_TRAILER_MASS = 5000; // kg
 const DEFAULT_BRAKE_FORCE = 100;
-const DEFAULT_DRIVE_WHEELS = [2, 3]; // RWD
 const DEFAULT_ABS = true;
 const DEFAULT_STEER_SPEED_D = 0.1;
 // Suspension force cap as a multiple of static per-wheel load. Caps grip on
 // hard landings so the car slides instead of snapping straight in one step.
 const DEFAULT_SUSPENSION_FORCE_G = 8;
-const WHEELS_PER_VEHICLE = 4;
+// Descriptor spring/damper rates are for this many wheels; more wheels share them.
+const REFERENCE_WHEEL_COUNT = 4;
 // Legacy flat engine force (N/hp); only used by rigs without engine.js.
 const FORCE_PER_HP = 0;
 const ANGULAR_DAMPING = 0.6; // bleeds residual spin so bumps don't build into tumbles
 const WHEEL_HITBOX_PED_GROUP = 16; // pedestrians' collision group (pedestrians.js)
+const WHEEL_HITBOX_SHAPE_GROUP = 32; // shape group knocked pedestrians ignore (pedestrians.js)
 
 const DEFAULT_WHEEL_OPTIONS = {
   directionLocal: new CANNON.Vec3(0, -1, 0),
@@ -61,6 +62,61 @@ const DEFAULT_WHEEL_OPTIONS = {
 };
 const DEFAULT_TYRE_WIDTH_MM = 225;
 const DEFAULT_TYRE_PROFILE = 45;
+
+const vec3 = (v) => new CANNON.Vec3(v[0], v[1], v[2]);
+
+/**
+ * addWheel options shared by every wheel on one body. `spec` holds the tyre +
+ * suspension fields (a vehicle descriptor, or a trailer spec).
+ */
+function wheelOptionsFor(spec, bodyMass, wheelCount) {
+  const tyreWidth = (spec.tyre ?? DEFAULT_TYRE_WIDTH_MM) / 1000;
+  const suspension = { ...DEFAULT_WHEEL_OPTIONS, ...spec.suspension };
+  const share = REFERENCE_WHEEL_COUNT / wheelCount;
+  const scaled = (v) => (v === undefined ? v : v * share);
+  return {
+    ...suspension,
+    radius: wheelRadiusOf(spec),
+    tyreWidth,
+    sidewallHeight: (tyreWidth * (spec.profile ?? DEFAULT_TYRE_PROFILE)) / 100,
+    suspensionStiffness: scaled(suspension.suspensionStiffness),
+    dampingCompression: scaled(suspension.dampingCompression),
+    dampingRelaxation: scaled(suspension.dampingRelaxation),
+    maxSuspensionForce: ((bodyMass * GRAVITY) / wheelCount) * (spec.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G),
+  };
+}
+
+/** Wheel positions on one body, each with its addWheel options and mesh spec. */
+function mountWheels(spec, body, axles, labelPrefix) {
+  const attachY = spec.wheelAttachY ?? -CHASSIS_HEIGHT / 2;
+  const layout = layoutWheels(axles, attachY, labelPrefix);
+  const options = wheelOptionsFor(spec, body.mass, layout.length);
+  const brakeForce = spec.brakeForce ?? DEFAULT_BRAKE_FORCE;
+  return layout.map((w) => {
+    if (!w.axle.wheel) return { ...w, body, spec, options, brakeForce };
+    const wheelSpec = { ...spec, ...w.axle.wheel };
+    return { ...w, body, spec: wheelSpec, options: wheelOptionsFor(wheelSpec, body.mass, layout.length), brakeForce };
+  });
+}
+
+/**
+ * cannon-es inertia from the real footprint (track x ground drop x length).
+ * `extraZ`: other points that count for the length (a trailer's kingpin).
+ */
+function applyWheelFootprintInertia(body, wheels, extraZ = []) {
+  const zs = [...wheels.map((w) => w.z), ...extraZ];
+  const { options } = wheels[0];
+  const groundDrop = -wheels[0].y + options.suspensionRestLength + options.radius;
+  const halfTrack = Math.max(...wheels.map((w) => Math.abs(w.x)));
+  applyFootprintInertia(body, new CANNON.Vec3(halfTrack, groundDrop, Math.max(...zs) - Math.min(...zs)));
+  body.angularDamping = ANGULAR_DAMPING;
+}
+
+/** Trailer spec: tyre/suspension/brake fields fall back to the tractor's. */
+function trailerSpecOf(descriptor) {
+  const { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce } = descriptor;
+  return { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, ...descriptor.trailer };
+}
 
 /**
  * Creates the local, physics-driven vehicle. Returns the rig API used by
@@ -89,42 +145,77 @@ export function createCar(
   // Custom raycast vehicle (wheeledVehicle.js) instead of CANNON.RaycastVehicle.
   const vehicle = createWheeledVehicle({ chassisBody, indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2 });
 
-  const wheelRadius = wheelRadiusOf(descriptor);
-  const suspensionForceG = descriptor.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G;
-  const tyreWidth = (descriptor.tyre ?? DEFAULT_TYRE_WIDTH_MM) / 1000;
-  const wheelOptions = {
-    ...DEFAULT_WHEEL_OPTIONS,
-    radius: wheelRadius,
-    width: tyreWidth,
-    sidewallHeight: (tyreWidth * (descriptor.profile ?? DEFAULT_TYRE_PROFILE)) / 100,
-    maxSuspensionForce: ((chassisMass * GRAVITY) / WHEELS_PER_VEHICLE) * suspensionForceG,
-    ...descriptor.suspension,
-  };
+  const axles = resolveAxles(descriptor.axles);
+  const tractorWheels = mountWheels(descriptor, chassisBody, axles, '');
+  applyWheelFootprintInertia(chassisBody, tractorWheels);
 
-  // Attached at the chassis underside for pitch/roll stability. Chassis-local
-  // +X renders on the screen's left, so order is FL, FR, RL, RR to match
-  // wheelLabels and suspensionHud's grid.
-  const attachY = -CHASSIS_HEIGHT / 2;
-  const wheelPositions = [
-    new CANNON.Vec3(AXLE_HALF_WIDTH, attachY, WHEEL_FRONT_Z),
-    new CANNON.Vec3(-AXLE_HALF_WIDTH, attachY, WHEEL_FRONT_Z),
-    new CANNON.Vec3(AXLE_HALF_WIDTH, attachY, WHEEL_BACK_Z),
-    new CANNON.Vec3(-AXLE_HALF_WIDTH, attachY, WHEEL_BACK_Z),
-  ];
-  for (const pos of wheelPositions) vehicle.addWheel({ ...wheelOptions, chassisConnectionPointLocal: pos });
+  // --- Optional articulated trailer: own body, wheels in the same rig ---
+  let trailer = null;
+  if (descriptor.trailer) {
+    const spec = trailerSpecOf(descriptor);
+    const { group: mesh } = spec.buildBody(color);
+    const trailerHitbox = fitChassisHitbox(mesh);
+    const body = createChassisBody(spec.mass ?? DEFAULT_TRAILER_MASS, startPosition, startQuaternion, trailerHitbox);
+    const hitchLocal = vec3(spec.hitch);
+    const kingpinLocal = vec3(spec.kingpin);
+    placeTrailer(chassisBody, body, hitchLocal, kingpinLocal);
+    const wheels = mountWheels(spec, body, resolveAxles(spec.axles), 'T');
+    applyWheelFootprintInertia(body, wheels, [kingpinLocal.z]);
+    trailer = { spec, mesh, hitbox: trailerHitbox, body, hitchLocal, kingpinLocal, wheels, hitch: null };
+  }
+  const allWheels = [...tractorWheels, ...(trailer?.wheels ?? [])];
+
+  for (const w of allWheels) {
+    vehicle.addWheel({
+      ...w.options,
+      width: wheelSetWidth(w.options.tyreWidth, w.axle.dual),
+      body: w.body,
+      chassisConnectionPointLocal: new CANNON.Vec3(w.x, w.y, w.z),
+    });
+  }
   vehicle.addToWorld(world);
+  if (trailer) {
+    world.addBody(trailer.body);
+    trailer.hitch = createTrailerHitch(world, chassisBody, trailer.body, {
+      hitchLocal: trailer.hitchLocal,
+      kingpinLocal: trailer.kingpinLocal,
+      maxArticulation: trailer.spec.maxArticulation,
+    });
+    vehicle.ignoreBodies.push(trailer.body);
+    vehicle.extraBodies = [trailer.body];
+    vehicle.tunnelGuardBodies = [chassisBody, trailer.body];
+  }
 
+  const wheelRadius = (tractorWheels.find((w) => w.axle.driven) ?? tractorWheels[0]).options.radius;
   vehicle.vehicleType = descriptor.vehicleType;
-  vehicle.wheelLabels = ['FL', 'FR', 'RL', 'RR'];
+  vehicle.wheelLabels = allWheels.map((w) => w.label);
   vehicle.engineForce = descriptor.enginePowerHp * FORCE_PER_HP;
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
-  vehicle.driveWheels = descriptor.driveWheels ?? DEFAULT_DRIVE_WHEELS; // indices into wheelInfos
+  vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
   vehicle.abs = descriptor.abs ?? DEFAULT_ABS; // pedal brake backs off before locking
   // Speed-sensitive steering lock; input.js lerps between these by speed.
   vehicle.steerSpeedD = descriptor.steerSpeedD ?? DEFAULT_STEER_SPEED_D;
   vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
   vehicle.maxSteerAt100 = descriptor.maxSteerAt100 ?? MAX_STEER;
+
+  // Steer input = front-axle centreline angle; every steered wheel follows the shared turn centre.
+  const steering = createSteeringGeometry(axles, descriptor);
+  const steerAngles = new Array(tractorWheels.length).fill(0);
+  vehicle.steerInput = 0;
+  vehicle.applySteer = (value, speedKmh = 0) => {
+    vehicle.steerInput = value;
+    steering.angles(value, speedKmh, tractorWheels, steerAngles);
+    for (let i = 0; i < steerAngles.length; i++) vehicle.wheelInfos[i].steering = steerAngles[i];
+  };
+  // Pedal brake on every wheel, handbrake only on handbrake axles (they must be able to lock).
+  vehicle.applyBrakes = (pedalForce, handbrakeForce, abs) => {
+    allWheels.forEach((w, i) => {
+      const share = w.brakeForce / vehicle.brakeForce;
+      const handbrake = w.axle.handbrake ? handbrakeForce : 0;
+      vehicle.setBrake(Math.max(pedalForce, handbrake) * share, i, abs && !handbrake, handbrake > 0);
+    });
+  };
 
   // Signed speed along the chassis forward axis (negative = reversing);
   // input.js uses it to decide brake vs reverse.
@@ -144,14 +235,16 @@ export function createCar(
 
   // Wheels stick out past the chassis shapes, so each gets a kinematic
   // sphere that only collides with pedestrians, synced every physics step.
-  const wheelHitboxBodies = wheelPositions.map(() => {
+  const wheelHitboxBodies = allWheels.map((w) => {
     const body = new CANNON.Body({
       mass: 0,
       type: CANNON.Body.KINEMATIC,
       collisionFilterGroup: 1,
       collisionFilterMask: WHEEL_HITBOX_PED_GROUP,
     });
-    body.addShape(new CANNON.Sphere(wheelRadius));
+    const sphere = new CANNON.Sphere(w.options.radius);
+    sphere.collisionFilterGroup = WHEEL_HITBOX_SHAPE_GROUP;
+    body.addShape(sphere);
     world.addBody(body);
     return body;
   });
@@ -167,36 +260,46 @@ export function createCar(
   vehicle.wheelHitboxBodies = wheelHitboxBodies;
   vehicle.ignoreBodies.push(...wheelHitboxBodies); // else suspension rays hit them
 
-  const groundDrop = -attachY + wheelOptions.suspensionRestLength + wheelOptions.radius;
-  applyFootprintInertia(chassisBody, new CANNON.Vec3(AXLE_HALF_WIDTH, groundDrop, WHEEL_FRONT_Z - WHEEL_BACK_Z));
-  chassisBody.angularDamping = ANGULAR_DAMPING;
-
   const dragProfile = descriptor.dragProfile ?? DEFAULT_DRAG_PROFILE;
+  const trailerDragProfile = trailer?.spec.dragProfile ?? DEFAULT_DRAG_PROFILE;
+  const trailerForward = new CANNON.Vec3();
   const stabilityAssistCallback = () => {
     chassisBody.vectorToWorldFrame(forwardLocal, forwardWorld);
     applyAirDrag(chassisBody, forwardWorld, dragProfile);
+    if (trailer) {
+      trailer.body.vectorToWorldFrame(forwardLocal, trailerForward);
+      applyAirDrag(trailer.body, trailerForward, trailerDragProfile);
+    }
   };
   world.addEventListener('preStep', stabilityAssistCallback);
 
   // --- Meshes ---
   scene.add(chassisMesh);
   const hitboxMeshes = buildChassisHitboxMeshes(chassisMesh, hitbox);
+  if (trailer) {
+    scene.add(trailer.mesh);
+    hitboxMeshes.push(...buildChassisHitboxMeshes(trailer.mesh, trailer.hitbox));
+  }
   function setHitboxVisible(visible) {
     for (const m of hitboxMeshes) m.visible = visible;
   }
-  const wheelMeshes = wheelPositions.map(() => buildWheelMesh(descriptor, scene));
+  const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual));
 
   // --- Render interpolation ---
   // Physics runs at a fixed step; render lerps between the last two steps
   // so a varying substep count per frame doesn't show as jitter.
-  const prevChassisPos = new THREE.Vector3().copy(chassisBody.position);
-  const currChassisPos = new THREE.Vector3().copy(chassisBody.position);
-  const prevChassisQuat = new THREE.Quaternion().copy(chassisBody.quaternion);
-  const currChassisQuat = new THREE.Quaternion().copy(chassisBody.quaternion);
-  const prevWheelPos = wheelPositions.map(() => new THREE.Vector3());
-  const currWheelPos = wheelPositions.map(() => new THREE.Vector3());
-  const prevWheelQuat = wheelPositions.map(() => new THREE.Quaternion());
-  const currWheelQuat = wheelPositions.map(() => new THREE.Quaternion());
+  const tracked = [{ body: chassisBody, mesh: chassisMesh }];
+  if (trailer) tracked.push({ body: trailer.body, mesh: trailer.mesh });
+  for (const t of tracked) {
+    t.prevPos = new THREE.Vector3().copy(t.body.position);
+    t.currPos = new THREE.Vector3().copy(t.body.position);
+    t.prevQuat = new THREE.Quaternion().copy(t.body.quaternion);
+    t.currQuat = new THREE.Quaternion().copy(t.body.quaternion);
+  }
+  const prevWheelPos = allWheels.map(() => new THREE.Vector3());
+  const currWheelPos = allWheels.map(() => new THREE.Vector3());
+  const prevWheelQuat = allWheels.map(() => new THREE.Quaternion());
+  const currWheelQuat = allWheels.map(() => new THREE.Quaternion());
 
   function readWheelTransforms(posArr, quatArr) {
     vehicle.wheelInfos.forEach((wheel, i) => {
@@ -210,11 +313,13 @@ export function createCar(
 
   /** Call after every fixed world.step(). */
   function snapshotPhysics() {
-    prevChassisPos.copy(currChassisPos);
-    prevChassisQuat.copy(currChassisQuat);
-    currChassisPos.copy(chassisBody.position);
-    currChassisQuat.copy(chassisBody.quaternion);
-    for (let i = 0; i < wheelPositions.length; i++) {
+    for (const t of tracked) {
+      t.prevPos.copy(t.currPos);
+      t.prevQuat.copy(t.currQuat);
+      t.currPos.copy(t.body.position);
+      t.currQuat.copy(t.body.quaternion);
+    }
+    for (let i = 0; i < allWheels.length; i++) {
       prevWheelPos[i].copy(currWheelPos[i]);
       prevWheelQuat[i].copy(currWheelQuat[i]);
     }
@@ -223,12 +328,14 @@ export function createCar(
 
   /** Sets prev = curr = now, so a teleport doesn't interpolate. */
   function resetInterpolation() {
-    currChassisPos.copy(chassisBody.position);
-    currChassisQuat.copy(chassisBody.quaternion);
-    prevChassisPos.copy(currChassisPos);
-    prevChassisQuat.copy(currChassisQuat);
+    for (const t of tracked) {
+      t.currPos.copy(t.body.position);
+      t.currQuat.copy(t.body.quaternion);
+      t.prevPos.copy(t.currPos);
+      t.prevQuat.copy(t.currQuat);
+    }
     readWheelTransforms(currWheelPos, currWheelQuat);
-    for (let i = 0; i < wheelPositions.length; i++) {
+    for (let i = 0; i < allWheels.length; i++) {
       prevWheelPos[i].copy(currWheelPos[i]);
       prevWheelQuat[i].copy(currWheelQuat[i]);
     }
@@ -236,8 +343,10 @@ export function createCar(
 
   /** @param {number} alpha - 0..1 between previous and current physics step. */
   function syncMeshes(alpha = 1) {
-    chassisMesh.position.lerpVectors(prevChassisPos, currChassisPos, alpha);
-    chassisMesh.quaternion.slerpQuaternions(prevChassisQuat, currChassisQuat, alpha);
+    for (const t of tracked) {
+      t.mesh.position.lerpVectors(t.prevPos, t.currPos, alpha);
+      t.mesh.quaternion.slerpQuaternions(t.prevQuat, t.currQuat, alpha);
+    }
     wheelMeshes.forEach((mesh, i) => {
       mesh.position.lerpVectors(prevWheelPos[i], currWheelPos[i], alpha);
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
@@ -246,11 +355,22 @@ export function createCar(
 
   // --- Reset ---
   // Without arguments: rights the car in place (same heading, lifted).
-  // The body is kinematic while updateReset() eases it into the pose.
+  // The body is kinematic while updateReset() eases it into the pose; a
+  // trailer rides along straight behind it.
   let liftAnim = null;
+  const resetLift = descriptor.resetLift ?? CHASSIS_HEIGHT + 0.5;
+
+  function setRigType(type) {
+    chassisBody.type = type;
+    chassisBody.velocity.set(0, 0, 0);
+    chassisBody.angularVelocity.set(0, 0, 0);
+    if (!trailer) return;
+    trailer.body.type = type;
+    placeTrailer(chassisBody, trailer.body, trailer.hitchLocal, trailer.kingpinLocal);
+  }
 
   function reset(position, quaternion) {
-    const targetPos = position ?? liftedResetPosition(world, chassisBody, CHASSIS_HEIGHT + 0.5);
+    const targetPos = position ?? liftedResetPosition(world, chassisBody, resetLift);
     liftAnim = {
       startPos: chassisBody.position.clone(),
       startQuat: chassisBody.quaternion.clone(),
@@ -258,9 +378,7 @@ export function createCar(
       targetQuat: quaternion ?? uprightQuaternion(chassisBody),
       elapsed: 0,
     };
-    chassisBody.type = CANNON.Body.KINEMATIC;
-    chassisBody.velocity.set(0, 0, 0);
-    chassisBody.angularVelocity.set(0, 0, 0);
+    setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
     resetInterpolation();
   }
@@ -272,10 +390,9 @@ export function createCar(
     const { t, eased } = resetLiftProgress(liftAnim.elapsed);
     liftAnim.startPos.lerp(liftAnim.targetPos, eased, chassisBody.position);
     liftAnim.startQuat.slerp(liftAnim.targetQuat, eased, chassisBody.quaternion);
+    if (trailer) placeTrailer(chassisBody, trailer.body, trailer.hitchLocal, trailer.kingpinLocal);
     if (t >= 1) {
-      chassisBody.type = CANNON.Body.DYNAMIC;
-      chassisBody.velocity.set(0, 0, 0);
-      chassisBody.angularVelocity.set(0, 0, 0);
+      setRigType(CANNON.Body.DYNAMIC);
       vehicle.resetWheelSpin();
       liftAnim = null;
     }
@@ -283,7 +400,7 @@ export function createCar(
 
   /** Floating-origin shift of the state carManager's generic body/scene shift can't see. */
   function shiftOrigin(dx, dz) {
-    shiftPoints([prevChassisPos, currChassisPos, ...prevWheelPos, ...currWheelPos], dx, dz);
+    shiftPoints([...tracked.flatMap((t) => [t.prevPos, t.currPos]), ...prevWheelPos, ...currWheelPos], dx, dz);
     if (liftAnim) shiftPoints([liftAnim.startPos, liftAnim.targetPos], dx, dz);
   }
 
@@ -291,6 +408,11 @@ export function createCar(
   function dispose() {
     world.removeEventListener('preStep', syncWheelHitboxes);
     for (const body of wheelHitboxBodies) world.removeBody(body);
+    if (trailer) {
+      trailer.hitch.dispose();
+      world.removeBody(trailer.body);
+      scene.remove(trailer.mesh);
+    }
   }
 
   return {

@@ -1,14 +1,11 @@
 // Original hardbass loop: four-on-the-floor kick and a distorted bass stab
 // on the off-beat, the shape of that style. It is not a recording and not
 // anyone's song. Silent until the first key or tap (autoplay policy).
-// The slider sets loudness and is remembered in localStorage.
 
 import { getAudio } from './audioContext.js';
 
 const BPM = 150;
-const MAX_GAIN = 0.1;
-const DEFAULT_VOLUME = 0.4;
-const STORAGE_KEY = 'driver-music-volume';
+const GAIN = 0.04;
 const SIXTEENTH = 60 / BPM / 4;
 
 // Two bars. 1 = a bass stab. Kicks land on every beat (step % 4 === 0).
@@ -20,10 +17,6 @@ const BASS = [
 const LEAD = [523.25, 587.33, 659.25, 587.33, 493.88, 523.25, 440, 392];
 
 export function createMusic() {
-  const slider = document.getElementById('music-volume-input');
-  let volume = readVolume();
-  if (slider) slider.value = String(volume);
-
   let ctx = null;
   let master = null;
   let noise = null;
@@ -32,18 +25,6 @@ export function createMusic() {
   let step = 0;
   let started = false;
 
-  function applyGain() {
-    if (master) master.gain.value = volume * MAX_GAIN;
-  }
-
-  function setVolume(next) {
-    volume = clamp01(next);
-    try { localStorage.setItem(STORAGE_KEY, String(volume)); } catch { /* private mode */ }
-    applyGain();
-  }
-
-  slider?.addEventListener('input', () => setVolume(slider.value));
-
   function context() {
     if (ctx) return ctx;
     const audio = getAudio();
@@ -51,7 +32,7 @@ export function createMusic() {
     ctx = audio.ctx;
     noise = audio.noise;
     master = ctx.createGain();
-    applyGain();
+    master.gain.value = GAIN;
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 3200;
@@ -162,21 +143,7 @@ export function createMusic() {
   window.addEventListener('pointerdown', start);
   window.addEventListener('keydown', start);
 
-  return { start, setVolume };
-}
-
-function readVolume() {
-  try {
-    return clamp01(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_VOLUME);
-  } catch {
-    return DEFAULT_VOLUME;
-  }
-}
-
-function clamp01(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return DEFAULT_VOLUME;
-  return Math.min(1, Math.max(0, n));
+  return { start };
 }
 
 function distortionCurve(amount) {

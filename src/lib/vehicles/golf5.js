@@ -1,0 +1,44 @@
+import { carAxles } from '../car/axles.js';
+import { buildBody } from './geometry/golf5.js';
+
+// VW Golf V 1.4 16V (2004) five-door: 80 hp, 5-speed, 195/65 R15.
+export default {
+  id: 'golf5',
+  name: 'Golf V 1.4',
+  category: 'cars',
+  defaultColor: 0x0c0c0e, // Black Magic pearl
+  rimColor: 0xb8bcc2,
+  buildBody,
+  rimSize: 15,
+  tyre: 195,
+  profile: 65,
+  axles: carAxles('fwd', 0.77),
+  suspension: {
+    suspensionStiffness: 32,
+    suspensionRestLength: 0.06,
+    maxSuspensionTravel: 0.35,
+    rollingResistance: 0.015,
+    frictionSlip: 1.15,
+    dampingRelaxation: 5.8,
+    dampingCompression: 4.0,
+    rollInfluence: 0.25,
+    pitchInfluence: 0.75,
+  },
+  suspensionForceG: 8,
+  engine: 'r4na',
+  enginePowerHp: 80,
+  peakTorqueNm: 132,
+  peakTorqueRpm: 3800,
+  idleRpm: 750,
+  redlineRpm: 6200,
+  gearRatios: [3.455, 1.944, 1.286, 0.969, 0.805],
+  finalDriveRatio: 4.235,
+  reverseRatio: 3.167,
+  shiftDurationS: 0.7,
+  brakeForce: 130,
+  mass: 1190,
+  steerSpeedD: 0.005,
+  maxSteerAt0: 0.5,
+  maxSteerAt100: 0.4,
+  dragProfile: { front: 0.78, side: 3.2, rear: 1.15 },
+};

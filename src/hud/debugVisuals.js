@@ -1,7 +1,7 @@
 // M key: toggles the debug view (stats HUDs + 3D overlays). The layers panel
-// picks which 3D overlays show while it's on; the choice persists.
+// picks which 3D overlays show while it's on; both persist.
 
-import { DEBUG_LAYERS_STORAGE_KEY } from '../config.js';
+import { DEBUG_LAYERS_STORAGE_KEY, DEBUG_VISUALS_STORAGE_KEY } from '../config.js';
 
 const LAYERS = [
   { id: 'roads', label: 'Roads' },
@@ -9,6 +9,7 @@ const LAYERS = [
   { id: 'tileBorders', label: 'Tile borders' },
   { id: 'hitboxes', label: 'Hitboxes' },
   { id: 'terrainGrid', label: 'Terrain polygons' },
+  { id: 'roadProfile', label: 'Road profile' }, // red = terrain under the centreline, cyan = road height
   { id: 'roadBed', label: 'Road bed' }, // terrain deformation, not an overlay: off rebuilds detail tiles
 ];
 
@@ -31,6 +32,24 @@ function saveLayers(layers) {
   }
 }
 
+function loadEnabled(fallback) {
+  try {
+    const saved = localStorage.getItem(DEBUG_VISUALS_STORAGE_KEY);
+    if (saved === 'on' || saved === 'off') return saved === 'on';
+  } catch {
+    // Storage unavailable: use the mode default.
+  }
+  return fallback;
+}
+
+function saveEnabled(enabled) {
+  try {
+    localStorage.setItem(DEBUG_VISUALS_STORAGE_KEY, enabled ? 'on' : 'off');
+  } catch {
+    // Storage unavailable: just don't persist.
+  }
+}
+
 /**
  * @param {object} deps
  * @param {import('../lib/terrain.js').TerrainManager} deps.terrain
@@ -42,13 +61,13 @@ function saveLayers(layers) {
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
- * @param {boolean} initialEnabled - on in dev, off in prod
+ * @param {boolean} initialEnabled - default when nothing is saved: on in dev, off in prod
  */
 export function createDebugVisualsToggle(
   { terrain, buildings, streets, rivers, waterAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl, layersHudEl },
   initialEnabled
 ) {
-  let debugVisualsEnabled = initialEnabled;
+  let debugVisualsEnabled = loadEnabled(initialEnabled);
   const layers = loadLayers();
   // Set once a car exists; carManager re-applies the state on spawn.
   let setCarHitboxVisible = null;
@@ -63,6 +82,7 @@ export function createDebugVisualsToggle(
     if (layersHudEl) layersHudEl.style.display = display;
     terrain.setBordersVisible(shown('tileBorders'));
     terrain.setWireframeVisible(shown('terrainGrid'));
+    terrain.setRoadProfileVisible(shown('roadProfile'));
     terrain.setRoadBedEnabled(!debugVisualsEnabled || layers.roadBed);
     buildings.setHitboxesVisible(shown('hitboxes'));
     if (streets) streets.setVisible(shown('roads'));
@@ -92,6 +112,7 @@ export function createDebugVisualsToggle(
 
   function setEnabled(enabled) {
     debugVisualsEnabled = enabled;
+    saveEnabled(enabled);
     apply();
   }
 

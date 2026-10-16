@@ -23,7 +23,9 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `tiles/openFreeMap.js` = vector tile
     fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
   - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
-    (chassis body/inertia/hitboxes, wheel mesh, remote car). Hover vehicles go to `chariot.js`,
+    (chassis body/inertia/hitboxes, wheel mesh, remote car, `axles.js` = descriptor `axles` layout
+    + shared-turn-centre steering for any axle count/duals, `trailer.js` = articulated trailer hitch;
+    trailer wheels live in the same `wheelInfos`). Hover vehicles go to `chariot.js`,
     helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox), `airDrag.js`,
@@ -32,6 +34,8 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js` (all on
     `particles/puffPool.js`), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
+    `headlights.js` = cosmetic lamps (on/off in `app/headlightSwitch.js`); geometry builders tag lamp
+    materials with `userData: { lamp: 'head' | 'tail' | 'fog' }`.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`,

@@ -5,8 +5,32 @@ import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
+import { setCarListener } from '../lib/audio/audioContext.js';
+
+// Own-car sounds play at full volume within this camera distance (covers the
+// default chase view), then fall off as 1/distance.
+const CAR_SOUND_FULL_DISTANCE_M = 40;
+// Max stereo pan, so the car never sounds entirely in one ear.
+const CAR_SOUND_MAX_PAN = 0.7;
+const toCar = new THREE.Vector3();
+const cameraRight = new THREE.Vector3();
+
+/** Fades and pans the own car's sounds by where it sits relative to the camera. */
+function updateCarListener(camera, carPosition) {
+  toCar.subVectors(carPosition, camera.position);
+  const distance = toCar.length();
+  cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+  const pan = distance > 0.5 ? (toCar.dot(cameraRight) / distance) * CAR_SOUND_MAX_PAN : 0;
+  setCarListener(Math.min(1, CAR_SOUND_FULL_DISTANCE_M / distance), pan);
+}
 
 const CAR_STATE_SAVE_INTERVAL_MS = 1000; // localStorage save throttle
+
+/** Trailer orientation for the pose message ([x, y, z, w]), if the rig tows one. */
+function trailerQuatOf(vehicle) {
+  const q = vehicle.extraBodies?.[0]?.quaternion;
+  return q ? [q.x, q.y, q.z, q.w] : undefined;
+}
 
 // Per-frame orchestration: fixed-step physics with guards and render
 // interpolation, then gameplay/HUD/camera/streaming updates and network
@@ -27,8 +51,11 @@ export function createMainLoop({
   pedestrians,
   shots,
   horn,
+  headlights,
+  headlightSwitch,
   engineSound,
   tireSqueal,
+  suspensionThud,
   jump,
   splash,
   tireSmoke,
@@ -144,6 +171,10 @@ export function createMainLoop({
       currentChassisMesh?.position,
       remotePoses
     );
+    const lightsOn = headlightSwitch.update(
+      !!currentVehicle && !input.isTyping() && input.keys.has('KeyL'),
+      daylight.getSunElevation()
+    );
     if (isJoined() && currentChassisMesh && currentVehicle) {
       if (!input.isTyping()) {
         const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
@@ -154,6 +185,12 @@ export function createMainLoop({
         currentChassisMesh.position.x,
         currentChassisMesh.position.y,
         currentChassisMesh.position.z
+      );
+      pedestrians.updateNearMisses(
+        currentChassisMesh.position.x,
+        currentChassisMesh.position.z,
+        currentVehicle.chassisBody.velocity.x,
+        currentVehicle.chassisBody.velocity.z
       );
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
@@ -167,9 +204,11 @@ export function createMainLoop({
         qz: currentChassisMesh.quaternion.z,
         qw: currentChassisMesh.quaternion.w,
         speed: velocity.x * poseForward.x + velocity.y * poseForward.y + velocity.z * poseForward.z,
-        steer: currentVehicle.wheelInfos[0].steering,
+        steer: currentVehicle.steerInput ?? currentVehicle.wheelInfos[0]?.steering ?? 0,
+        trailerQuat: trailerQuatOf(currentVehicle),
         score: carManager.getScore(),
         horn: hornLevel,
+        lights: lightsOn,
       });
       if (now >= nextBallSend) {
         nextBallSend = now + 100;
@@ -201,7 +240,14 @@ export function createMainLoop({
       vehicle: currentVehicle,
       vehicleId: carManager.getVehicleId(),
     });
-    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake());
+    if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
+    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn);
+    headlights.update(frameDelta, {
+      chassisMesh: currentChassisMesh,
+      wheeled: currentVehicle?.vehicleType !== 'hover',
+      on: lightsOn,
+      remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
+    });
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, {
       terrain,
@@ -230,6 +276,7 @@ export function createMainLoop({
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
     tireSqueal.update(currentVehicle);
+    suspensionThud.update(frameDelta, currentVehicle);
     engineSound.update(currentVehicle, getVehicleDescriptor(carManager.getVehicleId()), input.getThrottle());
     terrainDust.update(frameDelta, currentVehicle, world);
     // Body dust is spawned by collide events; this only ages puffs.
