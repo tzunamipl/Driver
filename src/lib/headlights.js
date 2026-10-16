@@ -146,7 +146,8 @@ export function createHeadlights(scene) {
   function rigFor(group, fallback) {
     let rig = rigs.get(group);
     if (!rig) {
-      rig = createRig(group, fallback);
+      // Inside the visible body's group when it has one (car.js sinks it in water).
+      rig = createRig(group.userData.contentGroup ?? group, fallback);
       rigs.set(group, rig);
     }
     return rig;
@@ -164,9 +165,9 @@ export function createHeadlights(scene) {
       const level = rig.update(dt, on);
       if (rig.hasLamps) {
         poolLevel = level;
-        chassisMesh.localToWorld(worldPos.copy(rig.midpoint));
+        rig.group.localToWorld(worldPos.copy(rig.midpoint));
         pool.position.copy(worldPos);
-        chassisMesh.localToWorld(worldPos.copy(rig.midpoint).add(POOL_AIM));
+        rig.group.localToWorld(worldPos.copy(rig.midpoint).add(POOL_AIM));
         pool.target.position.copy(worldPos);
         pool.target.updateMatrixWorld();
       }

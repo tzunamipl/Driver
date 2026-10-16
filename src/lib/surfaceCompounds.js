@@ -33,14 +33,15 @@ export const SURFACE_COMPOUNDS = {
     rollingResistanceMultiplier: 2.0,
     imperfectionCm: 7,
   },
-  // Water: very little grip, high drag, wide tyres aquaplane.
+  // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
+  // drag on the hull (waterDrag.js) does the real slowing.
   water: {
     frictionMultiplier: 1.0,
     frictionSlipOffset: 0.0,
     dynamicFrictionRatio: 0.9,
     widthGripExponent: -0.5,
     maxForceN: Infinity,
-    rollingResistanceMultiplier: 8.0,
+    rollingResistanceMultiplier: 1.5,
     imperfectionCm: 0,
   },
 };

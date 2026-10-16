@@ -9,6 +9,7 @@ import { createShots } from './lib/shots.js';
 import { createHorn } from './lib/audio/horn.js';
 import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
+import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
@@ -261,6 +262,7 @@ const shots = createShots({
 const horn = createHorn();
 const jump = createJump({ world });
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
+const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
@@ -317,6 +319,7 @@ const mainLoop = createMainLoop({
   suspensionThud,
   jump,
   splash,
+  waterImmersion,
   tireSmoke,
   terrainDust,
   bodyDust,

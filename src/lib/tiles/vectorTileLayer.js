@@ -2,7 +2,7 @@
 // (streets, rivers, water areas). Handles region fetch + MVT decode,
 // bucketing items into DETAIL_ZOOM tiles, time-sliced mesh building,
 // delayed unload, recenter and visibility. Subclasses implement:
-//   _decodeFeature(geometry, style, toLatLon, add) - add(lat, lon, item) buckets
+//   _decodeFeature(geometry, style, toLatLon, add, extent) - add(lat, lon, item) buckets
 //       an item by the detail tile containing (lat, lon); item must carry `style`.
 //   _buildItem(item, byStyleKey) - turn one item into per-style bucket data.
 //   _makeMesh(bucket) - build a mesh from one finished bucket (or null).
@@ -173,7 +173,7 @@ export class VectorTileLayer {
         const feature = layer.feature(i);
         const style = this.classify(feature.properties);
         if (!style) continue;
-        this._decodeFeature(feature.loadGeometry(), style, toLatLon, add);
+        this._decodeFeature(feature.loadGeometry(), style, toLatLon, add, extent);
       } catch (err) {
         console.warn(`Skipping one malformed ${layerName} feature`, tx, ty, err);
       }

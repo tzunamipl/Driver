@@ -126,8 +126,19 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
      * classification (terrainSurface.js) and suspensionHud. Flat layers only.
      */
     containsPoint(x, z) {
-      if (!flat) return false;
+      return this._insideMargin(x, z, true) >= 0;
+    }
+
+    /** Metres from world (x, z) to the nearest strip edge, inside the widest strip covering it; 0 outside. */
+    shoreDistanceAt(x, z) {
+      return Math.max(0, this._insideMargin(x, z, false));
+    }
+
+    /** Largest (half width - distance to centreline) over nearby segments; -Infinity if none. */
+    _insideMargin(x, z, firstHit) {
+      if (!flat) return -Infinity;
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      let best = -Infinity;
       for (const seg of this._itemsNear(lat, lon)) {
         const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
         const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
@@ -135,9 +146,13 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
         const abz = b.z - a.z;
         const lenSq = abx * abx + abz * abz;
         const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / lenSq)) : 0;
-        if (Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t)) <= seg.style.linewidth / 2) return true;
+        const margin = seg.style.linewidth / 2 - Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
+        if (margin > best) {
+          best = margin;
+          if (firstHit && best >= 0) return best;
+        }
       }
-      return false;
+      return best;
     }
   };
 }
