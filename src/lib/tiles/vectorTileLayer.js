@@ -25,6 +25,7 @@ const REGION_RETRY_COOLDOWN_MS = 8000;
 const MAX_FEATURES_PER_TILE = 8000;
 const BUILD_TIME_BUDGET_MS = 4; // per frame, so a fresh region doesn't stutter
 const BUILD_TIME_CHECK_INTERVAL = 16; // items between performance.now() checks
+const DECODE_TIME_BUDGET_MS = 3; // per frame, shared by every layer's tile decoding
 const GROUND_CHECK_INTERVAL_MS = 500; // how often built chunks look for a changed terrain tile below
 
 export function tileKey(tx, ty) {
@@ -43,6 +44,23 @@ function squareOffsets(radius) {
     for (let dx = -radius; dx <= radius; dx++) offsets.push({ dx, dy });
   }
   return offsets.sort((a, b) => a.dx * a.dx + a.dy * a.dy - (b.dx * b.dx + b.dy * b.dy));
+}
+
+// One decode slice per frame across all layers, so a region refetch spreads over frames.
+let decodeSliceEnd = 0;
+let nextFramePromise = null;
+function nextDecodeSlice() {
+  nextFramePromise ??= new Promise((resolve) =>
+    requestAnimationFrame(() => {
+      nextFramePromise = null;
+      decodeSliceEnd = performance.now() + DECODE_TIME_BUDGET_MS;
+      resolve();
+    })
+  );
+  return nextFramePromise;
+}
+async function waitForDecodeSlice() {
+  while (performance.now() >= decodeSliceEnd) await nextDecodeSlice();
 }
 
 function detailTileKeyAt(lat, lon) {
@@ -92,6 +110,7 @@ export class VectorTileLayer {
     this._region = null; // { minTx, maxTx, minTy, maxTy }
     this._itemsByTile = new Map(); // detail tile key -> items
     this._itemsBySourceTile = new Map(); // tileZoom tile key -> items decoded from it
+    this._sourceTiles = new Map(); // tileZoom tile key -> decoded { byTile, items }, reused across region moves
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._generation = 0;
@@ -126,8 +145,8 @@ export class VectorTileLayer {
     return this._itemsBySourceTile.get(key) ?? [];
   }
 
-  /** Fetches one vector tile: its items, also bucketed by detail tile key. */
-  async _fetchTile(tx, ty) {
+  /** Fetches one vector tile: its items, also bucketed by detail tile key. Decoding is time-sliced if `sliced`. */
+  async _fetchTile(tx, ty, sliced) {
     const { tileZoom, layerName } = this;
     const layer = await fetchVectorTileLayer(tileZoom, tx, ty, layerName);
     const byTile = new Map();
@@ -149,6 +168,7 @@ export class VectorTileLayer {
 
     const featureCount = Math.min(layer.length, MAX_FEATURES_PER_TILE);
     for (let i = 0; i < featureCount; i++) {
+      if (sliced && i % BUILD_TIME_CHECK_INTERVAL === 0) await waitForDecodeSlice();
       try {
         const feature = layer.feature(i);
         const style = this.classify(feature.properties);
@@ -174,7 +194,7 @@ export class VectorTileLayer {
   }
 
   /** Fetches a region around the player if the current one doesn't cover it (with retry cooldown). */
-  async _ensureRegion(centerTx, centerTy) {
+  async _ensureRegion(centerTx, centerTy, sliced) {
     if (this._regionCovers(centerTx, centerTy)) return;
     if (this._regionPending) {
       await this._regionPending.catch(() => {});
@@ -184,7 +204,7 @@ export class VectorTileLayer {
 
     const r = this._keepRadius() + REGION_MARGIN_TILES;
     const region = { minTx: centerTx - r, maxTx: centerTx + r, minTy: centerTy - r, maxTy: centerTy + r };
-    const promise = this._fetchRegion(region, this._generation);
+    const promise = this._fetchRegion(region, this._generation, sliced);
     this._regionPending = promise;
     try {
       await promise;
@@ -197,7 +217,7 @@ export class VectorTileLayer {
     }
   }
 
-  async _fetchRegion(region, generation) {
+  async _fetchRegion(region, generation, sliced) {
     const ratio = this.tileZoomRatio;
     const tileCoords = [];
     for (let tx = Math.floor(region.minTx / ratio); tx <= Math.floor(region.maxTx / ratio); tx++) {
@@ -206,9 +226,13 @@ export class VectorTileLayer {
       }
     }
 
-    const results = await Promise.allSettled(tileCoords.map(([tx, ty]) => this._fetchTile(tx, ty)));
+    const cached = this._sourceTiles;
+    const results = await Promise.allSettled(
+      tileCoords.map(([tx, ty]) => cached.get(tileKey(tx, ty)) ?? this._fetchTile(tx, ty, sliced))
+    );
     if (generation !== this._generation) return; // recentered meanwhile
 
+    const sourceTiles = new Map();
     const byTile = new Map();
     const bySourceTile = new Map();
     let failed = 0;
@@ -217,6 +241,7 @@ export class VectorTileLayer {
         failed++;
         return;
       }
+      sourceTiles.set(tileKey(...tileCoords[i]), result.value);
       bySourceTile.set(tileKey(...tileCoords[i]), result.value.items);
       for (const [key, list] of result.value.byTile) {
         let existing = byTile.get(key);
@@ -231,6 +256,7 @@ export class VectorTileLayer {
     this._region = region;
     this._itemsByTile = byTile;
     this._itemsBySourceTile = bySourceTile;
+    this._sourceTiles = sourceTiles;
   }
 
   /** Ground y at (x, z): the rendered terrain surface, else a ground raycast, else 0. */
@@ -351,6 +377,7 @@ export class VectorTileLayer {
     this._region = null;
     this._itemsByTile = new Map();
     this._itemsBySourceTile = new Map();
+    this._sourceTiles = new Map();
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._generation++;
@@ -375,7 +402,7 @@ export class VectorTileLayer {
   async update(centerTx, centerTy, awaitAll = false) {
     if (!this.alwaysStream && !this._visible) return;
 
-    const ensure = this._ensureRegion(centerTx, centerTy);
+    const ensure = this._ensureRegion(centerTx, centerTy, !awaitAll);
     if (awaitAll) await ensure;
     else ensure.catch(() => {});
 
