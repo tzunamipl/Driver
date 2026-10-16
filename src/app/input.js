@@ -88,7 +88,9 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
           direction: pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
           throttle: pedalBraking || !(forward || backward) ? 0 : 1,
           wheelSpeedAbs: Math.abs(vehicle.getDriveWheelSpeed?.() ?? forwardSpeed),
+          groundSpeedAbs: Math.abs(forwardSpeed),
           grounded: driveWheels.some((i) => vehicle.wheelInfos[i]?.isInContact),
+          slipping: driveWheels.some((i) => vehicle.wheelInfos[i]?.isInContact && vehicle.wheelInfos[i].sliding),
         })
       : engineForceUnit;
     if (vehicle.engine && vehicle.setDriveline) {

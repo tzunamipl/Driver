@@ -29,14 +29,20 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0x4b5320) {
   };
   const box = (w, h, d, material, x, y, z) => add(new THREE.BoxGeometry(w, h, d), material, x, y, z);
 
-  // Ladder frame + front bumper / tow pintle.
-  for (const sx of [-1, 1]) box(0.25, 0.35, LENGTH - 0.4, frameMat, sx * 0.5, -0.32, -0.1);
-  box(WIDTH, 0.32, 0.25, frameMat, 0, -0.4, FRONT - 0.15);
-  box(WIDTH * 0.9, 0.2, 0.2, frameMat, 0, -0.4, BACK + 0.12);
+  // Ladder frame between the axles; the ends kick up so nothing hangs below
+  // the approach/departure lines (see groundSpheres in ../hemtt.js).
+  for (const sx of [-1, 1]) box(0.25, 0.35, 8.4, frameMat, sx * 0.5, -0.32, -0.2);
+  box(1.2, 0.2, 0.2, frameMat, 0, 0.3, BACK + 0.15);
+
+  // Wedge skid plate rising from just ahead of the front tyres to a slim,
+  // high bumper, so the nose rides up onto a slope instead of digging in.
+  const skid = box(WIDTH * 0.6, 0.06, 1.24, steelMat, 0, -0.18, 4.52);
+  skid.rotation.x = -0.555;
+  box(WIDTH * 0.95, 0.18, 0.18, frameMat, 0, 0.2, FRONT - 0.09);
 
   // Short sloped hood + brush-guard grille ahead of the cab.
   box(WIDTH * 0.92, 0.75, 0.85, bodyMat, 0, 0.62, FRONT - 0.65);
-  box(WIDTH * 0.8, 0.7, 0.08, frameMat, 0, 0.0, FRONT - 0.3);
+  box(WIDTH * 0.8, 0.4, 0.08, frameMat, 0, 0.3, FRONT - 0.3);
   const hoodSlope = box(WIDTH * 0.92, 0.08, 0.95, bodyMat, 0, 1.08, FRONT - 0.9);
   hoodSlope.rotation.x = 0.35;
   for (const sx of [-1, 1]) {
@@ -74,7 +80,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0x4b5320) {
   add(tank, steelMat, 0.92, -0.3, 0);
   box(0.5, 0.55, 1.2, bodyMat, -0.95, -0.3, 0);
 
-  // Flatbed cargo body with drop sides over the rear tandem.
+  // Flatbed cargo body with drop sides; the rear tandem sits right under its tail.
   const bedFront = cabBack - 0.75;
   const bedLen = bedFront - BACK;
   const bedZ = (bedFront + BACK) / 2;
@@ -84,7 +90,6 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0x4b5320) {
   box(WIDTH, 0.9, 0.08, bodyMat, 0, 1.02, bedFront - 0.04); // headboard
   for (const sx of [-1, 1]) {
     box(0.1, 0.06, 0.04, markerMat, sx * 1.0, 0.3, BACK - 0.01);
-    box(0.35, 0.5, 0.04, frameMat, sx * 0.95, -0.55, BACK + 0.35); // mud flap
   }
 
   return { group, bodyMat };

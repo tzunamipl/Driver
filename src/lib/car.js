@@ -42,6 +42,9 @@ const DEFAULT_TRAILER_MASS = 5000; // kg
 const DEFAULT_BRAKE_FORCE = 100;
 const DEFAULT_ABS = true;
 const DEFAULT_STEER_SPEED_D = 0.1;
+// Rear (unsteered) tyres keep this share of their dynamic grip once sliding,
+// so a broken-loose rear holds the slide while the fronts still catch it.
+const DEFAULT_REAR_SLIDE_GRIP = 0.8;
 // Suspension force cap as a multiple of static per-wheel load. Caps grip on
 // hard landings so the car slides instead of snapping straight in one step.
 const DEFAULT_SUSPENSION_FORCE_G = 8;
@@ -139,7 +142,7 @@ export function createCar(
 
   const chassisMass = descriptor.mass ?? DEFAULT_CHASSIS_MASS;
   const { group: chassisMesh } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
-  const hitbox = fitChassisHitbox(chassisMesh);
+  const hitbox = fitChassisHitbox(chassisMesh, descriptor.groundSpheres);
   const chassisBody = createChassisBody(chassisMass, startPosition, startQuaternion, hitbox);
 
   // Custom raycast vehicle (wheeledVehicle.js) instead of CANNON.RaycastVehicle.
@@ -154,7 +157,7 @@ export function createCar(
   if (descriptor.trailer) {
     const spec = trailerSpecOf(descriptor);
     const { group: mesh } = spec.buildBody(color);
-    const trailerHitbox = fitChassisHitbox(mesh);
+    const trailerHitbox = fitChassisHitbox(mesh, spec.groundSpheres);
     const body = createChassisBody(spec.mass ?? DEFAULT_TRAILER_MASS, startPosition, startQuaternion, trailerHitbox);
     const hitchLocal = vec3(spec.hitch);
     const kingpinLocal = vec3(spec.kingpin);
@@ -165,9 +168,11 @@ export function createCar(
   }
   const allWheels = [...tractorWheels, ...(trailer?.wheels ?? [])];
 
+  const rearSlideGrip = descriptor.rearSlideGrip ?? DEFAULT_REAR_SLIDE_GRIP;
   for (const w of allWheels) {
     vehicle.addWheel({
       ...w.options,
+      slideGripScale: w.body === chassisBody && !w.axle.steer ? rearSlideGrip : 1,
       width: wheelSetWidth(w.options.tyreWidth, w.axle.dual),
       body: w.body,
       chassisConnectionPointLocal: new CANNON.Vec3(w.x, w.y, w.z),

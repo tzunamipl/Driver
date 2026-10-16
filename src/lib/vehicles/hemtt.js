@@ -17,8 +17,14 @@ export default {
   axles: [
     { z: 3.4, halfTrack: 1.0, steer: true, driven: true },
     { z: 1.9, halfTrack: 1.0, steer: true, driven: true },
-    { z: -1.9, halfTrack: 1.0, driven: true },
-    { z: -3.4, halfTrack: 1.0, driven: true },
+    { z: -3.0, halfTrack: 1.0, driven: true },
+    { z: -4.5, halfTrack: 1.0, driven: true },
+  ],
+  // Small, tucked-up nose/tail contacts instead of the auto-fitted corner
+  // spheres: ~40 deg approach, the rear tyres themselves set departure.
+  groundSpheres: [
+    { z: 4.7, y: 0.3, radius: 0.4 },
+    { z: -4.8, y: 0.35, radius: 0.35 },
   ],
   wheelAttachY: -0.2,
   suspension: {
@@ -39,7 +45,7 @@ export default {
   peakTorqueRpm: 1400,
   idleRpm: 650,
   redlineRpm: 2300,
-  gearRatios: [4.7, 2.21, 1.53, 1.0, 0.76, 0.67],
+  gearRatios: [6, 4.7, 2.21, 1.53, 1.0, 0.76, 0.67],
   finalDriveRatio: 7.3,
   reverseRatio: 4.8,
   shiftDurationS: 0.9,
