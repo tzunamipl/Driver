@@ -76,9 +76,12 @@ const SPLIT_DISTANCE = 1.0; // in the tile's own widths, from the player to the 
 const AERIAL_BOOST = { [DetailLevel.HIGH]: 2, [DetailLevel.MEDIUM]: 1, [DetailLevel.LOW]: 0 }; // 1024 / 512 / 256px textures
 // Detail tiles load geometry without imagery, then step up through MEDIUM to their level.
 const NO_IMAGERY = -1;
-// The player's own tile gets imagery at AERIAL_MAX_ZOOM once nothing else is queued; kept within this many tiles.
+// The player's own tile gets imagery at AERIAL_MAX_ZOOM once nothing else is queued, then the tiles ahead of
+// it; kept within this many tiles.
 const PLAYER_TILE_BOOST = AERIAL_MAX_ZOOM - DETAIL_ZOOM;
 const PLAYER_TILE_KEEP_RADIUS = 1; // square
+const AHEAD_TILE_REACH = 1.5; // DETAIL_ZOOM tiles along the heading from the car that also get the mosaic
+const AHEAD_TILE_MAX = 2; // each mosaic is 4^PLAYER_TILE_BOOST aerial requests
 const MAX_CONCURRENT_LOADS = 8; // jobs in flight; aerial requests are budgeted separately (AERIAL_MAX_REQUESTS)
 const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) that re-runs selection
 const HIDDEN_TILE_LINGER_MS = 8000; // keeps tiles around for back-and-forth driving
@@ -199,6 +202,7 @@ export class TerrainManager {
     this._lastSelect = null; // DETAIL_ZOOM fractional tile coords of the last selection
     this._centerX = 0;
     this._centerY = 0;
+    this._aheadTiles = []; // DETAIL_ZOOM keys the heading ray crosses next, nearest first
     // Player heading (local XZ) for load priority; 0 = no bias.
     this._headingX = 0;
     this._headingZ = 0;
@@ -364,6 +368,7 @@ export class TerrainManager {
     }
     const cx = this._centerX;
     const cy = this._centerY;
+    this._aheadTiles = this._selectAheadTiles(px[DETAIL_ZOOM], py[DETAIL_ZOOM]);
 
     const leaves = [];
     const visit = (z, x, y) => {
@@ -409,8 +414,25 @@ export class TerrainManager {
     this._leafKeys = new Set(leaves.map((leaf) => leaf.key));
     // Frees load slots and connections from tiles the player has already passed.
     for (const [key, job] of this.loading) {
-      if (!this._leafKeys.has(key) || (job.playerTile && !this._isPlayerTile(job))) job.controller.abort();
+      if (!this._leafKeys.has(key) || (job.playerTile && !this._wantsMaxImagery(job))) job.controller.abort();
     }
+  }
+
+  /** Keys of the DETAIL_ZOOM tiles (other than the player's) a heading ray from (fx, fy) enters within AHEAD_TILE_REACH. */
+  _selectAheadTiles(fx, fy) {
+    const len = Math.hypot(this._headingX, this._headingZ);
+    if (!len) return [];
+    const ux = this._headingX / len;
+    const uy = this._headingZ / len; // local +z is south, as is tile +y
+    const keys = [];
+    for (let d = 0.1; d <= AHEAD_TILE_REACH && keys.length < AHEAD_TILE_MAX; d += 0.1) {
+      const tx = Math.floor(fx + ux * d);
+      const ty = Math.floor(fy + uy * d);
+      if (tx === this._centerX && ty === this._centerY) continue;
+      const key = tileKey(DETAIL_ZOOM, tx, ty);
+      if (!keys.includes(key)) keys.push(key);
+    }
+    return keys;
   }
 
   /** Loaded tiles that fully cover (z, x, y), pushed to `out`; false if there's a gap. */
@@ -556,7 +578,7 @@ export class TerrainManager {
    * fast), then refinements. Beyond HIGH, tiles behind the player count farther.
    */
   _jobScore(leaf, kind) {
-    if (leaf.playerTile) return 9e9; // only once nothing else is left
+    if (leaf.playerTile) return 9e9 + (this._aheadTiles.indexOf(leaf.key) + 1); // only once nothing else is left
     const high = leaf.detail && detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY) === DetailLevel.HIGH;
     if (kind === 'texture') {
       if (leaf.tileBoost !== NO_IMAGERY) return 3.5e9 + this._aheadDist(leaf);
@@ -622,7 +644,7 @@ export class TerrainManager {
 
   /** Imagery boost for a leaf: by detail level inside the physics circle, LOW elsewhere; never past AERIAL_MAX_ZOOM. */
   _aerialBoost(leaf) {
-    if (this._isPlayerTile(leaf)) return PLAYER_TILE_BOOST;
+    if (this._wantsMaxImagery(leaf)) return PLAYER_TILE_BOOST;
     const level = leaf.detail ? detailLevelForOffset(leaf.x - this._centerX, leaf.y - this._centerY) : DetailLevel.LOW;
     return Math.max(0, Math.min(AERIAL_BOOST[level], AERIAL_MAX_ZOOM - leaf.z));
   }
@@ -641,9 +663,14 @@ export class TerrainManager {
     return z === DETAIL_ZOOM && x === this._centerX && y === this._centerY;
   }
 
-  /** True for a tile still holding a player-tile mosaic after the player moved more than PLAYER_TILE_KEEP_RADIUS away. */
+  /** Player tile or one of the tiles ahead of it: imagery at AERIAL_MAX_ZOOM. */
+  _wantsMaxImagery(leaf) {
+    return this._isPlayerTile(leaf) || (leaf.z === DETAIL_ZOOM && this._aheadTiles.includes(leaf.key));
+  }
+
+  /** True for a tile still holding a player-tile mosaic after the player moved more than PLAYER_TILE_KEEP_RADIUS away (unless it's ahead). */
   _dropsPlayerTileImagery(leaf, tile) {
-    if (tile.aerialBoost <= AERIAL_BOOST[DetailLevel.HIGH]) return false;
+    if (tile.aerialBoost <= AERIAL_BOOST[DetailLevel.HIGH] || this._wantsMaxImagery(leaf)) return false;
     return Math.max(Math.abs(leaf.x - this._centerX), Math.abs(leaf.y - this._centerY)) > PLAYER_TILE_KEEP_RADIUS;
   }
 
@@ -651,7 +678,7 @@ export class TerrainManager {
   _pump() {
     // The player-tile mosaic hogs every aerial connection, so any other pending job cancels it (it requeues last).
     for (const job of this.loading.values()) {
-      if (job.playerTile && !job.controller.signal.aborted && this._nextJob()) job.controller.abort();
+      if (job.playerTile && !job.controller.signal.aborted && this._nextJob()?.playerTile === false) job.controller.abort();
     }
     while (this.loading.size < MAX_CONCURRENT_LOADS) {
       // One job may always overshoot an idle budget, else a big mosaic could never start.
@@ -1027,7 +1054,11 @@ export class TerrainManager {
         if (this._visible.has(key)) state = 'loaded';
         else if (this._leafKeys.has(key)) state = 'pending';
         else if (this.tiles.has(key)) state = 'removing';
-        row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy) });
+        const tile = this.tiles.get(key);
+        let maxImagery = null;
+        if (tile && tile.aerialBoost > AERIAL_BOOST[DetailLevel.HIGH]) maxImagery = 'loaded';
+        else if (this._wantsMaxImagery({ z: DETAIL_ZOOM, x: tx, y: ty, key })) maxImagery = 'planned';
+        row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy), maxImagery });
       }
       grid.push(row);
     }

@@ -5,7 +5,7 @@ import { playThud } from './impact.js';
 
 const MIN_CLOSING_SPEED = 0.8; // m/s; below = ordinary road bumps
 const CLOSING_SPEED_FOR_MAX = 6;
-const MIN_GAIN = 0.2;
+const MIN_GAIN = 0.1;
 const MAX_GAIN = 3.0;
 const COOLDOWN_S = 0.15; // per wheel, so one hit doesn't retrigger while it settles
 
