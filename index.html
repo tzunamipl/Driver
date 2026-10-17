@@ -81,24 +81,25 @@
           <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
         </div>
         <div id="hud-body">
-          W / &uarr; &mdash; throttle<br />
-          S / &darr; &mdash; brake / reverse<br />
-          A D / &larr; &rarr; &mdash; steer, also in the air<br />
-          Space &mdash; handbrake (hold 5 s to lock, press again to release)<br />
-          Shift &mdash; turbo<br />
-          F &mdash; shoot<br />
-          H &mdash; horn<br />
-          L &mdash; headlights (automatic at night)<br />
-          J &mdash; jump (hold longer for a higher jump)<br />
-          R &mdash; reset car<br />
-          C &mdash; switch camera view<br />
-          M &mdash; toggle debug view
+          <div class="hud-line">W / &uarr; &mdash; throttle</div>
+          <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
+          <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
+          <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
+          <div class="hud-line">Shift &mdash; turbo</div>
+          <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
+          <div class="hud-line">F &mdash; shoot</div>
+          <div class="hud-line">H &mdash; horn</div>
+          <div class="hud-line">L &mdash; headlights (automatic at night)</div>
+          <div class="hud-line">J &mdash; jump (hold longer for a higher jump)</div>
+          <div class="hud-line">R &mdash; reset car</div>
+          <div class="hud-line">C &mdash; switch camera view</div>
+          <div class="hud-line">M &mdash; toggle debug view</div>
           <div class="hud-points">
-            Points<br />
-            1 &mdash; kilometre<br />
-            10 &mdash; second airborne<br />
-            5 &mdash; pedestrian<br />
-            3 &mdash; car hit
+            <div>Points</div>
+            <div class="hud-line">1 &mdash; kilometre</div>
+            <div class="hud-line">10 &mdash; second airborne</div>
+            <div class="hud-line">5 &mdash; pedestrian</div>
+            <div class="hud-line">3 &mdash; car hit</div>
           </div>
           <div id="hud-reset">
             <button type="button" id="hud-change-choices">Change name/vehicle</button>
@@ -174,6 +175,7 @@
         <div class="gauge-needle" id="tach-needle"></div>
         <div class="gauge-value" id="tach-gear">1</div>
         <div class="gauge-label" id="tach-rpm">0 RPM</div>
+        <button type="button" id="gear-mode" title="Gearbox mode (click to switch) - E/Q shift up/down">SPORT</button>
       </div>
       <div class="gauge" id="speedo">
         <div class="gauge-face"></div>

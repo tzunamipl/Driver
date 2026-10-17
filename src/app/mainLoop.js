@@ -242,7 +242,7 @@ export function createMainLoop({
       vehicleId: carManager.getVehicleId(),
     });
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
-    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn);
+    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode());
     headlights.update(frameDelta, {
       chassisMesh: currentChassisMesh,
       wheeled: currentVehicle?.vehicleType !== 'hover',

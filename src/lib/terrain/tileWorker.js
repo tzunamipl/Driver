@@ -1,5 +1,5 @@
 // Fetches + decodes terrain tiles off the main thread: Terrarium PNG ->
-// Float32 elevations, and an aerial mosaic -> ImageBitmap. Detail tiles
+// Float32 elevations, and an aerial mosaic -> ImageBitmap mip chain. Detail tiles
 // come back as a finished surface with the road bed (detailSurface.js). Never throws:
 // a failed elevation comes back as {error}, missing aerial quadrants use coarser imagery.
 // A {cancel: id} message aborts that job's imagery and answers it {aborted: true}
@@ -120,7 +120,7 @@ async function cropMosaic(z, ax, ay, own, x0, y0, w, border) {
 }
 
 /**
- * One bitmap for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
+ * Mip chain (full size down to 1x1) for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
  * Missing children are filled upscaled from the nearest coarser tile; null if nothing loaded.
  */
 async function loadAerial(z, x, y, boost, signal) {
@@ -159,7 +159,18 @@ async function loadAerial(z, x, y, boost, signal) {
   }
   await Promise.all(loads);
   for (const promise of fetched.values()) (await promise)?.close();
-  return drawn ? canvas.transferToImageBitmap() : null;
+  return drawn ? buildMips(canvas) : null;
+}
+
+/** Halves `canvas` down to 1x1; GPU generateMipmap on a big texture stalls weak GPUs for hundreds of ms. */
+function buildMips(canvas) {
+  const levels = [canvas];
+  for (let size = canvas.width / 2; size >= 1; size /= 2) {
+    const level = new OffscreenCanvas(size, size);
+    level.getContext('2d').drawImage(levels.at(-1), 0, 0, size, size);
+    levels.push(level);
+  }
+  return levels.map((level) => level.transferToImageBitmap());
 }
 
 self.onmessage = async ({ data: job }) => {
@@ -170,34 +181,34 @@ self.onmessage = async ({ data: job }) => {
   const { id, z, x, y, elevation, elevationBorder = 0, aerialBoost, detail } = job;
   const controller = new AbortController();
   controllers.set(id, controller);
-  const [elev, bitmap, roadLines] = await Promise.all([
+  const [elev, mips, roadLines] = await Promise.all([
     elevation ? loadElevation(z, x, y, elevationBorder) : null,
     aerialBoost != null ? loadAerial(z, x, y, aerialBoost, controller.signal).catch(() => null) : null,
     detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters, detail.widthMeters / detail.cells) : null,
   ]);
   controllers.delete(id);
   if (controller.signal.aborted) {
-    bitmap?.close();
+    mips?.forEach((mip) => mip.close());
     self.postMessage({ id, aborted: true });
     return;
   }
   const transfer = [];
-  if (bitmap) transfer.push(bitmap);
+  if (mips) transfer.push(...mips);
   if (detail) {
     // Failed elevation builds flat (main thread decides what to do with it).
     let surface;
     try {
       surface = buildDetailSurface({ ...detail, elev: elev?.heights ? elev : null, lines: roadLines ?? [] });
     } catch (err) {
-      self.postMessage({ id, elev: { error: String(err) }, bitmap, surface: null }, transfer);
+      self.postMessage({ id, elev: { error: String(err) }, mips, surface: null }, transfer);
       return;
     }
     const { mesh, heightfield, roadProfile } = surface;
     transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
     transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer);
-    self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, bitmap, surface }, transfer);
+    self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, mips, surface }, transfer);
     return;
   }
   if (elev?.heights) transfer.push(elev.heights.buffer);
-  self.postMessage({ id, elev, bitmap }, transfer);
+  self.postMessage({ id, elev, mips }, transfer);
 };

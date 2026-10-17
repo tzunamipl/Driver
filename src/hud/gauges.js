@@ -17,8 +17,9 @@ const ODO_TELEPORT_M = 20;
  *   (e.g. restored from a previous session - see src/lib/carState.js),
  *   instead of always starting back at zero.
  * @param {() => void} [options.onLightsClick] - dash headlight lamp clicked
+ * @param {() => void} [options.onGearModeClick] - tach gearbox-mode badge clicked
  */
-export function createGaugesHud({ initialKm = 0, onLightsClick } = {}) {
+export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick } = {}) {
   const speedoNeedle = document.getElementById('speedo-needle');
   const speedoValue = document.getElementById('speedo-value');
   const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), initialKm);
@@ -32,8 +33,15 @@ export function createGaugesHud({ initialKm = 0, onLightsClick } = {}) {
   const lightsIcon = document.getElementById('lights-icon');
   if (onLightsClick) lightsIcon?.addEventListener('click', onLightsClick);
   let lightsShown = null;
+  const gearModeEl = document.getElementById('gear-mode');
+  // Blur so Space (handbrake) doesn't re-click the focused button.
+  gearModeEl?.addEventListener('click', () => {
+    onGearModeClick?.();
+    gearModeEl.blur();
+  });
+  let gearModeShown = null;
 
-  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false) {
+  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false, gearMode = 'sport') {
     const lights = !!vehicle && lightsOn;
     if (lights !== lightsShown) {
       lightsShown = lights;
@@ -75,6 +83,12 @@ export function createGaugesHud({ initialKm = 0, onLightsClick } = {}) {
     const tachDeg = rpmToDeg(rpmClamped, engine.redlineRpm);
     tachNeedle.style.transform = `translate(-50%, -100%) rotate(${tachDeg}deg)`;
     tachGear.textContent = engine.gearLabel;
+    tachGear.classList.toggle('manual', engine.manualHoldTimer > 0);
+    if (gearMode !== gearModeShown && gearModeEl) {
+      gearModeShown = gearMode;
+      gearModeEl.textContent = gearMode.toUpperCase();
+      gearModeEl.dataset.mode = gearMode;
+    }
     tachRpm.textContent = `${Math.round(engine.rpm)} RPM`;
   }
 

@@ -1,5 +1,6 @@
 // Engine + gearbox for wheeled cars: rpm-dependent torque curve through
-// gear ratios and final drive, with automatic shifting. Pure math (no
+// gear ratios and final drive, with automatic shifting (sport/comfort) and
+// manual override (requestShift). Pure math (no
 // physics imports); input.js calls update() each frame.
 
 // Drivetrain loss (typical manual gearbox + diff: 8-12%).
@@ -13,11 +14,20 @@ const DEFAULT_ENGINE_INERTIA = 0.2;
 // Closed-throttle drag torque at redline as a fraction of peak torque
 // (scales linearly from 0 at idle).
 const ENGINE_BRAKE_FRACTION = 0.2;
-// Auto-shift points as fractions of redline (downshift only if the lower
+// Sport auto-shift points as fractions of redline (downshift only if the lower
 // gear wouldn't hit redline). Upshifts go by road speed, so wheelspin holds
 // the gear and revs into the limiter instead.
 const UPSHIFT_RPM_FRACTION = 0.95;
 const DOWNSHIFT_RPM_FRACTION = 0.4;
+// Comfort shift points as fractions of the idle..redline band, so low-revving
+// diesels still shift above idle. Margins keep the gear after a shift inside
+// the band (no up/down hunting).
+const COMFORT_UPSHIFT_BAND_FRACTION = 0.42;
+const COMFORT_DOWNSHIFT_BAND_FRACTION = 0.15;
+const COMFORT_HUNT_MARGIN = 1.15;
+// After a manual shift the automatic holds off this long.
+const MANUAL_HOLD_S = 5;
+export const GEAR_MODES = ['sport', 'comfort'];
 // On throttle in a slide: drop a gear below this rpm if the lower gear lands
 // under SLIDE_TARGET_RPM_FRACTION (gap below the upshift point avoids hunting).
 const SLIDE_DOWNSHIFT_RPM_FRACTION = 0.65;
@@ -83,6 +93,7 @@ export function createEngineState(descriptor, wheelRadius) {
     idleRpm: profile.idleRpm,
     redlineRpm: profile.redlineRpm,
     shiftTimer: 0,
+    manualHoldTimer: 0, // >0 while a manual shift suspends the automatic
     // Driveline coupling for the wheels, refreshed by update(); totals across
     // all driven wheels. 0 / Infinity while the clutch is open mid-shift.
     reflectedMass: 0, // engine inertia seen at the tread (kg)
@@ -97,6 +108,24 @@ export function createEngineState(descriptor, wheelRadius) {
     return gear === 0 ? profile.reverseRatio : profile.gearRatios[gear - 1];
   }
 
+  /** Engine rpm for a wheel angular speed (rad/s) through a gear ratio. */
+  function toRpm(angularSpeed, gearRatio) {
+    return angularSpeed * Math.abs(gearRatio) * profile.finalDriveRatio * RAD_S_TO_RPM;
+  }
+
+  function shiftTo(gear) {
+    engine.gear = gear;
+    engine.shiftTimer = profile.shiftDurationS;
+  }
+
+  // Requested manual shift (+1/-1), applied once the gearbox is free.
+  let pendingShift = 0;
+
+  /** Queues a manual up (+1) or down (-1) shift. */
+  function requestShift(step) {
+    pendingShift = Math.sign(step);
+  }
+
   /**
    * Advances rpm/gearbox by `dt` and returns the drive force (N, unsigned).
    * direction: 1 forward, -1 reverse, 0 coasting/braking (rpm still tracks).
@@ -105,55 +134,50 @@ export function createEngineState(descriptor, wheelRadius) {
    * unsigned chassis speed (m/s), picks the upshift point. grounded: no
    * upshifts while the driven wheels are in the air. slipping: driven wheels
    * sliding: on throttle it drops gears to keep rpm high, else it holds.
+   * mode: 'sport' (late shifts, slide downshifts) or 'comfort' (early shifts).
    */
-  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, grounded = true, slipping = false }) {
+  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, grounded = true, slipping = false, mode = 'sport' }) {
     if (engine.shiftTimer > 0) engine.shiftTimer = Math.max(0, engine.shiftTimer - dt);
+    if (engine.manualHoldTimer > 0) engine.manualHoldTimer = Math.max(0, engine.manualHoldTimer - dt);
 
     // Engage the gear for the requested direction; forward restarts in 1st.
     if (direction === -1 && engine.gear !== 0) {
-      engine.gear = 0;
-      engine.shiftTimer = profile.shiftDurationS;
+      shiftTo(0);
     } else if (direction === 1 && engine.gear === 0) {
-      engine.gear = 1;
-      engine.shiftTimer = profile.shiftDurationS;
+      shiftTo(1);
     }
 
     const wheelAngularSpeed = Math.max(0, wheelSpeedAbs) / wheelRadius; // rad/s
+    const groundAngularSpeed = Math.max(0, groundSpeedAbs) / wheelRadius;
+
+    // Manual shift (forward gears only); a downshift that would over-rev is refused.
+    if (pendingShift !== 0 && engine.shiftTimer <= 0) {
+      const target = engine.gear + pendingShift;
+      if (engine.gear >= 1 && target >= 1 && target <= engine.gearCount) {
+        const targetRatio = profile.gearRatios[target - 1];
+        const targetRpm = Math.max(toRpm(wheelAngularSpeed, targetRatio), toRpm(groundAngularSpeed, targetRatio));
+        if (pendingShift > 0 || targetRpm < profile.redlineRpm) {
+          shiftTo(target);
+          engine.manualHoldTimer = MANUAL_HOLD_S;
+        }
+      }
+      pendingShift = 0;
+    }
+
     const ratio = Math.abs(ratioForGear(engine.gear));
     // Below idle the clutch slips, so the engine never stalls.
-    const wheelRpm = Math.max(profile.idleRpm, wheelAngularSpeed * ratio * profile.finalDriveRatio * RAD_S_TO_RPM);
+    const wheelRpm = Math.max(profile.idleRpm, toRpm(wheelAngularSpeed, ratio));
     const launching = engine.gear <= 1 && direction !== 0 && throttle > 0 && wheelRpm < profile.launchRpm;
     const smoothing = Math.min(1, dt * RPM_RESPONSE_PER_S);
     engine.rpm += ((launching ? profile.launchRpm : wheelRpm) - engine.rpm) * smoothing;
     engine.rpm = Math.min(engine.rpm, profile.redlineRpm * 1.02);
 
     // Auto-shift (forward only, on the ground), one shift at a time.
-    if (engine.gear >= 1 && engine.shiftTimer <= 0 && grounded) {
-      const groundRpm = (Math.max(0, groundSpeedAbs) / wheelRadius) * ratio * profile.finalDriveRatio * RAD_S_TO_RPM;
+    if (engine.gear >= 1 && engine.shiftTimer <= 0 && engine.manualHoldTimer <= 0 && grounded) {
+      const groundRpm = toRpm(groundAngularSpeed, ratio);
       const upshiftRpm = Math.min(engine.rpm, groundRpm);
-      if (upshiftRpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) {
-        engine.gear++;
-        engine.shiftTimer = profile.shiftDurationS;
-      } else if (engine.gear > 1) {
-        const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
-        const lowerRpm = wheelAngularSpeed * lowerRatio * profile.finalDriveRatio * RAD_S_TO_RPM;
-        // Road speed too, so locked (handbraked) wheels don't drop it into an over-revving gear.
-        const lowerGroundRpm = groundRpm * (lowerRatio / ratio);
-        const slideDownshift =
-          slipping &&
-          direction === 1 &&
-          throttle > 0 &&
-          engine.rpm < profile.redlineRpm * SLIDE_DOWNSHIFT_RPM_FRACTION &&
-          Math.max(lowerRpm, lowerGroundRpm) < profile.redlineRpm * SLIDE_TARGET_RPM_FRACTION;
-        const normalDownshift =
-          !slipping &&
-          engine.rpm < profile.redlineRpm * DOWNSHIFT_RPM_FRACTION &&
-          lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION;
-        if (slideDownshift || normalDownshift) {
-          engine.gear--;
-          engine.shiftTimer = profile.shiftDurationS;
-        }
-      }
+      const shift = mode === 'comfort' ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
+      if (shift !== 0) shiftTo(engine.gear + shift);
     }
 
     // Gear may have changed above.
@@ -179,6 +203,45 @@ export function createEngineState(descriptor, wheelRadius) {
     return totalDrivetrainForce / 2;
   }
 
+  /** Current-gear shift decision for sport: +1, -1 or 0. */
+  function sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping) {
+    if (upshiftRpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) return 1;
+    if (engine.gear <= 1) return 0;
+    const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
+    const lowerRpm = toRpm(wheelAngularSpeed, lowerRatio);
+    // Road speed too, so locked (handbraked) wheels don't drop it into an over-revving gear.
+    const lowerGroundRpm = groundRpm * (lowerRatio / ratio);
+    const slideDownshift =
+      slipping &&
+      direction === 1 &&
+      throttle > 0 &&
+      engine.rpm < profile.redlineRpm * SLIDE_DOWNSHIFT_RPM_FRACTION &&
+      Math.max(lowerRpm, lowerGroundRpm) < profile.redlineRpm * SLIDE_TARGET_RPM_FRACTION;
+    const normalDownshift =
+      !slipping &&
+      engine.rpm < profile.redlineRpm * DOWNSHIFT_RPM_FRACTION &&
+      lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION;
+    return slideDownshift || normalDownshift ? -1 : 0;
+  }
+
+  /** Current-gear shift decision for comfort: +1, -1 or 0. */
+  function comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) {
+    const band = profile.redlineRpm - profile.idleRpm;
+    const upAt = profile.idleRpm + band * COMFORT_UPSHIFT_BAND_FRACTION;
+    const downAt = profile.idleRpm + band * COMFORT_DOWNSHIFT_BAND_FRACTION;
+    if (engine.gear < engine.gearCount) {
+      const nextRpm = upshiftRpm * (Math.abs(profile.gearRatios[engine.gear]) / ratio);
+      const roomAfterShift = nextRpm > downAt * COMFORT_HUNT_MARGIN;
+      if ((upshiftRpm > upAt && roomAfterShift) || upshiftRpm > profile.redlineRpm * UPSHIFT_RPM_FRACTION) return 1;
+    }
+    if (engine.gear <= 1 || engine.rpm >= downAt) return 0;
+    const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
+    const lowerRpm = toRpm(wheelAngularSpeed, lowerRatio);
+    const lowerGroundRpm = groundRpm * (lowerRatio / ratio);
+    return Math.max(lowerRpm, lowerGroundRpm) * COMFORT_HUNT_MARGIN < upAt ? -1 : 0;
+  }
+
   engine.update = update;
+  engine.requestShift = requestShift;
   return engine;
 }

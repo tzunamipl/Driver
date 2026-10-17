@@ -17,6 +17,7 @@
   padding: 8px 12px;
   border-radius: 6px;
   line-height: 1.5;
+  max-width: 34ch;
   pointer-events: none;
   z-index: 10;
   opacity: 1;
@@ -64,7 +65,7 @@
    max-height/opacity (rather than snapping with display: none) so
    collapsing/expanding is animated the same way hiding is. */
 #hud-body {
-  max-height: 400px;
+  max-height: 800px; /* fold animation cap; must exceed the wrapped body height */
   opacity: 1;
   overflow: hidden;
   transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
@@ -77,6 +78,11 @@
   margin-top: 8px;
   padding-top: 0;
   border-top: none;
+}
+/* Hanging indent: wrapped lines sit under the description, not the key. */
+#hud .hud-line {
+  padding-left: 2ch;
+  text-indent: -2ch;
 }
 #hud .hud-points {
   margin-top: 8px;

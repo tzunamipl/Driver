@@ -1,4 +1,5 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY } from '../config.js';
+import { GEAR_MODES } from '../lib/engine.js';
 
 // Keyboard -> vehicle controls, applied each frame.
 
@@ -6,6 +7,23 @@ import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S } fr
 function steer(vehicle, value, speedKmh) {
   if (vehicle.applySteer) vehicle.applySteer(value, speedKmh);
   else vehicle.setSteeringValue(value, 0);
+}
+
+function loadGearMode() {
+  try {
+    const saved = localStorage.getItem(GEAR_MODE_STORAGE_KEY);
+    return GEAR_MODES.includes(saved) ? saved : GEAR_MODES[0];
+  } catch {
+    return GEAR_MODES[0];
+  }
+}
+
+function saveGearMode(mode) {
+  try {
+    localStorage.setItem(GEAR_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Storage unavailable - mode just resets next session.
+  }
 }
 
 function isTypingInField() {
@@ -42,6 +60,10 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   let handbrakeLatched = initialHandbrakeLatched;
   let handbrakeReleasing = false;
   let handbrakeOn = initialHandbrakeLatched;
+  let gearMode = loadGearMode();
+  // Edge-triggered manual shifts: E up, Q down.
+  let shiftUpWasPressed = false;
+  let shiftDownWasPressed = false;
 
   /**
    * Applies key state to the vehicle (engine, steering, brake, R reset).
@@ -83,8 +105,17 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       (forward && movingBackward) || (backward && (movingForward || backwardBrakeOnly));
     // Gearbox force for wheeled cars. direction 0 while pedal-braking (no
     // premature reverse) but rpm/gear still track wheel speed for the HUD.
+    const shiftUp = keys.has('KeyE');
+    const shiftDown = keys.has('KeyQ');
+    if (vehicle.engine?.requestShift) {
+      if (shiftUp && !shiftUpWasPressed) vehicle.engine.requestShift(1);
+      if (shiftDown && !shiftDownWasPressed) vehicle.engine.requestShift(-1);
+    }
+    shiftUpWasPressed = shiftUp;
+    shiftDownWasPressed = shiftDown;
     const engineMagnitude = vehicle.engine
       ? vehicle.engine.update(dt, {
+          mode: gearMode,
           direction: pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
           throttle: pedalBraking || !(forward || backward) ? 0 : 1,
           wheelSpeedAbs: Math.abs(vehicle.getDriveWheelSpeed?.() ?? forwardSpeed),
@@ -198,5 +229,10 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     isTyping,
     getThrottle: () => throttle,
     getHandbrake: () => ({ on: handbrakeOn, latched: handbrakeLatched }),
+    getGearMode: () => gearMode,
+    toggleGearMode() {
+      gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];
+      saveGearMode(gearMode);
+    },
   };
 }

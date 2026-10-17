@@ -26,7 +26,7 @@ npm run dev
 ```
 Open the printed URL (e.g. http://localhost:5173).
 
-Controls: W/↑ throttle, S/↓ brake-reverse, A/D or ←/→ steer, Space handbrake, R reset car.
+Controls: W/↑ throttle, S/↓ brake-reverse, A/D or ←/→ steer, Space handbrake, E/Q shift gear up/down, R reset car. Click the SPORT/COMFORT badge on the rev counter to switch gearbox mode.
 
 ## Real-world terrain
 

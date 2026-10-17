@@ -227,7 +227,9 @@ const cameraFollow = createCameraFollow(camera, {
 });
 
 // ---------- HUD ----------
-const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle });
+const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle,
+  onGearModeClick: input.toggleGearMode,
+});
 const terrainStatsHud = createTerrainStatsHud();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();

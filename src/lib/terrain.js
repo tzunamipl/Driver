@@ -155,6 +155,10 @@ function tileKey(z, x, y) {
   return `${z}/${x}/${y}`;
 }
 
+function closeMips(mips) {
+  mips?.forEach((mip) => mip.close());
+}
+
 /**
  * Streams the terrain quadtree around the player (see the overview at the
  * top). Loads run in a worker, up to MAX_CONCURRENT_LOADS at once, best
@@ -667,14 +671,14 @@ export class TerrainManager {
     this._aerialInFlight += job.aerialCost;
     try {
       if (job.kind === 'texture') {
-        const { bitmap, aborted } = await loadTileData({ z, x, y, elevation: false, aerialBoost: job.aerialBoost, signal });
+        const { mips, aborted } = await loadTileData({ z, x, y, elevation: false, aerialBoost: job.aerialBoost, signal });
         const tile = this.tiles.get(key);
-        if (aborted || epoch !== this._loadEpoch || !tile || !bitmap) {
-          bitmap?.close();
-          if (!aborted && tile && !bitmap) this._failedAt.set(key, performance.now()); // keeps the old texture
+        if (aborted || epoch !== this._loadEpoch || !tile || !mips) {
+          closeMips(mips);
+          if (!aborted && tile && !mips) this._failedAt.set(key, performance.now()); // keeps the old texture
           return;
         }
-        this._setTileTexture(tile, bitmap, job.aerialBoost);
+        this._setTileTexture(tile, mips, job.aerialBoost);
         return;
       }
       if (job.kind === 'surface') {
@@ -695,16 +699,16 @@ export class TerrainManager {
         ? roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256, detail.widthMeters / detail.cells)
         : 0;
       const imagery = aerialBoost === NO_IMAGERY ? null : aerialBoost;
-      const { elev, bitmap, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
+      const { elev, mips, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
       if (aborted || epoch !== this._loadEpoch || this.tiles.has(key)) {
-        bitmap?.close();
+        closeMips(mips);
         return;
       }
       const heights = detail ? (surface && elev?.ok ? surface : null) : elev?.heights ? elev : null;
       if (detail && !surface) {
         console.warn('Terrain detail surface failed', z, x, y, elev?.error);
         this._failedAt.set(key, performance.now());
-        bitmap?.close();
+        closeMips(mips);
         return;
       }
       if (!heights) {
@@ -713,12 +717,12 @@ export class TerrainManager {
         console.warn('Terrain elevation fetch failed', z, x, y, elev?.error);
         if (!job.detail) {
           this._failedAt.set(key, performance.now());
-          bitmap?.close();
+          closeMips(mips);
           return;
         }
       }
-      if (detail) this._addDetailTile(job, surface, bitmap, aerialBoost, detail.roadBed);
-      else this._addTile(job, heights, bitmap, aerialBoost);
+      if (detail) this._addDetailTile(job, surface, mips, aerialBoost, detail.roadBed);
+      else this._addTile(job, heights, mips, aerialBoost);
     } catch (err) {
       console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
@@ -753,10 +757,10 @@ export class TerrainManager {
   }
 
   /** Detail tile from the worker's surface: positions are relative to the NW corner. */
-  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, bitmap, aerialBoost, roadBed) {
+  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, mips, aerialBoost, roadBed) {
     const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
     const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
-    const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, bitmap, aerialBoost);
+    const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, mips, aerialBoost);
     tile.heightfield = heightfield;
     tile.roadBed = roadBed;
     tile.roadProfile = roadProfile;
@@ -793,7 +797,7 @@ export class TerrainManager {
     this._syncBody(tile);
   }
 
-  _addTile({ z, x, y, key }, elev, bitmap, aerialBoost) {
+  _addTile({ z, x, y, key }, elev, mips, aerialBoost) {
     const grid = COARSE_GRIDS.find(([minZoom]) => z >= minZoom)[1];
     const cellMeters = tileSizeMeters(z, this.originLat) / grid;
     const { geometry, anchor, surface } = buildTileGeometry({
@@ -808,10 +812,10 @@ export class TerrainManager {
       scaleLat: this.scaleLat,
       skirtDepth: cellMeters * SKIRT_DEPTH_CELLS + 2,
     });
-    this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, bitmap, aerialBoost);
+    this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost);
   }
 
-  _createTileMesh({ z, x, y, key }, geometry, surface, anchor, bitmap, aerialBoost) {
+  _createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost) {
     const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
     material.onBeforeCompile = applyGroundHaze;
     const mesh = new THREE.Mesh(geometry, material);
@@ -843,7 +847,7 @@ export class TerrainManager {
       hiddenSince: performance.now(),
     };
     tile.ancestorKeys = this._ancestorKeys(tile);
-    this._setTileTexture(tile, bitmap, aerialBoost);
+    this._setTileTexture(tile, mips, aerialBoost);
     this.tiles.set(key, tile);
     for (const k of tile.ancestorKeys) this._loadedBelow.set(k, (this._loadedBelow.get(k) || 0) + 1);
     this._failedAt.delete(key);
@@ -851,25 +855,27 @@ export class TerrainManager {
     return tile;
   }
 
-  /** Swaps in a texture from `bitmap` (none: untextured); the bitmap is freed once on the GPU. */
-  _setTileTexture(tile, bitmap, aerialBoost) {
+  /** Swaps in a texture from the worker's mip chain (none: untextured); the bitmaps are freed once on the GPU. */
+  _setTileTexture(tile, mips, aerialBoost) {
     const material = tile.mesh.material;
     const old = material.map;
-    if (bitmap) {
-      const tex = new THREE.Texture(bitmap);
+    if (mips) {
+      const tex = new THREE.Texture(mips[0]);
+      tex.mipmaps = mips;
+      tex.generateMipmaps = false;
       tex.flipY = false; // ignored for ImageBitmap anyway; UVs account for it
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 8;
       tex.wrapS = THREE.ClampToEdgeWrapping;
       tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.onUpdate = () => bitmap.close();
+      tex.onUpdate = () => closeMips(mips);
       tex.needsUpdate = true;
       material.map = tex;
-      tile.texBytes = Math.round(bitmap.width * bitmap.height * 4 * (4 / 3)); // + mipmaps
+      tile.texBytes = Math.round(mips[0].width * mips[0].height * 4 * (4 / 3)); // + mipmaps
       if (!old) material.needsUpdate = true;
     }
     if (old && old !== material.map) {
-      old.image?.close?.();
+      closeMips(old.mipmaps);
       old.dispose();
     }
     tile.aerialBoost = aerialBoost;
@@ -880,7 +886,7 @@ export class TerrainManager {
     tile.mesh.geometry.dispose();
     const map = tile.mesh.material.map;
     if (map) {
-      map.image?.close?.(); // if never uploaded
+      closeMips(map.mipmaps); // if never uploaded
       map.dispose();
     }
     tile.mesh.material.dispose();

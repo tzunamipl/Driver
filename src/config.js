@@ -148,3 +148,4 @@ export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // M-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
+export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox

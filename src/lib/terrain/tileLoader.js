@@ -19,7 +19,7 @@ function getWorkers() {
     slot.worker.onerror = (err) => {
       // Fail every outstanding job rather than hang its awaiter.
       console.warn('Terrain tile worker error', err);
-      for (const resolve of slot.jobs.values()) resolve({ elev: null, bitmap: null });
+      for (const resolve of slot.jobs.values()) resolve({ elev: null, mips: null });
       slot.jobs.clear();
     };
     workers.push(slot);
@@ -28,7 +28,8 @@ function getWorkers() {
 }
 
 /**
- * Resolves to { elev: {heights, width, height, border?} | {error} | null, bitmap: ImageBitmap | null }.
+ * Resolves to { elev: {heights, width, height, border?} | {error} | null, mips: ImageBitmap[] | null }
+ * (aerial mip chain, full size down to 1x1).
  * `elevation` false skips the elevation fetch; `elevationBorder` adds that
  * many pixels from the neighbouring tiles around it (see sampleHeight);
  * `aerialBoost` null skips imagery. `detail` {widthMeters, heightMeters, cells,

@@ -156,9 +156,11 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       closingSpeed: 0, // suspension compression rate (m/s, + = compressing), last step
       isInContact: false,
       sliding: false,
+      wheelspin: false, // sliding because the drive overruns the patch (vs. sideways/locked)
       // Signed contact-patch slip along the wheel's forward axis (m/s);
       // nonzero under wheelspin/lockup. Used by smoke/dust effects.
       spinSlipSpeed: 0,
+      sideSlipSpeed: 0, // contact-patch slip along the axle (m/s) while sliding
       forwardWorld: new CANNON.Vec3(), // last contact-patch forward direction
       surface: DEFAULT_SURFACE_KEY, // set each frame by mainLoop's classifySurfaceAt
       connectionPointWorld: new CANNON.Vec3(),
@@ -377,6 +379,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   function applyFriction(wheel, dt) {
     const wasSliding = wheel.sliding;
     wheel.sliding = false;
+    wheel.wheelspin = false;
     wheel.gripFraction = 0;
     const spinMass = wheel.spinMass + wheel.drivelineMass;
     // Drive impulse on the tread; none once at the rev limit in that direction.
@@ -390,6 +393,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     if (!wheel.isInContact) {
       w = approachZero(wDrive * (1 - Math.min(1, AIR_SPIN_DRAG_PER_S * dt)), brakeLimit / spinMass);
       wheel.spinSlipSpeed = 0;
+      wheel.sideSlipSpeed = 0;
     } else {
       w = applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit, wasSliding);
     }
@@ -492,6 +496,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.sliding = true;
       // Power wheelspin: the tread overruns the patch in the drive direction.
       const wheelspin = wheel.engineForce !== 0 && Math.sign(wFree - vLong) === Math.sign(wheel.engineForce);
+      wheel.wheelspin = wheelspin;
       const slipWeight = wheel.handbrake ? HANDBRAKE_LONG_SLIP_WEIGHT : wheelspin ? wheel.spinSlipWeight : LONG_SLIP_WEIGHT;
       const slipLong = (vLong - wFree) * slipWeight;
       const slideGrip = dynamicGrip * wheel.slideGripScale * (wheel.handbrake ? HANDBRAKE_DYNAMIC_GRIP : 1);
@@ -513,8 +518,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     if (wheel.sliding) {
       readPatchVelocity(body, hitPoint, groundBody);
       wheel.spinSlipSpeed = frictionForward.dot(patchVel) - w;
+      wheel.sideSlipSpeed = frictionAxle.dot(patchVel);
     } else {
       wheel.spinSlipSpeed = 0;
+      wheel.sideSlipSpeed = 0;
     }
     return w;
   }
