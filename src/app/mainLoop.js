@@ -70,6 +70,7 @@ export function createMainLoop({
   cameraFollow,
   gaugesHud,
   terrainStatsHud,
+  streamingStatus,
   suspensionHud,
   playersPanel,
   minimapHud,
@@ -261,6 +262,7 @@ export function createMainLoop({
       pedestrians,
       viewFrame,
     });
+    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas });
     // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {

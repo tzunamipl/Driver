@@ -6,6 +6,7 @@
 @import './terrain-stats.css';
 @import './address-search.css';
 @import './lobby.css';
+@import './loading.css';
 @import './debug-hud.css';
 @import './minimap.css';
 @import './gauges.css';

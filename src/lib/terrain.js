@@ -947,6 +947,37 @@ export class TerrainManager {
     return true;
   }
 
+  /** Pending work for the streaming indicator: jobs in flight plus desired tiles not loaded or started (failed ones waiting to retry excluded). */
+  pendingCount() {
+    const now = performance.now();
+    let missing = 0;
+    for (const { key } of this._leaves) {
+      if (this.tiles.has(key) || this.loading.has(key)) continue;
+      const failedAt = this._failedAt.get(key);
+      if (failedAt == null || now - failedAt >= FAILED_RETRY_MS) missing++;
+    }
+    return this.loading.size + missing;
+  }
+
+  /** Startup progress for the loading screen: baseline sample, then the physics footprint init() waits on. */
+  getLoadProgress() {
+    let physicsLoaded = 0;
+    if (this._lastSelect) {
+      for (const { dx, dy } of DETAIL_OFFSETS) {
+        if (this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy))?.body) physicsLoaded++;
+      }
+    }
+    let farLoaded = 0;
+    for (const tile of this.tiles.values()) if (tile.z !== DETAIL_ZOOM) farLoaded++;
+    return {
+      baselineReady: this._heightBaselineSet,
+      physicsLoaded,
+      physicsTotal: DETAIL_OFFSETS.length,
+      farLoaded,
+      inFlight: this.loading.size,
+    };
+  }
+
   _resolveDetailWaiters() {
     if (!this._detailWaiters.length || !this._allPhysicsLoaded()) return;
     const waiters = this._detailWaiters;

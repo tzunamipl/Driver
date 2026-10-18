@@ -1,0 +1,96 @@
+/* Above the lobby (z-index 20): the form is useless until terrain is in. */
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #87ceeb;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+}
+#loading-screen .loading-card {
+  width: min(380px, calc(100vw - 32px));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 20px 22px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+#loading-screen h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+#loading-screen .loading-coords {
+  margin: 0 0 14px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#loading-screen .loading-steps {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  font-size: 14px;
+}
+#loading-screen .loading-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+#loading-screen .loading-steps li::before {
+  content: '';
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-sizing: border-box;
+}
+#loading-screen .loading-steps li[data-state='pending'] {
+  color: rgba(255, 255, 255, 0.45);
+}
+#loading-screen .loading-steps li[data-state='active']::before {
+  border-color: #fff;
+  border-top-color: transparent;
+  animation: loading-spin 0.8s linear infinite;
+}
+#loading-screen .loading-steps li[data-state='done']::before {
+  background: #5fd38a;
+  border-color: #5fd38a;
+}
+#loading-screen .loading-step-detail {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#loading-screen .loading-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+#loading-screen .loading-bar-fill {
+  width: 0;
+  height: 100%;
+  background: #5fd38a;
+  transition: width 0.2s ease-out;
+}
+#loading-screen .loading-footer,
+#loading-screen .loading-slow {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+#loading-screen .loading-slow {
+  color: #ffd27a;
+}
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

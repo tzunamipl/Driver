@@ -45,6 +45,8 @@ import { createMainLoop } from './app/mainLoop.js';
 import { createScoring } from './app/scoring.js';
 import { createScoreToast } from './hud/scoreToast.js';
 import { createNoticeHud } from './hud/notice.js';
+import { createLoadingScreen } from './hud/loadingScreen.js';
+import { createStreamingStatus } from './hud/streamingStatus.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
@@ -118,20 +120,7 @@ const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialV
 const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 
-const loadingEl = document.createElement('div');
-loadingEl.textContent = 'Loading real-world terrain\u2026';
-Object.assign(loadingEl.style, {
-  position: 'fixed',
-  inset: '0',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#87ceeb',
-  color: '#1a1a1a',
-  font: '600 20px system-ui, sans-serif',
-  zIndex: '10',
-});
-document.body.appendChild(loadingEl);
+const loadingScreen = createLoadingScreen(terrain, initialViewOrigin);
 
 // ---------- Audio ----------
 const engineSound = createEngineSound();
@@ -231,6 +220,7 @@ const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLigh
   onGearModeClick: input.toggleGearMode,
 });
 const terrainStatsHud = createTerrainStatsHud();
+const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
 const minimapHud = createMinimapHud();
@@ -333,6 +323,7 @@ const mainLoop = createMainLoop({
   cameraFollow,
   gaugesHud,
   terrainStatsHud,
+  streamingStatus,
   suspensionHud,
   playersPanel,
   minimapHud,
@@ -376,7 +367,7 @@ const lobby = createLobby({
 // Load initial terrain before starting, so the car can't fall through.
 // Buildings stream in from the main loop.
 terrain.init().then(() => {
-  loadingEl.remove();
+  loadingScreen.hide();
   if (IS_DEV_MODE) {
     // Dev: skip the lobby and join with the saved debug pick, if any.
     lobby.joinRoom('dev_mode', devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);

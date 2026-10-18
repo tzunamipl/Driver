@@ -340,6 +340,11 @@ export class VectorTileLayer {
     this.chunks.set(key, { meshes, tx, ty, ground });
   }
 
+  /** Pending work for the streaming indicator: tile builds, plus one for a region fetch. */
+  pendingCount() {
+    return (this._regionPending ? 1 : 0) + this._buildQueue.length + this._inProgressBuilds.size;
+  }
+
   /** True once a tile's meshes are built (not just fetched) - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
     return this.chunks.has(this._key(tx, ty));

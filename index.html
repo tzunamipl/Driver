@@ -28,6 +28,20 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="loading-screen">
+      <div class="loading-card">
+        <h1>Loading real-world terrain</h1>
+        <p class="loading-coords"></p>
+        <ul class="loading-steps">
+          <li data-step="baseline"><span class="loading-step-label">Elevation at start point</span><span class="loading-step-detail"></span></li>
+          <li data-step="ground"><span class="loading-step-label">Ground around the car</span><span class="loading-step-detail"></span></li>
+          <li data-step="far"><span class="loading-step-label">Distant landscape</span><span class="loading-step-detail"></span></li>
+        </ul>
+        <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+        <p class="loading-footer"></p>
+        <p class="loading-slow" hidden>Taking longer than usual: the elevation / imagery servers may be slow.</p>
+      </div>
+    </div>
     <div id="lobby">
       <form id="lobby-form" autocomplete="off">
         <h1>Shared Room</h1>
@@ -75,6 +89,12 @@
       <button id="address-submit" type="submit">Go</button>
     </form>
     <div id="address-search-status"></div>
+    <div id="streaming-status" hidden>
+      <div class="streaming-status-row">
+        <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+      </div>
+      <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
+    </div>
     <div id="top-left-stack">
       <div id="hud">
         <div id="hud-header">

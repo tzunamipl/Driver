@@ -496,6 +496,11 @@ export class BuildingsManager {
     for (const g of build.geometries) g.dispose();
   }
 
+  /** Pending work for the streaming indicator: tile builds and far tiles, plus one for a region fetch. */
+  pendingCount() {
+    return (this._regionPending ? 1 : 0) + this._buildQueue.length + this._inProgressBuilds.size + this._far.getStats().pending;
+  }
+
   /** True once a tile is built (not just fetched) - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
     return this.chunks.has(this._key(tx, ty));
