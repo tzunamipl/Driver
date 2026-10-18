@@ -94,3 +94,63 @@
     transform: rotate(360deg);
   }
 }
+/* Just above #net-status (bottom: 20px). */
+#streaming-status {
+  position: fixed;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  min-width: 180px;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 9px 5px;
+  border-radius: 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+#streaming-status[hidden] {
+  display: none;
+}
+#streaming-status .streaming-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#streaming-status .streaming-status-percent {
+  margin-left: auto;
+  padding-left: 8px;
+  color: #fff;
+  font-weight: 600;
+}
+#streaming-status .streaming-status-spinner {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-top-color: transparent;
+  animation: streaming-spin 0.8s linear infinite;
+}
+#streaming-status .streaming-status-bar {
+  margin-top: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+#streaming-status .streaming-status-fill {
+  width: 0;
+  height: 100%;
+  background: #5fd38a;
+  transition: width 0.25s ease-out;
+}
+@keyframes streaming-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

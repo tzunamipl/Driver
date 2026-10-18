@@ -25,6 +25,7 @@
     padding: 5px 8px;
   }
   #net-status { bottom: 104px; }
+  #streaming-status { bottom: 134px; }
   #volume {
     left: 12px;
     bottom: 188px;
@@ -90,10 +91,5 @@
     right: 10px;
     left: auto;
     transform: none;
-  }
-  /* Search box lives on the right here, so the top centre is free. */
-  #streaming-status,
-  #address-search-status:not(:empty) + #streaming-status {
-    top: 10px;
   }
 }

@@ -1,4 +1,4 @@
-// Small top-of-screen pill with per-layer pending counts and a progress bar
+// Small bottom-of-screen pill with per-layer pending counts and a progress bar
 // for the current loading burst.
 
 const UPDATE_INTERVAL = 0.25; // s
