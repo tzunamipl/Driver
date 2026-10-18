@@ -53,13 +53,15 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream, radius, terrain });
     }
 
-    // Items also carry `dist` (metres along the line at `a`), `len` and `buffer`
-    // (midpoint in the source tile's overlap with its neighbours), for roadPosts.js.
+    // Items also carry `dist` (metres along the line at `a`), `len`, `buffer`
+    // (midpoint in the source tile's overlap with its neighbours) and `line`
+    // (all of its line's items, in order), for roadside.js kinds.
     _decodeFeature(lines, style, toLatLon, add, extent) {
       const inTile = (x, y) => x >= 0 && x < extent && y >= 0 && y < extent;
       for (const line of lines) {
         if (line.length < 2) continue;
         const points = line.map(toLatLon);
+        const items = [];
         let dist = 0;
         for (let p = 0; p < points.length - 1; p++) {
           const a = points[p];
@@ -76,14 +78,9 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
             const tm = (i - 0.5) / pieces;
             const mx = line[p].x + (line[p + 1].x - line[p].x) * tm;
             const my = line[p].y + (line[p + 1].y - line[p].y) * tm;
-            add((prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2, {
-              a: prev,
-              b: next,
-              style,
-              dist,
-              len,
-              buffer: !inTile(mx, my),
-            });
+            const item = { a: prev, b: next, style, dist, len, buffer: !inTile(mx, my), line: items };
+            items.push(item);
+            add((prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2, item);
             dist += len;
             prev = next;
           }

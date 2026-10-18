@@ -30,7 +30,9 @@ import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
-import { createRoadPosts } from './lib/roadPosts.js';
+import { createRoadside } from './lib/roadside.js';
+import { createRoadPostKind } from './lib/roadPosts.js';
+import { createRoadSignKinds } from './lib/roadSigns.js';
 import { WaterAreasManager } from './lib/waterAreas.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
@@ -130,7 +132,14 @@ const tireSqueal = createTireSqueal();
 const waterWadeSound = createWaterWadeSound();
 const impactSound = createImpactSound();
 const postHitSound = createPostHitSound();
-const roadPosts = createRoadPosts({ scene, world, streets, terrain, onHit: postHitSound.play });
+const roadside = createRoadside({
+  scene,
+  world,
+  streets,
+  terrain,
+  kinds: [createRoadPostKind(streets), ...createRoadSignKinds(streets)],
+  onHit: postHitSound.play,
+});
 const suspensionThud = createSuspensionThud();
 const pedestrianSounds = createPedestrianSounds();
 pedestrians.setSoundCallbacks({
@@ -288,7 +297,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadPosts],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside],
 });
 
 // ---------- Main loop ----------
@@ -304,7 +313,7 @@ const mainLoop = createMainLoop({
   streets,
   rivers,
   waterAreas,
-  roadPosts,
+  roadside,
   balls,
   pedestrians,
   shots,

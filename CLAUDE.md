@@ -20,7 +20,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     fetch/decode + mesh building in `terrain/`; detail tiles carve OSM roads in as a raised bed, `terrain/roadBed.js`, with Heightfield physics), `buildings.js`
     (+ `buildingsCache.js` IndexedDB). Debug/gameplay overlays extend `tiles/vectorTileLayer.js`
     (fetch, bucketing, time-sliced builds, unload): `vectorLineLayer.js` → `streets.js`,
-    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `roadPosts.js` = edge posts placed from the streets layer's segments. `tiles/openFreeMap.js` = vector tile
+    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `roadside.js` = knockable objects placed from the streets layer's segments, one kind per file: `roadPosts.js` (edge posts), `roadSigns.js` (chevron boards on curves/hairpins). `tiles/openFreeMap.js` = vector tile
     fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
   - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
     (chassis body/inertia/hitboxes, wheel mesh, remote car, `axles.js` = descriptor `axles` layout

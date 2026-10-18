@@ -12,7 +12,7 @@ const STREET_TILE_ZOOM = 14;
 // Lift above ground, against z-fighting.
 const STREET_LIFT = 0.2;
 
-/** roadClasses {key, color, width} -> vectorLineLayer {key, color, linewidth}, plus brunnel for roadPosts.js. */
+/** roadClasses {key, color, width} -> vectorLineLayer {key, color, linewidth}, plus brunnel for roadside.js. */
 function classify(props) {
   const style = classifyRoad(props);
   if (!style) return null;
