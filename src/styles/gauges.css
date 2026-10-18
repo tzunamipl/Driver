@@ -67,10 +67,11 @@
 /* Gear shown amber while a manual (E/Q) shift holds off the automatic. */
 #tach-gear.manual { color: #ffb84d; }
 /* Gearbox-mode badge: clickable, unlike the rest of the dash. */
-#gear-mode {
+#gear-mode,
+#transmission-mode {
   position: absolute;
   left: 50%;
-  top: 78%;
+  top: 75%;
   transform: translate(-50%, -50%);
   padding: 1px 5px;
   border: 1px solid currentColor;
@@ -83,6 +84,38 @@
   cursor: pointer;
 }
 #gear-mode[data-mode="comfort"] { color: #4fc3ff; }
+/* Manual box: sport/comfort doesn't apply. */
+#gear-mode.inactive { opacity: 0.35; pointer-events: none; }
+#transmission-mode {
+  top: 88%;
+  color: #ddd;
+}
+#transmission-mode[data-mode="manual"] { color: #ffb84d; }
+#transmission-mode:disabled { opacity: 0.35; cursor: default; }
+/* Speedo with the manual gearstick stacked above it, right-aligned. */
+#speedo-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+/* Manual gearstick (hud/gearstick.js): own WebGL canvas, dragged with the pointer. */
+#gearstick {
+  position: relative;
+  width: 210px;
+  height: 210px;
+  pointer-events: auto;
+}
+#gearstick-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#gearstick-canvas:active { cursor: grabbing; }
+/* Ranged boxes add the range lever's plate on the right. */
+#gearstick.ranged { width: 285px; }
 /* krpm tick marks + numbers, built in hud/gauges.js (one set per
    1000rpm up to the vehicle's own redlineRpm). The tick wrapper is
    inset over the whole dial so its own center is the dial's center,

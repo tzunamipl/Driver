@@ -28,7 +28,8 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     trailer wheels live in the same `wheelInfos`). Hover vehicles go to `chariot.js`,
     helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
-    `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox), `airDrag.js`,
+    `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
+    with neutral; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `airDrag.js`,
     `surfaceCompounds.js`, `terrainSurface.js`.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
@@ -39,7 +40,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
 - `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, address search.
@@ -52,6 +53,9 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
 - Physics axes: x right, y up, z forward. Collision groups exported from `terrain.js` / `buildings.js`.
 - Per-vehicle values come from the descriptor with a module-level default (`descriptor.x ?? DEFAULT_X`).
 - Keep comments short: one line of *why* for non-obvious choices; no history or cross-file narration.
+- Before implementing, ask clarifying questions whenever a request is ambiguous or has
+  several reasonable interpretations (behaviour, layout, tuning values, which vehicles).
+  Don't guess on design decisions the user should make.
 
 ## Token hints
 - `README.md` is user-facing docs with deep background; usually skip it.

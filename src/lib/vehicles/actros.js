@@ -1,4 +1,5 @@
 import { buildBody } from './geometry/actros.js';
+import { rangeGearbox } from '../engine.js';
 
 // Mercedes-Benz Actros 4163 8x4 tipper: two steered front axles (the second
 // one less, from the shared turn centre over the rear tandem), driven
@@ -38,7 +39,8 @@ export default {
   peakTorqueRpm: 1100,
   idleRpm: 600,
   redlineRpm: 2000,
-  gearRatios: [14.9, 11.6, 9.0, 7.0, 5.5, 4.3, 3.4, 2.7, 2.1, 1.6, 1.25, 1.0],
+  // 4-speed main box x LO/MID/HI range stage, evenly stepped 14.9..1.0.
+  ...rangeGearbox([2.09, 1.63, 1.28, 1.0], [7.14, 2.67, 1.0]),
   finalDriveRatio: 3.4,
   reverseRatio: 13.0,
   shiftDurationS: 0.5,

@@ -32,6 +32,7 @@ export default {
   gearRatios: [4, 2, 1, 0.5, 0.25],
   finalDriveRatio: 2.88,
   reverseRatio: 3.636,
+  automaticGearbox: true, // arcade rig: automatic only
   shiftDurationS: 0.2,
   brakeForce: 220,
   mass: 1500,

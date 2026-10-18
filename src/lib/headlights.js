@@ -7,10 +7,10 @@ import * as THREE from 'three';
 // count (and so every shader) never changes.
 
 const FADE_S = 0.12;
-const FLARE_SIZE_M = 0.75;
+const FLARE_SIZE_M = 0.0;
 const POOL_INTENSITY = 340;
-const POOL_DISTANCE_M = 100;
-const POOL_ANGLE_RAD = 0.9;
+const POOL_DISTANCE_M = 300;
+const POOL_ANGLE_RAD = 0.98;
 const POOL_AIM = new THREE.Vector3(0, -1.6, 18); // target, relative to the lamps' midpoint
 const MIN_SIDE_X_M = 0.1; // centre lamps (light bars) glow but get no flare
 const LAMP_ON = {

@@ -1,7 +1,7 @@
 // Engine + gearbox for wheeled cars: rpm-dependent torque curve through
 // gear ratios and final drive, with automatic shifting (sport/comfort) and
-// manual override (requestShift). Pure math (no
-// physics imports); input.js calls update() each frame.
+// manual override (requestShift), or a fully manual box with neutral
+// (setManual/selectGear). Pure math (no physics imports); input.js calls update() each frame.
 
 // Drivetrain loss (typical manual gearbox + diff: 8-12%).
 const DRIVETRAIN_EFFICIENCY = 0.9;
@@ -37,6 +37,20 @@ const SLIDE_TARGET_RPM_FRACTION = 0.85;
 // Shift duration and the leading fraction with the clutch open (no torque).
 const SHIFT_DURATION_S = 0.35;
 const SHIFT_TORQUE_CUT_FRACTION = 0.6;
+// Manual box: time in neutral before the synchro lets a gear in (fraction of
+// shiftDurationS); a gear selected sooner waits in the slot until then.
+const MANUAL_SYNC_FRACTION = 0.35;
+// Manual box: engaging against the direction of travel above this (m/s) grinds.
+const MANUAL_WRONG_WAY_SPEED = 1;
+// Free revving in neutral, 1/s toward redline (throttle) or idle.
+const NEUTRAL_REV_UP_PER_S = 5;
+const NEUTRAL_REV_DOWN_PER_S = 2.5;
+// Rev limiter bounce in neutral: drops back to this fraction of redline.
+const NEUTRAL_LIMITER_DROP = 0.94;
+export const NEUTRAL = -1;
+// Manual box: most H-gate slots; longer boxes split over parallel ranges.
+const MAX_GATE_SLOTS = 6;
+const RANGE_LETTERS = { 2: ['L', 'H'], 3: ['L', 'M', 'H'] };
 
 const RAD_S_TO_RPM = 60 / (2 * Math.PI);
 
@@ -50,6 +64,17 @@ export const DEFAULT_ENGINE_PROFILE = {
   finalDriveRatio: 4.1,
   reverseRatio: 3.3,
 };
+
+/**
+ * Descriptor fields for a range-change box: every main-box ratio times every
+ * range ratio (lowest range first), e.g. 4 main x 3 ranges = 12 gears.
+ */
+export function rangeGearbox(mainRatios, rangeRatios) {
+  return {
+    gearRatios: rangeRatios.flatMap((range) => mainRatios.map((main) => main * range)),
+    gearRanges: rangeRatios.length,
+  };
+}
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
@@ -88,21 +113,48 @@ export function createEngineState(descriptor, wheelRadius) {
   const engine = {
     // Read by the tachometer/gear HUD.
     rpm: profile.idleRpm,
-    gear: 1, // 1..gearRatios.length = forward gears, 0 = reverse
+    gear: 1, // 1..gearRatios.length = forward gears, 0 = reverse, NEUTRAL (manual box only)
     gearCount: profile.gearRatios.length,
     idleRpm: profile.idleRpm,
     redlineRpm: profile.redlineRpm,
     shiftTimer: 0,
     manualHoldTimer: 0, // >0 while a manual shift suspends the automatic
+    automatic: descriptor.automaticGearbox === true, // no fully manual mode
+    manual: false, // fully manual box (setManual)
+    mass: descriptor.mass,
+    neutralTimer: 0, // s since the manual box went into neutral
+    keyTarget: null, // gear a manual-box Q/E shift engages once synchronised
+    onGearEvent: null, // (type: 'detach' | 'attach' | 'grind', engine) => void
     // Driveline coupling for the wheels, refreshed by update(); totals across
     // all driven wheels. 0 / Infinity while the clutch is open mid-shift.
     reflectedMass: 0, // engine inertia seen at the tread (kg)
     limitWheelSpeed: Infinity, // tread speed at redline in this gear (m/s)
     engineBrakeForce: 0, // closed-throttle drag at the tread (N)
     get gearLabel() {
-      return engine.gear === 0 ? 'R' : String(engine.gear);
+      if (engine.gear === 0) return 'R';
+      if (engine.gear === NEUTRAL) return 'N';
+      if (engine.gearRanges === 1) return String(engine.gear);
+      return `${mainGearOf(engine.gear)}${RANGE_LETTERS[engine.gearRanges]?.[rangeOf(engine.gear)] ?? rangeOf(engine.gear) + 1}`;
     },
   };
+  // Range-change box: forward gear g = range * gearSlots + main gear.
+  engine.gearRanges = descriptor.gearRanges ?? Math.ceil(engine.gearCount / MAX_GATE_SLOTS);
+  engine.gearSlots = Math.ceil(engine.gearCount / engine.gearRanges);
+  engine.range = 0; // range stage engaged (or preselected in N/R), 0 = lowest
+
+  function rangeOf(gear) {
+    return Math.floor((gear - 1) / engine.gearSlots);
+  }
+
+  function mainGearOf(gear) {
+    return ((gear - 1) % engine.gearSlots) + 1;
+  }
+
+  /** Same main gear in range `r`, or null when that range has no such gear. */
+  function gearInRange(gear, r) {
+    const target = mainGearOf(gear) + r * engine.gearSlots;
+    return target <= engine.gearCount ? target : null;
+  }
 
   function ratioForGear(gear) {
     return gear === 0 ? profile.reverseRatio : profile.gearRatios[gear - 1];
@@ -116,14 +168,110 @@ export function createEngineState(descriptor, wheelRadius) {
   function shiftTo(gear) {
     engine.gear = gear;
     engine.shiftTimer = profile.shiftDurationS;
+    if (gear >= 1) engine.range = rangeOf(gear);
   }
 
   // Net requested manual gear steps since the last update.
   let pendingShift = 0;
+  let forwardSpeed = 0; // signed chassis speed at the last update (m/s)
 
   /** Requests a manual up (+1) or down (-1) shift; presses accumulate. */
   function requestShift(step) {
-    pendingShift += Math.sign(step);
+    if (engine.manual) manualStep(Math.sign(step));
+    else pendingShift += Math.sign(step);
+  }
+
+  function emit(type) {
+    engine.onGearEvent?.(type, engine);
+  }
+
+  /** Fully manual box on/off; never on for automatics. Back to automatic leaves neutral in 1st. */
+  function setManual(on) {
+    const manual = on && !engine.automatic;
+    if (manual === engine.manual) return;
+    engine.manual = manual;
+    engine.keyTarget = null;
+    pendingShift = 0;
+    if (!manual && engine.gear === NEUTRAL) shiftTo(1);
+  }
+
+  function disengage() {
+    engine.gear = NEUTRAL;
+    engine.neutralTimer = 0;
+    engine.shiftTimer = 0;
+    emit('detach');
+  }
+
+  function synchronised() {
+    return engine.neutralTimer >= profile.shiftDurationS * MANUAL_SYNC_FRACTION;
+  }
+
+  function rightWay(gear) {
+    return gear === 0 ? forwardSpeed < MANUAL_WRONG_WAY_SPEED : forwardSpeed > -MANUAL_WRONG_WAY_SPEED;
+  }
+
+  /**
+   * Manual box: puts the lever in `gear` (NEUTRAL, 0 = R, 1..gearCount). From a
+   * gear it goes out first; before the synchro time is up the gear waits
+   * (keyTarget) and goes in from update(). Against the direction of travel it
+   * grinds: returns false, left in neutral.
+   */
+  function selectGear(gear) {
+    if (!engine.manual) return true;
+    if (gear === engine.gear) {
+      engine.keyTarget = null;
+      return true;
+    }
+    engine.keyTarget = null;
+    if (engine.gear !== NEUTRAL) disengage();
+    if (gear === NEUTRAL) return true;
+    if (!rightWay(gear)) {
+      emit('grind');
+      return false;
+    }
+    if (!synchronised()) {
+      engine.keyTarget = gear;
+      return true;
+    }
+    engine.gear = gear;
+    if (gear >= 1) engine.range = rangeOf(gear);
+    emit('attach');
+    return true;
+  }
+
+  // Q/E on the manual box step through R, N, 1..gearCount; a gear goes out at
+  // once and the next one in after the synchro time (update).
+  function manualStep(step) {
+    const order = (gear) => (gear === 0 ? 0 : gear === NEUTRAL ? 1 : gear + 1);
+    const from = engine.keyTarget ?? engine.gear;
+    const index = Math.min(engine.gearCount + 1, Math.max(0, order(from) + step));
+    const target = index === 0 ? 0 : index === 1 ? NEUTRAL : index - 1;
+    if (target === from) return;
+    if (engine.gear !== NEUTRAL) disengage();
+    engine.keyTarget = target === NEUTRAL ? null : target;
+    if (target >= 1 && rangeOf(target) !== engine.range) {
+      engine.range = rangeOf(target);
+      emit('range');
+    }
+  }
+
+  /**
+   * Manual box range lever. In a forward gear the main gear stays in and the
+   * range stage shifts under a torque cut (shiftDurationS); in N/R it only
+   * preselects. Refused (false) when that range lacks the current main gear.
+   */
+  function setRange(r) {
+    if (!engine.manual) return false;
+    const range = Math.min(engine.gearRanges - 1, Math.max(0, r));
+    if (range === engine.range) return true;
+    const engaged = engine.gear >= 1 ? gearInRange(engine.gear, range) : NEUTRAL;
+    const pending = engine.keyTarget >= 1 ? gearInRange(engine.keyTarget, range) : NEUTRAL;
+    if (engaged === null || pending === null) return false;
+    engine.range = range;
+    if (engine.gear >= 1) shiftTo(engaged);
+    if (engine.keyTarget >= 1) engine.keyTarget = pending;
+    emit('range');
+    return true;
   }
 
   /**
@@ -136,12 +284,21 @@ export function createEngineState(descriptor, wheelRadius) {
    * sliding: on throttle it drops gears to keep rpm high, else it holds.
    * mode: 'sport' (late shifts, slide downshifts) or 'comfort' (early shifts).
    */
-  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, grounded = true, slipping = false, mode = 'sport' }) {
+  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, forwardSpeed: signedSpeed = 0, grounded = true, slipping = false, mode = 'sport' }) {
+    forwardSpeed = signedSpeed;
     if (engine.shiftTimer > 0) engine.shiftTimer = Math.max(0, engine.shiftTimer - dt);
     if (engine.manualHoldTimer > 0) engine.manualHoldTimer = Math.max(0, engine.manualHoldTimer - dt);
 
-    // Engage the gear for the requested direction; forward restarts in 1st.
-    if (direction === -1 && engine.gear !== 0) {
+    if (engine.manual) {
+      if (engine.gear === NEUTRAL) {
+        engine.neutralTimer += dt;
+        if (engine.keyTarget !== null && synchronised()) {
+          selectGear(engine.keyTarget);
+        }
+      }
+      if (engine.gear === NEUTRAL) return updateNeutral(dt, throttle);
+    } else if (direction === -1 && engine.gear !== 0) {
+      // Engage the gear for the requested direction; forward restarts in 1st.
       shiftTo(0);
     } else if (direction === 1 && engine.gear === 0) {
       shiftTo(1);
@@ -175,7 +332,7 @@ export function createEngineState(descriptor, wheelRadius) {
     engine.rpm = Math.min(engine.rpm, profile.redlineRpm * 1.02);
 
     // Auto-shift (forward only, on the ground), one shift at a time.
-    if (engine.gear >= 1 && engine.shiftTimer <= 0 && engine.manualHoldTimer <= 0 && grounded) {
+    if (!engine.manual && engine.gear >= 1 && engine.shiftTimer <= 0 && engine.manualHoldTimer <= 0 && grounded) {
       const groundRpm = toRpm(groundAngularSpeed, ratio);
       const upshiftRpm = Math.min(engine.rpm, groundRpm);
       const shift = mode === 'comfort' ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
@@ -203,6 +360,18 @@ export function createEngineState(descriptor, wheelRadius) {
     // Halved: input.js treats this as a per-wheel value at the 2-wheel
     // baseline and multiplies back by the driven-wheel count.
     return totalDrivetrainForce / 2;
+  }
+
+  /** Clutch out of the driveline: the engine revs freely, no drive or engine braking. */
+  function updateNeutral(dt, throttle) {
+    const revving = throttle > 0;
+    const target = revving ? profile.redlineRpm * 1.02 : profile.idleRpm;
+    engine.rpm += (target - engine.rpm) * Math.min(1, dt * (revving ? NEUTRAL_REV_UP_PER_S : NEUTRAL_REV_DOWN_PER_S));
+    if (engine.rpm > profile.redlineRpm) engine.rpm = profile.redlineRpm * NEUTRAL_LIMITER_DROP;
+    engine.reflectedMass = 0;
+    engine.limitWheelSpeed = Infinity;
+    engine.engineBrakeForce = 0;
+    return 0;
   }
 
   /** Current-gear shift decision for sport: +1, -1 or 0. */
@@ -245,5 +414,8 @@ export function createEngineState(descriptor, wheelRadius) {
 
   engine.update = update;
   engine.requestShift = requestShift;
+  engine.setManual = setManual;
+  engine.selectGear = selectGear;
+  engine.setRange = setRange;
   return engine;
 }

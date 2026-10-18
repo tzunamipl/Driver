@@ -107,6 +107,7 @@
           <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
           <div class="hud-line">Shift &mdash; turbo</div>
           <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
+          <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
           <div class="hud-line">F &mdash; shoot</div>
           <div class="hud-line">H &mdash; horn</div>
           <div class="hud-line">L &mdash; headlights (automatic at night)</div>
@@ -196,26 +197,32 @@
         <div class="gauge-value" id="tach-gear">1</div>
         <div class="gauge-label" id="tach-rpm">0 RPM</div>
         <button type="button" id="gear-mode" title="Gearbox mode (click to switch) - E/Q shift up/down">SPORT</button>
+        <button type="button" id="transmission-mode" title="Gearbox: automatic / manual (click to switch)">AUTO</button>
       </div>
-      <div class="gauge" id="speedo">
-        <div class="gauge-face"></div>
-        <div class="gauge-needle" id="speedo-needle"></div>
-        <div class="gauge-value" id="speedo-value">0</div>
-        <div class="gauge-label">km/h</div>
-        <svg id="handbrake-icon" viewBox="0 0 32 24" aria-label="Hamulec ręczny">
-          <circle cx="16" cy="12" r="8" />
-          <path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15" />
-          <text x="16" y="16.2" text-anchor="middle">P</text>
-        </svg>
-        <svg id="lights-icon" viewBox="0 0 32 24" role="button" aria-label="Światła mijania" aria-pressed="false">
-          <title>Headlights (L)</title>
-          <path class="lamp" d="M17 5c6 0 9.5 3 9.5 7s-3.5 7-9.5 7z" />
-          <path d="M13.5 6.5L5 8.5M13.5 10.5L5 12.5M13.5 14.5L5 16.5" />
-        </svg>
-        <div id="odometer" aria-label="Licznik 0.0 kilometrów">
-          <div class="odo-bezel">
-            <div class="odo-wheels" id="odo-wheels"></div>
-            <span class="odo-unit">km</span>
+      <div id="speedo-column">
+        <div id="gearstick" hidden>
+          <canvas id="gearstick-canvas" aria-label="Gearstick - drag to shift"></canvas>
+        </div>
+        <div class="gauge" id="speedo">
+          <div class="gauge-face"></div>
+          <div class="gauge-needle" id="speedo-needle"></div>
+          <div class="gauge-value" id="speedo-value">0</div>
+          <div class="gauge-label">km/h</div>
+          <svg id="handbrake-icon" viewBox="0 0 32 24" aria-label="Hamulec ręczny">
+            <circle cx="16" cy="12" r="8" />
+            <path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15" />
+            <text x="16" y="16.2" text-anchor="middle">P</text>
+          </svg>
+          <svg id="lights-icon" viewBox="0 0 32 24" role="button" aria-label="Światła mijania" aria-pressed="false">
+            <title>Headlights (L)</title>
+            <path class="lamp" d="M17 5c6 0 9.5 3 9.5 7s-3.5 7-9.5 7z" />
+            <path d="M13.5 6.5L5 8.5M13.5 10.5L5 12.5M13.5 14.5L5 16.5" />
+          </svg>
+          <div id="odometer" aria-label="Licznik 0.0 kilometrów">
+            <div class="odo-bezel">
+              <div class="odo-wheels" id="odo-wheels"></div>
+              <span class="odo-unit">km</span>
+            </div>
           </div>
         </div>
       </div>

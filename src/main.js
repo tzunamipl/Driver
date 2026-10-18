@@ -25,6 +25,7 @@ import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
+import { createGearShiftSound } from './lib/audio/gearShift.js';
 import { createHeadlights } from './lib/headlights.js';
 import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
@@ -53,6 +54,7 @@ import { createLoadingScreen } from './hud/loadingScreen.js';
 import { createStreamingStatus } from './hud/streamingStatus.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
+import { createGearstickHud } from './hud/gearstick.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
 import { createMinimapHud } from './hud/minimap.js';
@@ -209,8 +211,10 @@ const vehicleDebugPicker = createVehicleDebugPicker({
 
 // ---------- Input ----------
 const handbrakeSound = createHandbrakeSound();
+const gearShiftSound = createGearShiftSound();
 const input = createInputController({
   onHandbrakeLatch: () => handbrakeSound.play(3),
+  onGearEvent: (type, engine) => gearShiftSound.play(type, engine.mass),
   initialHandbrakeLatched: savedCarState?.handbrakeLatched === true,
 });
 const lightSwitchSound = createLightSwitchSound();
@@ -231,7 +235,9 @@ const cameraFollow = createCameraFollow(camera, {
 // ---------- HUD ----------
 const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle,
   onGearModeClick: input.toggleGearMode,
+  onTransmissionClick: input.toggleTransmission,
 });
+const gearstickHud = createGearstickHud();
 const terrainStatsHud = createTerrainStatsHud();
 const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
@@ -336,6 +342,7 @@ const mainLoop = createMainLoop({
   carManager,
   cameraFollow,
   gaugesHud,
+  gearstickHud,
   terrainStatsHud,
   streamingStatus,
   suspensionHud,

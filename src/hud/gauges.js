@@ -18,8 +18,9 @@ const ODO_TELEPORT_M = 20;
  *   instead of always starting back at zero.
  * @param {() => void} [options.onLightsClick] - dash headlight lamp clicked
  * @param {() => void} [options.onGearModeClick] - tach gearbox-mode badge clicked
+ * @param {() => void} [options.onTransmissionClick] - tach AUTO/MAN badge clicked
  */
-export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick } = {}) {
+export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick, onTransmissionClick } = {}) {
   const speedoNeedle = document.getElementById('speedo-needle');
   const speedoValue = document.getElementById('speedo-value');
   const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), initialKm);
@@ -40,8 +41,14 @@ export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick 
     gearModeEl.blur();
   });
   let gearModeShown = null;
+  const transmissionEl = document.getElementById('transmission-mode');
+  transmissionEl?.addEventListener('click', () => {
+    onTransmissionClick?.();
+    transmissionEl.blur();
+  });
+  let transmissionShown = null;
 
-  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false, gearMode = 'sport') {
+  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false, gearMode = 'sport', transmission = 'auto') {
     const lights = !!vehicle && lightsOn;
     if (lights !== lightsShown) {
       lightsShown = lights;
@@ -88,6 +95,17 @@ export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick 
       gearModeShown = gearMode;
       gearModeEl.textContent = gearMode.toUpperCase();
       gearModeEl.dataset.mode = gearMode;
+    }
+    const shownTransmission = `${transmission}|${engine.automatic}|${engine.manual}`;
+    if (shownTransmission !== transmissionShown && transmissionEl) {
+      transmissionShown = shownTransmission;
+      transmissionEl.textContent = engine.manual ? 'MAN' : 'AUTO';
+      transmissionEl.dataset.mode = engine.manual ? 'manual' : 'auto';
+      transmissionEl.disabled = engine.automatic;
+      transmissionEl.title = engine.automatic
+        ? 'Automatic gearbox - no manual mode for this vehicle'
+        : 'Gearbox: automatic / manual (click to switch)';
+      gearModeEl?.classList.toggle('inactive', engine.manual);
     }
     tachRpm.textContent = `${Math.round(engine.rpm)} RPM`;
   }

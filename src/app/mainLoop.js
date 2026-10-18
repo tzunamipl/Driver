@@ -70,6 +70,7 @@ export function createMainLoop({
   carManager,
   cameraFollow,
   gaugesHud,
+  gearstickHud,
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
@@ -244,7 +245,8 @@ export function createMainLoop({
       vehicleId: carManager.getVehicleId(),
     });
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
-    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode());
+    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission());
+    gearstickHud.update(frameDelta, { vehicle: currentVehicle, keys: input.keys, typing: input.isTyping() });
     headlights.update(frameDelta, {
       chassisMesh: currentChassisMesh,
       wheeled: currentVehicle?.vehicleType !== 'hover',

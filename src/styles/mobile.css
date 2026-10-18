@@ -63,6 +63,11 @@
   #tach .gauge-value { font-size: 18px; }
   #tach .gauge-needle { height: 34px; }
   #tach .tach-tick-label { font-size: 7px; }
+  #gearstick {
+    width: 150px;
+    height: 150px;
+  }
+  #gearstick.ranged { width: 205px; }
   #address-search-toggle {
     display: block;
     position: fixed;

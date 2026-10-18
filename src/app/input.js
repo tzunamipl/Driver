@@ -1,4 +1,4 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
 import { GEAR_MODES } from '../lib/engine.js';
 
 // Keyboard -> vehicle controls, applied each frame.
@@ -9,20 +9,22 @@ function steer(vehicle, value, speedKmh) {
   else vehicle.setSteeringValue(value, 0);
 }
 
-function loadGearMode() {
+const TRANSMISSIONS = ['auto', 'manual'];
+
+function loadChoice(key, choices) {
   try {
-    const saved = localStorage.getItem(GEAR_MODE_STORAGE_KEY);
-    return GEAR_MODES.includes(saved) ? saved : GEAR_MODES[0];
+    const saved = localStorage.getItem(key);
+    return choices.includes(saved) ? saved : choices[0];
   } catch {
-    return GEAR_MODES[0];
+    return choices[0];
   }
 }
 
-function saveGearMode(mode) {
+function saveChoice(key, value) {
   try {
-    localStorage.setItem(GEAR_MODE_STORAGE_KEY, mode);
+    localStorage.setItem(key, value);
   } catch {
-    // Storage unavailable - mode just resets next session.
+    // Storage unavailable - choice just resets next session.
   }
 }
 
@@ -33,8 +35,11 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
-/** @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean }} [options] */
-export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false } = {}) {
+/**
+ * @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean,
+ *   onGearEvent?: (type: string, engine: object) => void }} [options]
+ */
+export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, onGearEvent } = {}) {
   const keys = new Set();
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
@@ -60,7 +65,8 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   let handbrakeLatched = initialHandbrakeLatched;
   let handbrakeReleasing = false;
   let handbrakeOn = initialHandbrakeLatched;
-  let gearMode = loadGearMode();
+  let gearMode = loadChoice(GEAR_MODE_STORAGE_KEY, GEAR_MODES);
+  let transmission = loadChoice(TRANSMISSION_STORAGE_KEY, TRANSMISSIONS);
   // Edge-triggered manual shifts: E up, Q down.
   let shiftUpWasPressed = false;
   let shiftDownWasPressed = false;
@@ -100,9 +106,17 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     if (backward && !backwardWasPressed && movingForward) backwardBrakeOnly = true;
     if (!backward) backwardBrakeOnly = false;
     backwardWasPressed = backward;
+    const engine = vehicle.engine;
+    if (engine?.setManual) {
+      engine.setManual(transmission === 'manual');
+      engine.onGearEvent = onGearEvent;
+    }
+    // Manual box: W is the throttle in whatever gear (R included), S always brakes.
+    const manual = !!engine?.manual;
     // Opposite key while still moving = brake (at brakeForce), not reverse thrust.
-    const pedalBraking =
-      (forward && movingBackward) || (backward && (movingForward || backwardBrakeOnly));
+    const pedalBraking = manual
+      ? backward
+      : (forward && movingBackward) || (backward && (movingForward || backwardBrakeOnly));
     // Gearbox force for wheeled cars. direction 0 while pedal-braking (no
     // premature reverse) but rpm/gear still track wheel speed for the HUD.
     const shiftUp = keys.has('KeyE');
@@ -116,10 +130,11 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     const engineMagnitude = vehicle.engine
       ? vehicle.engine.update(dt, {
           mode: gearMode,
-          direction: pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
-          throttle: pedalBraking || !(forward || backward) ? 0 : 1,
+          direction: manual ? (forward ? 1 : 0) : pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
+          throttle: manual ? (forward ? 1 : 0) : pedalBraking || !(forward || backward) ? 0 : 1,
           wheelSpeedAbs: Math.abs(vehicle.getDriveWheelSpeed?.() ?? forwardSpeed),
           groundSpeedAbs: Math.abs(forwardSpeed),
+          forwardSpeed,
           grounded: driveWheels.some((i) => vehicle.wheelInfos[i]?.isInContact),
           slipping: driveWheels.some((i) => vehicle.wheelInfos[i]?.isInContact && vehicle.wheelInfos[i].sliding),
         })
@@ -137,9 +152,9 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
 
     throttle = forward ? 1 : 0;
 
-    const engineForce = pedalBraking
-      ? 0
-      : (forward ? -engineMagnitude : backward ? engineMagnitude : 0) * forceScale;
+    // Drive sign: forward key forwards (manual: by gear), backward key reverses.
+    const driveSign = manual ? (forward ? (engine.gear === 0 ? 1 : -1) : 0) : forward ? -1 : backward ? 1 : 0;
+    const engineForce = pedalBraking ? 0 : driveSign * engineMagnitude * forceScale;
     // engine force is a per-wheel value at the 2-wheel baseline; scale so
     // total force is the same whatever the number of driven wheels.
     const perWheelEngineForce = engineForce * (2 / driveWheels.length);
@@ -232,7 +247,13 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     getGearMode: () => gearMode,
     toggleGearMode() {
       gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];
-      saveGearMode(gearMode);
+      saveChoice(GEAR_MODE_STORAGE_KEY, gearMode);
+    },
+    /** 'auto' | 'manual' as chosen; automatics drive as 'auto' regardless. */
+    getTransmission: () => transmission,
+    toggleTransmission() {
+      transmission = transmission === 'manual' ? 'auto' : 'manual';
+      saveChoice(TRANSMISSION_STORAGE_KEY, transmission);
     },
   };
 }

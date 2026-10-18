@@ -17,7 +17,6 @@
   padding: 8px 12px;
   border-radius: 6px;
   line-height: 1.5;
-  max-width: 34ch;
   pointer-events: none;
   z-index: 10;
   opacity: 1;
@@ -65,12 +64,21 @@
    max-height/opacity (rather than snapping with display: none) so
    collapsing/expanding is animated the same way hiding is. */
 #hud-body {
+  --hud-body-w: min(46ch, calc(100vw - 44px));
+  width: var(--hud-body-w);
   max-height: 800px; /* fold animation cap; must exceed the wrapped body height */
   opacity: 1;
   overflow: hidden;
-  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease;
+  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease, width var(--hud-fold-ms) ease;
+}
+/* Fixed child width so lines don't rewrap while the body narrows; the
+   collapsed panel then shrinks to the header + Discord button. */
+#hud-body > * {
+  box-sizing: border-box;
+  width: var(--hud-body-w);
 }
 #hud.collapsed #hud-body {
+  width: 0;
   max-height: 0;
   opacity: 0;
 }

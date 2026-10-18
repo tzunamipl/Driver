@@ -1,4 +1,5 @@
 import { buildBody, buildTrailer } from './geometry/scaniaR.js';
+import { rangeGearbox } from '../engine.js';
 
 // Scania R 500 4x2 tractor (rear-driven duals, 315/80 R22.5) pulling a
 // tri-axle 13.6 m curtainsider on 385/65 R22.5 super singles - the standard
@@ -37,7 +38,8 @@ export default {
   peakTorqueRpm: 1100,
   idleRpm: 600,
   redlineRpm: 2100,
-  gearRatios: [9.2, 6.2, 4.3, 3.0, 2.15, 1.55, 1.2, 1.0, 0.8],
+  // 3-speed main box (like the GRS905 base box) x LO/MID/HI range stage, overdrive top.
+  ...rangeGearbox([1.84, 1.36, 1.0], [5.0, 2.0, 0.8]),
   finalDriveRatio: 3.9,
   reverseRatio: 9.0,
   shiftDurationS: 0.8,

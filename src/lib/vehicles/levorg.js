@@ -33,6 +33,7 @@ export default {
   gearRatios: [3.56, 2.25, 1.66, 1.12, 0.89, 0.7, 0.62],
   finalDriveRatio: 5.111,
   reverseRatio: 3.636,
+  automaticGearbox: true, // CVT with stepped ratios
   shiftDurationS: 0.5,
   brakeForce: 170,
   mass: 1500,
