@@ -47,6 +47,7 @@ export function createMainLoop({
   streets,
   rivers,
   waterAreas,
+  roadPosts,
   balls,
   pedestrians,
   shots,
@@ -318,6 +319,7 @@ export function createMainLoop({
         streets.update(tileX, tileY);
         rivers.update(tileX, tileY);
         waterAreas.update(tileX, tileY);
+        roadPosts.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
         buildings.update(tileX, tileY);
       }
       // Lift a car found inside a building onto its roof.

@@ -20,7 +20,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     fetch/decode + mesh building in `terrain/`; detail tiles carve OSM roads in as a raised bed, `terrain/roadBed.js`, with Heightfield physics), `buildings.js`
     (+ `buildingsCache.js` IndexedDB). Debug/gameplay overlays extend `tiles/vectorTileLayer.js`
     (fetch, bucketing, time-sliced builds, unload): `vectorLineLayer.js` → `streets.js`,
-    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `tiles/openFreeMap.js` = vector tile
+    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `roadPosts.js` = edge posts placed from the streets layer's segments. `tiles/openFreeMap.js` = vector tile
     fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
   - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
     (chassis body/inertia/hitboxes, wheel mesh, remote car, `axles.js` = descriptor `axles` layout
@@ -39,7 +39,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`,
-    `waterWade.js`, `impact.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
 - `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, address search.

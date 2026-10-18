@@ -95,6 +95,10 @@ export const CAMERA_PITCH_SPEED = 5;
 export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
 export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
 
+// ---------- Road edge posts ----------
+export const ROAD_POST_SPACING_M = 25; // along the road, each side
+export const ROAD_POST_DRAW_DISTANCE_M = 200; // from the car
+
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
 

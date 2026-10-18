@@ -20,6 +20,7 @@ import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
 import { createImpactSound } from './lib/audio/impact.js';
+import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
@@ -29,6 +30,7 @@ import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
+import { createRoadPosts } from './lib/roadPosts.js';
 import { WaterAreasManager } from './lib/waterAreas.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
@@ -127,6 +129,8 @@ const engineSound = createEngineSound();
 const tireSqueal = createTireSqueal();
 const waterWadeSound = createWaterWadeSound();
 const impactSound = createImpactSound();
+const postHitSound = createPostHitSound();
+const roadPosts = createRoadPosts({ scene, world, streets, terrain, onHit: postHitSound.play });
 const suspensionThud = createSuspensionThud();
 const pedestrianSounds = createPedestrianSounds();
 pedestrians.setSoundCallbacks({
@@ -284,7 +288,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadPosts],
 });
 
 // ---------- Main loop ----------
@@ -300,6 +304,7 @@ const mainLoop = createMainLoop({
   streets,
   rivers,
   waterAreas,
+  roadPosts,
   balls,
   pedestrians,
   shots,

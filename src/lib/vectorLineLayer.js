@@ -6,8 +6,9 @@ import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Double
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { latLonToLocal, localToLatLon } from './geo.js';
-import { VectorTileLayer } from './tiles/vectorTileLayer.js';
+import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY } from './geo.js';
+import { VectorTileLayer, tileKey } from './tiles/vectorTileLayer.js';
+import { DETAIL_ZOOM } from './terrain.js';
 
 const SEGMENT_MAX_METERS = 4;
 const METERS_PER_DEGREE = 111_320;
@@ -52,23 +53,56 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream, radius, terrain });
     }
 
-    _decodeFeature(lines, style, toLatLon, add) {
+    // Items also carry `dist` (metres along the line at `a`), `len` and `buffer`
+    // (midpoint in the source tile's overlap with its neighbours), for roadPosts.js.
+    _decodeFeature(lines, style, toLatLon, add, extent) {
+      const inTile = (x, y) => x >= 0 && x < extent && y >= 0 && y < extent;
       for (const line of lines) {
         if (line.length < 2) continue;
         const points = line.map(toLatLon);
+        let dist = 0;
         for (let p = 0; p < points.length - 1; p++) {
           const a = points[p];
           const b = points[p + 1];
           const dLat = (b.lat - a.lat) * METERS_PER_DEGREE;
           const dLon = (b.lon - a.lon) * METERS_PER_DEGREE * Math.cos((a.lat * Math.PI) / 180);
-          const pieces = Math.max(1, Math.ceil(Math.hypot(dLat, dLon) / SEGMENT_MAX_METERS));
+          const length = Math.hypot(dLat, dLon);
+          const pieces = Math.max(1, Math.ceil(length / SEGMENT_MAX_METERS));
+          const len = length / pieces;
           let prev = a;
           for (let i = 1; i <= pieces; i++) {
             const t = i / pieces;
             const next = i === pieces ? b : { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-            add((prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2, { a: prev, b: next, style });
+            const tm = (i - 0.5) / pieces;
+            const mx = line[p].x + (line[p + 1].x - line[p].x) * tm;
+            const my = line[p].y + (line[p + 1].y - line[p].y) * tm;
+            add((prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2, {
+              a: prev,
+              b: next,
+              style,
+              dist,
+              len,
+              buffer: !inTile(mx, my),
+            });
+            dist += len;
             prev = next;
           }
+        }
+      }
+    }
+
+    /** Fetched segments bucketed in DETAIL_ZOOM tiles overlapping the square of half-size `radius` around world (x, z). */
+    *itemsWithin(x, z, radius) {
+      const sw = localToLatLon(x - radius, z + radius, this.originLat, this.originLon, this.scaleLat);
+      const ne = localToLatLon(x + radius, z - radius, this.originLat, this.originLon, this.scaleLat);
+      const minTx = Math.floor(lon2tileX(sw.lon, DETAIL_ZOOM));
+      const maxTx = Math.floor(lon2tileX(ne.lon, DETAIL_ZOOM));
+      const minTy = Math.floor(lat2tileY(ne.lat, DETAIL_ZOOM));
+      const maxTy = Math.floor(lat2tileY(sw.lat, DETAIL_ZOOM));
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        for (let ty = minTy; ty <= maxTy; ty++) {
+          const list = this._itemsByTile.get(tileKey(tx, ty));
+          if (list) yield* list;
         }
       }
     }
