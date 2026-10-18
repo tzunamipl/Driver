@@ -80,7 +80,7 @@ export function createEngineState(descriptor, wheelRadius) {
     gearRatios: descriptor.gearRatios ?? DEFAULT_ENGINE_PROFILE.gearRatios,
     finalDriveRatio: descriptor.finalDriveRatio ?? DEFAULT_ENGINE_PROFILE.finalDriveRatio,
     reverseRatio: descriptor.reverseRatio ?? DEFAULT_ENGINE_PROFILE.reverseRatio,
-    shiftDurationS: descriptor.shiftDurationS,
+    shiftDurationS: descriptor.shiftDurationS ?? SHIFT_DURATION_S,
     launchRpm: descriptor.launchRpm ?? descriptor.peakTorqueRpm ?? DEFAULT_ENGINE_PROFILE.peakTorqueRpm,
     engineInertia: descriptor.engineInertia ?? DEFAULT_ENGINE_INERTIA,
   };
@@ -118,12 +118,12 @@ export function createEngineState(descriptor, wheelRadius) {
     engine.shiftTimer = profile.shiftDurationS;
   }
 
-  // Requested manual shift (+1/-1), applied once the gearbox is free.
+  // Net requested manual gear steps since the last update.
   let pendingShift = 0;
 
-  /** Queues a manual up (+1) or down (-1) shift. */
+  /** Requests a manual up (+1) or down (-1) shift; presses accumulate. */
   function requestShift(step) {
-    pendingShift = Math.sign(step);
+    pendingShift += Math.sign(step);
   }
 
   /**
@@ -150,14 +150,16 @@ export function createEngineState(descriptor, wheelRadius) {
     const wheelAngularSpeed = Math.max(0, wheelSpeedAbs) / wheelRadius; // rad/s
     const groundAngularSpeed = Math.max(0, groundSpeedAbs) / wheelRadius;
 
-    // Manual shift (forward gears only); a downshift that would over-rev is refused.
-    if (pendingShift !== 0 && engine.shiftTimer <= 0) {
-      const target = engine.gear + pendingShift;
-      if (engine.gear >= 1 && target >= 1 && target <= engine.gearCount) {
-        const targetRatio = profile.gearRatios[target - 1];
-        const targetRpm = Math.max(toRpm(wheelAngularSpeed, targetRatio), toRpm(groundAngularSpeed, targetRatio));
-        if (pendingShift > 0 || targetRpm < profile.redlineRpm) {
-          shiftTo(target);
+    // Manual shift (forward gears only). A press mid-shift retargets the shift in
+    // progress instead of queuing another, so quick presses skip gears. Downshifts
+    // stop at the lowest gear that doesn't over-rev.
+    if (pendingShift !== 0) {
+      if (engine.gear >= 1) {
+        let target = Math.min(engine.gearCount, Math.max(1, engine.gear + pendingShift));
+        while (target < engine.gear && toRpm(Math.max(wheelAngularSpeed, groundAngularSpeed), profile.gearRatios[target - 1]) >= profile.redlineRpm) target++;
+        if (target !== engine.gear) {
+          if (engine.shiftTimer > 0) engine.gear = target;
+          else shiftTo(target);
           engine.manualHoldTimer = MANUAL_HOLD_S;
         }
       }
