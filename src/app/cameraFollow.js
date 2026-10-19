@@ -16,6 +16,15 @@ import {
   CAMERA_PITCH_MAX_ANGLE,
   CAMERA_PITCH_MIN_SPEED,
   CAMERA_VIEW_STORAGE_KEY,
+  CAMERA_GROUND_CLEARANCE_M,
+  TELEPORT_CAMERA_FOV_DEG,
+  TELEPORT_CAMERA_ORBIT_RATE,
+  TELEPORT_CAMERA_ORBIT_RADIUS,
+  TELEPORT_CAMERA_ORBIT_HEIGHT,
+  TELEPORT_CAMERA_BLEND_IN_S,
+  TELEPORT_CAMERA_BLEND_OUT_S,
+  TELEPORT_CAMERA_MIN_S,
+  TELEPORT_CAMERA_SETTLE_S,
 } from '../config.js';
 import { CAMERA_VIEWS, getCameraView, nextCameraView, DEFAULT_CAMERA_VIEW_ID } from './cameraViews/index.js';
 import { getVehicle } from '../lib/vehicles/index.js';
@@ -24,7 +33,8 @@ import { getVehicle } from '../lib/vehicles/index.js';
 // filter suspension jitter, freezes yaw while flipped, and tilts slightly
 // on sustained climbs/falls. Views (app/cameraViews/, cycled with C)
 // override the shared CAMERA_* defaults; `rigid` views mount directly on
-// the vehicle instead.
+// the vehicle instead. Teleports swap in a wide orbit round the car until
+// it has landed at the destination.
 
 function isTypingInField() {
   const el = document.activeElement;
@@ -73,11 +83,12 @@ function flashViewLabel(label) {
 }
 
 /**
- * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }),
- * groundHeightAt(x, z) -> y | null keeps the drone view above terrain and roofs;
+ * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId, teleporting, resetting }),
+ * groundHeightAt(x, z) -> y | null keeps the drone view above terrain and roofs,
+ * terrainHeightAt(x, z) -> y | null keeps every view above the terrain;
  * with .cycleView/.setView/.getViewId/.getViews attached.
  */
-export function createCameraFollow(camera, { groundHeightAt = () => null } = {}) {
+export function createCameraFollow(camera, { groundHeightAt = () => null, terrainHeightAt = () => null } = {}) {
   const tmpVec = new THREE.Vector3();
   const tmpOffsetVec = new THREE.Vector3();
   const tmpLookOffsetVec = new THREE.Vector3();
@@ -278,9 +289,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null } = {})
     camera.lookAt(smoothedLookAt);
   }
 
-  const updateCamera = function updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId }) {
-    if (!chassisMesh || !vehicle) return;
-    const descriptor = getVehicle(vehicleId);
+  function updateView(delta, chassisMesh, podMesh, vehicle, descriptor) {
     currentVehicleType = descriptor?.vehicleType; // vehicle can change mid-drive
     const { view, offset, lookAtOffset, positionSpeed, lookAtSpeed } = activeParams();
 
@@ -407,12 +416,84 @@ export function createCameraFollow(camera, { groundHeightAt = () => null } = {})
     }
     camera.lookAt(smoothedLookAt);
     camera.up.set(0, 1, 0);
+  }
+
+  function keepAboveTerrain(pos) {
+    const ground = terrainHeightAt(pos.x, pos.z);
+    if (ground != null && pos.y < ground + CAMERA_GROUND_CLEARANCE_M) pos.y = ground + CAMERA_GROUND_CLEARANCE_M;
+  }
+
+  // Teleport orbit. The selected view keeps running underneath on its own
+  // pose (viewPos/viewQuat) and the orbit is blended over it by `weight`.
+  const baseFov = camera.fov;
+  const viewPos = new THREE.Vector3();
+  const viewQuat = new THREE.Quaternion();
+  const orbitPos = new THREE.Vector3();
+  const orbitLook = new THREE.Vector3();
+  const orbitQuat = new THREE.Quaternion();
+  const orbitMatrix = new THREE.Matrix4();
+  let transition = null; // { elapsed, settled, weight, angle }
+
+  /** Starts on `teleporting`; holds until the car has been placed and settled, then blends back. */
+  function updateTransition(delta, carPos, cameraScale, teleporting, resetting) {
+    if (teleporting && !transition) {
+      // Start the orbit where the camera already is, so it only widens and turns.
+      tmpVec.subVectors(camera.position, carPos);
+      transition = { elapsed: 0, settled: 0, weight: 0, angle: Math.atan2(tmpVec.x, tmpVec.z) };
+    }
+    if (!transition) return;
+
+    transition.elapsed += delta;
+    transition.settled = teleporting || resetting ? 0 : transition.settled + delta;
+    const holding = transition.elapsed < TELEPORT_CAMERA_MIN_S || transition.settled < TELEPORT_CAMERA_SETTLE_S;
+    transition.weight = holding
+      ? Math.min(1, transition.weight + delta / TELEPORT_CAMERA_BLEND_IN_S)
+      : transition.weight - delta / TELEPORT_CAMERA_BLEND_OUT_S;
+    if (transition.weight <= 0) {
+      transition = null;
+      camera.fov = baseFov;
+      camera.updateProjectionMatrix();
+      return;
+    }
+    viewPos.copy(camera.position);
+    viewQuat.copy(camera.quaternion);
+
+    transition.angle += TELEPORT_CAMERA_ORBIT_RATE * delta;
+    const radius = TELEPORT_CAMERA_ORBIT_RADIUS * cameraScale;
+    orbitPos
+      .set(Math.sin(transition.angle) * radius, TELEPORT_CAMERA_ORBIT_HEIGHT * cameraScale, Math.cos(transition.angle) * radius)
+      .add(carPos);
+    keepAboveTerrain(orbitPos);
+    orbitLook.copy(carPos).y += 1;
+    orbitQuat.setFromRotationMatrix(orbitMatrix.lookAt(orbitPos, orbitLook, upVec));
+
+    const w = THREE.MathUtils.smoothstep(transition.weight, 0, 1);
+    camera.position.lerp(orbitPos, w);
+    camera.quaternion.slerp(orbitQuat, w);
+    camera.fov = THREE.MathUtils.lerp(baseFov, TELEPORT_CAMERA_FOV_DEG, w);
+    camera.updateProjectionMatrix();
+  }
+
+  const updateCamera = function updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId, teleporting = false, resetting = false }) {
+    if (!chassisMesh || !vehicle) return;
+    const descriptor = getVehicle(vehicleId);
+    // Stateful views (chase smoothing, drone) continue from their own pose, not the blend.
+    if (transition) {
+      camera.position.copy(viewPos);
+      camera.quaternion.copy(viewQuat);
+    }
+    updateView(delta, chassisMesh, podMesh, vehicle, descriptor);
+    keepAboveTerrain(camera.position);
+    updateTransition(delta, chassisMesh.position, descriptor?.cameraScale ?? 1, teleporting, resetting);
+    keepAboveTerrain(camera.position);
   };
 
   /** Floating-origin shift (camera.position itself is moved by the caller). */
   updateCamera.shiftOrigin = (dx, dz) => {
     smoothedLookAt.x -= dx;
     smoothedLookAt.z -= dz;
+    viewPos.x -= dx;
+    viewPos.z -= dz;
   };
   updateCamera.cycleView = cycleView;
   updateCamera.setView = setView;

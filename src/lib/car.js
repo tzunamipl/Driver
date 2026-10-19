@@ -504,6 +504,7 @@ export function createCar(
     snapshotPhysics,
     reset,
     updateReset,
+    isResetting: () => liftAnim !== null,
     setHitboxVisible,
     stabilityAssistCallback,
     dispose,

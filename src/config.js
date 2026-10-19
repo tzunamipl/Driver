@@ -109,6 +109,16 @@ export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
 export const CAMERA_PITCH_SPEED = 5;
 export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
 export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
+export const CAMERA_GROUND_CLEARANCE_M = 0.5; // every view stays this far above the terrain
+// Teleport transition: wide orbit round the car while the destination loads.
+export const TELEPORT_CAMERA_FOV_DEG = 115;
+export const TELEPORT_CAMERA_ORBIT_RATE = 0.7; // rad/s
+export const TELEPORT_CAMERA_ORBIT_RADIUS = 14; // m, times descriptor.cameraScale
+export const TELEPORT_CAMERA_ORBIT_HEIGHT = 6; // m above the car, times descriptor.cameraScale
+export const TELEPORT_CAMERA_BLEND_IN_S = 0.8;
+export const TELEPORT_CAMERA_BLEND_OUT_S = 1.5;
+export const TELEPORT_CAMERA_MIN_S = 2.5; // orbit at least this long, even on a fast load
+export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it drop onto its wheels
 
 // ---------- Road edge posts ----------
 export const ROAD_POST_SPACING_M = 25; // along the road, each side

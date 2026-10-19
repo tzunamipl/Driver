@@ -245,6 +245,7 @@ const cameraFollow = createCameraFollow(camera, {
     const roof = buildings.roofHeightAt(x, z);
     return roof == null ? ground : Math.max(roof, ground ?? -Infinity);
   },
+  terrainHeightAt: (x, z) => terrain.surfaceHeightAt(x, z),
 });
 
 // ---------- HUD ----------

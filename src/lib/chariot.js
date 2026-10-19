@@ -404,6 +404,7 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
     snapshotPhysics,
     reset,
     updateReset,
+    isResetting: () => liftAnim !== null,
     setHitboxVisible,
     stabilityAssistCallback,
     dispose,

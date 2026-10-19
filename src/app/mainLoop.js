@@ -246,6 +246,8 @@ export function createMainLoop({
       podMesh: carManager.getPodMesh(),
       vehicle: currentVehicle,
       vehicleId: carManager.getVehicleId(),
+      teleporting: addressSearch.isTeleporting(),
+      resetting: carManager.isResetting(),
     });
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission());
