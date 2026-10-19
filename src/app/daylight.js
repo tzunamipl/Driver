@@ -3,7 +3,7 @@ import { sunDirection } from '../lib/sunPosition.js';
 import { setHazeColor } from '../lib/terrain.js';
 import { setPaintReflection } from '../lib/vehicles/geometry/paint.js';
 import { setPuffTint } from '../lib/particles/puffPool.js';
-import { TIME_SCALE } from '../config.js';
+import { TIME_SCALE, SUN_DISC_COLORS, MOON_DISC_COLORS } from '../config.js';
 
 // Day-night cycle: sun direction from the simulated clock and the car's
 // lat/lon, with sky, fog, haze and light colours keyed to sun elevation.
@@ -25,20 +25,34 @@ const SUNSET_ELEVATION_DEG = 1.5; // low enough for the orange palette, disc sti
 // Palette by sun elevation (deg), linearly interpolated. Night keeps a
 // bluish ambient floor so the map stays drivable; moonI is the moonlight.
 const PALETTE = [
-  { el: -12, sky: 0x0a1020, fog: 0x080c16, sun: 0xff6a30, sunI: 0, moonI: 0.6, amb: 0x7080b0, ambI: 0.42, disc: 0xff6a30 },
-  { el: -6, sky: 0x1c2848, fog: 0x141c30, sun: 0xff6a30, sunI: 0, moonI: 0.45, amb: 0x8a8fb8, ambI: 0.45, disc: 0xff6a30 },
-  { el: -1, sky: 0x9a7088, fog: 0x4a4050, sun: 0xff6a30, sunI: 0, moonI: 0, amb: 0xa898b0, ambI: 0.45, disc: 0xff6a30 },
-  { el: 2, sky: 0xe8a07a, fog: 0x7a6050, sun: 0xff8844, sunI: 1.4, moonI: 0, amb: 0xe0c0b0, ambI: 0.4, disc: 0xff8a40 },
-  { el: 8, sky: 0xa8c8e0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.4, disc: 0xffd070 },
-  { el: 20, sky: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 3.2, moonI: 0, amb: 0xffffff, ambI: 0.4, disc: 0xffee88 },
+  { el: -12, sky: 0x0a1020, fog: 0x080c16, sun: 0xff6a30, sunI: 0, moonI: 0.6, amb: 0x7080b0, ambI: 0.42 },
+  { el: -6, sky: 0x1c2848, fog: 0x141c30, sun: 0xff6a30, sunI: 0, moonI: 0.45, amb: 0x8a8fb8, ambI: 0.45 },
+  { el: -1, sky: 0x9a7088, fog: 0x4a4050, sun: 0xff6a30, sunI: 0, moonI: 0, amb: 0xa898b0, ambI: 0.45 },
+  { el: 2, sky: 0xe8a07a, fog: 0x7a6050, sun: 0xff8844, sunI: 1.4, moonI: 0, amb: 0xe0c0b0, ambI: 0.4 },
+  { el: 8, sky: 0xa8c8e0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.4 },
+  { el: 20, sky: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 3.2, moonI: 0, amb: 0xffffff, ambI: 0.4 },
 ].map((k) => ({
   ...k,
   sky: new THREE.Color(k.sky),
   fog: new THREE.Color(k.fog),
   sun: new THREE.Color(k.sun),
   amb: new THREE.Color(k.amb),
-  disc: new THREE.Color(k.disc),
 }));
+
+const toRamp = (keys) => keys.map((k) => ({ el: k.el, color: new THREE.Color(k.color) }));
+const SUN_DISC_RAMP = toRamp(SUN_DISC_COLORS);
+const MOON_DISC_RAMP = toRamp(MOON_DISC_COLORS);
+
+/** Writes the ramp colour at `elevationDeg` into `out`. */
+function sampleRamp(ramp, elevationDeg, out) {
+  if (elevationDeg <= ramp[0].el) return out.copy(ramp[0].color);
+  let i = 0;
+  while (i < ramp.length - 2 && elevationDeg > ramp[i + 1].el) i++;
+  const a = ramp[i];
+  const b = ramp[i + 1] ?? a;
+  const t = b === a ? 0 : THREE.MathUtils.clamp((elevationDeg - a.el) / (b.el - a.el), 0, 1);
+  return out.lerpColors(a.color, b.color, t);
+}
 
 /**
  * Simulated clock: real time since UTC midnight times TIME_SCALE, wrapped
@@ -112,7 +126,8 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     ambient.color.lerpColors(a.amb, b.amb, t);
     ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t);
     setPuffTint(ambient.color);
-    sunDisc.material.color.lerpColors(a.disc, b.disc, t);
+    sampleRamp(SUN_DISC_RAMP, elevationDeg, sunDisc.material.color);
+    sampleRamp(MOON_DISC_RAMP, -elevationDeg, moonDisc.material.color);
   }
 
   /** Call once per frame with the car's world position and lat/lon. */

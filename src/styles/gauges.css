@@ -92,16 +92,16 @@
 }
 #transmission-mode[data-mode="manual"] { color: #ffb84d; }
 #transmission-mode:disabled { opacity: 0.35; cursor: default; }
-/* Speedo with the manual gearstick stacked above it, right-aligned. */
+/* Speedo with the manual gearstick floating above it, right-aligned. */
 #speedo-column {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-/* Manual gearstick (hud/gearstick.js): own WebGL canvas, dragged with the pointer. */
-#gearstick {
   position: relative;
+}
+/* Manual gearstick (hud/gearstick.js): own WebGL canvas, dragged with the pointer.
+   Out of flow so showing it doesn't shift the tach. */
+#gearstick {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
   width: 210px;
   height: 210px;
   pointer-events: auto;

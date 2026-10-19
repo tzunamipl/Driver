@@ -79,10 +79,16 @@
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
     <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
-    <label id="volume">
-      Volume
-      <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
-    </label>
+    <div id="volume">
+      <label>
+        Volume
+        <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+      </label>
+      <label>
+        Music
+        <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
+      </label>
+    </div>
     <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
     <form id="address-search" autocomplete="off">
       <input id="address-input" type="text" placeholder="Search an address to teleport there…" />

@@ -31,8 +31,8 @@
   bottom: 28px;
   z-index: 12;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   margin: 0;
   padding: 4px 10px;
   border-radius: 8px;
@@ -40,6 +40,13 @@
   color: #fff;
   font: 600 12px system-ui, sans-serif;
   pointer-events: auto;
+}
+#volume label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
 }
 #volume input {
   width: 110px;

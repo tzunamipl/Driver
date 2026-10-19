@@ -15,7 +15,7 @@ import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
-import { createMasterVolume } from './lib/audio/masterVolume.js';
+import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
@@ -277,7 +277,7 @@ const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
-createMasterVolume();
+createVolumeSliders();
 createMusic();
 setupGameplayProps({
   pedestrians,

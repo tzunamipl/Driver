@@ -7,7 +7,8 @@
 const BUS_NAMES = ['music', 'sfx', 'engine'];
 
 let audio = null;
-let masterLevel = 1;
+// Remembered so volumes can be set before the context exists (no early AudioContext).
+const levels = { master: 1, music: 1, sfx: 1, engine: 1 };
 
 export function getAudio() {
   if (audio) return audio;
@@ -15,11 +16,12 @@ export function getAudio() {
   if (!AudioCtx) return null;
   const ctx = new AudioCtx();
   const master = ctx.createGain();
-  master.gain.value = masterLevel;
+  master.gain.value = levels.master;
   master.connect(ctx.destination);
   const buses = {};
   for (const name of BUS_NAMES) {
     buses[name] = ctx.createGain();
+    buses[name].gain.value = levels[name];
     buses[name].connect(master);
   }
   const carPanners = [];
@@ -38,13 +40,9 @@ export function getAudio() {
 /** Sets a bus ('music' | 'sfx' | 'engine') or 'master' volume, 0..1. */
 export function setVolume(name, value) {
   const level = Math.min(1, Math.max(0, value));
-  // Master is remembered so it can be set before the context exists (no early AudioContext).
-  if (name === 'master') {
-    masterLevel = level;
-    if (audio) audio.master.gain.value = level;
-    return;
-  }
-  const node = getAudio()?.buses[name];
+  levels[name] = level;
+  if (!audio) return;
+  const node = name === 'master' ? audio.master : audio.buses[name];
   if (node) node.gain.value = level;
 }
 

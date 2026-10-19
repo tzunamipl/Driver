@@ -63,7 +63,10 @@
   #tach .gauge-value { font-size: 18px; }
   #tach .gauge-needle { height: 34px; }
   #tach .tach-tick-label { font-size: 7px; }
+  /* Gauges sit at the top edge here, so the stick hangs below the speedo. */
   #gearstick {
+    top: calc(100% + 10px);
+    bottom: auto;
     width: 150px;
     height: 150px;
   }

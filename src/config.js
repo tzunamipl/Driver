@@ -19,6 +19,21 @@ export const ORIGIN_LON = 17.0385;
 // Day-night cycle speed: 1 = real time. Faster cycles wrap within today's
 // real date, so the sun's seasonal path always matches the actual date.
 export const TIME_SCALE = 480;
+// Sun / moon disc colour by the body's own elevation above the horizon (deg),
+// blended linearly between keys and held past the ends. Keys sorted by `el`.
+export const SUN_DISC_COLORS = [
+  { el: -2, color: 0xff6a30 },
+  { el: 2, color: 0xff8a40 },
+  { el: 8, color: 0xffd070 },
+  { el: 20, color: 0xfff2a0 },
+  { el: 40, color: 0xfffbe0 },
+];
+export const MOON_DISC_COLORS = [
+  { el: -2, color: 0xffa060 },
+  { el: 4, color: 0xf0d0a0 },
+  { el: 15, color: 0xc4cce0 },
+  { el: 30, color: 0xaebce0 },
+];
 
 // Body colour when the lobby is skipped (dev mode).
 export const DEFAULT_BODY_COLOR = 0xffffff;

@@ -42,6 +42,8 @@ const RELEASE_Y = 0.5;
 const REFUSED_Y = 0.45;
 // Lever travel when it follows the engine (keys, release spring), gate units/s.
 const FOLLOW_SPEED = 7;
+// Drawn knob chases the lever position along the gate this fast (gate units/s), so groove jumps glide instead of snapping.
+const KNOB_SPEED = 30;
 const TEXTURE_PX_PER_UNIT = 160;
 
 function clamp(v, lo, hi) {
@@ -50,6 +52,28 @@ function clamp(v, lo, hi) {
 
 function approach(v, target, step) {
   return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
+}
+
+/** Moves `p` up to `step` towards `target` through the gate: out to the rail, along it, into the column. */
+function slideAlongGate(p, target, step) {
+  while (step > 1e-6) {
+    let d;
+    if (Math.abs(p.x - target.x) > 1e-3) {
+      if (p.y !== 0) {
+        d = Math.min(step, Math.abs(p.y));
+        p.y = approach(p.y, 0, d);
+      } else {
+        d = Math.min(step, Math.abs(p.x - target.x));
+        p.x = approach(p.x, target.x, d);
+      }
+    } else {
+      p.x = target.x;
+      d = Math.min(step, Math.abs(p.y - target.y));
+      if (d === 0) return;
+      p.y = approach(p.y, target.y, d);
+    }
+    step -= d;
+  }
 }
 
 function cssColor(hex) {
@@ -137,6 +161,7 @@ export function createGearstickHud() {
   let range = 0; // engine.range, read each frame
   let rangePos = 0; // range lever position, in range indices
   const pos = { x: 0, y: 0 }; // gear lever position in gate coordinates
+  const knob = { x: 0, y: 0 }; // drawn lever position, trailing pos
   const hand = { x: 0, y: 0 }; // where the pointer is pulling the knob (gate coordinates)
   let dragging = null; // 'gear' | 'range' | null
   let lastPointer = null;
@@ -179,6 +204,7 @@ export function createGearstickHud() {
     const target = engine.manual ? gate.posForGear(engine.gear) : null;
     range = rangePos = engine.range;
     Object.assign(pos, target ? { x: target.x, y: target.y } : { x: gate.restX, y: 0 });
+    Object.assign(knob, pos);
     drawnKey = '';
     sizeKey = '';
   }
@@ -319,18 +345,13 @@ export function createGearstickHud() {
     if (dragging !== 'range') rangePos = approach(rangePos, range, step);
     if (dragging === 'gear') return;
     const target = gearPos ?? pending ?? { x: Math.abs(pos.y) > RAIL_EPS ? Math.round(pos.x) : gate.restX, y: 0 };
-    if (Math.abs(pos.x - target.x) > 1e-3) {
-      if (pos.y !== 0) pos.y = approach(pos.y, 0, step);
-      else pos.x = approach(pos.x, target.x, step);
-    } else {
-      pos.x = target.x;
-      pos.y = approach(pos.y, target.y, step);
-    }
+    slideAlongGate(pos, target, step);
   }
 
-  function placeLevers() {
+  function placeLevers(dt) {
     const color = RANGE_COLORS[range % RANGE_COLORS.length];
-    gearUnit.place(plateX(pos.x), -pos.y * ROW_SPACING);
+    slideAlongGate(knob, pos, KNOB_SPEED * dt);
+    gearUnit.place(plateX(knob.x), -knob.y * ROW_SPACING);
     gearUnit.capMaterial.color.setHex(color);
     if (ranged()) {
       rangeUnit.place(rangeCx + RANGE_SLOT_OFFSET, rangeZ(rangePos));
@@ -419,7 +440,7 @@ export function createGearstickHud() {
     resize();
     followEngine(engine, dt);
     drawPlates(engine);
-    placeLevers();
+    placeLevers(dt);
     renderer.render(scene, camera);
   }
 
