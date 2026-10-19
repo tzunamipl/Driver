@@ -1,5 +1,6 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
+import { NAV_DESTINATION_STORAGE_KEY } from '../config.js';
 
 // Foldable "Navigation" tab: address search + a pannable slippy map to pick
 // a destination, then Teleport (or, later, Navigate) there. Map state is in
@@ -16,12 +17,31 @@ const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+function loadSelection() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NAV_DESTINATION_STORAGE_KEY));
+    if (!Number.isFinite(parsed?.lat) || !Number.isFinite(parsed?.lon)) return null;
+    return { lat: parsed.lat, lon: parsed.lon, label: typeof parsed.label === 'string' ? parsed.label : null };
+  } catch {
+    return null;
+  }
+}
+
+function saveSelection(selection) {
+  try {
+    localStorage.setItem(NAV_DESTINATION_STORAGE_KEY, JSON.stringify(selection));
+  } catch {
+    // Not persisting is harmless.
+  }
+}
+
 /**
  * @param {object} deps
  * @param {ReturnType<import('./addressSearch.js').createAddressSearch>} deps.addressSearch
  * @param {() => ({ lat: number, lon: number } | null)} deps.getCarLatLon
+ * @param {(selection: { lat: number, lon: number, label: string | null }) => void} [deps.onSelectionChange]
  */
-export function createNavigationPanel({ addressSearch, getCarLatLon }) {
+export function createNavigationPanel({ addressSearch, getCarLatLon, onSelectionChange }) {
   const panel = document.getElementById('nav-panel');
   const toggle = document.getElementById('nav-toggle');
   const form = document.getElementById('nav-search');
@@ -95,6 +115,8 @@ export function createNavigationPanel({ addressSearch, getCarLatLon }) {
   function select(lat, lon, label) {
     selection = { lat, lon, label };
     selectionEl.textContent = label ? `${label} (${formatCoords(lat, lon)})` : formatCoords(lat, lon);
+    saveSelection(selection);
+    onSelectionChange?.(selection);
   }
 
   function selectPoint(lat, lon) {
@@ -116,6 +138,12 @@ export function createNavigationPanel({ addressSearch, getCarLatLon }) {
     select(result.lat, result.lon, result.label);
     centreOn(result.lat, result.lon, result.bbox ? fitBbox(result.bbox) : RESULT_MAX_ZOOM);
     for (const el of resultsEl.children) el.classList.toggle('is-selected', el === li);
+  }
+
+  const saved = loadSelection();
+  if (saved) {
+    select(saved.lat, saved.lon, saved.label);
+    centreOn(saved.lat, saved.lon);
   }
 
   // ---------- Search ----------

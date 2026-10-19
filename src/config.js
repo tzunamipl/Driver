@@ -192,3 +192,4 @@ export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // M-key debu
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
+export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // Navigation tab pin

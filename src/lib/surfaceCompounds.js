@@ -31,7 +31,18 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
-    imperfectionCm: 10,
+    imperfectionCm: 15,
+  },
+  // Built-up area off the road (yards, verges, lots): packed and smoother
+  // than open ground, between normal and road.
+  builtUp: {
+    frictionMultiplier: 2.0,
+    frictionSlipOffset: 0.75,
+    dynamicFrictionRatio: 0.78,
+    widthGripExponent: 0.35,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 1.2,
+    imperfectionCm: 5,
   },
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.

@@ -276,7 +276,7 @@ export function createMainLoop({
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
         const pos = wheel.worldTransform.position;
-        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas, rivers });
+        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas, rivers, builtUpAreas });
       }
     }
     // Water depth for the next physics steps' hull drag + visual sink (next frame's syncMeshes).
@@ -285,6 +285,7 @@ export function createMainLoop({
       streets,
       waterAreas,
       rivers,
+      builtUpAreas,
     });
     // Effects run regardless of debug state. Splash also takes streets
     // (bridges don't splash) and rivers (narrow waterways).

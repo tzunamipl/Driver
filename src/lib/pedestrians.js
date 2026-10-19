@@ -18,11 +18,14 @@ import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from './buildings.js';
 const PED_GROUP = 16;
 const LOCAL_CHASSIS_GROUP = 1;
 const WHEEL_HITBOX_SHAPE_GROUP = 32; // car.js wheel spheres; ragdolls ignore them
-// One candidate every 90 m, and every cell grows a figure, so a few
-// hundred metres of loaded streets hold about four dozen of them. The
-// cell hash still picks the spot inside the cell, so figures that were
-// already there stay put.
-const CELL_M = 90;
+// One candidate spot per cell; the cell hash decides whether it grows a
+// figure, at a density set by whether the spot is in a built-up area.
+// CELL_M caps the density at 1 / CELL_M^2.
+const CELL_M = 30;
+const PEDS_PER_KM2_BUILT_UP = 250;
+const PEDS_PER_KM2_OTHER = 30;
+const CELL_CHANCE_BUILT_UP = Math.min(1, (PEDS_PER_KM2_BUILT_UP * CELL_M * CELL_M) / 1e6);
+const CELL_CHANCE_OTHER = Math.min(1, (PEDS_PER_KM2_OTHER * CELL_M * CELL_M) / 1e6);
 const SPAWN_RADIUS_M = 320;
 const DESPAWN_RADIUS_M = 480;
 const SCAN_INTERVAL_MS = 500;
@@ -75,6 +78,7 @@ export function createPedestrians(scene, world, groundGroup, frame = null) {
   let sounds = {};
   let nextScan = 0;
   let carBodies = [];
+  let builtUpAreas = null;
 
   const rayFrom = new CANNON.Vec3();
   const rayTo = new CANNON.Vec3();
@@ -296,12 +300,17 @@ export function createPedestrians(scene, world, groundGroup, frame = null) {
     for (let ix = minIx; ix <= maxIx; ix++) {
       for (let iz = minIz; iz <= maxIz; iz++) {
         const id = `ped:${ix}:${iz}`;
-        if (killed.has(id) || peds.has(id) || !cellHasPed(ix, iz)) continue;
+        if (killed.has(id) || peds.has(id)) continue;
+        const chance = cellChance(ix, iz);
+        if (chance >= CELL_CHANCE_BUILT_UP && chance >= CELL_CHANCE_OTHER) continue;
         const netPoint = pointInCell(ix, iz);
         const point = frame ? frame.fromNetwork(netPoint.x, netPoint.z) : netPoint;
         const dx = point.x - x;
         const dz = point.z - z;
         if (dx * dx + dz * dz > spawnR2) continue;
+        // Unloaded landuse reads as not built-up; the cell is retried next scan.
+        const builtUp = builtUpAreas?.isBuiltUpAt(point.x, point.z) ?? false;
+        if (chance >= (builtUp ? CELL_CHANCE_BUILT_UP : CELL_CHANCE_OTHER)) continue;
         const ground = groundY(point.x, point.z, y);
         if (ground == null) continue;
         addPed(id, point.x, ground, point.z);
@@ -331,6 +340,10 @@ export function createPedestrians(scene, world, groundGroup, frame = null) {
     },
     setSoundCallbacks(callbacks) {
       sounds = callbacks;
+    },
+    /** @param {{ isBuiltUpAt(x: number, z: number): boolean }} layer */
+    setBuiltUpAreas(layer) {
+      builtUpAreas = layer;
     },
   };
 }
@@ -384,8 +397,9 @@ function cellHash(ix, iz) {
   return h >>> 0;
 }
 
-function cellHasPed() {
-  return true;
+/** Per-cell roll in [0, 1), independent of the spot bits pointInCell uses. */
+function cellChance(ix, iz) {
+  return (cellHash(ix, iz) >>> 20) / 4096;
 }
 
 function pointInCell(ix, iz) {

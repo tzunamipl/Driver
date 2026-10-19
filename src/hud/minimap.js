@@ -34,6 +34,17 @@ function colorToCss(color) {
   return `#${n.toString(16).padStart(6, '0')}`;
 }
 
+// Matches the Navigation map's pin.
+const DESTINATION_COLOR = '#e53935';
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const a =
+    Math.sin(((lat2 - lat1) * toRad) / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(((lon2 - lon1) * toRad) / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 // Peer distance labels: km, then "kkkm" (teleported peers may be continents away).
 function formatDistance(meters) {
   const km = meters / 1000;
@@ -55,7 +66,7 @@ export function createMinimapHud() {
   const scaleLabelEl = document.getElementById('minimap-scale-label');
   const placeEl = document.getElementById('minimap-place');
   const coordsEl = document.getElementById('minimap-coords');
-  if (!root || !canvas) return { update() {} };
+  if (!root || !canvas) return { update() {}, setDestination() {} };
 
   const ctx = canvas.getContext('2d');
   // Off-screen peer arrows go on a click-through overlay canvas above the
@@ -69,6 +80,8 @@ export function createMinimapHud() {
   let sizeCss = 0;
   let arrowBand = 0;
   let dpr = 1;
+  /** @type {{ lat: number, lon: number } | null} */
+  let destination = null;
 
   // Last successful lookup position, and an in-flight guard.
   let lastGeocodeLat = null;
@@ -165,6 +178,28 @@ export function createMinimapHud() {
     scaleLabelEl.textContent = chosen >= 1000 ? `${chosen / 1000} km` : `${chosen} m`;
   }
 
+  // Teardrop pin with its tip on (x, y).
+  function drawPin(x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-2.5, -6, -6.5, -8.5, -6.5, -13);
+    ctx.arc(0, -13, 6.5, Math.PI, 0);
+    ctx.bezierCurveTo(6.5, -8.5, 2.5, -6, 0, 0);
+    ctx.fillStyle = DESTINATION_COLOR;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, -13, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.restore();
+  }
+
   function draw(lat, lon, headingDeg, peers) {
     resize();
     const size = sizeCss;
@@ -229,11 +264,28 @@ export function createMinimapHud() {
     // Peers: local (x, z) metres straight to pixels (+x right, +z down).
     const edgeMargin = 16 * s;
     const visibleRadius = mapRadius - edgeMargin;
+    const markers = peers.map((peer) => ({
+      ...peer,
+      px: peer.dx / metersPerPx,
+      py: peer.dz / metersPerPx,
+    }));
+    if (destination) {
+      // Mercator offset rather than local metres: the target may be far away.
+      const worldTiles = 2 ** zoom;
+      let dtx = lon2tileX(destination.lon, zoom) - txf;
+      dtx -= Math.round(dtx / worldTiles) * worldTiles;
+      markers.push({
+        isDestination: true,
+        px: dtx * TILE_SIZE,
+        py: (lat2tileY(destination.lat, zoom) - tyf) * TILE_SIZE,
+        distanceMeters: haversineMeters(lat, lon, destination.lat, destination.lon),
+        colorCss: DESTINATION_COLOR,
+      });
+    }
     const onScreenPeers = [];
     const offScreenPeers = [];
-    for (const peer of peers) {
-      const px = peer.dx / metersPerPx;
-      const py = peer.dz / metersPerPx;
+    for (const peer of markers) {
+      const { px, py } = peer;
       const pixelDist = Math.hypot(px, py);
       const entry = { ...peer, px, py, pixelDist };
       if (pixelDist <= visibleRadius) onScreenPeers.push(entry);
@@ -241,6 +293,10 @@ export function createMinimapHud() {
     }
 
     for (const peer of onScreenPeers) {
+      if (peer.isDestination) {
+        drawPin(peer.px, peer.py, s);
+        continue;
+      }
       ctx.beginPath();
       ctx.arc(peer.px, peer.py, 4 * s, 0, Math.PI * 2);
       ctx.fillStyle = peer.colorCss;
@@ -364,5 +420,10 @@ export function createMinimapHud() {
     maybeUpdatePlaceName(lat, lon);
   }
 
-  return { update };
+  /** Navigation-panel selection shown as a pin; null hides it. */
+  function setDestination(latLon) {
+    destination = latLon ? { lat: latLon.lat, lon: latLon.lon } : null;
+  }
+
+  return { update, setDestination };
 }

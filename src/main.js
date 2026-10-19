@@ -131,6 +131,7 @@ const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialV
 const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const builtUpAreas = new BuiltUpAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+pedestrians.setBuiltUpAreas(builtUpAreas);
 
 const loadingScreen = createLoadingScreen(terrain, initialViewOrigin);
 
@@ -281,6 +282,7 @@ createNavigationPanel({
     const pos = carManager.getVehicle()?.chassisBody.position;
     return pos ? viewFrame.toLatLon(pos.x, pos.z) : null;
   },
+  onSelectionChange: (selection) => minimapHud.setDestination(selection),
 });
 
 // ---------- Gameplay props (pedestrians + balls) ----------
