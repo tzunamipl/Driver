@@ -6,6 +6,7 @@ import { DEBUG_LAYERS_STORAGE_KEY, DEBUG_VISUALS_STORAGE_KEY } from '../config.j
 const LAYERS = [
   { id: 'roads', label: 'Roads' },
   { id: 'water', label: 'Water' },
+  { id: 'builtUp', label: 'Built-up areas' },
   { id: 'tileBorders', label: 'Tile borders' },
   { id: 'hitboxes', label: 'Hitboxes' },
   { id: 'terrainGrid', label: 'Terrain polygons' },
@@ -57,6 +58,7 @@ function saveEnabled(enabled) {
  * @param {import('../lib/streets.js').StreetsManager} [deps.streets]
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
+ * @param {import('../lib/builtUpAreas.js').BuiltUpAreasManager} [deps.builtUpAreas]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
@@ -64,7 +66,7 @@ function saveEnabled(enabled) {
  * @param {boolean} initialEnabled - default when nothing is saved: on in dev, off in prod
  */
 export function createDebugVisualsToggle(
-  { terrain, buildings, streets, rivers, waterAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl, layersHudEl },
+  { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl, layersHudEl },
   initialEnabled
 ) {
   let debugVisualsEnabled = loadEnabled(initialEnabled);
@@ -88,6 +90,7 @@ export function createDebugVisualsToggle(
     if (streets) streets.setVisible(shown('roads'));
     if (rivers) rivers.setVisible(shown('water'));
     if (waterAreas) waterAreas.setVisible(shown('water'));
+    if (builtUpAreas) builtUpAreas.setVisible(shown('builtUp'));
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 

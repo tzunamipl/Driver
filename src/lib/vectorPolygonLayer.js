@@ -1,10 +1,10 @@
-// Filled-polygon overlay (waterAreas.js) on top of tiles/vectorTileLayer.js.
+// Filled-polygon overlay (waterAreas.js, builtUpAreas.js) on top of tiles/vectorTileLayer.js.
 // Polygons are bucketed by outer-ring centroid like buildings.js, so a
 // polygon larger than a tile renders in its centroid's tile and pops as a
 // whole - acceptable for a debug overlay. classifyAt() instead searches the
 // whole source vector tile, so large lakes are found anywhere on them.
-// Data always streams because classifyAt() drives splash.js's
-// wheel-on-water check and tyre grip.
+// Data always streams because classifyAt() drives gameplay (splash, tyre
+// grip, built-up zone).
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';

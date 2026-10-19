@@ -9,6 +9,11 @@
   gap: 8px;
   pointer-events: none;
 }
+#top-left-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
 #hud {
   color: #fff;
   font-family: monospace;

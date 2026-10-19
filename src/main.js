@@ -35,6 +35,7 @@ import { createRoadside } from './lib/roadside.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
 import { WaterAreasManager } from './lib/waterAreas.js';
+import { BuiltUpAreasManager } from './lib/builtUpAreas.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
@@ -68,6 +69,7 @@ import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
+import { createNavigationPanel } from './ui/navigationPanel.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
@@ -125,6 +127,7 @@ const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, init
 const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const builtUpAreas = new BuiltUpAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 
 const loadingScreen = createLoadingScreen(terrain, initialViewOrigin);
 
@@ -183,6 +186,7 @@ const debugVisuals = createDebugVisualsToggle(
     streets,
     rivers,
     waterAreas,
+    builtUpAreas,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
@@ -254,9 +258,17 @@ const addressSearch = createAddressSearch({
   streets,
   rivers,
   waterAreas,
+  builtUpAreas,
   carManager,
   viewFrame,
   isJoined: () => lobby.isJoined(),
+});
+createNavigationPanel({
+  addressSearch,
+  getCarLatLon() {
+    const pos = carManager.getVehicle()?.chassisBody.position;
+    return pos ? viewFrame.toLatLon(pos.x, pos.z) : null;
+  },
 });
 
 // ---------- Gameplay props (pedestrians + balls) ----------
@@ -302,7 +314,7 @@ const floatingOrigin = createFloatingOrigin({
   world,
   camera,
   viewFrame,
-  streamers: [terrain, buildings, streets, rivers, waterAreas],
+  streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas],
   parts: [carManager, cameraFollow, gaugesHud, scoring, roadside],
 });
 
@@ -319,6 +331,7 @@ const mainLoop = createMainLoop({
   streets,
   rivers,
   waterAreas,
+  builtUpAreas,
   roadside,
   balls,
   pedestrians,
@@ -373,7 +386,6 @@ const lobby = createLobby({
   onJoined(color, vehicleId) {
     carManager.spawnLocalCar(color, vehicleId);
     vehicleDebugPicker.syncFromCar();
-    addressSearch.setUiEnabled(true);
     startLoopOnce();
     // Start the HUD auto-fold timers only after joining.
     collapsibleHud.startAutoFold();

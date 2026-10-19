@@ -1,0 +1,194 @@
+/* Foldable Navigation tab beside the Help panel; open, it grows into a
+   large search + map panel. Fold animation mirrors #hud-body. */
+/* Open, lift the whole stack (its own stacking context) over the minimap and gauges. */
+#top-left-stack:has(#nav-panel:not(.collapsed)) {
+  z-index: 20;
+}
+#nav-panel {
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 8px 12px;
+  border-radius: 6px;
+  pointer-events: auto;
+  transition: padding var(--hud-fold-ms) ease;
+}
+#nav-panel.collapsed {
+  padding: 6px 10px;
+}
+#nav-toggle {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: bold 13px monospace;
+  text-align: left;
+  cursor: pointer;
+}
+#nav-toggle::before { content: '▾ '; }
+#nav-panel.collapsed #nav-toggle::before { content: '▸ '; }
+#nav-body {
+  /* Room left for the Help pill beside it. */
+  --nav-w: min(760px, calc(100vw - 280px));
+  width: var(--nav-w);
+  max-height: 100vh; /* fold animation cap */
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease, width var(--hud-fold-ms) ease,
+    margin-top var(--hud-fold-ms) ease;
+}
+#nav-panel.collapsed #nav-body {
+  width: 0;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+}
+#nav-body > * {
+  box-sizing: border-box;
+  width: var(--nav-w);
+  flex-shrink: 0;
+}
+#nav-search {
+  display: flex;
+  gap: 6px;
+}
+#nav-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: inherit;
+}
+#nav-search input::placeholder { color: rgba(255, 255, 255, 0.6); }
+#nav-body button:not(#nav-map-controls button):not(#nav-results button) {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #4fc3ff;
+  color: #06222f;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+#nav-body button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#nav-body #nav-navigate {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+#nav-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 7.5em;
+  overflow-y: auto;
+}
+#nav-results:empty { display: none; }
+#nav-results button {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+#nav-results button:hover { background: rgba(255, 255, 255, 0.12); }
+#nav-results li.is-selected button { background: rgba(79, 195, 255, 0.3); }
+.nav-results-status { padding: 4px 8px; opacity: 0.8; }
+.nav-results-status.is-error { color: #ff8080; opacity: 1; }
+#nav-map {
+  position: relative;
+  /* Leaves room for the search, results and footer. */
+  height: clamp(220px, calc(100vh - 320px), 600px);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #e9e6df;
+}
+#nav-map-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+#nav-map.is-dragging #nav-map-canvas { cursor: grabbing; }
+#nav-map-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#nav-map-controls button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font: 700 18px system-ui, sans-serif;
+  cursor: pointer;
+}
+#nav-map-controls button:hover { background: rgba(0, 0, 0, 0.8); }
+#nav-map-attribution {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #333;
+  font-size: 10px;
+  pointer-events: none;
+}
+#nav-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#nav-selection {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  opacity: 0.9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#nav-actions {
+  display: flex;
+  gap: 6px;
+}
+#address-search-status {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 10px;
+  border-radius: 5px;
+  display: none;
+}

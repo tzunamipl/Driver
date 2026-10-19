@@ -17,7 +17,7 @@ export function createStreamingStatus() {
   // Largest pending total seen this burst: the bar's denominator, since new work keeps arriving.
   let peak = 0;
 
-  function update(delta, { terrain, buildings, streets, rivers, waterAreas }) {
+  function update(delta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas }) {
     accum += delta;
     if (accum < UPDATE_INTERVAL) return;
     const step = accum;
@@ -28,6 +28,7 @@ export function createStreamingStatus() {
       ['buildings', buildings.pendingCount()],
       ['roads', streets.pendingCount()],
       ['water', rivers.pendingCount() + waterAreas.pendingCount()],
+      ['landuse', builtUpAreas.pendingCount()],
     ];
     const total = layers.reduce((sum, [, n]) => sum + n, 0);
 

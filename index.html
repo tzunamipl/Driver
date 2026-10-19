@@ -89,11 +89,6 @@
         <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
       </label>
     </div>
-    <button type="button" id="address-search-toggle" aria-expanded="false" aria-controls="address-search">Teleport</button>
-    <form id="address-search" autocomplete="off">
-      <input id="address-input" type="text" placeholder="Search an address to teleport there…" />
-      <button id="address-submit" type="submit">Go</button>
-    </form>
     <div id="address-search-status"></div>
     <div id="streaming-status" hidden>
       <div class="streaming-status-row">
@@ -102,38 +97,66 @@
       <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
     </div>
     <div id="top-left-stack">
-      <div id="hud">
-        <div id="hud-header">
-          <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
-        </div>
-        <div id="hud-body">
-          <div class="hud-line">W / &uarr; &mdash; throttle</div>
-          <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
-          <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
-          <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
-          <div class="hud-line">Shift &mdash; turbo</div>
-          <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
-          <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
-          <div class="hud-line">F &mdash; shoot</div>
-          <div class="hud-line">H &mdash; horn</div>
-          <div class="hud-line">L &mdash; headlights (automatic at night)</div>
-          <div class="hud-line">J &mdash; jump (hold longer for a higher jump)</div>
-          <div class="hud-line">R &mdash; reset car</div>
-          <div class="hud-line">C &mdash; switch camera view</div>
-          <div class="hud-line">M &mdash; toggle debug view</div>
-          <div class="hud-points">
-            <div>Points</div>
-            <div class="hud-line">1 &mdash; kilometre</div>
-            <div class="hud-line">10 &mdash; second airborne</div>
-            <div class="hud-line">5 &mdash; pedestrian</div>
-            <div class="hud-line">3 &mdash; car hit</div>
+      <div id="top-left-row">
+        <div id="hud">
+          <div id="hud-header">
+            <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
           </div>
-          <div id="hud-reset">
-            <button type="button" id="hud-change-choices">Change name/vehicle</button>
+          <div id="hud-body">
+            <div class="hud-line">W / &uarr; &mdash; throttle</div>
+            <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
+            <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
+            <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
+            <div class="hud-line">Shift &mdash; turbo</div>
+            <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
+            <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
+            <div class="hud-line">F &mdash; shoot</div>
+            <div class="hud-line">H &mdash; horn</div>
+            <div class="hud-line">L &mdash; headlights (automatic at night)</div>
+            <div class="hud-line">J &mdash; jump (hold longer for a higher jump)</div>
+            <div class="hud-line">R &mdash; reset car</div>
+            <div class="hud-line">C &mdash; switch camera view</div>
+            <div class="hud-line">M &mdash; toggle debug view</div>
+            <div class="hud-points">
+              <div>Points</div>
+              <div class="hud-line">1 &mdash; kilometre</div>
+              <div class="hud-line">10 &mdash; second airborne</div>
+              <div class="hud-line">5 &mdash; pedestrian</div>
+              <div class="hud-line">3 &mdash; car hit</div>
+            </div>
+            <div id="hud-reset">
+              <button type="button" id="hud-change-choices">Change name/vehicle</button>
+            </div>
+          </div>
+          <div id="hud-discord">
+            <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
           </div>
         </div>
-        <div id="hud-discord">
-          <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+        <div id="nav-panel" class="collapsed">
+          <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="nav-body">Navigation</button>
+          <div id="nav-body">
+            <form id="nav-search" autocomplete="off">
+              <input id="nav-input" type="text" placeholder="Search an address or place…" />
+              <button id="nav-search-submit" type="submit">Search</button>
+            </form>
+            <ul id="nav-results"></ul>
+            <div id="nav-map">
+              <canvas id="nav-map-canvas"></canvas>
+              <div id="nav-map-controls">
+                <button id="nav-zoom-in" type="button" aria-label="Zoom in">+</button>
+                <button id="nav-zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+                <button id="nav-center-car" type="button" aria-label="Centre on car" title="Centre on car">&#8982;</button>
+              </div>
+              <div id="nav-map-attribution">&copy; OpenStreetMap contributors</div>
+            </div>
+            <div id="nav-footer">
+              <div id="nav-selection">Click the map or search to pick a destination</div>
+              <div id="nav-actions">
+                <button id="nav-teleport" type="button" disabled>Teleport</button>
+                <button id="nav-navigate" type="button" disabled title="Coming soon">Navigate</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="debug-hud-row">

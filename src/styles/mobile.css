@@ -71,31 +71,22 @@
     height: 150px;
   }
   #gearstick.ranged { width: 205px; }
-  #address-search-toggle {
-    display: block;
+  /* Where the Help pill sits here; open, the panel spans the screen. */
+  #nav-panel {
     position: fixed;
     top: 184px;
     right: 10px;
     z-index: 11;
-    padding: 5px 8px;
-    border: none;
-    border-radius: 6px;
-    background: #4fc3ff;
-    color: #06222f;
-    font: 700 13px system-ui, sans-serif;
-    cursor: pointer;
   }
-  #address-search {
-    display: none;
-    top: 222px;
-    right: 10px;
-    left: auto;
-    transform: none;
+  #nav-panel:not(.collapsed) {
+    top: 10px;
+    left: 10px;
   }
-  #address-search.is-open { display: flex; }
-  #address-search input { width: min(200px, 52vw); }
+  #nav-body { --nav-w: calc(100vw - 44px); }
+  #nav-map { height: 45vh; }
+  #nav-footer { flex-wrap: wrap; }
   #address-search-status {
-    top: 268px;
+    top: 222px;
     right: 10px;
     left: auto;
     transform: none;

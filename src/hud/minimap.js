@@ -1,29 +1,12 @@
 import { lon2tileX, lat2tileY, tileSizeMeters } from '../lib/geo.js';
 import { computeHeadingDeg } from '../lib/heading.js';
+import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
-// Round, north-up street-map minimap (OSM Standard raster tiles: keyless;
-// attribution required by OSM policy). The car marker rotates; the map
-// doesn't. Zoom via wheel/buttons (persisted) with a scale bar. Shows
+// Round, north-up street-map minimap (OSM tiles, see mapTiles.js). The
+// car marker rotates; the map doesn't. Zoom via wheel/buttons (persisted) with a scale bar. Shows
 // coordinates and a place name from Nominatim reverse geocoding, heavily
 // throttled per its usage policy.
-
-const TILE_SIZE = 256;
-// Legacy subdomains are allowed by OSM's tile policy.
-const MAP_SUBDOMAINS = ['a', 'b', 'c'];
-const mapTileUrl = (z, x, y) =>
-  `https://${MAP_SUBDOMAINS[(x + y) % MAP_SUBDOMAINS.length]}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
-
-function loadTileImage(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    // OSM tiles send CORS headers, so the canvas stays untainted.
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load ${url}`));
-    img.src = url;
-  });
-}
 
 function clampZoom(z) {
   return Math.min(MINIMAP_MAX_ZOOM, Math.max(MINIMAP_MIN_ZOOM, z));
@@ -44,12 +27,6 @@ const REGEOCODE_MIN_INTERVAL_MS = 15_000;
 const REGEOCODE_MIN_DISTANCE_M = 400;
 // Nominatim address keys, most to least specific.
 const PLACE_NAME_FIELDS = ['city', 'town', 'village', 'municipality', 'county', 'state'];
-
-function formatCoords(lat, lon) {
-  const latDir = lat >= 0 ? 'N' : 'S';
-  const lonDir = lon >= 0 ? 'E' : 'W';
-  return `${Math.abs(lat).toFixed(5)}\u00b0${latDir} ${Math.abs(lon).toFixed(5)}\u00b0${lonDir}`;
-}
 
 // Peer colors arrive as 0xRRGGBB integers (see net.js's sanitizeColor).
 function colorToCss(color) {
@@ -84,7 +61,7 @@ export function createMinimapHud() {
   // Off-screen peer arrows go on a click-through overlay canvas above the
   // zoom/scale chrome.
   const arrowsCtx = arrowsCanvas?.getContext('2d') ?? null;
-  const tileCache = new Map(); // "z/x/y" -> { img, ready }
+  const tiles = createMapTileCache();
   let zoom = loadStoredZoom();
   // dialSizeCss = the #minimap box width; the canvas is larger by
   // arrowBand on each side so arrows can be drawn outside the dial.
@@ -175,38 +152,6 @@ export function createMinimapHud() {
     { passive: false }
   );
 
-  function getTile(z, x, y) {
-    const n = 2 ** z;
-    // Wrap x across the antimeridian (y doesn't wrap).
-    const wrappedX = ((x % n) + n) % n;
-    if (y < 0 || y >= n) return null;
-    const key = `${z}/${wrappedX}/${y}`;
-    let entry = tileCache.get(key);
-    if (!entry) {
-      entry = { img: null, ready: false, failed: false };
-      tileCache.set(key, entry);
-      loadTileImage(mapTileUrl(z, wrappedX, y))
-        .then((img) => {
-          entry.img = img;
-          entry.ready = true;
-        })
-        .catch(() => {
-          entry.failed = true;
-        });
-    }
-    return entry;
-  }
-
-  // Bounded tile cache.
-  function pruneCache() {
-    if (tileCache.size <= 600) return;
-    let toDrop = tileCache.size - 400;
-    for (const key of tileCache.keys()) {
-      if (toDrop-- <= 0) break;
-      tileCache.delete(key);
-    }
-  }
-
   function updateScaleBar(metersPerPx) {
     if (!scaleBarEl || !scaleLabelEl) return;
     const targetPx = 56;
@@ -268,7 +213,7 @@ export function createMinimapHud() {
       for (let dx = -radiusTiles; dx <= radiusTiles; dx++) {
         const tileX = centerTileX + dx;
         const tileY = centerTileY + dy;
-        const entry = getTile(zoom, tileX, tileY);
+        const entry = tiles.get(zoom, tileX, tileY);
         const drawX = (tileX - txf) * TILE_SIZE;
         const drawY = (tileY - tyf) * TILE_SIZE;
         if (entry?.ready) {
@@ -394,7 +339,7 @@ export function createMinimapHud() {
     ctx.stroke();
 
     updateScaleBar(metersPerPx);
-    pruneCache();
+    tiles.prune();
   }
 
   /** `viewFrame`: see app/viewFrame.js. */

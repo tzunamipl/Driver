@@ -20,7 +20,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     fetch/decode + mesh building in `terrain/`; detail tiles carve OSM roads in as a raised bed, `terrain/roadBed.js`, with Heightfield physics), `buildings.js`
     (+ `buildingsCache.js` IndexedDB). Debug/gameplay overlays extend `tiles/vectorTileLayer.js`
     (fetch, bucketing, time-sliced builds, unload): `vectorLineLayer.js` → `streets.js`,
-    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`. `roadside.js` = knockable objects placed from the streets layer's segments, one kind per file: `roadPosts.js` (edge posts), `roadSigns.js` (chevron boards on curves/hairpins). `tiles/openFreeMap.js` = vector tile
+    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`, `builtUpAreas.js` (OSM landuse → built-up zone, `isBuiltUpAt`). `roadside.js` = knockable objects placed from the streets layer's segments, one kind per file: `roadPosts.js` (edge posts), `roadSigns.js` (chevron boards on curves/hairpins). `tiles/openFreeMap.js` = vector tile
     fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
   - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
     (chassis body/inertia/hitboxes, wheel mesh, remote car, `axles.js` = descriptor `axles` layout
@@ -43,7 +43,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
-- `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, address search.
+- `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, `navigationPanel.js` (Navigation tab: search + slippy map, OSM tiles via `hud/mapTiles.js`) on top of `addressSearch.js` (geocoding + teleport).
 - `index.html` – DOM skeleton for HUD/UI. Styles: `src/styles/*.css` (one per UI area, imported
   in cascade order by `src/styles/index.css`).
 

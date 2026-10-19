@@ -50,7 +50,7 @@ export function createTerrainStatsHud() {
 
   function updateTerrainStats(
     delta,
-    { terrain, buildings, streets, rivers, waterAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame }
+    { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame }
   ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
@@ -96,6 +96,12 @@ export function createTerrainStatsHud() {
       `far buildings: ${b.far.instances} boxes in ${b.far.tiles} tiles${b.far.pending ? ` (${b.far.pending} loading\u2026)` : ''}` +
         `  ~${formatBytes(b.far.memoryBytes)}`,
     ];
+    if (builtUpAreas) {
+      const { x, z } = chassisMesh.position;
+      const landuse = builtUpAreas.classifyAt(x, z);
+      const zone = builtUpAreas.isBuiltUpAt(x, z) ? 'built-up' : 'open';
+      textLines.push(`zone: ${zone}${landuse ? ` (${landuse})` : ''}`);
+    }
     if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);
     if (b.usingCachedData) {

@@ -47,6 +47,7 @@ export function createMainLoop({
   streets,
   rivers,
   waterAreas,
+  builtUpAreas,
   roadside,
   balls,
   pedestrians,
@@ -260,12 +261,13 @@ export function createMainLoop({
       streets,
       rivers,
       waterAreas,
+      builtUpAreas,
       chassisMesh: currentChassisMesh,
       debugVisualsEnabled,
       pedestrians,
       viewFrame,
     });
-    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas });
+    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas });
     // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
@@ -321,6 +323,7 @@ export function createMainLoop({
         streets.update(tileX, tileY);
         rivers.update(tileX, tileY);
         waterAreas.update(tileX, tileY);
+        builtUpAreas.update(tileX, tileY);
         roadside.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
         buildings.update(tileX, tileY);
       }
