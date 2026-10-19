@@ -12,7 +12,13 @@ const LAYERS = [
   { id: 'terrainGrid', label: 'Terrain polygons' },
   { id: 'roadProfile', label: 'Road profile' }, // red = terrain under the centreline, cyan = road height
   { id: 'roadBed', label: 'Road bed' }, // terrain deformation, not an overlay: off rebuilds detail tiles
+  // Gameplay objects, not overlays: shown while the debug view is off.
+  { id: 'roadPosts', label: 'Road posts' },
+  { id: 'curveSigns', label: 'Curve signs' },
+  { id: 'directionSigns', label: 'Direction signs' },
+  { id: 'directionSignHud', label: 'Direction sign HUD' },
 ];
+const ROADSIDE_GROUPS = ['roadPosts', 'curveSigns', 'directionSigns'];
 
 function loadLayers() {
   const layers = Object.fromEntries(LAYERS.map(({ id }) => [id, true]));
@@ -63,10 +69,25 @@ function saveEnabled(enabled) {
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
+ * @param {ReturnType<import('../lib/roadside.js').createRoadside>} [deps.roadside]
+ * @param {ReturnType<import('./directionSignHud.js').createDirectionSignHud>} [deps.directionSignHud]
  * @param {boolean} initialEnabled - default when nothing is saved: on in dev, off in prod
  */
 export function createDebugVisualsToggle(
-  { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, terrainStatsEl, suspensionHudEl, vehicleDebugHudEl, layersHudEl },
+  {
+    terrain,
+    buildings,
+    streets,
+    rivers,
+    waterAreas,
+    builtUpAreas,
+    terrainStatsEl,
+    suspensionHudEl,
+    vehicleDebugHudEl,
+    layersHudEl,
+    roadside,
+    directionSignHud,
+  },
   initialEnabled
 ) {
   let debugVisualsEnabled = loadEnabled(initialEnabled);
@@ -75,6 +96,7 @@ export function createDebugVisualsToggle(
   let setCarHitboxVisible = null;
 
   const shown = (id) => debugVisualsEnabled && layers[id];
+  const kept = (id) => !debugVisualsEnabled || layers[id];
 
   function apply() {
     const display = debugVisualsEnabled ? '' : 'none';
@@ -85,7 +107,9 @@ export function createDebugVisualsToggle(
     terrain.setBordersVisible(shown('tileBorders'));
     terrain.setWireframeVisible(shown('terrainGrid'));
     terrain.setRoadProfileVisible(shown('roadProfile'));
-    terrain.setRoadBedEnabled(!debugVisualsEnabled || layers.roadBed);
+    terrain.setRoadBedEnabled(kept('roadBed'));
+    if (roadside) for (const group of ROADSIDE_GROUPS) roadside.setGroupVisible(group, kept(group));
+    if (directionSignHud) directionSignHud.setEnabled(kept('directionSignHud'));
     buildings.setHitboxesVisible(shown('hitboxes'));
     if (streets) streets.setVisible(shown('roads'));
     if (rivers) rivers.setVisible(shown('water'));

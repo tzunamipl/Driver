@@ -114,6 +114,19 @@ export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
 export const ROAD_POST_SPACING_M = 25; // along the road, each side
 export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the car
 
+// ---------- Direction signs (directionSigns.js) ----------
+// Junctions that get signs: higher road class -> lower classes it's signed with.
+// A branch on the junction's higher-class road points to a city, one on the lower to the nearest village/town.
+export const DIRECTION_SIGN_JUNCTIONS = {
+  trunk: ['trunk', 'primary', 'secondary', 'tertiary', 'minor'],
+  primary: ['primary', 'secondary', 'tertiary', 'minor'],
+  secondary: ['secondary', 'tertiary', 'minor'],
+  tertiary: ['tertiary', 'minor'],
+  minor: ['minor'],
+};
+// Junctions of one class only: these classes point to cities, the rest to villages/towns.
+export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
+
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
 

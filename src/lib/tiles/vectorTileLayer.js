@@ -350,6 +350,15 @@ export class VectorTileLayer {
     return this.chunks.has(this._key(tx, ty));
   }
 
+  /** True once the fetched region covers (lat, lon), so queries there are final. */
+  hasDataAt(lat, lon) {
+    const region = this._region;
+    if (!region) return false;
+    const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
+    const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
+    return tx >= region.minTx && tx <= region.maxTx && ty >= region.minTy && ty <= region.maxTy;
+  }
+
   _disposeMeshes(chunk) {
     for (const mesh of chunk.meshes) {
       this.scene.remove(mesh);

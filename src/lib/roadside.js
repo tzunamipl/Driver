@@ -1,4 +1,4 @@
-// Knockable roadside objects (roadPosts.js, roadSigns.js) placed from the
+// Knockable roadside objects (roadPosts.js, roadSigns.js, directionSigns.js) placed from the
 // streets layer's segments (vectorLineLayer.js), one InstancedMesh per kind
 // around the car. Objects near the car get a trigger body (like
 // pedestrians.js): a chassis box passing through one swaps it for a tumbling
@@ -7,7 +7,10 @@
 //
 // A kind: { geometry (origin on the ground), material, halfExtents {x, y, z}
 // (trigger box, standing on the ground), debrisSpheres [[x, y, z]] (from the
-// box centre), debrisRadius, mass, place(seg) -> [{ lat, lon, yaw }] }.
+// box centre), debrisRadius, mass, group (visibility toggle name),
+// place(seg) -> [{ lat, lon, yaw, ...data }] or null (not ready, asked again later) }.
+// Kinds whose items differ (sign text) give buildMesh(item) -> Object3D (origin
+// on the ground) instead of geometry/material and get one mesh per item.
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
@@ -67,14 +70,16 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     return {
       kind,
       mesh: null,
-      debrisGeometry: kind.geometry.clone().translate(0, -h.y, 0), // origin at the box centre
+      debrisGeometry: kind.buildMesh ? null : kind.geometry.clone().translate(0, -h.y, 0), // origin at the box centre
+      itemMeshes: kind.buildMesh ? new Map() : null, // item -> Object3D
+      enabled: true,
       triggerShape: new CANNON.Box(new CANNON.Vec3(h.x + TRIGGER_PAD_M, h.y, h.z + TRIGGER_PAD_M)),
     };
   });
   const triggers = new Map(); // item -> static trigger body
   const knocked = new Map(); // item -> { mesh, body, age, restAge }
   const pendingHits = []; // { item, by }, queued during the physics step
-  // Segment -> [{lat, lon, yaw, set}]; lat/lon survives origin shifts.
+  // Segment -> { items: [{lat, lon, yaw, set}], pending: [sets not ready yet] }; lat/lon survives origin shifts.
   const itemsBySegment = new WeakMap();
   const matrix = new THREE.Matrix4();
   const position = new THREE.Vector3();
@@ -100,12 +105,41 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     scene.add(set.mesh);
   }
 
-  function placeItems(seg) {
-    const out = [];
-    for (const set of sets) {
-      for (const p of set.kind.place(seg)) out.push({ lat: p.lat, lon: p.lon, yaw: p.yaw ?? 0, set });
+  /** Places the segment's items for every kind still pending in `entry`. */
+  function placeItems(seg, entry) {
+    const pending = [];
+    for (const set of entry.pending) {
+      const placed = set.kind.place(seg);
+      if (!placed) pending.push(set);
+      else for (const p of placed) entry.items.push({ ...p, yaw: p.yaw ?? 0, set });
     }
-    return out;
+    entry.pending = pending;
+  }
+
+  function disposeObject(object) {
+    scene.remove(object);
+    object.traverse((o) => {
+      o.geometry?.dispose();
+      for (const m of [o.material ?? []].flat()) {
+        m.map?.dispose();
+        m.dispose();
+      }
+    });
+  }
+
+  function dropItemMesh(set, item) {
+    const object = set.itemMeshes.get(item);
+    if (!object) return;
+    set.itemMeshes.delete(item);
+    disposeObject(object);
+  }
+
+  function dropKnocked(item) {
+    const debris = knocked.get(item);
+    if (debris.body) world.removeBody(debris.body);
+    if (item.set.itemMeshes) disposeObject(debris.mesh);
+    else scene.remove(debris.mesh);
+    knocked.delete(item);
   }
 
   function addTrigger(item, x, y, z) {
@@ -135,9 +169,18 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   function knock(item, trigger, by) {
     const { x, y, z } = trigger.position;
     removeTrigger(item);
-    const { kind, debrisGeometry } = item.set;
-    const debrisMesh = new THREE.Mesh(debrisGeometry, kind.material);
-    debrisMesh.castShadow = true;
+    const { kind, debrisGeometry, itemMeshes } = item.set;
+    let debrisMesh;
+    if (itemMeshes) {
+      const object = itemMeshes.get(item) ?? kind.buildMesh(item);
+      itemMeshes.delete(item);
+      object.position.set(0, -kind.halfExtents.y, 0);
+      object.rotation.set(0, 0, 0);
+      debrisMesh = new THREE.Group().add(object); // origin at the box centre
+    } else {
+      debrisMesh = new THREE.Mesh(debrisGeometry, kind.material);
+      debrisMesh.castShadow = true;
+    }
     scene.add(debrisMesh);
 
     const body = new CANNON.Body({
@@ -192,10 +235,8 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       const { mesh: debrisMesh, body } = debris;
       const dx = debrisMesh.position.x - x;
       const dz = debrisMesh.position.z - z;
-      if (dx * dx + dz * dz > maxDistSq) {
-        if (body) world.removeBody(body);
-        scene.remove(debrisMesh);
-        knocked.delete(item);
+      if (dx * dx + dz * dz > maxDistSq || !item.set.enabled) {
+        dropKnocked(item);
         continue;
       }
       if (!body) continue;
@@ -219,20 +260,22 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     const triggerDistSq = TRIGGER_RADIUS_M * TRIGGER_RADIUS_M;
     const deadline = performance.now() + FILL_BUDGET_MS;
     const transforms = new Map(sets.map((set) => [set, []])); // set -> [x, y, z, yaw, ...]
+    const shownItems = new Set(); // per-item meshes placed this rebuild
     const nearItems = new Set();
     let complete = true; // false = fill budget ran out, rebuild next frame
     for (const seg of streets.itemsWithin(x, z, drawDistance)) {
-      let items = itemsBySegment.get(seg);
-      if (!items) {
-        if (performance.now() >= deadline) {
+      let entry = itemsBySegment.get(seg);
+      if (!entry || entry.pending.length) {
+        if (performance.now() < deadline) {
+          if (!entry) itemsBySegment.set(seg, (entry = { items: [], pending: sets }));
+          placeItems(seg, entry); // kinds still not ready retry on the next rebuild
+        } else if (!entry) {
           complete = false;
           continue;
         }
-        items = placeItems(seg);
-        itemsBySegment.set(seg, items);
       }
-      for (const item of items) {
-        if (knocked.has(item)) continue;
+      for (const item of entry.items) {
+        if (knocked.has(item) || !item.set.enabled) continue;
         const local = latLonToLocal(item.lat, item.lon, originLat, originLon, scaleLat);
         const ddx = local.x - x;
         const ddz = local.z - z;
@@ -240,7 +283,19 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
         if (distSq > maxDistSq) continue;
         const y = terrain.surfaceHeightAt(local.x, local.z);
         if (y == null) continue; // retried on the next interval rebuild
-        transforms.get(item.set).push(local.x, y, local.z, item.yaw);
+        if (item.set.itemMeshes) {
+          let object = item.set.itemMeshes.get(item);
+          if (!object) {
+            object = item.set.kind.buildMesh(item);
+            item.set.itemMeshes.set(item, object);
+            scene.add(object);
+          }
+          object.position.set(local.x, y, local.z);
+          object.rotation.set(0, item.yaw, 0);
+          shownItems.add(item);
+        } else {
+          transforms.get(item.set).push(local.x, y, local.z, item.yaw);
+        }
         if (distSq <= triggerDistSq) {
           nearItems.add(item);
           const trigger = triggers.get(item);
@@ -253,7 +308,15 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       if (!nearItems.has(item)) removeTrigger(item);
     }
 
+    for (const set of sets) {
+      if (!set.itemMeshes) continue;
+      for (const item of Array.from(set.itemMeshes.keys())) {
+        if (!shownItems.has(item)) dropItemMesh(set, item);
+      }
+    }
+
     for (const [set, t] of transforms) {
+      if (set.itemMeshes) continue;
       const count = t.length / 4;
       ensureCapacity(set, count);
       set.mesh.position.set(0, 0, 0);
@@ -280,6 +343,26 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       lastZ = z;
       sinceRebuild = 0;
       dirty = !rebuild(x, z);
+    },
+
+    /** Shows/hides (and stops colliding with) every kind of a `group`. */
+    setGroupVisible(group, visible) {
+      for (const set of sets) {
+        if (set.kind.group === group && set.enabled !== visible) {
+          set.enabled = visible;
+          dirty = true;
+        }
+      }
+    },
+
+    /** Standing per-item objects of a `group`: [{ item, object }] (object at its world position). */
+    standing(group) {
+      const out = [];
+      for (const set of sets) {
+        if (set.kind.group !== group || !set.itemMeshes) continue;
+        for (const [item, object] of set.itemMeshes) out.push({ item, object });
+      }
+      return out;
     },
 
     /** Meshes and bodies are moved by the generic shift; the next rebuild re-bases the instances. */
