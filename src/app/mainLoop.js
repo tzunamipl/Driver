@@ -49,6 +49,8 @@ export function createMainLoop({
   waterAreas,
   builtUpAreas,
   roadside,
+  places,
+  directionSignHud,
   balls,
   pedestrians,
   shots,
@@ -244,6 +246,8 @@ export function createMainLoop({
       podMesh: carManager.getPodMesh(),
       vehicle: currentVehicle,
       vehicleId: carManager.getVehicleId(),
+      teleporting: addressSearch.isTeleporting(),
+      resetting: carManager.isResetting(),
     });
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission());
@@ -325,6 +329,16 @@ export function createMainLoop({
         waterAreas.update(tileX, tileY);
         builtUpAreas.update(tileX, tileY);
         roadside.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
+        places.update(carLat, carLon);
+        const headingLen = Math.hypot(terrainHeading.x, terrainHeading.z) || 1;
+        directionSignHud.update(
+          frameDelta,
+          roadside.standing('directionSigns'),
+          currentChassisMesh.position.x,
+          currentChassisMesh.position.z,
+          terrainHeading.x / headingLen,
+          terrainHeading.z / headingLen
+        );
         buildings.update(tileX, tileY);
       }
       // Lift a car found inside a building onto its roof.

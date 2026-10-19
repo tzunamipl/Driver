@@ -73,6 +73,7 @@ export function createRoadPostKind(streets, spacing = ROAD_POST_SPACING_M) {
   }
 
   return {
+    group: 'roadPosts',
     geometry: createPostGeometry(),
     material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }),
     halfExtents: { x: POST_WIDTH_M / 2, y: POST_HEIGHT_M / 2, z: POST_WIDTH_M / 2 },

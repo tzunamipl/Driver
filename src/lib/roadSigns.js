@@ -239,6 +239,7 @@ export function createRoadSignKinds(streets) {
     for (const arrow of [1, -1]) {
       const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.4 });
       kinds.push({
+        group: 'curveSigns',
         geometry,
         material: [front, back],
         halfExtents: { x: width / 2, y: cy, z: 0.1 },

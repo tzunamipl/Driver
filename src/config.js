@@ -109,10 +109,33 @@ export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
 export const CAMERA_PITCH_SPEED = 5;
 export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
 export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
+export const CAMERA_GROUND_CLEARANCE_M = 0.5; // every view stays this far above the terrain
+// Teleport transition: wide orbit round the car while the destination loads.
+export const TELEPORT_CAMERA_FOV_DEG = 115;
+export const TELEPORT_CAMERA_ORBIT_RATE = 0.7; // rad/s
+export const TELEPORT_CAMERA_ORBIT_RADIUS = 14; // m, times descriptor.cameraScale
+export const TELEPORT_CAMERA_ORBIT_HEIGHT = 6; // m above the car, times descriptor.cameraScale
+export const TELEPORT_CAMERA_BLEND_IN_S = 0.8;
+export const TELEPORT_CAMERA_BLEND_OUT_S = 1.5;
+export const TELEPORT_CAMERA_MIN_S = 2.5; // orbit at least this long, even on a fast load
+export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it drop onto its wheels
 
 // ---------- Road edge posts ----------
 export const ROAD_POST_SPACING_M = 25; // along the road, each side
 export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the car
+
+// ---------- Direction signs (directionSigns.js) ----------
+// Junctions that get signs: higher road class -> lower classes it's signed with.
+// A branch on the junction's higher-class road points to a city, one on the lower to the nearest village/town.
+export const DIRECTION_SIGN_JUNCTIONS = {
+  trunk: ['trunk', 'primary', 'secondary', 'tertiary', 'minor'],
+  primary: ['primary', 'secondary', 'tertiary', 'minor'],
+  secondary: ['secondary', 'tertiary', 'minor'],
+  tertiary: ['tertiary', 'minor'],
+  minor: ['minor'],
+};
+// Junctions of one class only: these classes point to cities, the rest to villages/towns.
+export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection

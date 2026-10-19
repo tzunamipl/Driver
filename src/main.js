@@ -34,6 +34,9 @@ import { RiversManager } from './lib/rivers.js';
 import { createRoadside } from './lib/roadside.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
+import { createDirectionSignKind } from './lib/directionSigns.js';
+import { createPlaces } from './lib/places.js';
+import { createDirectionSignHud } from './hud/directionSignHud.js';
 import { WaterAreasManager } from './lib/waterAreas.js';
 import { BuiltUpAreasManager } from './lib/builtUpAreas.js';
 import { loadCarState } from './lib/carState.js';
@@ -137,14 +140,20 @@ const tireSqueal = createTireSqueal();
 const waterWadeSound = createWaterWadeSound();
 const impactSound = createImpactSound();
 const postHitSound = createPostHitSound();
+const places = createPlaces();
 const roadside = createRoadside({
   scene,
   world,
   streets,
   terrain,
-  kinds: [createRoadPostKind(streets), ...createRoadSignKinds(streets)],
+  kinds: [
+    createRoadPostKind(streets),
+    ...createRoadSignKinds(streets),
+    createDirectionSignKind({ streets, builtUpAreas, places }),
+  ],
   onHit: postHitSound.play,
 });
+const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'));
 const suspensionThud = createSuspensionThud();
 const pedestrianSounds = createPedestrianSounds();
 pedestrians.setSoundCallbacks({
@@ -191,6 +200,8 @@ const debugVisuals = createDebugVisualsToggle(
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
+    roadside,
+    directionSignHud,
   },
   IS_DEV_MODE
 );
@@ -234,6 +245,7 @@ const cameraFollow = createCameraFollow(camera, {
     const roof = buildings.roofHeightAt(x, z);
     return roof == null ? ground : Math.max(roof, ground ?? -Infinity);
   },
+  terrainHeightAt: (x, z) => terrain.surfaceHeightAt(x, z),
 });
 
 // ---------- HUD ----------
@@ -333,6 +345,8 @@ const mainLoop = createMainLoop({
   waterAreas,
   builtUpAreas,
   roadside,
+  places,
+  directionSignHud,
   balls,
   pedestrians,
   shots,

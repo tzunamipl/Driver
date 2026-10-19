@@ -1,0 +1,46 @@
+/* Direction sign HUD (hud/directionSignHud.js): arrow boards, top centre. */
+#direction-sign-hud {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch; /* boards share the widest one's width */
+  gap: 4px;
+  pointer-events: none;
+  z-index: 15;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+#direction-sign-hud.visible {
+  opacity: 1;
+}
+
+.dsign-board {
+  --tip: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 220px;
+  padding: 5px 14px;
+  background: var(--dsign-bg);
+  color: var(--dsign-fg);
+  font: bold 17px/1.2 sans-serif;
+  white-space: nowrap;
+}
+
+.dsign-right {
+  padding-right: calc(14px + var(--tip));
+  clip-path: polygon(0 0, calc(100% - var(--tip)) 0, 100% 50%, calc(100% - var(--tip)) 100%, 0 100%);
+}
+
+.dsign-left {
+  padding-left: calc(14px + var(--tip));
+  clip-path: polygon(var(--tip) 0, 100% 0, 100% 100%, var(--tip) 100%, 0 50%);
+}
+
+.dsign-straight {
+  border-radius: 3px;
+}
