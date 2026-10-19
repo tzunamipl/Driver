@@ -27,9 +27,9 @@ const ROAD_CLASS_DEFS = {
   secondary: { widthMeters: 13, smoothMeters: 20, maxGrade: 0.6, rampMeters: 25, bankMeters: 18 },
   tertiary: { widthMeters: 10, rampMeters: 25 },
   minor: { widthMeters: 8, rampMeters: 25 },
-  service: { widthMeters: 4, rampMeters: 15 },
-  track: { widthMeters: 3 },
-  path: { widthMeters: 1.5 },
+  service: { widthMeters: 7, rampMeters: 15 },
+  track: { widthMeters: 6 },
+  path: { widthMeters: 5 },
 };
 export const ROAD_HIERARCHY = Object.keys(ROAD_CLASS_DEFS);
 

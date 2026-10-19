@@ -274,6 +274,32 @@ export class TerrainManager {
   }
 
   /**
+   * Aerial imagery colour (sRGB bytes into `out` [r, g, b]) under world (x, z)
+   * from the finest loaded tile that has imagery; false if none.
+   */
+  groundColorAt(x, z, out) {
+    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+    const fx = lon2tileX(lon, DETAIL_ZOOM);
+    const fy = lat2tileY(lat, DETAIL_ZOOM);
+    for (let zoom = DETAIL_ZOOM; zoom >= ROOT_ZOOM; zoom--) {
+      const s = 2 ** (zoom - DETAIL_ZOOM);
+      const tx = fx * s;
+      const ty = fy * s;
+      const swatch = this.tiles.get(tileKey(zoom, Math.floor(tx), Math.floor(ty)))?.swatch;
+      if (!swatch) continue;
+      const { size, rgb } = swatch;
+      const px = Math.min(size - 1, Math.floor((tx - Math.floor(tx)) * size));
+      const py = Math.min(size - 1, Math.floor((ty - Math.floor(ty)) * size));
+      const i = (py * size + px) * 3;
+      out[0] = rgb[i];
+      out[1] = rgb[i + 1];
+      out[2] = rgb[i + 2];
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Tile surfaceHeightAt() reads at the centre of DETAIL_ZOOM tile (tx, ty),
    * or null. Overlays compare it (and its surfaceRevision) to notice the ground changed.
    */
@@ -698,7 +724,7 @@ export class TerrainManager {
     this._aerialInFlight += job.aerialCost;
     try {
       if (job.kind === 'texture') {
-        const { mips, aborted } = await loadTileData({ z, x, y, elevation: false, aerialBoost: job.aerialBoost, signal });
+        const { mips, swatch, aborted } = await loadTileData({ z, x, y, elevation: false, aerialBoost: job.aerialBoost, signal });
         const tile = this.tiles.get(key);
         if (aborted || epoch !== this._loadEpoch || !tile || !mips) {
           closeMips(mips);
@@ -706,6 +732,7 @@ export class TerrainManager {
           return;
         }
         this._setTileTexture(tile, mips, job.aerialBoost);
+        tile.swatch = swatch ?? tile.swatch;
         return;
       }
       if (job.kind === 'surface') {
@@ -726,7 +753,7 @@ export class TerrainManager {
         ? roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256, detail.widthMeters / detail.cells)
         : 0;
       const imagery = aerialBoost === NO_IMAGERY ? null : aerialBoost;
-      const { elev, mips, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
+      const { elev, mips, swatch, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
       if (aborted || epoch !== this._loadEpoch || this.tiles.has(key)) {
         closeMips(mips);
         return;
@@ -748,8 +775,10 @@ export class TerrainManager {
           return;
         }
       }
-      if (detail) this._addDetailTile(job, surface, mips, aerialBoost, detail.roadBed);
-      else this._addTile(job, heights, mips, aerialBoost);
+      const tile = detail
+        ? this._addDetailTile(job, surface, mips, aerialBoost, detail.roadBed)
+        : this._addTile(job, heights, mips, aerialBoost);
+      tile.swatch = swatch ?? null;
     } catch (err) {
       console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
@@ -792,6 +821,7 @@ export class TerrainManager {
     tile.roadBed = roadBed;
     tile.roadProfile = roadProfile;
     this._syncDebugLines(tile);
+    return tile;
   }
 
   /** Swaps a detail tile's mesh geometry, heightfield and physics body for a rebuilt surface. */
@@ -839,7 +869,7 @@ export class TerrainManager {
       scaleLat: this.scaleLat,
       skirtDepth: cellMeters * SKIRT_DEPTH_CELLS + 2,
     });
-    this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost);
+    return this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost);
   }
 
   _createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost) {
@@ -865,6 +895,7 @@ export class TerrainManager {
       mesh,
       surface,
       heightfield: null, // DETAIL_ZOOM only
+      swatch: null, // { size, rgb }: low-res imagery colours (tileWorker.js)
       surfaceRevision: 0, // bumped when the surface is rebuilt in place
       body: null,
       lines: null,

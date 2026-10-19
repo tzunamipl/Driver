@@ -1,6 +1,7 @@
 // Detail tile surface (runs in tileWorker.js): a square-cell grid in the
 // tile's own frame (metres from its NW corner, x east, z south) with the
-// road bed applied, plus the matching Heightfield samples for physics.
+// road bed and forest floor (forestFloor.js) applied, plus the matching
+// Heightfield samples for physics.
 // Columns fit the tile width exactly; rows step by the same cell size and
 // the last row is pinned to the south edge so neighbours share vertices.
 
@@ -14,9 +15,9 @@ import { createTileHeights } from './roadBed.js';
  *   `heightfield.heights` is row-major from the north edge, square, and
  *   may overshoot the east/south edge.
  */
-export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMeters, cells, skirtDepth, lines }) {
+export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMeters, cells, skirtDepth, lines, floorAt }) {
   const step = widthMeters / cells;
-  const { evaluateGrid, profileLines } = createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters: step, lines });
+  const { evaluateGrid, profileLines } = createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters: step, lines, floorAt });
   const lastRow = Math.ceil(heightMeters / step - 1e-6) - 1; // last whole-step row inside the tile
   const cols = cells; // cells across
   const rows = lastRow + 1; // cells down (incl. the partial one at the south edge)

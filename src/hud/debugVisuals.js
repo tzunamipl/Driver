@@ -7,6 +7,7 @@ const LAYERS = [
   { id: 'roads', label: 'Roads' },
   { id: 'water', label: 'Water' },
   { id: 'builtUp', label: 'Built-up areas' },
+  { id: 'forest', label: 'Forests' },
   { id: 'tileBorders', label: 'Tile borders' },
   { id: 'hitboxes', label: 'Hitboxes' },
   { id: 'terrainGrid', label: 'Terrain polygons' },
@@ -17,16 +18,18 @@ const LAYERS = [
   { id: 'curveSigns', label: 'Curve signs' },
   { id: 'directionSigns', label: 'Direction signs' },
   { id: 'directionSignHud', label: 'Direction sign HUD' },
+  { id: 'trees', label: 'Trees' },
+  { id: 'treeShadows', label: 'Tree shadows', on: false }, // debug view only: costly with thousands of trees
 ];
 const ROADSIDE_GROUPS = ['roadPosts', 'curveSigns', 'directionSigns'];
 
 function loadLayers() {
-  const layers = Object.fromEntries(LAYERS.map(({ id }) => [id, true]));
+  const layers = Object.fromEntries(LAYERS.map(({ id, on = true }) => [id, on]));
   try {
     const saved = JSON.parse(localStorage.getItem(DEBUG_LAYERS_STORAGE_KEY) || '{}');
     for (const { id } of LAYERS) if (typeof saved[id] === 'boolean') layers[id] = saved[id];
   } catch {
-    // Corrupt/unavailable storage: all layers on.
+    // Corrupt/unavailable storage: defaults.
   }
   return layers;
 }
@@ -65,6 +68,8 @@ function saveEnabled(enabled) {
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('../lib/builtUpAreas.js').BuiltUpAreasManager} [deps.builtUpAreas]
+ * @param {import('../lib/forestAreas.js').ForestAreasManager} [deps.forestAreas]
+ * @param {ReturnType<import('../lib/trees.js').createTrees>} [deps.trees]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
@@ -81,6 +86,8 @@ export function createDebugVisualsToggle(
     rivers,
     waterAreas,
     builtUpAreas,
+    forestAreas,
+    trees,
     terrainStatsEl,
     suspensionHudEl,
     vehicleDebugHudEl,
@@ -115,6 +122,11 @@ export function createDebugVisualsToggle(
     if (rivers) rivers.setVisible(shown('water'));
     if (waterAreas) waterAreas.setVisible(shown('water'));
     if (builtUpAreas) builtUpAreas.setVisible(shown('builtUp'));
+    if (forestAreas) forestAreas.setVisible(shown('forest'));
+    if (trees) {
+      trees.setVisible(kept('trees'));
+      trees.setShadows(shown('treeShadows'));
+    }
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 

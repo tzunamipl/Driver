@@ -6,9 +6,9 @@
 //
 // Priority mirrors suspensionHud.js's original convention: road is checked
 // first ("on road and water" - e.g. a bridge over a river - counts as
-// road), then water (polygons or narrow waterways), then built-up landuse,
-// else the generic/default surface. `streets`, `waterAreas`, `rivers` and
-// `builtUpAreas` are optional (debugVisuals.js/main.js only wire them up once
+// road), then water (polygons or narrow waterways), then forest, then
+// built-up landuse, else the generic/default surface. `streets`,
+// `waterAreas`, `rivers`, `forestAreas` and `builtUpAreas` are optional (debugVisuals.js/main.js only wire them up once
 // loaded) and their underlying classification methods are themselves safe
 // to call before any tile data has streamed in for this spot yet (see
 // their own containsPoint/classifyAt doc comments) - this degrades to the
@@ -19,12 +19,13 @@ import { DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 /**
  * @param {number} x
  * @param {number} z
- * @param {{ streets?: {containsPoint(x: number, z: number): boolean}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean}, builtUpAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
- * @returns {'road'|'water'|'builtUp'|'normal'}
+ * @param {{ streets?: {containsPoint(x: number, z: number): boolean}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean}, forestAreas?: {classifyAt(x: number, z: number): string|null}, builtUpAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
+ * @returns {'road'|'water'|'forest'|'builtUp'|'normal'}
  */
-export function classifySurfaceAt(x, z, { streets, waterAreas, rivers, builtUpAreas } = {}) {
+export function classifySurfaceAt(x, z, { streets, waterAreas, rivers, forestAreas, builtUpAreas } = {}) {
   if (streets?.containsPoint(x, z)) return 'road';
   if (waterAreas?.classifyAt(x, z) || rivers?.containsPoint(x, z)) return 'water';
+  if (forestAreas?.classifyAt(x, z)) return 'forest';
   if (builtUpAreas?.classifyAt(x, z)) return 'builtUp';
   return DEFAULT_SURFACE_KEY;
 }

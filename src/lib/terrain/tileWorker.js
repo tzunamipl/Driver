@@ -1,12 +1,14 @@
 // Fetches + decodes terrain tiles off the main thread: Terrarium PNG ->
 // Float32 elevations, and an aerial mosaic -> ImageBitmap mip chain. Detail tiles
-// come back as a finished surface with the road bed (detailSurface.js). Never throws:
+// come back as a finished surface with the road bed and forest floor (detailSurface.js). Never throws:
 // a failed elevation comes back as {error}, missing aerial quadrants use coarser imagery.
+// Imagery also comes with a `swatch`: the mosaic's SWATCH_SIZE mip as RGB bytes (trees.js crown colours).
 // A {cancel: id} message aborts that job's imagery and answers it {aborted: true}
 // (shared elevation / road fetches are cached for other jobs, so they run on).
 import { AERIAL_URL, ELEVATION_URL, AERIAL_TILE_SIZE } from './tileUrls.js';
 import { loadRoadLines } from './roadBed.js';
 import { buildDetailSurface } from './detailSurface.js';
+import { loadForestFloor } from './forestFloor.js';
 
 // Decoded elevations, shared by a tile, its neighbours' borders and overzoomed tiles cropping it.
 const ELEVATION_CACHE_SIZE = 96;
@@ -119,9 +121,12 @@ async function cropMosaic(z, ax, ay, own, x0, y0, w, border) {
   return { heights, width: w, height: w, border };
 }
 
+const SWATCH_SIZE = 16; // px per side
+
 /**
- * Mip chain (full size down to 1x1) for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
+ * { mips, swatch }: mip chain (full size down to 1x1) for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
  * Missing children are filled upscaled from the nearest coarser tile; null if nothing loaded.
+ * `swatch` = { size, rgb } of the SWATCH_SIZE level, rows north to south.
  */
 async function loadAerial(z, x, y, boost, signal) {
   const n = 2 ** boost;
@@ -165,12 +170,24 @@ async function loadAerial(z, x, y, boost, signal) {
 /** Halves `canvas` down to 1x1; GPU generateMipmap on a big texture stalls weak GPUs for hundreds of ms. */
 function buildMips(canvas) {
   const levels = [canvas];
+  let swatch = null;
   for (let size = canvas.width / 2; size >= 1; size /= 2) {
     const level = new OffscreenCanvas(size, size);
-    level.getContext('2d').drawImage(levels.at(-1), 0, 0, size, size);
+    const ctx = level.getContext('2d');
+    ctx.drawImage(levels.at(-1), 0, 0, size, size);
+    if (size === SWATCH_SIZE) {
+      const rgba = ctx.getImageData(0, 0, size, size).data;
+      const rgb = new Uint8Array(size * size * 3);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+        rgb[j] = rgba[i];
+        rgb[j + 1] = rgba[i + 1];
+        rgb[j + 2] = rgba[i + 2];
+      }
+      swatch = { size, rgb };
+    }
     levels.push(level);
   }
-  return levels.map((level) => level.transferToImageBitmap());
+  return { mips: levels.map((level) => level.transferToImageBitmap()), swatch };
 }
 
 self.onmessage = async ({ data: job }) => {
@@ -181,12 +198,17 @@ self.onmessage = async ({ data: job }) => {
   const { id, z, x, y, elevation, elevationBorder = 0, aerialBoost, detail } = job;
   const controller = new AbortController();
   controllers.set(id, controller);
-  const [elev, mips, roadLines] = await Promise.all([
+  const cellMeters = detail && detail.widthMeters / detail.cells;
+  const [elev, aerial, roadLines, floorAt] = await Promise.all([
     elevation ? loadElevation(z, x, y, elevationBorder) : null,
     aerialBoost != null ? loadAerial(z, x, y, aerialBoost, controller.signal).catch(() => null) : null,
-    detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters, detail.widthMeters / detail.cells) : null,
+    detail?.roadBed ? loadRoadLines(z, x, y, detail.widthMeters, detail.heightMeters, cellMeters) : null,
+    // Grid nodes reach a few cells past the edges (normals ring, physics square).
+    detail ? loadForestFloor(z, x, y, detail.widthMeters, detail.heightMeters, 3 * cellMeters) : null,
   ]);
   controllers.delete(id);
+  const mips = aerial?.mips ?? null;
+  const swatch = aerial?.swatch ?? null;
   if (controller.signal.aborted) {
     mips?.forEach((mip) => mip.close());
     self.postMessage({ id, aborted: true });
@@ -194,11 +216,12 @@ self.onmessage = async ({ data: job }) => {
   }
   const transfer = [];
   if (mips) transfer.push(...mips);
+  if (swatch) transfer.push(swatch.rgb.buffer);
   if (detail) {
     // Failed elevation builds flat (main thread decides what to do with it).
     let surface;
     try {
-      surface = buildDetailSurface({ ...detail, elev: elev?.heights ? elev : null, lines: roadLines ?? [] });
+      surface = buildDetailSurface({ ...detail, elev: elev?.heights ? elev : null, lines: roadLines ?? [], floorAt });
     } catch (err) {
       self.postMessage({ id, elev: { error: String(err) }, mips, surface: null }, transfer);
       return;
@@ -206,9 +229,9 @@ self.onmessage = async ({ data: job }) => {
     const { mesh, heightfield, roadProfile } = surface;
     transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
     transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer);
-    self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, mips, surface }, transfer);
+    self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, mips, swatch, surface }, transfer);
     return;
   }
   if (elev?.heights) transfer.push(elev.heights.buffer);
-  self.postMessage({ id, elev, mips }, transfer);
+  self.postMessage({ id, elev, mips, swatch }, transfer);
 };

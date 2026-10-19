@@ -1,4 +1,4 @@
-// Filled-polygon overlay (waterAreas.js, builtUpAreas.js) on top of tiles/vectorTileLayer.js.
+// Filled-polygon overlay (waterAreas.js, builtUpAreas.js, forestAreas.js) on top of tiles/vectorTileLayer.js.
 // Polygons are bucketed by outer-ring centroid like buildings.js, so a
 // polygon larger than a tile renders in its centroid's tile and pops as a
 // whole - acceptable for a debug overlay. classifyAt() instead searches the
@@ -99,8 +99,9 @@ function classifyRings(rings) {
  * @param {(props: object) => ({key: string, color: number} | null)} options.classify
  * @param {number} [options.lift] - metres above ground, avoids z-fighting.
  * @param {number} [options.opacity]
+ * @param {number} [options.radius] - loaded square half-size in DETAIL_ZOOM tiles (default: the HIGH block).
  */
-export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift = 0.3, opacity = 0.55 }) {
+export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift = 0.3, opacity = 0.55, radius }) {
   const materials = new Map();
   function materialFor(style) {
     let mat = materials.get(style.key);
@@ -114,7 +115,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
 
   return class VectorPolygonLayerManager extends VectorTileLayer {
     constructor(scene, world, originLat, originLon, terrain) {
-      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream: true, terrain });
+      super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream: true, radius, terrain });
     }
 
     _decodeFeature(rings, style, toLatLon, add, extent) {
@@ -216,6 +217,21 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       });
       // Every edge clipped: the whole tile is water, so the shore is far off.
       return Number.isFinite(best) ? best : MAX_POLYGON_SPAN_METERS;
+    }
+
+    /** True if world (x, z) is inside a polygon or within `margin` metres of a real edge of one. */
+    isNear(x, z, margin) {
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      const dLat = margin / METERS_PER_DEGREE;
+      const dLon = dLat / Math.cos((lat * Math.PI) / 180);
+      for (const entry of this._itemsInSourceTile(lat, lon)) {
+        if (lat < entry.minLat - dLat || lat > entry.maxLat + dLat || lon < entry.minLon - dLon || lon > entry.maxLon + dLon) continue;
+        const inHole = entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole));
+        if (!inHole && pointInLatLonRing(lat, lon, entry.outer)) return true;
+        if (distanceToRingEdges(lat, lon, entry.outer, entry.outerClip) < margin) return true;
+        if (entry.holes.some((hole, i) => distanceToRingEdges(lat, lon, hole, entry.holesClip[i]) < margin)) return true;
+      }
+      return false;
     }
 
     _entryAt(lat, lon) {

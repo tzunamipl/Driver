@@ -10,7 +10,7 @@ import { fetchVectorTileLayer } from '../tiles/openFreeMap.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from '../roadClasses.js';
 import { sampleHeight } from './surfaceGrid.js';
 
-const ROAD_TILE_ZOOM = 14; // the transportation layer's maxzoom
+export const ROAD_TILE_ZOOM = 14; // the transportation layer's maxzoom
 const ROAD_LIFT = 0.15; // metres above the terrain
 const SUBDIVIDE_METERS = 8; // max segment length of profiled roads, so long straights still follow the profile
 const JOIN_METERS = 0.5; // line ends / junction vertices closer than this meet
@@ -140,32 +140,39 @@ function clipPolyline(points, x0, y0, x1, y1) {
   return pieces;
 }
 
-// "x/y" -> Promise<Array<{ points, halfWidth, priority, ...roadProfile }>>, points flat [x, y, ...] in
-// global ROAD_TILE_ZOOM tile units, clipped to the tile itself (its buffer belongs to the neighbours).
+// "x/y" -> Promise<{ bed, clearance }>: `bed` = [{ points, halfWidth, priority, ...roadProfile }] for the
+// road bed, `clearance` = [{ points, halfWidth }] for every street line but tunnels (forestFloor.js);
+// points flat [x, y, ...] in global ROAD_TILE_ZOOM tile units, clipped to the tile itself (its buffer
+// belongs to the neighbours).
 const cache = new Map();
 
 async function decodeRoadTile(tx, ty) {
   const layer = await fetchVectorTileLayer(ROAD_TILE_ZOOM, tx, ty, 'transportation');
-  const out = [];
-  if (!layer) return out;
+  const bed = [];
+  const clearance = [];
+  if (!layer) return { bed, clearance };
   const extent = layer.extent;
   for (let i = 0; i < layer.length; i++) {
     const feature = layer.feature(i);
     if (feature.type !== 2) continue; // lines only
     const props = feature.properties;
-    if (SKIP_BRUNNELS.has(props.brunnel)) continue;
+    if (props.brunnel === 'tunnel') continue;
     const style = classifyRoad(props);
-    if (!style || SKIP_CLASSES.has(style.key.replace(/_construction$/, ''))) continue;
-    const info = { halfWidth: style.width / 2, priority: roadPriority(style.key), ...roadProfile(style.key) };
+    if (!style) continue;
+    const onBed = !SKIP_BRUNNELS.has(props.brunnel) && !SKIP_CLASSES.has(style.key.replace(/_construction$/, ''));
+    const info = onBed ? { halfWidth: style.width / 2, priority: roadPriority(style.key), ...roadProfile(style.key) } : null;
     for (const line of feature.loadGeometry()) {
       const flat = line.flatMap((pt) => [tx + pt.x / extent, ty + pt.y / extent]);
-      for (const piece of clipPolyline(flat, tx, ty, tx + 1, ty + 1)) out.push({ ...info, points: piece });
+      for (const piece of clipPolyline(flat, tx, ty, tx + 1, ty + 1)) {
+        clearance.push({ halfWidth: style.width / 2, points: piece });
+        if (info) bed.push({ ...info, points: piece });
+      }
     }
   }
-  return out;
+  return { bed, clearance };
 }
 
-function cachedRoadTile(tx, ty) {
+export function cachedRoadTile(tx, ty) {
   const key = `${tx}/${ty}`;
   let promise = cache.get(key);
   if (promise) {
@@ -293,8 +300,8 @@ export async function loadRoadLines(z, x, y, widthMeters, heightMeters, cellMete
     return [];
   }
   const groups = new Map(); // lines by class, to join
-  for (const list of lists) {
-    for (const line of list) {
+  for (const { bed } of lists) {
+    for (const line of bed) {
       // Global road tile units -> this tile's metres.
       const points = new Array(line.points.length);
       let minX = Infinity;
@@ -606,9 +613,9 @@ function buildProfiles(lines, terrainAt) {
  * Height sampler for one detail tile in its own frame (see loadRoadLines):
  * `evaluateGrid` fills a regular grid of `cellMeters` cells with terrain + road bed;
  * `profileLines` gives the centreline profiles for debug drawing.
- * `elev` null = flat ground.
+ * `elev` null = flat ground; `floorAt(x, z)` = extra ground offset under the bed (forestFloor.js).
  */
-export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters, lines }) {
+export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters, lines, floorAt = null }) {
   const terrainAt = elev
     ? (x, z) => sampleHeight(elev, x / widthMeters, z / heightMeters) - heightOffset
     : () => 0;
@@ -639,7 +646,11 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
   function evaluateGrid(x0, z0, cols, rows, step) {
     const out = new Float32Array(cols * rows);
     for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) out[r * cols + c] = terrainAt(x0 + c * step, z0 + r * step);
+      for (let c = 0; c < cols; c++) {
+        const x = x0 + c * step;
+        const z = z0 + r * step;
+        out[r * cols + c] = terrainAt(x, z) + (floorAt ? floorAt(x, z) : 0);
+      }
     }
     if (!segments.length) return out;
 

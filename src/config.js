@@ -124,6 +124,14 @@ export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it d
 export const ROAD_POST_SPACING_M = 25; // along the road, each side
 export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the car
 
+// ---------- Forests (forestAreas.js, trees.js, terrain/forestFloor.js) ----------
+export const TREE_DRAW_DISTANCE_M = 1000; // from the car
+export const TREE_TRUNK_DISTANCE_M = 300; // past this only crowns are drawn
+export const TREE_FADE_M = 200; // dithered fade-in: invisible at the draw distance, solid this much closer
+export const TREE_AREA_PER_TREE_M2 = 300; // density: one tree per this much forest (jittered grid)
+export const TREE_GAP_M = 8; // trees keep this clear of every street line's and water's edge; floor noise starts at twice it from roads
+export const FOREST_FLOOR_NOISE_M = 3; // peak terrain offset (+/-) on the forest floor; 0 = off
+
 // ---------- Direction signs (directionSigns.js) ----------
 // Junctions that get signs: higher road class -> lower classes it's signed with.
 // A branch on the junction's higher-class road points to a city, one on the lower to the nearest village/town.

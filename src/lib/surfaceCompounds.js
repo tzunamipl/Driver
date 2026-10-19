@@ -44,6 +44,17 @@ export const SURFACE_COMPOUNDS = {
     rollingResistanceMultiplier: 1.2,
     imperfectionCm: 5,
   },
+  // Forest floor (leaf litter, soft soil, roots): a bit less grip and more
+  // drag than open ground, and rougher.
+  forest: {
+    frictionMultiplier: 1.0,
+    frictionSlipOffset: 0.5,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.45,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 2.6,
+    imperfectionCm: 15,
+  },
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.
   water: {

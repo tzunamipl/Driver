@@ -39,6 +39,8 @@ import { createPlaces } from './lib/places.js';
 import { createDirectionSignHud } from './hud/directionSignHud.js';
 import { WaterAreasManager } from './lib/waterAreas.js';
 import { BuiltUpAreasManager } from './lib/builtUpAreas.js';
+import { ForestAreasManager } from './lib/forestAreas.js';
+import { createTrees } from './lib/trees.js';
 import { loadCarState } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
@@ -132,6 +134,8 @@ const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialVie
 const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const builtUpAreas = new BuiltUpAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 pedestrians.setBuiltUpAreas(builtUpAreas);
+const forestAreas = new ForestAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const trees = createTrees({ scene, terrain, forestAreas, streets, waterAreas, rivers });
 
 const loadingScreen = createLoadingScreen(terrain, initialViewOrigin);
 
@@ -197,6 +201,8 @@ const debugVisuals = createDebugVisualsToggle(
     rivers,
     waterAreas,
     builtUpAreas,
+    forestAreas,
+    trees,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
@@ -272,6 +278,7 @@ const addressSearch = createAddressSearch({
   rivers,
   waterAreas,
   builtUpAreas,
+  forestAreas,
   carManager,
   viewFrame,
   isJoined: () => lobby.isJoined(),
@@ -328,8 +335,8 @@ const floatingOrigin = createFloatingOrigin({
   world,
   camera,
   viewFrame,
-  streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside],
+  streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, forestAreas],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees],
 });
 
 // ---------- Main loop ----------
@@ -346,6 +353,8 @@ const mainLoop = createMainLoop({
   rivers,
   waterAreas,
   builtUpAreas,
+  forestAreas,
+  trees,
   roadside,
   places,
   directionSignHud,
