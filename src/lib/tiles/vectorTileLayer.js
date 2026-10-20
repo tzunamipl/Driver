@@ -23,7 +23,6 @@ import {
 const REGION_MARGIN_TILES = 2;
 const REGION_RETRY_COOLDOWN_MS = 8000;
 const MAX_FEATURES_PER_TILE = 8000;
-const BUILD_TIME_BUDGET_MS = 4; // per frame, so a fresh region doesn't stutter
 const BUILD_TIME_CHECK_INTERVAL = 16; // items between performance.now() checks
 const DECODE_TIME_BUDGET_MS = 3; // per frame, shared by every layer's tile decoding
 const GROUND_CHECK_INTERVAL_MS = 500; // how often built chunks look for a changed terrain tile below
@@ -340,9 +339,9 @@ export class VectorTileLayer {
     this.chunks.set(key, { meshes, tx, ty, ground });
   }
 
-  /** Pending work for the streaming indicator: tile builds, plus one for a region fetch. */
-  pendingCount() {
-    return (this._regionPending ? 1 : 0) + this._buildQueue.length + this._inProgressBuilds.size;
+  /** Pending work for the streaming indicator: a region fetch, and tile mesh builds. */
+  pendingWork() {
+    return { downloads: this._regionPending ? 1 : 0, builds: this._buildQueue.length + this._inProgressBuilds.size };
   }
 
   /** True once a tile's meshes are built (not just fetched) - for the debug stats HUD. */
@@ -375,11 +374,15 @@ export class VectorTileLayer {
   }
 
   /** M-key debug toggle. */
+  /** Meshes exist only while shown; hiding drops them (the data keeps streaming if alwaysStream). */
   setVisible(visible) {
     this._visible = visible;
-    for (const chunk of this.chunks.values()) {
-      for (const mesh of chunk.meshes) mesh.visible = visible;
-    }
+    if (visible) return;
+    for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
+    this.pendingRemoval.clear();
+    this._buildQueue = [];
+    this._queuedKeys.clear();
+    this._inProgressBuilds.clear();
   }
 
   recenter(lat, lon) {
@@ -412,13 +415,17 @@ export class VectorTileLayer {
     }
   }
 
-  /** Streams around (centerTx, centerTy); builds are time-sliced unless `awaitAll`. */
-  async update(centerTx, centerTy, awaitAll = false) {
+  /**
+   * Streams data around (centerTx, centerTy) and, while visible, builds meshes
+   * until `deadline` (unbounded if `awaitAll`, which also waits for the data).
+   */
+  async update(centerTx, centerTy, awaitAll = false, deadline = Infinity) {
     if (!this.alwaysStream && !this._visible) return;
 
     const ensure = this._ensureRegion(centerTx, centerTy, !awaitAll);
     if (awaitAll) await ensure;
     else ensure.catch(() => {});
+    if (!this._visible) return;
 
     const keepRadius = this._keepRadius();
 
@@ -440,7 +447,7 @@ export class VectorTileLayer {
       this._queueStaleChunks();
     }
 
-    const deadline = awaitAll ? Infinity : performance.now() + BUILD_TIME_BUDGET_MS;
+    if (awaitAll) deadline = Infinity;
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
+import { createFrameBudget, Tier } from './frameBudget.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
@@ -104,6 +105,20 @@ export function createMainLoop({
   });
   const poseForward = new THREE.Vector3();
   const terrainHeading = new THREE.Vector3();
+
+  // Streaming work after terrain, by priority; `at` is this frame's car position.
+  const at = { dt: 0, x: 0, z: 0, tileX: 0, tileY: 0 };
+  const streaming = createFrameBudget(STREAMING_BUDGET_MS);
+  // Gameplay: near buildings carry the collision prisms.
+  streaming.add(Tier.GAMEPLAY, (deadline) => buildings.update(at.tileX, at.tileY, false, deadline));
+  // Overlays still fetch their data every frame (tyre grip, splash); only their debug meshes wait.
+  for (const layer of [streets, rivers, waterAreas, builtUpAreas, landcoverAreas]) {
+    streaming.add(Tier.COSMETIC, (deadline) => layer.update(at.tileX, at.tileY, false, deadline));
+  }
+  for (const part of [roadside, trees, bushes, rocks]) {
+    streaming.add(Tier.COSMETIC, (deadline) => part.update(at.dt, at.x, at.z, deadline));
+  }
+  streaming.add(Tier.COSMETIC, (deadline) => buildings.updateFar(deadline));
 
   function animate() {
     requestAnimationFrame(animate);
@@ -275,7 +290,19 @@ export function createMainLoop({
       pedestrians,
       viewFrame,
     });
-    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas });
+    streamingStatus.update(frameDelta, {
+      terrain,
+      buildings,
+      streets,
+      rivers,
+      waterAreas,
+      builtUpAreas,
+      landcoverAreas,
+      roadside,
+      trees,
+      bushes,
+      rocks,
+    });
     // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
@@ -325,20 +352,12 @@ export function createMainLoop({
         });
 
         // Same DETAIL_ZOOM tile centre as TerrainManager computes.
-        const tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
-        const tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
-        // Order: terrain (above), overlays, then buildings (most expensive).
-        // Overlays always stream: they drive tyre grip and splash.
-        // Every manager time-slices its building work.
-        streets.update(tileX, tileY);
-        rivers.update(tileX, tileY);
-        waterAreas.update(tileX, tileY);
-        builtUpAreas.update(tileX, tileY);
-        landcoverAreas.update(tileX, tileY);
-        roadside.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
-        trees.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
-        bushes.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
-        rocks.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
+        at.tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
+        at.tileY = Math.floor(lat2tileY(carLat, DETAIL_ZOOM));
+        at.dt = frameDelta;
+        at.x = currentChassisMesh.position.x;
+        at.z = currentChassisMesh.position.z;
+        streaming.run();
         places.update(carLat, carLon);
         const headingLen = Math.hypot(terrainHeading.x, terrainHeading.z) || 1;
         directionSignHud.update(
@@ -349,7 +368,6 @@ export function createMainLoop({
           terrainHeading.x / headingLen,
           terrainHeading.z / headingLen
         );
-        buildings.update(tileX, tileY);
       }
       // Lift a car found inside a building onto its roof.
       preventBuildingEmbedding(currentVehicle);

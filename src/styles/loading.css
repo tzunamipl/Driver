@@ -115,6 +115,9 @@
 #streaming-status[hidden] {
   display: none;
 }
+#streaming-status .streaming-status-section:not([hidden]) ~ .streaming-status-section:not([hidden]) {
+  margin-top: 4px;
+}
 #streaming-status .streaming-status-row {
   display: flex;
   align-items: center;
@@ -148,6 +151,9 @@
   height: 100%;
   background: #5fd38a;
   transition: width 0.25s ease-out;
+}
+#streaming-status [data-kind='render'] .streaming-status-fill {
+  background: #6fb6ff;
 }
 @keyframes streaming-spin {
   to {

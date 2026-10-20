@@ -29,7 +29,6 @@ export function isRoadsideRoad(style) {
 
 const REBUILD_MOVE_M = 10;
 const REBUILD_INTERVAL_S = 0.5; // also picks up new terrain / street data
-const FILL_BUDGET_MS = 2; // per frame, for placing objects on newly seen segments
 const INITIAL_CAPACITY = 64;
 const ROADSIDE_GROUP = 64;
 const LOCAL_CHASSIS_GROUP = 1;
@@ -89,6 +88,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   let lastZ = Infinity;
   let sinceRebuild = Infinity;
   let dirty = true;
+  let unfilledSegments = 0; // in range, skipped for lack of time
 
   function ensureCapacity(set, count) {
     if (set.mesh && set.mesh.instanceMatrix.count >= count) return;
@@ -254,15 +254,16 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     }
   }
 
-  function rebuild(x, z) {
+  /** Places objects on newly seen segments until `deadline`; false if it ran out. */
+  function rebuild(x, z, deadline) {
     const { originLat, originLon, scaleLat } = streets;
     const maxDistSq = drawDistance * drawDistance;
     const triggerDistSq = TRIGGER_RADIUS_M * TRIGGER_RADIUS_M;
-    const deadline = performance.now() + FILL_BUDGET_MS;
     const transforms = new Map(sets.map((set) => [set, []])); // set -> [x, y, z, yaw, ...]
     const shownItems = new Set(); // per-item meshes placed this rebuild
     const nearItems = new Set();
     let complete = true; // false = fill budget ran out, rebuild next frame
+    unfilledSegments = 0;
     for (const seg of streets.itemsWithin(x, z, drawDistance)) {
       let entry = itemsBySegment.get(seg);
       if (!entry || entry.pending.length) {
@@ -271,6 +272,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
           placeItems(seg, entry); // kinds still not ready retry on the next rebuild
         } else if (!entry) {
           complete = false;
+          unfilledSegments++;
           continue;
         }
       }
@@ -332,8 +334,8 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   }
 
   return {
-    /** Call once per frame with the car's world position. */
-    update(dt, x, z) {
+    /** Call once per frame with the car's world position; places new objects until `deadline`. */
+    update(dt, x, z, deadline = Infinity) {
       sinceRebuild += dt;
       const hit = flushHits();
       updateDebris(dt, x, z);
@@ -342,7 +344,12 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       lastX = x;
       lastZ = z;
       sinceRebuild = 0;
-      dirty = !rebuild(x, z);
+      dirty = !rebuild(x, z, deadline);
+    },
+
+    /** Streaming indicator: in-range street segments still to place objects on. */
+    pendingWork() {
+      return { downloads: 0, builds: unfilledSegments };
     },
 
     /** Shows/hides (and stops colliding with) every kind of a `group`. */

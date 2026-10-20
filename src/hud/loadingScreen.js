@@ -1,4 +1,4 @@
-// Startup overlay shown until terrain.init() resolves: live steps from
+// Startup overlay shown until terrain.init() and the gameplay layers resolve: live steps from
 // TerrainManager.getLoadProgress() so a slow tile server doesn't look like a hang.
 
 const POLL_MS = 150;
@@ -10,6 +10,8 @@ export function createLoadingScreen(terrain, { lat, lon }) {
   const baselineStep = root.querySelector('[data-step="baseline"]');
   const groundStep = root.querySelector('[data-step="ground"]');
   const farStep = root.querySelector('[data-step="far"]');
+  const gameplayStep = root.querySelector('[data-step="gameplay"]');
+  let gameplayState = 'pending';
   const bar = root.querySelector('.loading-bar-fill');
   const footer = root.querySelector('.loading-footer');
   const slowHint = root.querySelector('.loading-slow');
@@ -28,6 +30,7 @@ export function createLoadingScreen(terrain, { lat, lon }) {
     const groundDone = p.physicsLoaded === p.physicsTotal;
     setStep(groundStep, !p.baselineReady ? 'pending' : groundDone ? 'done' : 'active', `${p.physicsLoaded} / ${p.physicsTotal} tiles`);
     setStep(farStep, p.baselineReady ? 'active' : 'pending', `${p.farLoaded} tiles`);
+    setStep(gameplayStep, gameplayState);
     // Baseline is one fetch; weight it as one ground tile.
     const fraction = ((p.baselineReady ? 1 : 0) + p.physicsLoaded) / (p.physicsTotal + 1);
     bar.style.width = `${Math.round(fraction * 100)}%`;
@@ -44,5 +47,11 @@ export function createLoadingScreen(terrain, { lat, lon }) {
     root.remove();
   }
 
-  return { hide };
+  /** Gameplay layers step: 'pending' | 'active' | 'done'. */
+  function setGameplayState(state) {
+    gameplayState = state;
+    render();
+  }
+
+  return { hide, setGameplayState };
 }

@@ -12,7 +12,10 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
 - `src/app/` – game orchestration: `mainLoop.js` (per-frame update order), `carManager.js`
   (local car spawn/respawn + remote roster), `input.js`, `collisions.js` (arcade responses,
   tunnel guards), `cameraFollow.js` + `cameraViews/` (one file per camera), `scoring.js`,
-  `sceneSetup.js`, `physicsSetup.js`. `viewFrame.js` = this player's local frame (network frame is
+  `sceneSetup.js`, `physicsSetup.js`. `frameBudget.js` = one shared per-frame streaming budget
+  (`STREAMING_BUDGET_MS`) spent by tier: terrain is off-budget (must-have), then GAMEPLAY (near
+  building collisions), then COSMETIC (rotated); streamers take a `deadline`. `gameplayLoad.js` =
+  what startup/teleport await after terrain (overlay data + near buildings). `viewFrame.js` = this player's local frame (network frame is
   fixed at `ORIGIN`); `floatingOrigin.js` shifts the world back to near (0,0) every 2 km - anything
   keeping world-space positions between frames needs a `shiftOrigin(dx, dz)` registered there.
 - `src/lib/` – subsystems:

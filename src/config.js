@@ -196,6 +196,9 @@ export const PLAYERS_ACTIVE_THRESHOLD_MS = 60_000;
 // ---------- Main loop ----------
 export const FIXED_STEP = 1 / 60;
 export const MAX_SUBSTEPS = 5;
+// Main-thread streaming work per frame (mesh builds, object placement), shared by every
+// streamer in priority order (app/frameBudget.js). Terrain tile installs aren't on it.
+export const STREAMING_BUDGET_MS = 6;
 
 // ---------- Minimap HUD ----------
 export const MINIMAP_MIN_ZOOM = 3; // continent

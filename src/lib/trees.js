@@ -39,7 +39,6 @@ import {
 const REBUILD_MOVE_M = 20;
 const REBUILD_INTERVAL_S = 1; // also picks up refined terrain
 const FILL_REBUILD_S = 0.2; // newly placed tiles show at most this often
-const FILL_BUDGET_MS = 2; // per frame, for placing trees on newly seen tiles
 const INITIAL_CAPACITY = 1024;
 const JITTER = 0.8; // of a grid cell
 const SCALE_MIN = 0.75;
@@ -260,6 +259,7 @@ function createVegetation({
   let lastZ = Infinity;
   let sinceRebuild = Infinity;
   let dirty = true;
+  let unfilledTiles = 0; // in range, skipped for lack of time (not ones waiting for data)
   const bodies = new Map(); // "tx_ty:i" -> static sphere body (solid kinds, within physicsDistance)
 
   /** Static spheres for the solid instances in `wanted` ("tx_ty:i" -> [x, y, z, radius]); drops the rest. */
@@ -401,13 +401,16 @@ function createVegetation({
     return out.sort((a, b) => a.distSq - b.distSq);
   }
 
-  /** Places trees on new tiles in range (time-sliced) and drops tiles left behind; true if any were placed. */
-  function fill(inRange) {
-    const deadline = performance.now() + FILL_BUDGET_MS;
+  /** Places trees on new tiles in range until `deadline` and drops tiles left behind; true if any were placed. */
+  function fill(inRange, deadline) {
     let placed = false;
+    unfilledTiles = 0;
     for (const { tx, ty, key } of inRange) {
       if (tiles.has(key)) continue;
-      if (performance.now() >= deadline) break;
+      if (performance.now() >= deadline) {
+        unfilledTiles++;
+        continue;
+      }
       const trees = placeTile(tx, ty);
       if (!trees) continue;
       tiles.set(key, trees);
@@ -490,21 +493,26 @@ function createVegetation({
   }
 
   return {
-    /** Call once per frame with the car's world position. */
-    update(dt, x, z) {
+    /** Call once per frame with the car's world position; places new trees until `deadline`. */
+    update(dt, x, z, deadline = Infinity) {
       if (!visible) return;
       sinceRebuild += dt;
       const moved = Math.hypot(x - lastX, z - lastZ) >= REBUILD_MOVE_M;
       if (!dirty && !moved && sinceRebuild < REBUILD_INTERVAL_S) return;
       const inRange = tilesInRange(x, z);
-      const placed = fill(inRange);
+      const placed = fill(inRange, deadline);
       // Placing is time-sliced: keep filling every frame until nothing's left to place.
-      dirty = inRange.some(({ key }) => !tiles.has(key)) && placed;
+      dirty = inRange.some(({ key }) => !tiles.has(key)) && (placed || performance.now() >= deadline);
       if (!moved && sinceRebuild < (placed ? FILL_REBUILD_S : REBUILD_INTERVAL_S)) return;
       lastX = x;
       lastZ = z;
       sinceRebuild = 0;
       rebuild(x, z, inRange);
+    },
+
+    /** Streaming indicator: in-range tiles still to place. */
+    pendingWork() {
+      return { downloads: 0, builds: visible ? unfilledTiles : 0 };
     },
 
     setVisible(value) {

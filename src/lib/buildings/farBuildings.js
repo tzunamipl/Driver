@@ -12,8 +12,7 @@ const FAR_RADIUS_METERS = 1500;
 const UNLOAD_EXTRA_METERS = 500; // hysteresis before a tile is dropped
 const MAX_CONCURRENT_FETCHES = 2;
 const RETRY_COOLDOWN_MS = 8000;
-const BUILD_BUDGET_MS = 3; // per frame
-const GROUND_BUDGET_MS = 1; // per frame, re-sampling ground as finer terrain streams in
+const GROUND_BUDGET_MS = 1; // per frame (within the caller's deadline), re-sampling ground as finer terrain streams in
 const TIME_CHECK_INTERVAL = 64; // instances between clock checks
 // Boxes reach this far below the centre ground (plus a share of the half
 // diagonal for slopes): far terrain changes LOD under them.
@@ -120,9 +119,9 @@ export class FarBuildingsManager {
 
   /**
    * Per frame with the player's DETAIL_ZOOM tile and the near layer's built
-   * chunks ("tx_ty" keys): selects, fetches, builds and grounds tiles.
+   * chunks ("tx_ty" keys): selects, fetches, and grounds and builds tiles until `deadline`.
    */
-  update(centerTx, centerTy, nearChunks) {
+  update(centerTx, centerTy, nearChunks, deadline) {
     const lat = tileY2lat(centerTy + 0.5, DETAIL_ZOOM);
     const lon = tileX2lon(centerTx + 0.5, DETAIL_ZOOM);
     const center = latLonToLocal(lat, lon, this.originLat, this.originLon, this.scaleLat);
@@ -131,8 +130,9 @@ export class FarBuildingsManager {
 
     this._select((centerTx + 0.5) / ZOOM_RATIO, (centerTy + 0.5) / ZOOM_RATIO, tileSizeMeters(BUILDING_TILE_ZOOM, lat));
     this._fetchNext();
-    this._buildNext(performance.now() + BUILD_BUDGET_MS);
-    this._refreshGround(performance.now() + GROUND_BUDGET_MS);
+    // Grounding first: a floating box looks worse than a late one.
+    this._refreshGround(Math.min(deadline, performance.now() + GROUND_BUDGET_MS));
+    this._buildNext(deadline);
   }
 
   _updateNearMask(centerTx, centerTy, nearChunks) {
@@ -348,6 +348,17 @@ export class FarBuildingsManager {
         tile.mesh.position.z -= dz;
       }
     }
+  }
+
+  /** Streaming indicator: tiles to fetch, and fetched tiles still to build. */
+  pendingWork() {
+    let downloads = 0;
+    let builds = 0;
+    for (const { state } of this.tiles.values()) {
+      if (state === 'wanted' || state === 'fetching') downloads++;
+      else if (state === 'queued' || state === 'building') builds++;
+    }
+    return { downloads, builds };
   }
 
   getStats() {

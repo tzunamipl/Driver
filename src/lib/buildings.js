@@ -44,9 +44,6 @@ const BUILDING_COLOR = 0xb8b0a4;
 const DEFAULT_BUILDING_COLOR = new THREE.Color(BUILDING_COLOR);
 const _vertexColorScratch = new THREE.Color();
 
-// Building is time-sliced: at most this many ms per frame, resumed next
-// frame, so entering new territory never stutters.
-const BUILD_TIME_BUDGET_MS = 6;
 const BUILD_TIME_CHECK_INTERVAL = 4; // buildings between clock checks
 
 const REGION_MARGIN_TILES = 2; // extra tiles fetched beyond the keep radius
@@ -497,8 +494,12 @@ export class BuildingsManager {
   }
 
   /** Pending work for the streaming indicator: tile builds and far tiles, plus one for a region fetch. */
-  pendingCount() {
-    return (this._regionPending ? 1 : 0) + this._buildQueue.length + this._inProgressBuilds.size + this._far.getStats().pending;
+  pendingWork() {
+    const far = this._far.pendingWork();
+    return {
+      downloads: (this._regionPending ? 1 : 0) + far.downloads,
+      builds: this._buildQueue.length + this._inProgressBuilds.size + far.builds,
+    };
   }
 
   /** True once a tile is built (not just fetched) - for the debug stats HUD. */
@@ -601,10 +602,10 @@ export class BuildingsManager {
 
   /**
    * Ensures the region, queues in-range tiles whose terrain is ready,
-   * builds within the frame budget (unbounded if awaitAll), and stages
+   * builds until `deadline` (unbounded if awaitAll), and stages
    * out-of-range tiles for delayed unload.
    */
-  async update(centerTx, centerTy, awaitAll = false) {
+  async update(centerTx, centerTy, awaitAll = false, deadline = Infinity) {
     this._centerTx = centerTx;
     this._centerTy = centerTy;
     const ensure = this._ensureRegion(centerTx, centerTy);
@@ -626,7 +627,7 @@ export class BuildingsManager {
       }
     }
 
-    const deadline = awaitAll ? Infinity : performance.now() + BUILD_TIME_BUDGET_MS;
+    if (awaitAll) deadline = Infinity;
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;
@@ -669,7 +670,12 @@ export class BuildingsManager {
         this.pendingRemoval.set(k, ticksLeft - 1);
       }
     }
-    this._far.update(centerTx, centerTy, this.chunks);
+  }
+
+  /** Far box layer (cosmetic), around the tile of the last update(); builds until `deadline`. */
+  updateFar(deadline) {
+    if (this._centerTx == null) return;
+    this._far.update(this._centerTx, this._centerTy, this.chunks, deadline);
   }
 
   getStats() {

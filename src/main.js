@@ -57,6 +57,7 @@ import { createScoring } from './app/scoring.js';
 import { createScoreToast } from './hud/scoreToast.js';
 import { createNoticeHud } from './hud/notice.js';
 import { createLoadingScreen } from './hud/loadingScreen.js';
+import { loadGameplayLayers } from './app/gameplayLoad.js';
 import { createStreamingStatus } from './hud/streamingStatus.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
@@ -428,9 +429,15 @@ const lobby = createLobby({
 });
 
 // ---------- Startup ----------
-// Load initial terrain before starting, so the car can't fall through.
-// Buildings stream in from the main loop.
-terrain.init().then(() => {
+// Load terrain (the car can't fall through), then the gameplay layers (grip, building
+// collisions) before starting; cosmetics stream in from the main loop.
+terrain.init().then(async () => {
+  loadingScreen.setGameplayState('active');
+  await loadGameplayLayers(
+    { buildings, layers: [streets, rivers, waterAreas, builtUpAreas, landcoverAreas] },
+    initialViewOrigin.lat,
+    initialViewOrigin.lon
+  );
   loadingScreen.hide();
   if (IS_DEV_MODE) {
     // Dev: skip the lobby and join with the saved debug pick, if any.

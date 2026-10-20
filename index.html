@@ -36,6 +36,7 @@
           <li data-step="baseline"><span class="loading-step-label">Elevation at start point</span><span class="loading-step-detail"></span></li>
           <li data-step="ground"><span class="loading-step-label">Ground around the car</span><span class="loading-step-detail"></span></li>
           <li data-step="far"><span class="loading-step-label">Distant landscape</span><span class="loading-step-detail"></span></li>
+          <li data-step="gameplay"><span class="loading-step-label">Roads, water &amp; buildings</span><span class="loading-step-detail"></span></li>
         </ul>
         <div class="loading-bar"><div class="loading-bar-fill"></div></div>
         <p class="loading-footer"></p>
@@ -81,10 +82,18 @@
     <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
     <div id="address-search-status"></div>
     <div id="streaming-status" hidden>
-      <div class="streaming-status-row">
-        <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+      <div class="streaming-status-section" data-kind="download" hidden>
+        <div class="streaming-status-row">
+          <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+        </div>
+        <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
       </div>
-      <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
+      <div class="streaming-status-section" data-kind="render" hidden>
+        <div class="streaming-status-row">
+          <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+        </div>
+        <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
+      </div>
     </div>
     <div id="top-left-stack">
       <div id="top-left-row">

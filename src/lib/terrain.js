@@ -993,8 +993,11 @@ export class TerrainManager {
     return true;
   }
 
-  /** Pending work for the streaming indicator: jobs in flight plus desired tiles not loaded or started (failed ones waiting to retry excluded). */
-  pendingCount() {
+  /**
+   * Pending work for the streaming indicator: jobs in flight plus desired tiles not loaded or started
+   * (failed ones waiting to retry excluded), all downloads - a finished job installs at once.
+   */
+  pendingWork() {
     const now = performance.now();
     let missing = 0;
     for (const { key } of this._leaves) {
@@ -1002,7 +1005,7 @@ export class TerrainManager {
       const failedAt = this._failedAt.get(key);
       if (failedAt == null || now - failedAt >= FAILED_RETRY_MS) missing++;
     }
-    return this.loading.size + missing;
+    return { downloads: this.loading.size + missing, builds: 0 };
   }
 
   /** Startup progress for the loading screen: baseline sample, then the physics footprint init() waits on. */

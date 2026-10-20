@@ -1,6 +1,6 @@
-import { lon2tileX, lat2tileY } from '../lib/geo.js';
-import { DETAIL_ZOOM, findGroundY } from '../lib/terrain.js';
+import { findGroundY } from '../lib/terrain.js';
 import { CAN_CHANGE_LOCATION } from '../config.js';
+import { loadGameplayLayers } from '../app/gameplayLoad.js';
 
 // Geocoding + personal teleport via Nominatim (keyless); the UI lives in
 // navigationPanel.js. Purely local: recentres this browser's streaming and
@@ -82,39 +82,8 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       if (builtUpAreas) builtUpAreas.recenter(lat, lon);
       if (landcoverAreas) landcoverAreas.recenter(lat, lon);
       viewFrame.set(lat, lon);
-      await buildings.update(
-        Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-        Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-        true
-      );
-      if (streets) {
-        await streets.update(
-          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-          true
-        );
-      }
-      if (rivers) {
-        await rivers.update(
-          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-          true
-        );
-      }
-      if (waterAreas) {
-        await waterAreas.update(
-          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-          true
-        );
-      }
-      if (builtUpAreas) {
-        await builtUpAreas.update(
-          Math.floor(lon2tileX(lon, DETAIL_ZOOM)),
-          Math.floor(lat2tileY(lat, DETAIL_ZOOM)),
-          true
-        );
-      }
+      const layers = [streets, rivers, waterAreas, builtUpAreas, landcoverAreas].filter(Boolean);
+      await loadGameplayLayers({ buildings, layers }, lat, lon);
       // Position only, so the heading is kept. World y is relative to the
       // shared origin's elevation, so drop relative to the ground here.
       const groundY = findGroundY(world, 0, 0) ?? 0;
