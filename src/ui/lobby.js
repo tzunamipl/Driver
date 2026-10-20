@@ -195,7 +195,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     if (joined) net.publishLeave();
   });
 
-  // Help-menu "Change name/vehicle": reopen the form prefilled with the current pick.
+  // Settings-menu "Change name/vehicle": reopen the form prefilled with the current pick.
   const changeChoicesBtn = document.getElementById('hud-change-choices');
   changeChoicesBtn?.addEventListener('click', () => {
     if (joined) {

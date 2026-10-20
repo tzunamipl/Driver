@@ -1,4 +1,4 @@
-/* Foldable Navigation tab beside the Help panel; open, it grows into a
+/* Foldable Navigation tab beside the Settings panel; open, it grows into a
    large search + map panel. Fold animation mirrors #hud-body. */
 /* Open, lift the whole stack (its own stacking context) over the minimap and gauges. */
 #top-left-stack:has(#nav-panel:not(.collapsed)) {
@@ -31,7 +31,7 @@
 #nav-toggle::before { content: '▾ '; }
 #nav-panel.collapsed #nav-toggle::before { content: '▸ '; }
 #nav-body {
-  /* Room left for the Help pill beside it. */
+  /* Room left for the Settings pill beside it. */
   --nav-w: min(760px, calc(100vw - 280px));
   width: var(--nav-w);
   max-height: 100vh; /* fold animation cap */

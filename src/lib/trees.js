@@ -1,17 +1,40 @@
-// Forest trees: super-low-poly instances (3-sided trunk + smooth-shaded blob crown, trunks
-// only within `trunkDistance`) on a jittered
-// grid inside forestAreas.js polygons, kept `gap` clear of every street
-// line's edge (tunnels aside), river strips and water areas. Visual only - no bodies; no
+// Forest trees, scrub bushes and rocks: super-low-poly instances (3-sided trunk + smooth-shaded blob crown, or two
+// stacked cones for pines - by height and latitude; trunks only within `trunkDistance`) on a jittered
+// grid inside landcoverAreas.js polygons of the kind's area (forest / scrub / rock), kept `gap` clear of every street
+// line's edge (tunnels aside), river strips and water areas. Bushes are one blob, no trunk. Visual only - no bodies (but rocks: static spheres
+// within `physicsDistance`, in the building group so they share its impact responses); no
 // shadows unless setShadows() turns them on (debug).
 // Trees are placed per DETAIL_ZOOM tile, as fractions of the tile (survive
 // origin shifts), once every layer they're checked against has its data there.
 // Crowns blend their base green with the aerial photo under them (terrain.groundColorAt).
-// Far trees fade in with a dither (discarded pixels), so they stay opaque: no sorting or overdraw.
+// Far trees grow up from their foot as they come within the draw distance (vertex shader).
 
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY, tileX2lon, tileY2lat, tileSizeMeters } from './geo.js';
 import { DETAIL_ZOOM } from './terrain.js';
-import { TREE_AREA_PER_TREE_M2, TREE_DRAW_DISTANCE_M, TREE_FADE_M, TREE_GAP_M, TREE_TRUNK_DISTANCE_M } from '../config.js';
+import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from './buildings.js';
+import {
+  PINE_ASL_PER_DEG_M,
+  PINE_MIX_START_ASL_M,
+  PINE_ONLY_ASL_M,
+  PINE_REFERENCE_LAT,
+  TREE_AREA_PER_TREE_M2,
+  TREE_DRAW_DISTANCE_M,
+  TREE_GAP_M,
+  TREE_GROW_M,
+  TREE_TRUNK_DISTANCE_M,
+  BUSH_AREA_PER_BUSH_M2,
+  BUSH_DRAW_DISTANCE_M,
+  BUSH_GAP_M,
+  BUSH_GROW_M,
+  ROCK_AREA_PER_ROCK_M2,
+  ROCK_DRAW_DISTANCE_M,
+  ROCK_GAP_M,
+  ROCK_GROW_M,
+  ROCK_PHYSICS_DISTANCE_M,
+} from '../config.js';
 
 const REBUILD_MOVE_M = 20;
 const REBUILD_INTERVAL_S = 1; // also picks up refined terrain
@@ -31,6 +54,24 @@ const CROWN_RADIUS_M = 3.2;
 const CROWN_HALF_HEIGHT_M = 4.5;
 const CROWN_CENTER_M = 9.5;
 const CROWN_COLORS = [0x2f5d24, 0x3d7a2a, 0x24491c, 0x4a7f30].map((c) => new THREE.Color(c));
+// Pine: two stacked closed cones [base y, radius, height] (5 sides each, 20 triangles in all).
+const PINE_TIERS = [
+  [3, 3, 7],
+  [7, 2.2, 6],
+];
+const PINE_COLORS = [0x1f3d2a, 0x24452c, 0x2b4f33, 0x1a3524].map((c) => new THREE.Color(c));
+const BUSH_RADIUS_M = 1.8;
+const BUSH_HALF_HEIGHT_M = 1.2;
+const BUSH_CENTER_M = 0.7; // partly sunk, so slopes don't show its underside
+const BUSH_COLORS = [0x4b5e2a, 0x5a6b30, 0x3f5124, 0x6b7a3a].map((c) => new THREE.Color(c));
+// Rock: a jittered unit icosahedron scaled to its radius, centre sunk so only a cap shows.
+const ROCK_RADIUS_MIN_M = 0.15;
+const ROCK_RADIUS_MAX_M = 1.25;
+const ROCK_SIZE_SKEW = 3; // radius ~ k^skew: mostly small stones, few boulders
+const ROCK_JITTER = 0.18; // of the radius, per vertex
+const ROCK_SINK = 0.35; // of the radius, centre below the ground
+const ROCK_COLLIDER_SCALE = 0.9; // sphere radius vs the mesh's, so dents don't hold the car off
+const ROCK_COLORS = [0x6f6a64, 0x807b74, 0x5e5a55, 0x8e8a83].map((c) => new THREE.Color(c));
 // Crown colour: this much of the photo, the rest the tree's base green. Canopy photos
 // are dark (shadows between crowns), so the photo is brightened first.
 const PHOTO_MIX = 0.8;
@@ -60,63 +101,150 @@ function buildCrownGeometry() {
   return g;
 }
 
-/** Dithered distance fade on an instanced material; `fade` = { value: Vector2(solidDist, goneDist) }. */
-function applyDitherFade(material, fade) {
+function buildBushGeometry() {
+  const g = new THREE.SphereGeometry(1, 5, 3);
+  g.scale(BUSH_RADIUS_M, BUSH_HALF_HEIGHT_M, BUSH_RADIUS_M);
+  g.translate(0, BUSH_CENTER_M, 0);
+  return g;
+}
+
+function buildRockGeometry() {
+  const g = new THREE.IcosahedronGeometry(1, 0).toNonIndexed();
+  const pos = g.getAttribute('position');
+  // Same displacement for coincident vertices (keyed by rounded position), so faces stay closed.
+  const offsets = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
+    if (!offsets.has(key)) offsets.set(key, 1 + (hash(offsets.size, 7, 13) - 0.5) * 2 * ROCK_JITTER);
+    const f = offsets.get(key);
+    pos.setXYZ(i, pos.getX(i) * f, pos.getY(i) * f, pos.getZ(i) * f);
+  }
+  g.translate(0, -ROCK_SINK, 0);
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildPineGeometry() {
+  return mergeGeometries(
+    PINE_TIERS.map(([baseY, radius, height]) => new THREE.ConeGeometry(radius, height, 5, 1).translate(0, baseY + height / 2, 0))
+  );
+}
+
+/** Share of pines (0..1) at `asl` metres and latitude `lat` (see config.js PINE_*). */
+function pineShare(asl, lat) {
+  const drop = (Math.abs(lat) - PINE_REFERENCE_LAT) * PINE_ASL_PER_DEG_M;
+  const start = PINE_MIX_START_ASL_M - drop;
+  const only = PINE_ONLY_ASL_M - drop;
+  return Math.min(1, Math.max(0, (asl - start) / (only - start)));
+}
+
+/** Distance grow-in on an instanced material; `grow` = { value: Vector2(fullDist, goneDist) }. */
+function applyDistanceGrow(material, grow) {
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.treeFade = fade;
+    shader.uniforms.treeGrow = grow;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform vec2 treeFade;\nvarying float vTreeFade;')
+      .replace('#include <common>', '#include <common>\nuniform vec2 treeGrow;')
       .replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-        // Per tree (instance origin), horizontal like the CPU draw distance.
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        // Per tree (instance origin = its foot), horizontal like the CPU draw distance.
         vec4 treeOrigin = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        vTreeFade = clamp((treeFade.y - distance(treeOrigin.xz, cameraPosition.xz)) / (treeFade.y - treeFade.x), 0.0, 1.0);`
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vTreeFade;')
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>
-        // Interleaved gradient noise: a fine screen-space threshold pattern.
-        if (vTreeFade < 1.0 && vTreeFade <= fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;`
+        transformed *= smoothstep(treeGrow.y, treeGrow.x, distance(treeOrigin.xz, cameraPosition.xz));`
       );
   };
-  material.customProgramCacheKey = () => 'treeDitherFade';
+  material.customProgramCacheKey = () => 'treeDistanceGrow';
+}
+
+// Per kind: landcover key it grows on, crown geometry + base colours, trunks and pines;
+// scale(k) / width [min, max] = size from a 0..1 hash; solid = rock bodies near the car.
+const treeScale = (k) => SCALE_MIN + (SCALE_MAX - SCALE_MIN) * k;
+const TREE_KIND = {
+  areaKey: 'forest',
+  buildCrown: buildCrownGeometry,
+  colors: CROWN_COLORS,
+  trunks: true,
+  pines: true,
+  scale: treeScale,
+  width: [WIDTH_MIN, WIDTH_MAX],
+};
+const BUSH_KIND = { ...TREE_KIND, areaKey: 'scrub', buildCrown: buildBushGeometry, colors: BUSH_COLORS, trunks: false, pines: false };
+const ROCK_KIND = {
+  ...BUSH_KIND,
+  areaKey: 'rock',
+  buildCrown: buildRockGeometry,
+  colors: ROCK_COLORS,
+  scale: (k) => ROCK_RADIUS_MIN_M + (ROCK_RADIUS_MAX_M - ROCK_RADIUS_MIN_M) * k ** ROCK_SIZE_SKEW,
+  width: [0.85, 1.2],
+  flatShading: true,
+  solid: true,
+};
+
+/** Forest trees; deps as createVegetation. */
+export function createTrees(deps) {
+  return createVegetation({ ...deps, kind: TREE_KIND });
+}
+
+/** Scrub bushes: sparser and nearer than trees; deps as createVegetation. */
+export function createBushes(deps) {
+  return createVegetation({
+    drawDistance: BUSH_DRAW_DISTANCE_M,
+    growDistance: BUSH_GROW_M,
+    areaPerTree: BUSH_AREA_PER_BUSH_M2,
+    gap: BUSH_GAP_M,
+    ...deps,
+    kind: BUSH_KIND,
+  });
+}
+
+/** Rocks on rock/scree: bush density, solid near the car (needs deps.world); deps as createVegetation. */
+export function createRocks(deps) {
+  return createVegetation({
+    drawDistance: ROCK_DRAW_DISTANCE_M,
+    growDistance: ROCK_GROW_M,
+    areaPerTree: ROCK_AREA_PER_ROCK_M2,
+    gap: ROCK_GAP_M,
+    ...deps,
+    kind: ROCK_KIND,
+  });
 }
 
 /**
  * @param {object} deps
  * @param {THREE.Scene} deps.scene
+ * @param {import('cannon-es').World} [deps.world] - for solid kinds (rocks)
  * @param {import('./terrain.js').TerrainManager} deps.terrain
- * @param {import('./forestAreas.js').ForestAreasManager} deps.forestAreas
+ * @param {import('./landcoverAreas.js').LandcoverAreasManager} deps.landcoverAreas
  * @param {import('./streets.js').StreetsManager} deps.streets
  * @param {import('./waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('./rivers.js').RiversManager} [deps.rivers]
  */
-export function createTrees({
+function createVegetation({
+  kind,
   scene,
+  world = null,
   terrain,
-  forestAreas,
+  landcoverAreas,
   streets,
   waterAreas = null,
   rivers = null,
   drawDistance = TREE_DRAW_DISTANCE_M,
   trunkDistance = TREE_TRUNK_DISTANCE_M,
-  fadeDistance = TREE_FADE_M,
+  growDistance = TREE_GROW_M,
   areaPerTree = TREE_AREA_PER_TREE_M2,
   gap = TREE_GAP_M,
+  physicsDistance = ROCK_PHYSICS_DISTANCE_M,
 }) {
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9, flatShading: true });
-  const crownMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-  const fade = { value: new THREE.Vector2(Math.max(0, drawDistance - fadeDistance), drawDistance) };
-  applyDitherFade(trunkMaterial, fade);
-  applyDitherFade(crownMaterial, fade);
+  const crownMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: !!kind.flatShading });
+  const grow = { value: new THREE.Vector2(Math.max(0, drawDistance - growDistance), drawDistance) };
+  applyDistanceGrow(trunkMaterial, grow);
+  applyDistanceGrow(crownMaterial, grow);
   const sets = [
     { geometry: buildTrunkGeometry(), material: trunkMaterial, mesh: null },
-    { geometry: buildCrownGeometry(), material: crownMaterial, mesh: null },
+    { geometry: kind.buildCrown(), material: crownMaterial, mesh: null },
+    { geometry: buildPineGeometry(), material: crownMaterial, mesh: null },
   ];
-  const [trunkSet, crownSet] = sets;
+  const [trunkSet, crownSet, pineSet] = sets;
   const spacing = Math.sqrt(areaPerTree);
   const tiles = new Map(); // "tx_ty" -> Float32Array of TREE_FIELDS per tree
   const matrix = new THREE.Matrix4();
@@ -132,11 +260,32 @@ export function createTrees({
   let lastZ = Infinity;
   let sinceRebuild = Infinity;
   let dirty = true;
+  const bodies = new Map(); // "tx_ty:i" -> static sphere body (solid kinds, within physicsDistance)
 
-  const toLocal = (lat, lon) => latLonToLocal(lat, lon, forestAreas.originLat, forestAreas.originLon, forestAreas.scaleLat);
+  /** Static spheres for the solid instances in `wanted` ("tx_ty:i" -> [x, y, z, radius]); drops the rest. */
+  function syncBodies(wanted) {
+    for (const [key, body] of bodies) {
+      if (wanted.has(key)) continue;
+      world.removeBody(body);
+      bodies.delete(key);
+    }
+    for (const [key, [bx, by, bz, radius]] of wanted) {
+      let body = bodies.get(key);
+      if (!body) {
+        body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL, shape: new CANNON.Sphere(radius) });
+        body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
+        world.addBody(body);
+        bodies.set(key, body);
+      }
+      body.position.set(bx, by, bz); // also follows refined terrain
+      body.aabbNeedsUpdate = true;
+    }
+  }
+
+  const toLocal = (lat, lon) => latLonToLocal(lat, lon, landcoverAreas.originLat, landcoverAreas.originLon, landcoverAreas.scaleLat);
 
   function ensureCapacity(set, count) {
-    if (set.mesh && set.mesh.instanceMatrix.count >= count) return;
+    if (set.mesh ? set.mesh.instanceMatrix.count >= count : count === 0) return; // no mesh until first needed
     let capacity = set.mesh ? set.mesh.instanceMatrix.count : INITIAL_CAPACITY;
     while (capacity < count) capacity *= 2;
     if (set.mesh) {
@@ -193,7 +342,7 @@ export function createTrees({
   function placeTile(tx, ty) {
     const lat = tileY2lat(ty + 0.5, DETAIL_ZOOM);
     const lon = tileX2lon(tx + 0.5, DETAIL_ZOOM);
-    for (const layer of [forestAreas, streets, waterAreas, rivers]) {
+    for (const layer of [landcoverAreas, streets, waterAreas, rivers]) {
       if (layer && !layer.hasDataAt(lat, lon)) return null;
     }
     const { nw, se } = tileCorners(tx, ty);
@@ -210,7 +359,7 @@ export function createTrees({
         const v = (r + 0.5 + (hash(tx, ty, cell * 5 + 1) - 0.5) * JITTER) / rows;
         const x = nw.x + u * width;
         const z = nw.z + v * height;
-        if (!forestAreas.classifyAt(x, z)) continue;
+        if (landcoverAreas.classifyAt(x, z) !== kind.areaKey) continue;
         if (waterAreas?.isNear(x, z, gap)) continue;
         segments ??= lineSegmentsAround(
           (nw.x + se.x) / 2,
@@ -222,10 +371,10 @@ export function createTrees({
         out.push(
           u,
           v,
-          SCALE_MIN + (SCALE_MAX - SCALE_MIN) * k,
+          kind.scale(k),
           hash(tx, ty, cell * 5 + 3) * Math.PI * 2,
-          Math.floor(k * 7919) % CROWN_COLORS.length,
-          WIDTH_MIN + (WIDTH_MAX - WIDTH_MIN) * hash(tx, ty, cell * 5 + 4)
+          Math.floor(k * 7919) % kind.colors.length,
+          kind.width[0] + (kind.width[1] - kind.width[0]) * hash(tx, ty, cell * 5 + 4)
         );
       }
     }
@@ -234,7 +383,7 @@ export function createTrees({
 
   /** DETAIL_ZOOM tiles within the draw distance of (x, z), nearest first. */
   function tilesInRange(x, z) {
-    const { lat, lon } = localToLatLon(x, z, forestAreas.originLat, forestAreas.originLon, forestAreas.scaleLat);
+    const { lat, lon } = localToLatLon(x, z, landcoverAreas.originLat, landcoverAreas.originLon, landcoverAreas.scaleLat);
     const fx = lon2tileX(lon, DETAIL_ZOOM);
     const fy = lat2tileY(lat, DETAIL_ZOOM);
     const tileMeters = tileSizeMeters(DETAIL_ZOOM, lat);
@@ -272,13 +421,17 @@ export function createTrees({
   function rebuild(x, z, inRange) {
     const maxDistSq = drawDistance * drawDistance;
     const trunkDistSq = trunkDistance * trunkDistance;
+    const physicsDistSq = physicsDistance * physicsDistance;
+    const solids = new Map();
     let count = 0;
     let trunkCount = 0;
-    const instances = []; // [x, y, z, scale, yaw, colour, trunk, width, ...]
+    let pineCount = 0;
+    const instances = []; // [x, y, z, scale, yaw, colour, trunk, width, pine, ...]
     for (const { tx, ty, key } of inRange) {
       const trees = tiles.get(key);
       if (!trees?.length) continue;
       const { nw, se } = tileCorners(tx, ty);
+      const lat = tileY2lat(ty + 0.5, DETAIL_ZOOM);
       for (let i = 0; i < trees.length; i += TREE_FIELDS) {
         const px = nw.x + trees[i] * (se.x - nw.x);
         const pz = nw.z + trees[i + 1] * (se.z - nw.z);
@@ -286,38 +439,54 @@ export function createTrees({
         if (distSq > maxDistSq) continue;
         const py = terrain.surfaceHeightAt(px, pz);
         if (py == null) continue; // retried on the next interval rebuild
-        const trunk = distSq <= trunkDistSq;
-        instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5]);
+        const trunk = kind.trunks && distSq <= trunkDistSq;
+        // Fixed per tree (its own seed, apart from the placement hashes), compared to the local share.
+        const pine = kind.pines && hash(tx, ty ^ 0x5bd1e995, i) < pineShare(py + terrain.heightOffset, lat);
+        instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5], pine ? 1 : 0);
         count++;
         if (trunk) trunkCount++;
+        if (pine) pineCount++;
+        if (kind.solid && world && distSq <= physicsDistSq) {
+          const radius = trees[i + 2];
+          solids.set(`${key}:${i}`, [px, py - ROCK_SINK * radius, pz, radius * Math.min(1, trees[i + 5]) * ROCK_COLLIDER_SCALE]);
+        }
       }
     }
+    if (kind.solid && world) syncBodies(solids);
     ensureCapacity(trunkSet, trunkCount);
-    ensureCapacity(crownSet, count);
-    for (const set of sets) set.mesh.position.set(0, 0, 0);
-    trunkSet.mesh.count = trunkCount;
-    crownSet.mesh.count = count;
+    ensureCapacity(crownSet, count - pineCount);
+    ensureCapacity(pineSet, pineCount);
+    for (const [set, n] of [[trunkSet, trunkCount], [crownSet, count - pineCount], [pineSet, pineCount]]) {
+      if (!set.mesh) continue;
+      set.mesh.position.set(0, 0, 0);
+      set.mesh.count = n;
+    }
     let trunkIndex = 0;
+    let crownIndex = 0;
+    let pineIndex = 0;
     for (let n = 0; n < count; n++) {
-      const j = n * 8;
+      const j = n * 9;
+      const pine = instances[j + 8];
+      const crowns = pine ? pineSet : crownSet;
+      const index = pine ? pineIndex++ : crownIndex++;
       const s = instances[j + 3];
       position.set(instances[j], instances[j + 1], instances[j + 2]);
       quaternion.setFromAxisAngle(UP, instances[j + 4]);
       const w = s * instances[j + 7];
       scale.set(w, s, w);
       matrix.compose(position, quaternion, scale);
-      crownSet.mesh.setMatrixAt(n, matrix);
-      crownColor.copy(CROWN_COLORS[instances[j + 5]]);
+      crowns.mesh.setMatrixAt(index, matrix);
+      crownColor.copy((pine ? PINE_COLORS : kind.colors)[instances[j + 5]]);
       if (terrain.groundColorAt(instances[j], instances[j + 2], photoBytes)) {
         const k = PHOTO_GAIN / 255;
         photo.setRGB(Math.min(1, photoBytes[0] * k), Math.min(1, photoBytes[1] * k), Math.min(1, photoBytes[2] * k), THREE.SRGBColorSpace);
         crownColor.lerp(photo, PHOTO_MIX);
       }
-      crownSet.mesh.setColorAt(n, crownColor);
+      crowns.mesh.setColorAt(index, crownColor);
       if (instances[j + 6]) trunkSet.mesh.setMatrixAt(trunkIndex++, matrix);
     }
-    for (const set of sets) set.mesh.instanceMatrix.needsUpdate = true;
-    if (crownSet.mesh.instanceColor) crownSet.mesh.instanceColor.needsUpdate = true;
+    for (const set of sets) if (set.mesh) set.mesh.instanceMatrix.needsUpdate = true;
+    for (const set of [crownSet, pineSet]) if (set.mesh?.instanceColor) set.mesh.instanceColor.needsUpdate = true;
   }
 
   return {
@@ -340,6 +509,7 @@ export function createTrees({
 
     setVisible(value) {
       visible = value;
+      if (!value && world) syncBodies(new Map()); // hidden rocks don't collide; the next rebuild restores them
       for (const set of sets) if (set.mesh) set.mesh.visible = value;
       sinceRebuild = Infinity;
     },

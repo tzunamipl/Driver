@@ -4,22 +4,29 @@
 import { DEBUG_LAYERS_STORAGE_KEY, DEBUG_VISUALS_STORAGE_KEY } from '../config.js';
 
 const LAYERS = [
-  { id: 'roads', label: 'Roads' },
-  { id: 'water', label: 'Water' },
-  { id: 'builtUp', label: 'Built-up areas' },
-  { id: 'forest', label: 'Forests' },
-  { id: 'tileBorders', label: 'Tile borders' },
-  { id: 'hitboxes', label: 'Hitboxes' },
-  { id: 'terrainGrid', label: 'Terrain polygons' },
-  { id: 'roadProfile', label: 'Road profile' }, // red = terrain under the centreline, cyan = road height
-  { id: 'roadBed', label: 'Road bed' }, // terrain deformation, not an overlay: off rebuilds detail tiles
+  { id: 'roads', label: 'Roads', group: 'map' },
+  { id: 'water', label: 'Water', group: 'map' },
+  { id: 'builtUp', label: 'Built-up areas', group: 'map' },
+  { id: 'forest', label: 'Landcover', group: 'map' }, // id kept: saved layer choices
+  { id: 'tileBorders', label: 'Tile borders', group: 'debug' },
+  { id: 'hitboxes', label: 'Hitboxes', group: 'debug' },
+  { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
+  { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height
+  { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
   // Gameplay objects, not overlays: shown while the debug view is off.
-  { id: 'roadPosts', label: 'Road posts' },
-  { id: 'curveSigns', label: 'Curve signs' },
-  { id: 'directionSigns', label: 'Direction signs' },
-  { id: 'directionSignHud', label: 'Direction sign HUD' },
-  { id: 'trees', label: 'Trees' },
-  { id: 'treeShadows', label: 'Tree shadows', on: false }, // debug view only: costly with thousands of trees
+  { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
+  { id: 'curveSigns', label: 'Curve signs', group: 'graphics' },
+  { id: 'directionSigns', label: 'Direction signs', group: 'graphics' },
+  { id: 'directionSignHud', label: 'Direction sign HUD', group: 'graphics' },
+  { id: 'trees', label: 'Trees', group: 'graphics' },
+  { id: 'bushes', label: 'Bushes', group: 'graphics' },
+  { id: 'rocks', label: 'Rocks', group: 'graphics' },
+  { id: 'treeShadows', label: 'Tree, bush & rock shadows', group: 'graphics', on: false }, // debug view only: costly with thousands of trees
+];
+const LAYER_GROUPS = [
+  { id: 'map', label: 'Map' },
+  { id: 'debug', label: 'Debug' },
+  { id: 'graphics', label: 'Graphics' },
 ];
 const ROADSIDE_GROUPS = ['roadPosts', 'curveSigns', 'directionSigns'];
 
@@ -68,8 +75,10 @@ function saveEnabled(enabled) {
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('../lib/builtUpAreas.js').BuiltUpAreasManager} [deps.builtUpAreas]
- * @param {import('../lib/forestAreas.js').ForestAreasManager} [deps.forestAreas]
+ * @param {import('../lib/landcoverAreas.js').LandcoverAreasManager} [deps.landcoverAreas]
  * @param {ReturnType<import('../lib/trees.js').createTrees>} [deps.trees]
+ * @param {ReturnType<import('../lib/trees.js').createBushes>} [deps.bushes]
+ * @param {ReturnType<import('../lib/trees.js').createRocks>} [deps.rocks]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
@@ -86,8 +95,10 @@ export function createDebugVisualsToggle(
     rivers,
     waterAreas,
     builtUpAreas,
-    forestAreas,
+    landcoverAreas,
     trees,
+    bushes,
+    rocks,
     terrainStatsEl,
     suspensionHudEl,
     vehicleDebugHudEl,
@@ -122,30 +133,46 @@ export function createDebugVisualsToggle(
     if (rivers) rivers.setVisible(shown('water'));
     if (waterAreas) waterAreas.setVisible(shown('water'));
     if (builtUpAreas) builtUpAreas.setVisible(shown('builtUp'));
-    if (forestAreas) forestAreas.setVisible(shown('forest'));
+    if (landcoverAreas) landcoverAreas.setVisible(shown('forest'));
     if (trees) {
       trees.setVisible(kept('trees'));
       trees.setShadows(shown('treeShadows'));
+    }
+    if (bushes) {
+      bushes.setVisible(kept('bushes'));
+      bushes.setShadows(shown('treeShadows'));
+    }
+    if (rocks) {
+      rocks.setVisible(kept('rocks'));
+      rocks.setShadows(shown('treeShadows'));
     }
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 
   function buildLayersPanel() {
     const list = layersHudEl.querySelector('.debug-layers-list') || layersHudEl;
-    for (const { id, label } of LAYERS) {
-      const row = document.createElement('label');
-      row.className = 'debug-layer';
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.checked = layers[id];
-      box.addEventListener('change', () => {
-        layers[id] = box.checked;
-        saveLayers(layers);
-        apply();
-        box.blur(); // keep keyboard driving working after a click
-      });
-      row.append(box, label);
-      list.append(row);
+    for (const group of LAYER_GROUPS) {
+      const title = document.createElement('div');
+      title.className = 'debug-layer-group';
+      title.textContent = group.label;
+      const grid = document.createElement('div');
+      grid.className = 'debug-layer-grid';
+      list.append(title, grid);
+      for (const { id, label } of LAYERS.filter((layer) => layer.group === group.id)) {
+        const row = document.createElement('label');
+        row.className = 'debug-layer';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = layers[id];
+        box.addEventListener('change', () => {
+          layers[id] = box.checked;
+          saveLayers(layers);
+          apply();
+          box.blur(); // keep keyboard driving working after a click
+        });
+        row.append(box, label);
+        grid.append(row);
+      }
     }
   }
 

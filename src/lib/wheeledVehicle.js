@@ -65,7 +65,7 @@ const AIR_SPIN_DRAG_PER_S = 0.4;
 // Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
 const IMPERFECTION_MIN_NORMAL_Y = 0.7;
 // Share of the sidewall height that flattens bumps (subtracted from their peak-to-peak).
-const SIDEWALL_BUMP_ABSORPTION = 0.3;
+const SIDEWALL_BUMP_ABSORPTION = 0.1;
 
 function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);

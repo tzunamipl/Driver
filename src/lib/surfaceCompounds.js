@@ -23,6 +23,17 @@ export const SURFACE_COMPOUNDS = {
     rollingResistanceMultiplier: 0.55,
     imperfectionCm: 0,
   },
+  // Unpaved roads (OSM surface=unpaved, untagged tracks/paths): packed gravel
+  // or dirt - between road and open ground, slides more evenly than asphalt.
+  unpaved: {
+    frictionMultiplier: 1.6,
+    frictionSlipOffset: 0.6,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.4,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 1.3,
+    imperfectionCm: 6,
+  },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
     frictionMultiplier: 1.2,
@@ -31,7 +42,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
-    imperfectionCm: 15,
+    imperfectionCm: 12,
   },
   // Built-up area off the road (yards, verges, lots): packed and smoother
   // than open ground, between normal and road.
@@ -54,6 +65,47 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.6,
     imperfectionCm: 15,
+  },
+  // Rock (bare rock and scree): grippy where solid, but loose scree and big
+  // steps make it the roughest surface.
+  rock: {
+    frictionMultiplier: 1.8,
+    frictionSlipOffset: 0.6,
+    dynamicFrictionRatio: 0.75,
+    widthGripExponent: 0.3,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 1.4,
+    imperfectionCm: 22,
+  },
+  // Glacier ice: almost no grip, width barely matters.
+  ice: {
+    frictionMultiplier: 0.25,
+    frictionSlipOffset: 0.1,
+    dynamicFrictionRatio: 0.8,
+    widthGripExponent: 0.1,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 0.6,
+    imperfectionCm: 3,
+  },
+  // Scrub (bushes, brush): like open ground but draggier and rougher.
+  scrub: {
+    frictionMultiplier: 1.1,
+    frictionSlipOffset: 0.45,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.45,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 2.8,
+    imperfectionCm: 18,
+  },
+  // Sand (beach, dunes): low grip and heavy drag; wide tyres float on it.
+  sand: {
+    frictionMultiplier: 0.9,
+    frictionSlipOffset: 0.3,
+    dynamicFrictionRatio: 0.9,
+    widthGripExponent: 0.8,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 4.0,
+    imperfectionCm: 6,
   },
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.

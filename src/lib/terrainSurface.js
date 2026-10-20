@@ -6,9 +6,10 @@
 //
 // Priority mirrors suspensionHud.js's original convention: road is checked
 // first ("on road and water" - e.g. a bridge over a river - counts as
-// road), then water (polygons or narrow waterways), then forest, then
+// road), then water (polygons or narrow waterways), then landcover (forest,
+// rock, ice, scrub, sand), then
 // built-up landuse, else the generic/default surface. `streets`,
-// `waterAreas`, `rivers`, `forestAreas` and `builtUpAreas` are optional (debugVisuals.js/main.js only wire them up once
+// `waterAreas`, `rivers`, `landcoverAreas` and `builtUpAreas` are optional (debugVisuals.js/main.js only wire them up once
 // loaded) and their underlying classification methods are themselves safe
 // to call before any tile data has streamed in for this spot yet (see
 // their own containsPoint/classifyAt doc comments) - this degrades to the
@@ -19,13 +20,15 @@ import { DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
 /**
  * @param {number} x
  * @param {number} z
- * @param {{ streets?: {containsPoint(x: number, z: number): boolean}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean}, forestAreas?: {classifyAt(x: number, z: number): string|null}, builtUpAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
- * @returns {'road'|'water'|'forest'|'builtUp'|'normal'}
+ * @param {{ streets?: {surfaceAt(x: number, z: number): 'road'|'unpaved'|null}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean}, landcoverAreas?: {classifyAt(x: number, z: number): string|null}, builtUpAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
+ * @returns {'road'|'unpaved'|'water'|'forest'|'rock'|'ice'|'scrub'|'sand'|'builtUp'|'normal'}
  */
-export function classifySurfaceAt(x, z, { streets, waterAreas, rivers, forestAreas, builtUpAreas } = {}) {
-  if (streets?.containsPoint(x, z)) return 'road';
+export function classifySurfaceAt(x, z, { streets, waterAreas, rivers, landcoverAreas, builtUpAreas } = {}) {
+  const street = streets?.surfaceAt(x, z);
+  if (street) return street;
   if (waterAreas?.classifyAt(x, z) || rivers?.containsPoint(x, z)) return 'water';
-  if (forestAreas?.classifyAt(x, z)) return 'forest';
+  const landcover = landcoverAreas?.classifyAt(x, z);
+  if (landcover) return landcover;
   if (builtUpAreas?.classifyAt(x, z)) return 'builtUp';
   return DEFAULT_SURFACE_KEY;
 }

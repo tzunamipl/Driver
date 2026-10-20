@@ -54,7 +54,10 @@ ROAD_CLASSES.raceway = ROAD_CLASSES.tertiary;
 // Shipping lines aren't roads.
 export const SKIP_CLASSES = new Set(['ferry']);
 
-/** Feature props -> { key, color, width (m) }, or null if not a road class. */
+// Classes treated as unpaved when the feature has no `surface` (paved|unpaved) tag.
+const UNPAVED_BY_DEFAULT = new Set(['track', 'path']);
+
+/** Feature props -> { key, color, width (m), unpaved }, or null if not a road class. */
 export function classifyRoad(props) {
   let cls = props?.class;
   if (!cls || SKIP_CLASSES.has(cls)) return null;
@@ -76,5 +79,6 @@ export function classifyRoad(props) {
     key: underConstruction ? `${cls}_construction` : cls,
     color: base.color,
     width,
+    unpaved: props.surface ? props.surface === 'unpaved' : UNPAVED_BY_DEFAULT.has(cls),
   };
 }

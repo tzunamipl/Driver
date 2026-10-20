@@ -48,12 +48,12 @@ async function reverseGeocode(lat, lon) {
  * @param {import('../lib/rivers.js').RiversManager} [deps.rivers]
  * @param {import('../lib/waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('../lib/builtUpAreas.js').BuiltUpAreasManager} [deps.builtUpAreas]
- * @param {import('../lib/forestAreas.js').ForestAreasManager} [deps.forestAreas]
+ * @param {import('../lib/landcoverAreas.js').LandcoverAreasManager} [deps.landcoverAreas]
  * @param {import('./carManager.js').ReturnType} deps.carManager
  * @param {ReturnType<import('../app/viewFrame.js').createViewFrame>} deps.viewFrame - moved on teleport
  * @param {() => boolean} deps.isJoined
  */
-export function createAddressSearch({ world, terrain, buildings, streets, rivers, waterAreas, builtUpAreas, forestAreas, carManager, viewFrame, isJoined }) {
+export function createAddressSearch({ world, terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas, carManager, viewFrame, isJoined }) {
 
   const addressStatusEl = document.getElementById('address-search-status');
 
@@ -80,7 +80,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       if (rivers) rivers.recenter(lat, lon);
       if (waterAreas) waterAreas.recenter(lat, lon);
       if (builtUpAreas) builtUpAreas.recenter(lat, lon);
-      if (forestAreas) forestAreas.recenter(lat, lon);
+      if (landcoverAreas) landcoverAreas.recenter(lat, lon);
       viewFrame.set(lat, lon);
       await buildings.update(
         Math.floor(lon2tileX(lon, DETAIL_ZOOM)),

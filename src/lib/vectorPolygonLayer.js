@@ -1,4 +1,4 @@
-// Filled-polygon overlay (waterAreas.js, builtUpAreas.js, forestAreas.js) on top of tiles/vectorTileLayer.js.
+// Filled-polygon overlay (waterAreas.js, builtUpAreas.js, landcoverAreas.js) on top of tiles/vectorTileLayer.js.
 // Polygons are bucketed by outer-ring centroid like buildings.js, so a
 // polygon larger than a tile renders in its centroid's tile and pops as a
 // whole - acceptable for a debug overlay. classifyAt() instead searches the

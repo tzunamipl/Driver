@@ -48,8 +48,10 @@ export function createMainLoop({
   rivers,
   waterAreas,
   builtUpAreas,
-  forestAreas,
+  landcoverAreas,
   trees,
+  bushes,
+  rocks,
   roadside,
   places,
   directionSignHud,
@@ -273,12 +275,12 @@ export function createMainLoop({
       pedestrians,
       viewFrame,
     });
-    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, forestAreas });
+    streamingStatus.update(frameDelta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas });
     // Wheel surface for the next physics steps' tyre grip (one frame lag).
     if (currentVehicle) {
       for (const wheel of currentVehicle.wheelInfos) {
         const pos = wheel.worldTransform.position;
-        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas, rivers, forestAreas, builtUpAreas });
+        wheel.surface = classifySurfaceAt(pos.x, pos.z, { streets, waterAreas, rivers, landcoverAreas, builtUpAreas });
       }
     }
     // Water depth for the next physics steps' hull drag + visual sink (next frame's syncMeshes).
@@ -287,7 +289,7 @@ export function createMainLoop({
       streets,
       waterAreas,
       rivers,
-      forestAreas,
+      landcoverAreas,
       builtUpAreas,
     });
     // Effects run regardless of debug state. Splash also takes streets
@@ -332,9 +334,11 @@ export function createMainLoop({
         rivers.update(tileX, tileY);
         waterAreas.update(tileX, tileY);
         builtUpAreas.update(tileX, tileY);
-        forestAreas.update(tileX, tileY);
+        landcoverAreas.update(tileX, tileY);
         roadside.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
         trees.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
+        bushes.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
+        rocks.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z);
         places.update(carLat, carLon);
         const headingLen = Math.hypot(terrainHeading.x, terrainHeading.z) || 1;
         directionSignHud.update(

@@ -176,6 +176,18 @@
   flex-direction: column;
   gap: 3px;
 }
+#debug-layers-hud .debug-layer-group {
+  margin-top: 4px;
+  opacity: 0.6;
+}
+#debug-layers-hud .debug-layer-group:first-child {
+  margin-top: 0;
+}
+#debug-layers-hud .debug-layer-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 10px;
+}
 #debug-layers-hud .debug-layer {
   display: flex;
   align-items: center;

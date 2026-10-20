@@ -124,13 +124,30 @@ export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it d
 export const ROAD_POST_SPACING_M = 25; // along the road, each side
 export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the car
 
-// ---------- Forests (forestAreas.js, trees.js, terrain/forestFloor.js) ----------
-export const TREE_DRAW_DISTANCE_M = 1000; // from the car
+// ---------- Forests (landcoverAreas.js, trees.js, terrain/forestFloor.js) ----------
+export const TREE_DRAW_DISTANCE_M = 800; // from the car
 export const TREE_TRUNK_DISTANCE_M = 300; // past this only crowns are drawn
-export const TREE_FADE_M = 200; // dithered fade-in: invisible at the draw distance, solid this much closer
+// Tree kind: pines start mixing in at PINE_MIX_START_ASL_M and are the only kind from
+// PINE_ONLY_ASL_M (both at PINE_REFERENCE_LAT); both drop PINE_ASL_PER_DEG_M per degree poleward.
+export const PINE_MIX_START_ASL_M = 500;
+export const PINE_ONLY_ASL_M = 1300;
+export const PINE_REFERENCE_LAT = 50;
+export const PINE_ASL_PER_DEG_M = 80;
+export const TREE_GROW_M = 400; // grow-in: zero size at the draw distance, full size this much closer
 export const TREE_AREA_PER_TREE_M2 = 300; // density: one tree per this much forest (jittered grid)
 export const TREE_GAP_M = 8; // trees keep this clear of every street line's and water's edge; floor noise starts at twice it from roads
-export const FOREST_FLOOR_NOISE_M = 3; // peak terrain offset (+/-) on the forest floor; 0 = off
+// Scrub bushes (trees.js createBushes): same placement as trees, sparser and nearer.
+export const BUSH_DRAW_DISTANCE_M = 400; // from the car
+export const BUSH_GROW_M = 150; // grow-in, as TREE_GROW_M
+export const BUSH_AREA_PER_BUSH_M2 = 1200; // density: one bush per this much scrub (jittered grid)
+export const BUSH_GAP_M = 4; // bushes keep this clear of every street line's and water's edge
+// Rocks (trees.js createRocks) on rock/scree landcover: bush density, solid near the car.
+export const ROCK_DRAW_DISTANCE_M = 400; // from the car
+export const ROCK_GROW_M = 150; // grow-in, as TREE_GROW_M
+export const ROCK_AREA_PER_ROCK_M2 = 1200; // density: one rock per this much rock area (jittered grid)
+export const ROCK_GAP_M = 4; // rocks keep this clear of every street line's and water's edge
+export const ROCK_PHYSICS_DISTANCE_M = 120; // rocks within this of the car get a collider
+export const FOREST_FLOOR_NOISE_M = 2; // peak terrain offset (+/-) on the forest floor; 0 = off
 
 // ---------- Direction signs (directionSigns.js) ----------
 // Junctions that get signs: higher road class -> lower classes it's signed with.

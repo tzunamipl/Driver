@@ -42,8 +42,9 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
    * @param {{x: number, z: number}} [o.inherit] - velocity partially inherited (x/z only).
    * @param {number} [o.inheritFraction]
    * @param {{x: number, z: number}} [o.extra] - velocity added as-is (x/z only).
+   * @param {[number, number]} [o.colors] - overrides the pool's colours for this puff.
    */
-  function spawn(x, y, z, { opacity, endScale, out, rise, inherit, inheritFraction = 0, extra }) {
+  function spawn(x, y, z, { opacity, endScale, out, rise, inherit, inheritFraction = 0, extra, colors: puffColors = colors }) {
     const p = pool[nextSlot];
     nextSlot = (nextSlot + 1) % size;
     p.life = lifetime;
@@ -52,7 +53,7 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
     p.mesh.visible = true;
     p.mesh.scale.setScalar(startScale);
     p.mesh.position.set(x, y, z);
-    p.material.color.setHex(colors[Math.random() < 0.5 ? 0 : 1]).multiply(tint);
+    p.material.color.setHex(puffColors[Math.random() < 0.5 ? 0 : 1]).multiply(tint);
     p.material.opacity = opacity;
     const angle = Math.random() * Math.PI * 2;
     const h = randIn(out);

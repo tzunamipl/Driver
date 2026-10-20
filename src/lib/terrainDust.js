@@ -1,19 +1,28 @@
-// Brown dirt dust on 'normal' (open terrain) surfaces, from two triggers:
+// Dust on loose off-road surfaces (SURFACE_DUST: amount + colours), from two triggers:
 //  - slide: a puff per grounded sliding wheel, thrown by its spin-slip;
-//  - speed: above DUST_SPEED_KMH, one bigger puff under the chassis centre,
+//  - speed: above DUST_SPEED_KMH / amount, one bigger puff under the chassis centre,
 //    emitted more often / larger / more opaque as speed rises.
+// `amount` scales emit rate, start speed and (by its square root) opacity and size;
+// the speed puff uses the dustiest surface under a grounded wheel.
 
 import { isWheelGrounded } from './wheelContact.js';
 import { createPuffPool, wheelSpinLaunch, clamp } from './particles/puffPool.js';
 
-const POOL_SIZE = 96;
+const POOL_SIZE = 192; // sand emits at up to 2.5x the open-ground rate
 const PARTICLE_LIFETIME_S = 0.9;
 const START_SCALE = 0.25;
 const RISE_SPEED = [0.2, 0.7];
 const OUTWARD_SPEED = [0.5, 1.8];
 const DRAG = 0.99; // velocity multiplier per second
 const VELOCITY_INHERIT_FRACTION = 0.1;
-const COLORS = [0x5c3f23, 0x8a5a2e];
+
+// Surfaces that raise dust; others (road, forest, water, ...) don't.
+const SURFACE_DUST = {
+  normal: { amount: 1, colors: [0x5c3f23, 0x8a5a2e] },
+  sand: { amount: 2.5, colors: [0xd8c08a, 0xc2a66b] },
+  scrub: { amount: 0.6, colors: [0x7a5f3c, 0x9a7f55] },
+  rock: { amount: 0.6, colors: [0x8d8a84, 0xa8a49c] },
+};
 
 const SLIDE_PARTICLES_PER_EMIT = 1;
 const SLIDE_END_SCALE = 1.1;
@@ -41,7 +50,7 @@ export function createTerrainDust(scene) {
     lifetime: PARTICLE_LIFETIME_S,
     startScale: START_SCALE,
     drag: DRAG,
-    colors: COLORS,
+    colors: SURFACE_DUST.normal.colors,
   });
   let slideTimers = []; // per-wheel, resized when wheel count changes
   let speedTimer = 0;
@@ -61,17 +70,20 @@ export function createTerrainDust(scene) {
 
     const chassisVelocity = vehicle.chassisBody.velocity;
     const speed = chassisVelocity.length();
-    const speedFrac = clamp((speed - DUST_SPEED_MS) / (SPEED_FOR_MIN_INTERVAL_MS - DUST_SPEED_MS), 0, 1);
 
     speedTimer -= dt;
+    let speedDust = null; // dustiest surface under a grounded wheel
     // Average ground height under grounded wheels, to anchor the speed puff.
     let groundYSum = 0;
     let groundYCount = 0;
 
     vehicle.wheelInfos.forEach((wheel, i) => {
       slideTimers[i] -= dt;
-      if (wheel.surface !== 'normal') return;
+      const dust = SURFACE_DUST[wheel.surface];
+      if (!dust) return;
       if (!isWheelGrounded(world, wheel)) return;
+      if (!speedDust || dust.amount > speedDust.amount) speedDust = dust;
+      const boost = Math.sqrt(dust.amount);
       const pos = wheel.worldTransform.position;
       const groundY = pos.y - wheel.radius * 0.9;
       groundYSum += groundY;
@@ -81,30 +93,35 @@ export function createTerrainDust(scene) {
         const extra = wheelSpinLaunch(wheel, SPIN_LAUNCH_FRACTION, SPIN_LAUNCH_SPEED_MAX, spinVelocityScratch);
         for (let n = 0; n < SLIDE_PARTICLES_PER_EMIT; n++) {
           puffs.spawn(pos.x, groundY, pos.z, {
-            opacity: SLIDE_BASE_OPACITY,
-            endScale: SLIDE_END_SCALE,
+            opacity: Math.min(1, SLIDE_BASE_OPACITY * boost),
+            endScale: SLIDE_END_SCALE * boost,
             out: OUTWARD_SPEED,
             rise: RISE_SPEED,
             inherit: chassisVelocity,
             inheritFraction: VELOCITY_INHERIT_FRACTION,
             extra,
+            colors: dust.colors,
           });
         }
-        slideTimers[i] = SLIDE_EMIT_INTERVAL_S;
+        slideTimers[i] = SLIDE_EMIT_INTERVAL_S / dust.amount;
       }
     });
 
-    if (groundYCount > 0 && speed >= DUST_SPEED_MS && speedTimer <= 0) {
+    const startSpeed = speedDust ? DUST_SPEED_MS / speedDust.amount : Infinity;
+    if (groundYCount > 0 && speed >= startSpeed && speedTimer <= 0) {
+      const speedFrac = clamp((speed - startSpeed) / (SPEED_FOR_MIN_INTERVAL_MS - startSpeed), 0, 1);
+      const boost = Math.sqrt(speedDust.amount);
       const chassisPos = vehicle.chassisBody.position;
       puffs.spawn(chassisPos.x, groundYSum / groundYCount, chassisPos.z, {
-        opacity: SPEED_OPACITY_MIN + (SPEED_OPACITY_MAX - SPEED_OPACITY_MIN) * speedFrac,
-        endScale: SPEED_END_SCALE_MIN + (SPEED_END_SCALE_MAX - SPEED_END_SCALE_MIN) * speedFrac,
+        opacity: Math.min(1, (SPEED_OPACITY_MIN + (SPEED_OPACITY_MAX - SPEED_OPACITY_MIN) * speedFrac) * boost),
+        endScale: (SPEED_END_SCALE_MIN + (SPEED_END_SCALE_MAX - SPEED_END_SCALE_MIN) * speedFrac) * boost,
         out: OUTWARD_SPEED,
         rise: RISE_SPEED,
         inherit: chassisVelocity,
         inheritFraction: VELOCITY_INHERIT_FRACTION,
+        colors: speedDust.colors,
       });
-      speedTimer = SPEED_EMIT_INTERVAL_MAX_S - (SPEED_EMIT_INTERVAL_MAX_S - SPEED_EMIT_INTERVAL_MIN_S) * speedFrac;
+      speedTimer = (SPEED_EMIT_INTERVAL_MAX_S - (SPEED_EMIT_INTERVAL_MAX_S - SPEED_EMIT_INTERVAL_MIN_S) * speedFrac) / speedDust.amount;
     }
   }
 

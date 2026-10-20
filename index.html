@@ -79,16 +79,6 @@
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
     </div>
     <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
-    <div id="volume">
-      <label>
-        Volume
-        <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
-      </label>
-      <label>
-        Music
-        <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
-      </label>
-    </div>
     <div id="address-search-status"></div>
     <div id="streaming-status" hidden>
       <div class="streaming-status-row">
@@ -100,7 +90,7 @@
       <div id="top-left-row">
         <div id="hud">
           <div id="hud-header">
-            <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Help</button>
+            <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Settings</button>
           </div>
           <div id="hud-body">
             <div class="hud-line">W / &uarr; &mdash; throttle</div>
@@ -110,19 +100,20 @@
             <div class="hud-line">Shift &mdash; turbo</div>
             <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
             <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
-            <div class="hud-line">F &mdash; shoot</div>
             <div class="hud-line">H &mdash; horn</div>
             <div class="hud-line">L &mdash; headlights (automatic at night)</div>
-            <div class="hud-line">J &mdash; jump (hold longer for a higher jump)</div>
             <div class="hud-line">R &mdash; reset car</div>
             <div class="hud-line">C &mdash; switch camera view</div>
-            <div class="hud-line">M &mdash; toggle debug view</div>
-            <div class="hud-points">
-              <div>Points</div>
-              <div class="hud-line">1 &mdash; kilometre</div>
-              <div class="hud-line">10 &mdash; second airborne</div>
-              <div class="hud-line">5 &mdash; pedestrian</div>
-              <div class="hud-line">3 &mdash; car hit</div>
+            <div class="hud-section" id="hud-audio">
+              <div>Audio</div>
+              <label>
+                Volume
+                <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+              </label>
+              <label>
+                Music
+                <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
+              </label>
             </div>
             <div id="hud-reset">
               <button type="button" id="hud-change-choices">Change name/vehicle</button>

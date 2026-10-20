@@ -16,9 +16,14 @@ const GRIP_COLOR_STOPS = [
 // Terrain-type square colours (categorical).
 const TERRAIN_COLOR_GENERIC = '#4caf50';
 const TERRAIN_COLOR_ROAD = '#e53935';
+const TERRAIN_COLOR_UNPAVED = '#a1887f';
 const TERRAIN_COLOR_WATER = '#2196f3';
 const TERRAIN_COLOR_BUILT_UP = '#ff9800';
 const TERRAIN_COLOR_FOREST = '#1b5e20';
+const TERRAIN_COLOR_ROCK = '#78909c';
+const TERRAIN_COLOR_ICE = '#e1f5fe';
+const TERRAIN_COLOR_SCRUB = '#827717';
+const TERRAIN_COLOR_SAND = '#ffe082';
 
 function gripFractionToColor(fraction) {
   const f = Math.min(1, Math.max(0, fraction));
@@ -49,9 +54,14 @@ function classifyTerrainAt(x, z, layers) {
 
 function terrainColor(kind) {
   if (kind === 'road') return TERRAIN_COLOR_ROAD;
+  if (kind === 'unpaved') return TERRAIN_COLOR_UNPAVED;
   if (kind === 'water') return TERRAIN_COLOR_WATER;
   if (kind === 'builtUp') return TERRAIN_COLOR_BUILT_UP;
   if (kind === 'forest') return TERRAIN_COLOR_FOREST;
+  if (kind === 'rock') return TERRAIN_COLOR_ROCK;
+  if (kind === 'ice') return TERRAIN_COLOR_ICE;
+  if (kind === 'scrub') return TERRAIN_COLOR_SCRUB;
+  if (kind === 'sand') return TERRAIN_COLOR_SAND;
   return TERRAIN_COLOR_GENERIC;
 }
 

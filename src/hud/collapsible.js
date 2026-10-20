@@ -2,8 +2,8 @@
 // sits outside the instructions body, so it stays visible either way.
 // Narrow screens start folded so the panels don't cover the road.
 //
-// The help/instructions panel (#hud) additionally: starts open on load,
-// then auto-collapses itself down to the small "Help" pill after
+// The settings panel (#hud) additionally: starts open on load,
+// then auto-collapses itself down to the small "Settings" pill after
 // AUTO_COLLAPSE_MS once the player has joined (name/color picked - see
 // startAutoFold() below), if they haven't already toggled it manually.
 //

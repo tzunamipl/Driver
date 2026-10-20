@@ -1,5 +1,5 @@
 // Forest floor for detail terrain (runs in tileWorker.js): value noise on
-// grid nodes inside OSM forest (landcover, as forestAreas.js) that lie at
+// grid nodes inside OSM forest (landcover, as landcoverAreas.js) that lie at
 // least FOREST_FLOOR_ROAD_GAP_M from every street line's edge, faded in over
 // FADE_METERS so road beds and their banks stay clean. The noise is in
 // global tile units, so neighbouring tiles agree on their shared edge.

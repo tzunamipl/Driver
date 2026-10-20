@@ -25,32 +25,3 @@
 #fps-counter:not(:empty)::after {
   content: ' \00b7 ';
 }
-#volume {
-  position: fixed;
-  left: 292px;
-  bottom: 28px;
-  z-index: 12;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font: 600 12px system-ui, sans-serif;
-  pointer-events: auto;
-}
-#volume label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-}
-#volume input {
-  width: 110px;
-  margin: 0;
-  accent-color: #4fc3ff;
-  cursor: pointer;
-}

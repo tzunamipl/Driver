@@ -154,6 +154,21 @@ export function applyGroundHaze(shader) {
     );
 }
 
+// Scales the PBR specular (F0 0.04, F90 1.0): even at roughness 1 the Fresnel term makes the
+// ground shine when looking into a low sun. 0 = fully matte, 1 = three.js default.
+const TERRAIN_SPECULAR = 0.05;
+
+/** onBeforeCompile hook for terrain tiles: ground haze plus damped specular. */
+function applyTerrainShading(shader) {
+  applyGroundHaze(shader);
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <lights_physical_fragment>',
+    `#include <lights_physical_fragment>
+    material.specularColorBlended *= ${TERRAIN_SPECULAR.toFixed(3)};
+    material.specularF90 *= ${TERRAIN_SPECULAR.toFixed(3)};`
+  );
+}
+
 function tileKey(z, x, y) {
   return `${z}/${x}/${y}`;
 }
@@ -874,7 +889,7 @@ export class TerrainManager {
 
   _createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost) {
     const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
-    material.onBeforeCompile = applyGroundHaze;
+    material.onBeforeCompile = applyTerrainShading;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = z === DETAIL_ZOOM; // the shadow frustum only spans metres around the car
     mesh.position.set(anchor.x, anchor.y, anchor.z);

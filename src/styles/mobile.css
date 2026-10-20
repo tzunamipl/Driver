@@ -26,10 +26,6 @@
   }
   #net-status { bottom: 104px; }
   #streaming-status { bottom: 134px; }
-  #volume {
-    left: 12px;
-    bottom: 188px;
-  }
   #version-badge { bottom: 88px; }
   #odometer { top: 78%; }
   #minimap {
@@ -71,7 +67,7 @@
     height: 150px;
   }
   #gearstick.ranged { width: 205px; }
-  /* Where the Help pill sits here; open, the panel spans the screen. */
+  /* Where the Settings pill sits here; open, the panel spans the screen. */
   #nav-panel {
     position: fixed;
     top: 184px;

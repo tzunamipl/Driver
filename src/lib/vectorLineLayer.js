@@ -160,6 +160,15 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       return this._insideMargin(x, z, true) >= 0;
     }
 
+    /** Styles of the fetched segments whose stripe covers world (x, z) (may repeat). Flat layers only. */
+    *stylesAt(x, z) {
+      if (!flat) return;
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      for (const seg of this._itemsNear(lat, lon)) {
+        if (this._segmentMargin(seg, x, z) >= 0) yield seg.style;
+      }
+    }
+
     /** Metres from world (x, z) to the nearest strip edge, inside the widest strip covering it; 0 outside. */
     shoreDistanceAt(x, z) {
       return Math.max(0, this._insideMargin(x, z, false));
@@ -171,19 +180,24 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
       let best = -Infinity;
       for (const seg of this._itemsNear(lat, lon)) {
-        const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
-        const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
-        const abx = b.x - a.x;
-        const abz = b.z - a.z;
-        const lenSq = abx * abx + abz * abz;
-        const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / lenSq)) : 0;
-        const margin = seg.style.linewidth / 2 - Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
+        const margin = this._segmentMargin(seg, x, z);
         if (margin > best) {
           best = margin;
           if (firstHit && best >= 0) return best;
         }
       }
       return best;
+    }
+
+    /** Half width minus distance from world (x, z) to the segment's centreline. */
+    _segmentMargin(seg, x, z) {
+      const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
+      const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
+      const abx = b.x - a.x;
+      const abz = b.z - a.z;
+      const lenSq = abx * abx + abz * abz;
+      const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / lenSq)) : 0;
+      return seg.style.linewidth / 2 - Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
     }
   };
 }
