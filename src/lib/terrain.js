@@ -205,6 +205,7 @@ export class TerrainManager {
     this.loading = new Map(); // key -> job in flight
     this._aerialInFlight = 0; // aerial requests of the jobs in flight
     this._failedAt = new Map(); // key -> time of the last failed load
+    this._noDataLogged = new Set(); // keys whose elevation no-data fallback was already logged
     this._leaves = []; // desired leaves: [{ z, x, y, key, distMeters, dirX, dirY, detail, covered }]
     this._leafKeys = new Set();
     this._visible = new Set();
@@ -759,8 +760,10 @@ export class TerrainManager {
         const { elev, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, detail, signal });
         const tile = this.tiles.get(key);
         if (aborted || epoch !== this._loadEpoch || !tile) return;
-        if (surface && elev?.ok) this._replaceDetailSurface(tile, surface, detail.roadBed);
-        else this._failedAt.set(key, performance.now());
+        if (surface && elev?.ok) {
+          this._replaceDetailSurface(tile, surface, detail.roadBed);
+          this._noteElevationFallback(tile, elev);
+        } else this._failedAt.set(key, performance.now());
         return;
       }
 
@@ -796,6 +799,7 @@ export class TerrainManager {
         ? this._addDetailTile(job, surface, mips, aerialBoost, detail.roadBed)
         : this._addTile(job, heights, mips, aerialBoost);
       tile.swatch = swatch ?? null;
+      this._noteElevationFallback(tile, elev);
     } catch (err) {
       console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
@@ -828,6 +832,14 @@ export class TerrainManager {
       skirtDepth: DETAIL_SKIRT_DEPTH,
       roadBed: this.roadBed,
     };
+  }
+
+  /** Records (and logs once) a tile whose elevation source had no data, so it stood in a coarser zoom's. */
+  _noteElevationFallback(tile, elev) {
+    tile.elevationFallbackZoom = elev?.fallbackZoom ?? null;
+    if (tile.elevationFallbackZoom == null || this._noDataLogged.has(tile.key)) return;
+    this._noDataLogged.add(tile.key);
+    console.warn(`Terrain elevation has no data for ${tile.key}, using zoom ${tile.elevationFallbackZoom} instead`);
   }
 
   /** Detail tile from the worker's surface: positions are relative to the NW corner. */
@@ -1127,9 +1139,11 @@ export class TerrainManager {
       detail: { loaded: 0, pending: 0, pendingRemoval: 0, memoryBytes: 0 },
       far: { loaded: 0, pending: 0, pendingRemoval: 0, memoryBytes: 0 },
     };
+    let elevationFallbacks = 0;
     for (const tile of this.tiles.values()) {
       const b = tile.z === DETAIL_ZOOM ? buckets.detail : buckets.far;
       b.loaded++;
+      if (tile.elevationFallbackZoom != null) elevationFallbacks++;
       if (!this._visible.has(tile.key)) b.pendingRemoval++;
       b.memoryBytes += tile.texBytes + tile.meshBytes;
       if (tile.body) b.memoryBytes += tile.heightfield.heights.length * 8; // JS number arrays
@@ -1153,7 +1167,8 @@ export class TerrainManager {
         let maxImagery = null;
         if (tile && tile.aerialBoost > AERIAL_BOOST[DetailLevel.HIGH]) maxImagery = 'loaded';
         else if (this._wantsMaxImagery({ z: DETAIL_ZOOM, x: tx, y: ty, key })) maxImagery = 'planned';
-        row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy), maxImagery });
+        const elevationFallback = tile?.elevationFallbackZoom != null;
+        row.push({ tx, ty, state: dx === 0 && dy === 0 ? 'player' : state, level: detailLevelForOffset(dx, dy), maxImagery, elevationFallback });
       }
       grid.push(row);
     }
@@ -1167,6 +1182,7 @@ export class TerrainManager {
       gridCenter: { row: STATS_GRID_RADIUS, col: STATS_GRID_RADIUS },
       grid,
       stray: 0,
+      elevationFallbacks,
       far: { ...buckets.far, created: this.stats.coarse.created, removed: this.stats.coarse.removed },
     };
   }

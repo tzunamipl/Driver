@@ -1,8 +1,10 @@
-// Tyre screech, audible while any wheel slides on 'road' (same condition as
-// tireSmoke.js). Two voice sets mixed by slip kind: a high sustained squeal
+// Tyre screech, audible while any wheel slides on a hard surface (SQUEAL_SURFACES;
+// loose ground crunches instead, gravelSpin.js). Two voice sets mixed by slip kind: a high sustained squeal
 // for sideways/locked slides, a lower chattering scrub for power wheelspin.
 
 import { getAudio } from './audioContext.js';
+
+const SQUEAL_SURFACES = new Set(['road', 'rock', 'builtUp']);
 
 const SLIDE_TONES = [
   { freq: 700, type: 'sine', gain: 0.01 },
@@ -55,12 +57,12 @@ export function createTireSqueal() {
 
   /** @param {object|null} vehicle - wheeledVehicle.js vehicle, or null. */
   function update(vehicle) {
-    // Per sliding road wheel, split 1 between spin and slide by its slip direction.
+    // Per sliding hard-surface wheel, split 1 between spin and slide by its slip direction.
     let spin = 0;
     let slide = 0;
     let spinSpeed = 0;
     for (const w of vehicle?.wheelInfos ?? []) {
-      if (!w.sliding || w.surface !== 'road') continue;
+      if (!w.sliding || !SQUEAL_SURFACES.has(w.surface)) continue;
       const long = Math.abs(w.spinSlipSpeed ?? 0);
       const total = Math.hypot(long, w.sideSlipSpeed ?? 0);
       const spinShare = w.wheelspin && total > 1e-3 ? long / total : 0;

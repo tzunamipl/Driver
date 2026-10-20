@@ -1,7 +1,8 @@
 // Filled-polygon overlay (waterAreas.js, builtUpAreas.js, landcoverAreas.js) on top of tiles/vectorTileLayer.js.
 // Polygons are bucketed by outer-ring centroid like buildings.js, so a
 // polygon larger than a tile renders in its centroid's tile and pops as a
-// whole - acceptable for a debug overlay. classifyAt() instead searches the
+// whole - acceptable for a debug overlay. Each polygon is cut into a fine
+// grid and draped on the rendered ground. classifyAt() instead searches the
 // whole source vector tile, so large lakes are found anywhere on them.
 // Data always streams because classifyAt() drives gameplay (splash, tyre
 // grip, built-up zone).
@@ -14,6 +15,88 @@ import { VectorTileLayer } from './tiles/vectorTileLayer.js';
 const MIN_RING_POINTS = 3;
 const MAX_POLYGON_SPAN_METERS = 2000; // larger = bad data at this scale
 const METERS_PER_DEGREE = 111_320;
+const DRAPE_CELL_M = 6; // drape grid, finer than detail terrain cells (~13 m) so the sheet follows the ground
+// Vertices slide this far toward the camera (same pixel, nearer depth), hiding the drape's error vs the terrain triangles.
+const DRAPE_VIEW_BIAS_M = 0.6;
+const DRAPE_VIEW_BIAS_PER_M = 0.002; // extra bias per metre of distance, for depth precision far off
+
+/** Sutherland-Hodgman: the part of convex `poly` ([x, z] points) where sign * (p[axis] - value) >= 0. */
+function clipHalfPlane(poly, axis, value, sign) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const da = (a[axis] - value) * sign;
+    const db = (b[axis] - value) * sign;
+    if (da >= 0) out.push(a);
+    if (da >= 0 !== db >= 0) {
+      const t = da / (da - db);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  return out;
+}
+
+/** Calls emit(piece) for each part of triangle `tri` inside one DRAPE_CELL_M grid cell. */
+function forEachGridPiece(tri, emit) {
+  const cell = DRAPE_CELL_M;
+  const i0 = Math.floor(Math.min(tri[0][0], tri[1][0], tri[2][0]) / cell);
+  const i1 = Math.floor(Math.max(tri[0][0], tri[1][0], tri[2][0]) / cell);
+  for (let i = i0; i <= i1; i++) {
+    const strip = clipHalfPlane(clipHalfPlane(tri, 0, i * cell, 1), 0, (i + 1) * cell, -1);
+    if (strip.length < 3) continue;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of strip) {
+      minZ = Math.min(minZ, p[1]);
+      maxZ = Math.max(maxZ, p[1]);
+    }
+    for (let j = Math.floor(minZ / cell); j <= Math.floor(maxZ / cell); j++) {
+      const piece = clipHalfPlane(clipHalfPlane(strip, 1, j * cell, 1), 1, (j + 1) * cell, -1);
+      if (piece.length >= 3) emit(piece);
+    }
+  }
+}
+
+/**
+ * Ground height at (x, z) bilinear from grid nodes sampled once each, so
+ * pieces sharing an edge agree on its heights (no cracks).
+ */
+function createDrapeHeights(minX, minZ, maxX, maxZ, groundAt) {
+  const cell = DRAPE_CELL_M;
+  const i0 = Math.floor(minX / cell);
+  const j0 = Math.floor(minZ / cell);
+  const cols = Math.floor(maxX / cell) - i0 + 2;
+  const rows = Math.floor(maxZ / cell) - j0 + 2;
+  const nodes = new Float32Array(cols * rows).fill(NaN);
+  const node = (i, j) => {
+    const k = (j - j0) * cols + (i - i0);
+    if (Number.isNaN(nodes[k])) nodes[k] = groundAt(i * cell, j * cell);
+    return nodes[k];
+  };
+  return (x, z) => {
+    const fx = x / cell;
+    const fz = z / cell;
+    const i = Math.min(Math.max(Math.floor(fx), i0), i0 + cols - 2);
+    const j = Math.min(Math.max(Math.floor(fz), j0), j0 + rows - 2);
+    const u = fx - i;
+    const v = fz - j;
+    const top = node(i, j) * (1 - u) + node(i + 1, j) * u;
+    const bottom = node(i, j + 1) * (1 - u) + node(i + 1, j + 1) * u;
+    return top * (1 - v) + bottom * v;
+  };
+}
+
+/** Moves each vertex DRAPE_VIEW_BIAS_M (+ distance share) along its view ray toward the camera. */
+function applyViewBias(shader) {
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <project_vertex>',
+    `#include <project_vertex>
+    float drapeDist = length(mvPosition.xyz);
+    mvPosition.xyz *= max(1.0 - (${DRAPE_VIEW_BIAS_M.toFixed(3)} + ${DRAPE_VIEW_BIAS_PER_M.toFixed(4)} * drapeDist) / max(drapeDist, 1e-3), 0.5);
+    gl_Position = projectionMatrix * mvPosition;`,
+  );
+}
 
 /** Ray-casting point-in-polygon in lat/lon space (fine at few-km scale). */
 function pointInLatLonRing(lat, lon, ring) {
@@ -108,6 +191,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
     if (!mat) {
       // DoubleSide: OSM winding isn't consistent, so either face may be up.
       mat = new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });
+      mat.onBeforeCompile = applyViewBias;
       materials.set(style.key, mat);
     }
     return mat;
@@ -166,7 +250,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       }
       if (maxX - minX > MAX_POLYGON_SPAN_METERS || maxZ - minZ > MAX_POLYGON_SPAN_METERS) return;
 
-      // Shape in (x, -z), then rotateX(-90deg) onto the ground - as buildings.js does.
+      // Shape in (x, -z): (x, -y) of its triangles maps back to world (x, z).
       const shape = new THREE.Shape();
       outerPts.forEach((p, i) => (i === 0 ? shape.moveTo(p.x, -p.z) : shape.lineTo(p.x, -p.z)));
       for (const hole of entry.holes) {
@@ -177,9 +261,29 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
         shape.holes.push(path);
       }
 
-      const geometry = new THREE.ShapeGeometry(shape);
-      geometry.rotateX(-Math.PI / 2);
-      geometry.translate(0, this._groundHeightAt((minX + maxX) / 2, (minZ + maxZ) / 2) + lift, 0);
+      // Triangulate flat, then cut into grid cells and drape each vertex on the ground.
+      const flat = new THREE.ShapeGeometry(shape);
+      const flatPos = flat.getAttribute('position').array;
+      const index = flat.getIndex()?.array;
+      const heightAt = createDrapeHeights(minX, minZ, maxX, maxZ, (x, z) => this._groundHeightAt(x, z));
+      const positions = [];
+      const pushVertex = (p) => positions.push(p[0], heightAt(p[0], p[1]) + lift, p[1]);
+      const corner = (k) => [flatPos[k * 3], -flatPos[k * 3 + 1]];
+      const triCount = index ? index.length / 3 : flatPos.length / 9;
+      for (let t = 0; t < triCount; t++) {
+        const tri = index ? [corner(index[t * 3]), corner(index[t * 3 + 1]), corner(index[t * 3 + 2])] : [corner(t * 3), corner(t * 3 + 1), corner(t * 3 + 2)];
+        forEachGridPiece(tri, (piece) => {
+          for (let k = 1; k < piece.length - 1; k++) {
+            pushVertex(piece[0]);
+            pushVertex(piece[k]);
+            pushVertex(piece[k + 1]);
+          }
+        });
+      }
+      flat.dispose();
+      if (!positions.length) return;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       this._bucket(byStyleKey, entry.style, () => ({ geometries: [] })).geometries.push(geometry);
     }
 

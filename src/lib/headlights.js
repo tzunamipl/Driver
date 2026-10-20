@@ -7,10 +7,11 @@ import * as THREE from 'three';
 // count (and so every shader) never changes.
 
 const FADE_S = 0.12;
-const FLARE_SIZE_M = 0.0;
-const POOL_INTENSITY = 340;
-const POOL_DISTANCE_M = 300;
-const POOL_ANGLE_RAD = 0.98;
+const FLARE_SIZE_M = 0.6;
+const POOL_INTENSITY = 320; // ~same brightness at the aim point as 4000 with decay 2
+const POOL_DISTANCE_M = 200;
+const POOL_DECAY = 1.0; // gentler than physical inverse-square so the beam reaches further
+const POOL_ANGLE_RAD = 0.9;
 const POOL_AIM = new THREE.Vector3(0, -1.6, 18); // target, relative to the lamps' midpoint
 const MIN_SIDE_X_M = 0.1; // centre lamps (light bars) glow but get no flare
 const LAMP_ON = {
@@ -138,7 +139,7 @@ function createRig(group, fallback) {
 
 export function createHeadlights(scene) {
   const rigs = new WeakMap(); // body group -> rig
-  const pool = new THREE.SpotLight(0xfff1d6, 0, POOL_DISTANCE_M, POOL_ANGLE_RAD, 0.75, 2);
+  const pool = new THREE.SpotLight(0xfff1d6, 0, POOL_DISTANCE_M, POOL_ANGLE_RAD, 0.75, POOL_DECAY);
   pool.castShadow = false;
   scene.add(pool, pool.target);
   const worldPos = new THREE.Vector3();

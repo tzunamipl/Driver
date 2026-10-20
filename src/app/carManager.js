@@ -7,7 +7,7 @@ import { applyImpactRoll } from './collisions.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, impactSound, playerSpawnPos, startQuat, playerSpawnQuat }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat, playerSpawnQuat }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -36,6 +36,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
         impactSound?.play(Math.abs(event.contact.getImpactVelocityAlongNormal()));
         return;
       }
+      if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP) bodyScrapeSound?.onGroundContact(body);
       // Ground contact: body dust scaled by impact speed.
       if (event.body.collisionFilterGroup === GROUND_COLLISION_GROUP && bodyDust) {
         const contact = event.contact;

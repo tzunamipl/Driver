@@ -21,8 +21,8 @@
     border: none;
   }
   #hud-discord a {
-    font-size: 13px;
-    padding: 5px 8px;
+    font-size: 11px;
+    padding: 3px 7px;
   }
   #net-status { bottom: 104px; }
   #streaming-status { bottom: 134px; }

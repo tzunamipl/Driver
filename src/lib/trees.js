@@ -75,9 +75,11 @@ const ROCK_COLORS = [0x6f6a64, 0x807b74, 0x5e5a55, 0x8e8a83].map((c) => new THRE
 // are dark (shadows between crowns), so the photo is brightened first.
 const PHOTO_MIX = 0.8;
 const PHOTO_GAIN = 1.35;
+const TREE_TILT_MAX_RAD = THREE.MathUtils.degToRad(6); // random lean so forests don't look combed
 const TREE_FIELDS = 6; // per tree: tile fraction u, v, scale, yaw, crown colour index, width
 
 const UP = new THREE.Vector3(0, 1, 0);
+const SIDE = new THREE.Vector3(1, 0, 0);
 
 function hash(a, b, c) {
   let h = Math.imul(a, 0x27d4eb2d) ^ Math.imul(b, 0x165667b1) ^ Math.imul(c, 0x9e3779b1);
@@ -165,8 +167,9 @@ const TREE_KIND = {
   pines: true,
   scale: treeScale,
   width: [WIDTH_MIN, WIDTH_MAX],
+  tilt: TREE_TILT_MAX_RAD,
 };
-const BUSH_KIND = { ...TREE_KIND, areaKey: 'scrub', buildCrown: buildBushGeometry, colors: BUSH_COLORS, trunks: false, pines: false };
+const BUSH_KIND = { ...TREE_KIND, areaKey: 'scrub', buildCrown: buildBushGeometry, colors: BUSH_COLORS, trunks: false, pines: false, tilt: 0 };
 const ROCK_KIND = {
   ...BUSH_KIND,
   areaKey: 'rock',
@@ -249,6 +252,7 @@ function createVegetation({
   const matrix = new THREE.Matrix4();
   const position = new THREE.Vector3();
   const quaternion = new THREE.Quaternion();
+  const tiltQuaternion = new THREE.Quaternion();
   const scale = new THREE.Vector3();
   const photoBytes = [0, 0, 0];
   const photo = new THREE.Color();
@@ -429,7 +433,7 @@ function createVegetation({
     let count = 0;
     let trunkCount = 0;
     let pineCount = 0;
-    const instances = []; // [x, y, z, scale, yaw, colour, trunk, width, pine, ...]
+    const instances = []; // [x, y, z, scale, yaw, colour, trunk, width, pine, tilt, ...]
     for (const { tx, ty, key } of inRange) {
       const trees = tiles.get(key);
       if (!trees?.length) continue;
@@ -445,7 +449,8 @@ function createVegetation({
         const trunk = kind.trunks && distSq <= trunkDistSq;
         // Fixed per tree (its own seed, apart from the placement hashes), compared to the local share.
         const pine = kind.pines && hash(tx, ty ^ 0x5bd1e995, i) < pineShare(py + terrain.heightOffset, lat);
-        instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5], pine ? 1 : 0);
+        const tilt = kind.tilt ? kind.tilt * hash(tx, ty ^ 0x2c1b3c6d, i) : 0;
+        instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5], pine ? 1 : 0, tilt);
         count++;
         if (trunk) trunkCount++;
         if (pine) pineCount++;
@@ -468,13 +473,14 @@ function createVegetation({
     let crownIndex = 0;
     let pineIndex = 0;
     for (let n = 0; n < count; n++) {
-      const j = n * 9;
+      const j = n * 10;
       const pine = instances[j + 8];
       const crowns = pine ? pineSet : crownSet;
       const index = pine ? pineIndex++ : crownIndex++;
       const s = instances[j + 3];
       position.set(instances[j], instances[j + 1], instances[j + 2]);
-      quaternion.setFromAxisAngle(UP, instances[j + 4]);
+      // Lean about the tree's own x axis; the random yaw makes the direction random.
+      quaternion.setFromAxisAngle(UP, instances[j + 4]).multiply(tiltQuaternion.setFromAxisAngle(SIDE, instances[j + 9]));
       const w = s * instances[j + 7];
       scale.set(w, s, w);
       matrix.compose(position, quaternion, scale);

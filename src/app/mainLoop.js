@@ -65,6 +65,8 @@ export function createMainLoop({
   headlightSwitch,
   engineSound,
   tireSqueal,
+  gravelSpinSound,
+  bodyScrapeSound,
   suspensionThud,
   jump,
   splash,
@@ -331,6 +333,8 @@ export function createMainLoop({
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
     tireSqueal.update(currentVehicle);
+    gravelSpinSound.update(currentVehicle);
+    bodyScrapeSound.update(frameDelta);
     suspensionThud.update(frameDelta, currentVehicle);
     engineSound.update(currentVehicle, getVehicleDescriptor(carManager.getVehicleId()), input.getThrottle());
     terrainDust.update(frameDelta, currentVehicle, world);

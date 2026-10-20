@@ -1,7 +1,8 @@
 // Fetches + decodes terrain tiles off the main thread: Terrarium PNG ->
 // Float32 elevations, and an aerial mosaic -> ImageBitmap mip chain. Detail tiles
 // come back as a finished surface with the road bed and forest floor (detailSurface.js). Never throws:
-// a failed elevation comes back as {error}, missing aerial quadrants use coarser imagery.
+// a failed elevation comes back as {error}, no-data pixels are filled from the nearest ancestor that has
+// them (`fallbackZoom` says the coarsest used), missing aerial quadrants use coarser imagery.
 // Imagery also comes with a `swatch`: the mosaic's SWATCH_SIZE mip as RGB bytes (trees.js crown colours).
 // A {cancel: id} message aborts that job's imagery and answers it {aborted: true}
 // (shared elevation / road fetches are cached for other jobs, so they run on).
@@ -15,6 +16,8 @@ const ELEVATION_CACHE_SIZE = 96;
 // Zoom levels to step up for a missing aerial tile (6: one ancestor pixel per 4x4 output pixels).
 const AERIAL_FALLBACK_LEVELS = 6;
 const ELEVATION_MAX_ZOOM = 15; // Terrarium's deepest level; finer tiles crop their ancestor
+// Terrarium serves some holes as HTTP 200 all-black PNGs (-32768 m); nothing real is this deep.
+const ELEVATION_NODATA_BELOW = -12000;
 const elevationCache = new Map(); // "z/x/y" -> Promise<{heights, width, height} | {error}>
 
 const controllers = new Map(); // job id -> AbortController
@@ -85,6 +88,40 @@ async function decodeElevation(z, x, y) {
   }
 }
 
+/**
+ * Decoded tile with its no-data pixels filled bilinearly from the (filled)
+ * parent. Filling the cached tile itself means a tile and its neighbours'
+ * border reads see the same heights, so shared edges still match.
+ */
+async function decodeFilledElevation(z, x, y) {
+  const elev = await decodeElevation(z, x, y);
+  if (elev.error) return elev;
+  const { heights, width: W, height: H } = elev;
+  if (!heights.some((h) => h < ELEVATION_NODATA_BELOW)) return elev;
+  if (z === 0) return { error: `no data for ${z}/${x}/${y}`, nodata: true };
+  const parent = await cachedElevation(z - 1, x >> 1, y >> 1);
+  if (parent.error) return parent;
+  const { heights: ph, width: PW, height: PH } = parent;
+  const at = (px, py) => ph[Math.min(PH - 1, Math.max(0, py)) * PW + Math.min(PW - 1, Math.max(0, px))];
+  for (let r = 0; r < H; r++) {
+    // This pixel's centre in parent pixels (the child covers one quadrant of the parent).
+    const fy = (((y & 1) + (r + 0.5) / H) * PH) / 2 - 0.5;
+    const py = Math.floor(fy);
+    const v = fy - py;
+    for (let c = 0; c < W; c++) {
+      const i = r * W + c;
+      if (heights[i] >= ELEVATION_NODATA_BELOW) continue;
+      const fx = (((x & 1) + (c + 0.5) / W) * PW) / 2 - 0.5;
+      const px = Math.floor(fx);
+      const u = fx - px;
+      const top = at(px, py) * (1 - u) + at(px + 1, py) * u;
+      const bottom = at(px, py + 1) * (1 - u) + at(px + 1, py + 1) * u;
+      heights[i] = top * (1 - v) + bottom * v;
+    }
+  }
+  return { heights, width: W, height: H, fallbackZoom: parent.fallbackZoom ?? z - 1 };
+}
+
 /** Cached decode of tile (z, x, y); the result is shared - never transfer or mutate it. */
 function cachedElevation(z, x, y) {
   const key = `${z}/${x}/${y}`;
@@ -92,9 +129,9 @@ function cachedElevation(z, x, y) {
   if (promise) {
     elevationCache.delete(key); // re-insert as most recent
   } else {
-    promise = decodeElevation(z, x, y);
-    // Failures aren't cached, so a retry refetches.
-    promise.then((elev) => elev.error && elevationCache.get(key) === promise && elevationCache.delete(key));
+    promise = decodeFilledElevation(z, x, y);
+    // Failures aren't cached, so a retry refetches; no-data is a permanent answer.
+    promise.then((elev) => elev.error && !elev.nodata && elevationCache.get(key) === promise && elevationCache.delete(key));
   }
   elevationCache.set(key, promise);
   while (elevationCache.size > ELEVATION_CACHE_SIZE) elevationCache.delete(elevationCache.keys().next().value);
@@ -116,7 +153,9 @@ async function loadElevation(z, x, y, border) {
   if (own.error) return own;
   const b = Math.ceil(border / s);
   const span = own.width / s; // ancestor pixels across this tile
-  return cropMosaic(az, ax, ay, own, (x % s) * span - b, (y % s) * span - b, span + 2 * b, b);
+  const elev = await cropMosaic(az, ax, ay, own, (x % s) * span - b, (y % s) * span - b, span + 2 * b, b);
+  if (own.fallbackZoom != null) elev.fallbackZoom = own.fallbackZoom;
+  return elev;
 }
 
 /** `w` x `w` window from pixel (x0, y0) of ancestor `own`, reading past its edge into the neighbouring tiles. */
@@ -279,7 +318,8 @@ self.onmessage = async ({ data: job }) => {
     const { mesh, heightfield, roadProfile } = surface;
     transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
     transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer);
-    self.postMessage({ id, elev: elev?.heights ? { ok: true } : elev, mips, swatch, surface }, transfer);
+    const elevResult = elev?.heights ? { ok: true, fallbackZoom: elev.fallbackZoom } : elev;
+    self.postMessage({ id, elev: elevResult, mips, swatch, surface }, transfer);
     return;
   }
   if (elev?.heights) transfer.push(elev.heights.buffer);

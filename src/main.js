@@ -19,6 +19,8 @@ import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
+import { createGravelSpinSound } from './lib/audio/gravelSpin.js';
+import { createBodyScrapeSound } from './lib/audio/bodyScrape.js';
 import { createImpactSound } from './lib/audio/impact.js';
 import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
@@ -146,6 +148,8 @@ const loadingScreen = createLoadingScreen(terrain, initialViewOrigin);
 const engineSound = createEngineSound();
 const tireSqueal = createTireSqueal();
 const waterWadeSound = createWaterWadeSound();
+const gravelSpinSound = createGravelSpinSound();
+const bodyScrapeSound = createBodyScrapeSound();
 const impactSound = createImpactSound();
 const postHitSound = createPostHitSound();
 const places = createPlaces();
@@ -222,7 +226,7 @@ createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
 const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
@@ -373,6 +377,8 @@ const mainLoop = createMainLoop({
   headlightSwitch,
   engineSound,
   tireSqueal,
+  gravelSpinSound,
+  bodyScrapeSound,
   suspensionThud,
   jump,
   splash,

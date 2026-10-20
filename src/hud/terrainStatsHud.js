@@ -14,6 +14,8 @@ const PENDING_COLOR = '#ffc107';
 const TERRAIN_DETAIL_COLORS = { high: '#39ff14', medium: '#2e8b22', low: '#6f8f6a' };
 // Terrain quadrant of a tile with max-zoom imagery; an outline while it's still queued.
 const MAX_IMAGERY_COLOR = '#00e5ff';
+// Outline of a tile whose elevation source had no data (a coarser zoom stands in).
+const ELEVATION_FALLBACK_COLOR = '#ff00ff';
 
 /**
  * conic-gradient "X" split of a cell into 4 quadrants. Layers that never
@@ -103,6 +105,7 @@ export function createTerrainStatsHud() {
       textLines.push(`zone: ${zone}${landuse ? ` (${landuse})` : ''}`);
     }
     if (s.stray) textLines.push(`stray tiles (off-grid): ${s.stray}`);
+    if (s.elevationFallbacks) textLines.push(`elevation no-data: ${s.elevationFallbacks} tiles (coarser zoom used)`);
     if (pedCount != null) textLines.push(`ludziki: ${pedCount}`);
     if (b.usingCachedData) {
       textLines.push(`buildings: offline \u2013 showing cached data from local storage`);
@@ -130,7 +133,8 @@ export function createTerrainStatsHud() {
               // Terrain loaded: show the per-layer quadrant progress.
               const styles = [];
               if (cellState === 'loaded') styles.push(`background:${quadrantBackground(cell, buildings, streets, rivers, waterAreas)}`);
-              if (cell.maxImagery === 'planned') styles.push(`box-shadow:inset 0 0 0 1px ${MAX_IMAGERY_COLOR}${isPlayer ? ', 0 0 4px #fff' : ''}`);
+              const outline = cell.elevationFallback ? ELEVATION_FALLBACK_COLOR : cell.maxImagery === 'planned' ? MAX_IMAGERY_COLOR : null;
+              if (outline) styles.push(`box-shadow:inset 0 0 0 1px ${outline}${isPlayer ? ', 0 0 4px #fff' : ''}`);
               const style = styles.length ? ` style="${styles.join(';')}"` : '';
               const glyph = isPlayer ? dir.arrow : '';
               return `<span class="${classes.join(' ')}"${style}>${glyph}</span>`;
@@ -144,6 +148,7 @@ export function createTerrainStatsHud() {
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.medium}"></span>medium detail</span>` +
       `<span><span class="swatch" style="background:${TERRAIN_DETAIL_COLORS.low}"></span>low detail</span>` +
       `<span><span class="swatch" style="background:${MAX_IMAGERY_COLOR}"></span>max-zoom photo (outline: queued)</span>` +
+      `<span><span class="swatch" style="background:${ELEVATION_FALLBACK_COLOR}"></span>outline: elevation no-data</span>` +
       `<span><span class="swatch" style="background:${PENDING_COLOR}"></span>pending/planned</span>` +
       `<span><span class="swatch" style="background:rgba(244,67,54,0.55)"></span>hidden</span>` +
       `<span><span class="swatch" style="background:rgba(255,255,255,0.1)"></span>empty</span>` +
