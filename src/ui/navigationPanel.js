@@ -206,7 +206,8 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, onSelection
     if (!press || e.pointerId !== press.id) return;
     if (!press.dragging && !cancelled) {
       const { mx, my } = pointerToMerc(e);
-      selectPoint(tileY2lat(clamp(my, 0, 1), 0), tileX2lon(mx, 0));
+      // The map wraps sideways: a copy of the world past the seam must still give lon in -180..180.
+      selectPoint(tileY2lat(clamp(my, 0, 1), 0), tileX2lon(mx - Math.floor(mx), 0));
     }
     press = null;
     mapEl.classList.remove('is-dragging');

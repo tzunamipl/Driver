@@ -6,6 +6,7 @@ export const DECODE_CHECK_INTERVAL = 16; // features between waitForDecodeSlice(
 
 let decodeSliceEnd = 0;
 let nextFramePromise = null;
+let rushing = 0; // loads in progress that the game waits on (nothing to stutter)
 function nextDecodeSlice() {
   nextFramePromise ??= new Promise((resolve) =>
     requestAnimationFrame(() => {
@@ -17,7 +18,14 @@ function nextDecodeSlice() {
   return nextFramePromise;
 }
 
-/** Resolves at once while this frame's slice lasts, else at the start of the next one. */
+/** Resolves at once while this frame's slice lasts (or during a rush), else at the start of the next one. */
 export async function waitForDecodeSlice() {
-  while (performance.now() >= decodeSliceEnd) await nextDecodeSlice();
+  while (!rushing && performance.now() >= decodeSliceEnd) await nextDecodeSlice();
+}
+
+/** Decodes run unsliced until `promise` settles: for loads behind a loading screen or teleport. */
+export function rushDecodesUntil(promise) {
+  rushing++;
+  promise.finally(() => rushing--);
+  return promise;
 }

@@ -5,7 +5,7 @@
 // Imagery also comes with a `swatch`: the mosaic's SWATCH_SIZE mip as RGB bytes (trees.js crown colours).
 // A {cancel: id} message aborts that job's imagery and answers it {aborted: true}
 // (shared elevation / road fetches are cached for other jobs, so they run on).
-import { AERIAL_URL, ELEVATION_URL, AERIAL_TILE_SIZE } from './tileUrls.js';
+import { AERIAL_URL, AERIAL_TILEMAP_URL, ELEVATION_URL, AERIAL_TILE_SIZE } from './tileUrls.js';
 import { loadRoadLines } from './roadBed.js';
 import { buildDetailSurface } from './detailSurface.js';
 import { loadForestFloor } from './forestFloor.js';
@@ -18,11 +18,48 @@ const ELEVATION_MAX_ZOOM = 15; // Terrarium's deepest level; finer tiles crop th
 const elevationCache = new Map(); // "z/x/y" -> Promise<{heights, width, height} | {error}>
 
 const controllers = new Map(); // job id -> AbortController
+// Aerial tile existence, asked of the tilemap per aligned block: a missing tile's request
+// 404s without CORS headers, which the browser logs as a CORS error.
+const TILEMAP_BLOCK = 32; // tiles per side
+const TILEMAP_CACHE_SIZE = 512; // blocks
+const TILEMAP_TIMEOUT_MS = 5000; // a stalled lookup counts as unknown rather than holding the job
+const tilemapCache = new Map(); // "z/bx/by" -> Promise<{ data, location } | null>
 
 async function fetchBitmap(url, options, signal) {
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return createImageBitmap(await res.blob(), options);
+}
+
+function tilemapBlock(z, bx, by) {
+  const key = `${z}/${bx}/${by}`;
+  let promise = tilemapCache.get(key);
+  if (promise) {
+    tilemapCache.delete(key); // re-insert as most recent
+  } else {
+    promise = fetch(AERIAL_TILEMAP_URL(z, bx * TILEMAP_BLOCK, by * TILEMAP_BLOCK, TILEMAP_BLOCK), {
+      signal: AbortSignal.timeout(TILEMAP_TIMEOUT_MS),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => (json?.valid && json.data ? json : null))
+      .catch(() => null);
+    // Failures aren't cached, so a retry asks again.
+    promise.then((block) => !block && tilemapCache.get(key) === promise && tilemapCache.delete(key));
+  }
+  tilemapCache.set(key, promise);
+  while (tilemapCache.size > TILEMAP_CACHE_SIZE) tilemapCache.delete(tilemapCache.keys().next().value);
+  return promise;
+}
+
+/** False only where the tilemap says aerial tile (z, x, y) doesn't exist; unknown counts as there. */
+async function aerialTileExists(z, x, y) {
+  const block = await tilemapBlock(z, Math.floor(x / TILEMAP_BLOCK), Math.floor(y / TILEMAP_BLOCK));
+  if (!block) return true;
+  const { left, top, width, height } = block.location;
+  const col = x - left;
+  const row = y - top;
+  if (col < 0 || row < 0 || col >= width || row >= height) return true;
+  return block.data[row * width + col] === 1;
 }
 
 async function decodeElevation(z, x, y) {
@@ -132,19 +169,21 @@ async function loadAerial(z, x, y, boost, signal) {
   const fetched = new Map(); // url -> Promise<ImageBitmap | null>, shared by quadrants falling back to one ancestor
   const fetchOnce = (tz, tx, ty) => {
     const url = AERIAL_URL(tz, tx, ty);
-    if (!fetched.has(url)) fetched.set(url, fetchBitmap(url, undefined, signal).catch(() => null));
+    if (!fetched.has(url)) {
+      const load = aerialTileExists(tz, tx, ty).then((exists) => (exists ? fetchBitmap(url, undefined, signal) : null));
+      fetched.set(url, load.catch(() => null));
+    }
     return fetched.get(url);
   };
-  // Imagery often stops short of the asked zoom: one central child per level tells, before 4^boost
-  // requests 404 and an upscaled (no sharper, but far bigger) texture is built.
+  // Imagery often stops short of the asked zoom: stitching from a coarser level would build
+  // a far bigger texture with no more detail, so step down to the finest level with any child.
   for (; boost > 0; boost--) {
-    const half = 2 ** (boost - 1);
-    const probe = await fetchOnce(z + boost, x * 2 * half + half, y * 2 * half + half);
-    if (signal.aborted) {
-      probe?.close();
-      return null;
-    }
-    if (probe) break;
+    const n = 2 ** boost;
+    const exists = await Promise.all(
+      Array.from({ length: n * n }, (_, i) => aerialTileExists(z + boost, x * n + (i % n), y * n + Math.floor(i / n)))
+    );
+    if (signal.aborted) return null;
+    if (exists.some(Boolean)) break;
   }
   const n = 2 ** boost;
   const zz = z + boost;

@@ -17,6 +17,11 @@ export function createHitchProfiler(renderer) {
   let prevEnd = 0;
   let longTasks = [];
   let prevResources = null;
+  // The browser stops frames for a hidden tab: that gap isn't a hitch.
+  let wasHidden = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) wasHidden = true;
+  });
   try {
     // Chrome only: long tasks, ours or async, with their durations.
     new PerformanceObserver((list) => {
@@ -47,8 +52,9 @@ export function createHitchProfiler(renderer) {
     end() {
       const now = performance.now();
       const inFrame = now - frameStart;
-      const between = prevEnd ? frameStart - prevEnd : 0;
+      const between = prevEnd && !wasHidden ? frameStart - prevEnd : 0;
       prevEnd = now;
+      wasHidden = false;
       const res = resources();
       const created = prevResources
         ? Object.entries(res)

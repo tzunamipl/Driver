@@ -3,6 +3,7 @@
 
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
+import { rushDecodesUntil } from '../lib/tiles/decodeSlice.js';
 
 // A slow data server shouldn't hold the game: past this it all keeps streaming in play.
 const GAMEPLAY_LOAD_TIMEOUT_MS = 20_000;
@@ -13,5 +14,5 @@ export function loadGameplayLayers({ buildings, layers }, lat, lon) {
   const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
   const loads = Promise.allSettled([...layers.map((layer) => layer.update(tx, ty, true)), buildings.update(tx, ty, true)]);
   const timeout = new Promise((resolve) => setTimeout(resolve, GAMEPLAY_LOAD_TIMEOUT_MS));
-  return Promise.race([loads, timeout]);
+  return rushDecodesUntil(Promise.race([loads, timeout]));
 }

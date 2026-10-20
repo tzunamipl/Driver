@@ -87,6 +87,7 @@ const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) tha
 const HIDDEN_TILE_LINGER_MS = 8000; // keeps tiles around for back-and-forth driving
 const UNLOAD_CHECK_INTERVAL_MS = 500;
 const FAILED_RETRY_MS = 10_000;
+const RETRY_WHILE_WAITING_MS = 1000; // how often a waiting load re-checks for failed tiles due a retry
 const SKIRT_DEPTH_CELLS = 0.3; // skirt depth in the tile's grid cells (+2 m)
 const STATS_GRID_RADIUS = 6; // debug HUD grid, in DETAIL_ZOOM tiles
 
@@ -366,6 +367,7 @@ export class TerrainManager {
     for (const tile of Array.from(this.tiles.values())) this._disposeTile(tile);
     for (const job of this.loading.values()) job.controller.abort();
     this.loading.clear();
+    this._aerialInFlight = 0; // aborted jobs' requests are cancelled; their late replies don't count
     this._failedAt.clear();
     this._leaves = [];
     this._leafKeys.clear();
@@ -671,7 +673,7 @@ export class TerrainManager {
       }
       const aerialBoost = this._nextAerialBoost(leaf, tile);
       const aerialCost = this._aerialCost(kind, aerialBoost);
-      if (aerialCost > aerialBudget) continue;
+      if (aerialCost && aerialCost > aerialBudget) continue; // imagery-free jobs (physics tiles) never wait on imagery
       const playerTile = kind === 'texture' && aerialBoost > AERIAL_BOOST[DetailLevel.HIGH];
       const job = { ...leaf, kind, aerialBoost, aerialCost, tileBoost: tile?.aerialBoost, playerTile };
       const score = this._jobScore(job, kind);
@@ -798,8 +800,8 @@ export class TerrainManager {
       console.warn('Terrain tile failed to load', z, x, y, err);
     } finally {
       if (this.loading.get(key) === job) this.loading.delete(key);
-      this._aerialInFlight -= job.aerialCost;
       if (epoch === this._loadEpoch) {
+        this._aerialInFlight -= job.aerialCost;
         // Batched into the next update(), unless an awaitAll caller waits on the physics footprint.
         if (this._detailWaiters.length) {
           this._updateDisplay();
@@ -808,6 +810,7 @@ export class TerrainManager {
           this._displayDirty = true;
         }
         this._pump();
+        this._retryWhileWaiting();
       }
     }
   }
@@ -1027,6 +1030,16 @@ export class TerrainManager {
     };
   }
 
+  /** The main loop doesn't stream while an awaitAll caller waits (teleport), so retry failed tiles from here. */
+  _retryWhileWaiting() {
+    if (!this._detailWaiters.length || this.loading.size || this._retryTimer) return;
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      this._pump();
+      this._retryWhileWaiting();
+    }, RETRY_WHILE_WAITING_MS);
+  }
+
   _resolveDetailWaiters() {
     if (!this._detailWaiters.length || !this._allPhysicsLoaded()) return;
     const waiters = this._detailWaiters;
@@ -1099,7 +1112,9 @@ export class TerrainManager {
     }
 
     if (awaitAll && !this._allPhysicsLoaded()) {
-      await new Promise((resolve) => this._detailWaiters.push(resolve));
+      const loaded = new Promise((resolve) => this._detailWaiters.push(resolve));
+      this._retryWhileWaiting();
+      await loaded;
     }
   }
 

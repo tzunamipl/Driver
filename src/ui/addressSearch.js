@@ -14,6 +14,7 @@ const NOMINATIM_REVERSE_URL = (lat, lon) =>
 
 // Drop-in height above the destination ground (same as the initial spawn).
 const TELEPORT_DROP_HEIGHT = 3;
+const TELEPORT_PROGRESS_INTERVAL_MS = 250;
 
 async function fetchJson(url) {
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -70,11 +71,22 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
 
   async function teleportTo(lat, lon, label) {
     teleporting = true;
-    setAddressStatus('Loading terrain at new location\u2026');
+    // Live counts, so a stalled load shows where it stalled.
+    const showTerrainProgress = () => {
+      const p = terrain.getLoadProgress();
+      setAddressStatus(`Loading terrain at new location\u2026 ${p.physicsLoaded} / ${p.physicsTotal} tiles`);
+    };
+    showTerrainProgress();
+    const progressTimer = setInterval(showTerrainProgress, TELEPORT_PROGRESS_INTERVAL_MS);
     try {
       // Load terrain at the destination first, then reset() eases the car
       // there kinematically - it can't land on a missing chunk.
-      await terrain.recenter(lat, lon);
+      try {
+        await terrain.recenter(lat, lon);
+      } finally {
+        clearInterval(progressTimer);
+      }
+      setAddressStatus('Loading roads, water & buildings\u2026');
       buildings.recenter(lat, lon);
       if (streets) streets.recenter(lat, lon);
       if (rivers) rivers.recenter(lat, lon);
@@ -99,6 +111,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
   /** Queues a teleport; resolves true once the car is there, false if it failed or isn't allowed. */
   function teleport(lat, lon, label) {
     if (!canTeleport()) return Promise.resolve(false);
+    lon = ((((lon + 180) % 360) + 360) % 360) - 180; // a lon off the -180..180 range has no tiles: load would hang
     const run = teleportChain.then(() => teleportTo(lat, lon, label));
     teleportChain = run.catch((err) => {
       console.warn('Teleport failed', err);
