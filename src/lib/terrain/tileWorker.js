@@ -129,16 +129,27 @@ const SWATCH_SIZE = 16; // px per side
  * `swatch` = { size, rgb } of the SWATCH_SIZE level, rows north to south.
  */
 async function loadAerial(z, x, y, boost, signal) {
-  const n = 2 ** boost;
-  const zz = z + boost;
-  const canvas = new OffscreenCanvas(n * AERIAL_TILE_SIZE, n * AERIAL_TILE_SIZE);
-  const ctx = canvas.getContext('2d');
   const fetched = new Map(); // url -> Promise<ImageBitmap | null>, shared by quadrants falling back to one ancestor
   const fetchOnce = (tz, tx, ty) => {
     const url = AERIAL_URL(tz, tx, ty);
     if (!fetched.has(url)) fetched.set(url, fetchBitmap(url, undefined, signal).catch(() => null));
     return fetched.get(url);
   };
+  // Imagery often stops short of the asked zoom: one central child per level tells, before 4^boost
+  // requests 404 and an upscaled (no sharper, but far bigger) texture is built.
+  for (; boost > 0; boost--) {
+    const half = 2 ** (boost - 1);
+    const probe = await fetchOnce(z + boost, x * 2 * half + half, y * 2 * half + half);
+    if (signal.aborted) {
+      probe?.close();
+      return null;
+    }
+    if (probe) break;
+  }
+  const n = 2 ** boost;
+  const zz = z + boost;
+  const canvas = new OffscreenCanvas(n * AERIAL_TILE_SIZE, n * AERIAL_TILE_SIZE);
+  const ctx = canvas.getContext('2d');
   let drawn = 0;
   const loads = [];
   for (let j = 0; j < n; j++) {

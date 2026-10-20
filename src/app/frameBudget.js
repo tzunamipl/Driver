@@ -7,8 +7,11 @@ export const Tier = {
   COSMETIC: 2, // only looks; pops in later on slow machines
 };
 
-/** Tasks are `step(deadline)`: called every frame (for bookkeeping), building only until `deadline`. */
-export function createFrameBudget(budgetMs) {
+/**
+ * Tasks are `step(deadline)`: called every frame (for bookkeeping), building only until `deadline`.
+ * `onStep(name)` runs after each task (profiling).
+ */
+export function createFrameBudget(budgetMs, onStep = () => {}) {
   const tiers = new Map([
     [Tier.GAMEPLAY, []],
     [Tier.COSMETIC, []],
@@ -16,17 +19,24 @@ export function createFrameBudget(budgetMs) {
   let frame = 0;
 
   return {
-    add(tier, step) {
-      tiers.get(tier).push(step);
+    add(tier, name, step) {
+      tiers.get(tier).push({ name, step });
     },
 
     run() {
       const deadline = performance.now() + budgetMs;
-      for (const step of tiers.get(Tier.GAMEPLAY)) step(deadline);
+      for (const { name, step } of tiers.get(Tier.GAMEPLAY)) {
+        step(deadline);
+        onStep(name);
+      }
       // Rotated, so the first cosmetic task can't starve the rest.
       const cosmetic = tiers.get(Tier.COSMETIC);
       const start = frame++ % Math.max(1, cosmetic.length);
-      for (let i = 0; i < cosmetic.length; i++) cosmetic[(start + i) % cosmetic.length](deadline);
+      for (let i = 0; i < cosmetic.length; i++) {
+        const { name, step } = cosmetic[(start + i) % cosmetic.length];
+        step(deadline);
+        onStep(name);
+      }
     },
   };
 }
