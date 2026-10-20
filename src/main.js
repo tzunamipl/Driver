@@ -72,6 +72,7 @@ import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
+import { createLandcoverHover } from './hud/landcoverHover.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
@@ -222,6 +223,7 @@ const debugVisuals = createDebugVisualsToggle(
   IS_DEV_MODE
 );
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
+createLandcoverHover({ el: document.getElementById('landcover-hover'), canvas: renderer.domElement, camera, landcoverAreas });
 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.

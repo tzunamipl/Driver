@@ -179,7 +179,9 @@ function classifyRings(rings) {
  * @param {object} options
  * @param {number} options.tileZoom
  * @param {string} options.layerName - e.g. 'water'.
- * @param {(props: object) => ({key: string, color: number} | null)} options.classify
+ * @param {(props: object) => ({key: string, color: number, debugOnly?: boolean, label?: string} | null)} options.classify -
+ *   `debugOnly` polygons are drawn but ignored by classifyAt() / shoreDistanceAt() / isNear();
+ *   `label` (default `key`) is what labelsAt() reports.
  * @param {number} [options.lift] - metres above ground, avoids z-fighting.
  * @param {number} [options.opacity]
  * @param {number} [options.radius] - loaded square half-size in DETAIL_ZOOM tiles (default: the HIGH block).
@@ -298,6 +300,27 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       return merged ? new THREE.Mesh(merged, materialFor(style)) : null;
     }
 
+    /** Nearest point where `raycaster` hits the shown overlay, or null (hidden / missed). */
+    raycastOverlay(raycaster) {
+      if (!this._visible) return null;
+      const meshes = [];
+      for (const chunk of this.chunks.values()) meshes.push(...chunk.meshes);
+      return raycaster.intersectObjects(meshes, false)[0]?.point ?? null;
+    }
+
+    /** Labels of every fetched polygon (debug-only ones too) containing world (x, z), deduplicated. */
+    labelsAt(x, z) {
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      const labels = new Set();
+      for (const entry of this._itemsInSourceTile(lat, lon)) {
+        if (lat < entry.minLat || lat > entry.maxLat || lon < entry.minLon || lon > entry.maxLon) continue;
+        if (!pointInLatLonRing(lat, lon, entry.outer)) continue;
+        if (entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole))) continue;
+        labels.add(entry.style.label ?? entry.style.key);
+      }
+      return [...labels];
+    }
+
     /**
      * Style key (e.g. 'water') of the fetched polygon containing world (x, z),
      * or null. Independent of mesh build/visibility.
@@ -329,6 +352,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       const dLat = margin / METERS_PER_DEGREE;
       const dLon = dLat / Math.cos((lat * Math.PI) / 180);
       for (const entry of this._itemsInSourceTile(lat, lon)) {
+        if (entry.style.debugOnly) continue;
         if (lat < entry.minLat - dLat || lat > entry.maxLat + dLat || lon < entry.minLon - dLon || lon > entry.maxLon + dLon) continue;
         const inHole = entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole));
         if (!inHole && pointInLatLonRing(lat, lon, entry.outer)) return true;
@@ -340,6 +364,7 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
 
     _entryAt(lat, lon) {
       for (const entry of this._itemsInSourceTile(lat, lon)) {
+        if (entry.style.debugOnly) continue;
         if (lat < entry.minLat || lat > entry.maxLat || lon < entry.minLon || lon > entry.maxLon) continue;
         if (!pointInLatLonRing(lat, lon, entry.outer)) continue;
         if (entry.holes.some((hole) => pointInLatLonRing(lat, lon, hole))) continue;
