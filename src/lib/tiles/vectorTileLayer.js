@@ -12,6 +12,7 @@
 import * as CANNON from 'cannon-es';
 import { tileX2lon, tileY2lat, lon2tileX, lat2tileY } from '../geo.js';
 import { fetchVectorTileLayer } from './openFreeMap.js';
+import { waitForDecodeSlice, DECODE_CHECK_INTERVAL } from './decodeSlice.js';
 import {
   DETAIL_ZOOM,
   HIGH_DETAIL_RADIUS,
@@ -24,7 +25,6 @@ const REGION_MARGIN_TILES = 2;
 const REGION_RETRY_COOLDOWN_MS = 8000;
 const MAX_FEATURES_PER_TILE = 8000;
 const BUILD_TIME_CHECK_INTERVAL = 16; // items between performance.now() checks
-const DECODE_TIME_BUDGET_MS = 3; // per frame, shared by every layer's tile decoding
 const GROUND_CHECK_INTERVAL_MS = 500; // how often built chunks look for a changed terrain tile below
 
 export function tileKey(tx, ty) {
@@ -43,23 +43,6 @@ function squareOffsets(radius) {
     for (let dx = -radius; dx <= radius; dx++) offsets.push({ dx, dy });
   }
   return offsets.sort((a, b) => a.dx * a.dx + a.dy * a.dy - (b.dx * b.dx + b.dy * b.dy));
-}
-
-// One decode slice per frame across all layers, so a region refetch spreads over frames.
-let decodeSliceEnd = 0;
-let nextFramePromise = null;
-function nextDecodeSlice() {
-  nextFramePromise ??= new Promise((resolve) =>
-    requestAnimationFrame(() => {
-      nextFramePromise = null;
-      decodeSliceEnd = performance.now() + DECODE_TIME_BUDGET_MS;
-      resolve();
-    })
-  );
-  return nextFramePromise;
-}
-async function waitForDecodeSlice() {
-  while (performance.now() >= decodeSliceEnd) await nextDecodeSlice();
 }
 
 function detailTileKeyAt(lat, lon) {
@@ -167,7 +150,7 @@ export class VectorTileLayer {
 
     const featureCount = Math.min(layer.length, MAX_FEATURES_PER_TILE);
     for (let i = 0; i < featureCount; i++) {
-      if (sliced && i % BUILD_TIME_CHECK_INTERVAL === 0) await waitForDecodeSlice();
+      if (sliced && i % DECODE_CHECK_INTERVAL === 0) await waitForDecodeSlice();
       try {
         const feature = layer.feature(i);
         const style = this.classify(feature.properties);

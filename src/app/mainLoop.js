@@ -3,6 +3,7 @@ import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
+import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
@@ -108,20 +109,23 @@ export function createMainLoop({
 
   // Streaming work after terrain, by priority; `at` is this frame's car position.
   const at = { dt: 0, x: 0, z: 0, tileX: 0, tileY: 0 };
-  const streaming = createFrameBudget(STREAMING_BUDGET_MS);
+  const profiler = createHitchProfiler(renderer);
+  const streaming = createFrameBudget(STREAMING_BUDGET_MS, (name) => profiler.mark(`stream:${name}`));
   // Gameplay: near buildings carry the collision prisms.
-  streaming.add(Tier.GAMEPLAY, (deadline) => buildings.update(at.tileX, at.tileY, false, deadline));
+  streaming.add(Tier.GAMEPLAY, 'buildings', (deadline) => buildings.update(at.tileX, at.tileY, false, deadline));
   // Overlays still fetch their data every frame (tyre grip, splash); only their debug meshes wait.
-  for (const layer of [streets, rivers, waterAreas, builtUpAreas, landcoverAreas]) {
-    streaming.add(Tier.COSMETIC, (deadline) => layer.update(at.tileX, at.tileY, false, deadline));
+  const overlays = { streets, rivers, waterAreas, builtUpAreas, landcoverAreas };
+  for (const [name, layer] of Object.entries(overlays)) {
+    streaming.add(Tier.COSMETIC, name, (deadline) => layer.update(at.tileX, at.tileY, false, deadline));
   }
-  for (const part of [roadside, trees, bushes, rocks]) {
-    streaming.add(Tier.COSMETIC, (deadline) => part.update(at.dt, at.x, at.z, deadline));
+  for (const [name, part] of Object.entries({ roadside, trees, bushes, rocks })) {
+    streaming.add(Tier.COSMETIC, name, (deadline) => part.update(at.dt, at.x, at.z, deadline));
   }
-  streaming.add(Tier.COSMETIC, (deadline) => buildings.updateFar(deadline));
+  streaming.add(Tier.COSMETIC, 'farBuildings', (deadline) => buildings.updateFar(deadline));
 
   function animate() {
     requestAnimationFrame(animate);
+    profiler.begin();
 
     const now = performance.now();
     const frameDelta = Math.min((now - lastTime) / 1000, 0.1);
@@ -156,6 +160,7 @@ export function createMainLoop({
       return { ...pose, ...viewFrame.toNetwork(pose.x, pose.z) };
     }
 
+    profiler.mark('input');
     const remotePoses = isJoined() ? net.remotePoses(now).map(toViewFrame) : [];
 
     // Remote cars are kinematic obstacles; place them before the step.
@@ -181,6 +186,7 @@ export function createMainLoop({
     }
     // Lagging badly: drop the remainder instead of spiralling.
     if (accumulator > FIXED_STEP) accumulator = accumulator % FIXED_STEP;
+    profiler.mark('physics');
 
     const alpha = accumulator / FIXED_STEP;
     const syncMeshes = carManager.getSyncMeshes();
@@ -260,6 +266,7 @@ export function createMainLoop({
       }
     }
 
+    profiler.mark('gameplay');
     cameraFollow(frameDelta, {
       chassisMesh: currentChassisMesh,
       podMesh: carManager.getPodMesh(),
@@ -333,6 +340,7 @@ export function createMainLoop({
       clouds.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z, currentChassisMesh.position.y);
     }
     playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
+    profiler.mark('hud+effects');
 
     if (currentChassisMesh) {
       const { lat: carLat, lon: carLon } = viewFrame.toLatLon(
@@ -350,6 +358,7 @@ export function createMainLoop({
           x: terrainHeading.x,
           z: terrainHeading.z,
         });
+        profiler.mark('terrain');
 
         // Same DETAIL_ZOOM tile centre as TerrainManager computes.
         at.tileX = Math.floor(lon2tileX(carLon, DETAIL_ZOOM));
@@ -374,8 +383,11 @@ export function createMainLoop({
 
       minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
+    profiler.mark('misc');
 
     renderer.render(scene, camera);
+    profiler.mark('render');
+    profiler.end();
   }
 
   return { animate };

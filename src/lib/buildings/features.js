@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { tileX2lon, tileY2lat, lon2tileX, lat2tileY } from '../geo.js';
 import { fetchVectorTileLayer } from '../tiles/openFreeMap.js';
+import { waitForDecodeSlice, DECODE_CHECK_INTERVAL } from '../tiles/decodeSlice.js';
 import { DETAIL_ZOOM } from '../terrain.js';
 
 export const BUILDING_TILE_ZOOM = 14; // the building layer's maxzoom
@@ -86,6 +87,7 @@ async function decodeBuildingTile(tx14, ty14) {
 
   const featureCount = Math.min(layer.length, MAX_FEATURES_PER_TILE);
   for (let i = 0; i < featureCount; i++) {
+    if (i % DECODE_CHECK_INTERVAL === 0) await waitForDecodeSlice();
     try {
       const feature = layer.feature(i);
       if (feature.properties.hide_3d) continue; // covered by a more detailed part
