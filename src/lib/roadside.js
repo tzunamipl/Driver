@@ -1,4 +1,4 @@
-// Knockable roadside objects (roadPosts.js, roadSigns.js, directionSigns.js) placed from the
+// Knockable roadside objects (roadPosts.js, streetLamps.js, roadSigns.js, directionSigns.js) placed from the
 // streets layer's segments (vectorLineLayer.js), one InstancedMesh per kind
 // around the car. Objects near the car get a trigger body (like
 // pedestrians.js): a chassis box passing through one swaps it for a tumbling
@@ -7,7 +7,8 @@
 //
 // A kind: { geometry (origin on the ground), material, halfExtents {x, y, z}
 // (trigger box, standing on the ground), debrisSpheres [[x, y, z]] (from the
-// box centre), debrisRadius, mass, group (visibility toggle name),
+// box centre), debrisRadius, mass, group (visibility toggle name), hitSound
+// ('metal' or default plastic),
 // place(seg) -> [{ lat, lon, yaw, ...data }] or null (not ready, asked again later) }.
 // Kinds whose items differ (sign text) give buildMesh(item) -> Object3D (origin
 // on the ground) instead of geometry/material and get one mesh per item.
@@ -54,7 +55,7 @@ const UP = new THREE.Vector3(0, 1, 0);
  * @param {import('./streets.js').StreetsManager} deps.streets
  * @param {import('./terrain.js').TerrainManager} deps.terrain
  * @param {object[]} deps.kinds - see header.
- * @param {(speed: number) => void} [deps.onHit] - the car knocked one over (sound).
+ * @param {(speed: number, kind: object) => void} [deps.onHit] - the car knocked one over (sound).
  */
 export function createRoadside({ scene, world, streets, terrain, kinds, onHit = () => {}, drawDistance = ROADSIDE_DRAW_DISTANCE_M }) {
   // The world default friction is near zero; without these an object slides for hundreds of metres.
@@ -89,6 +90,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   let sinceRebuild = Infinity;
   let dirty = true;
   let unfilledSegments = 0; // in range, skipped for lack of time
+  let version = 0; // bumped by every rebuild
 
   function ensureCapacity(set, count) {
     if (set.mesh && set.mesh.instanceMatrix.count >= count) return;
@@ -215,7 +217,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     debrisMesh.position.copy(body.position); // updateDebris's draw-distance check reads it this frame
     debrisMesh.quaternion.copy(body.quaternion);
     knocked.set(item, { mesh: debrisMesh, body, age: 0, restAge: 0 });
-    onHit(Math.hypot(v.x, v.y, v.z));
+    onHit(Math.hypot(v.x, v.y, v.z), kind);
   }
 
   function flushHits() {
@@ -329,7 +331,9 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       }
       set.mesh.count = count;
       set.mesh.instanceMatrix.needsUpdate = true;
+      set.placed = t;
     }
+    version++;
     return complete;
   }
 
@@ -370,6 +374,21 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
         for (const [item, object] of set.itemMeshes) out.push({ item, object });
       }
       return out;
+    },
+
+    /**
+     * Standing instanced objects of a `group` as flat [x, y, z, yaw, ...] in current world
+     * coords, plus `version`, which changes whenever the set may have.
+     */
+    standingTransforms(group) {
+      const transforms = [];
+      for (const set of sets) {
+        if (set.kind.group !== group || !set.mesh || !set.placed) continue;
+        const { x, z } = set.mesh.position; // origin shifts since the last rebuild
+        const t = set.placed;
+        for (let i = 0; i < t.length; i += 4) transforms.push(t[i] + x, t[i + 1], t[i + 2] + z, t[i + 3]);
+      }
+      return { transforms, version };
     },
 
     /** Meshes and bodies are moved by the generic shift; the next rebuild re-bases the instances. */

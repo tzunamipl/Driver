@@ -36,6 +36,8 @@ import { RiversManager } from './lib/rivers.js';
 import { createRoadside } from './lib/roadside.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
+import { createStreetLampKind } from './lib/streetLamps.js';
+import { createStreetLights } from './lib/streetLights.js';
 import { createDirectionSignKind } from './lib/directionSigns.js';
 import { createPlaces } from './lib/places.js';
 import { createDirectionSignHud } from './hud/directionSignHud.js';
@@ -155,18 +157,21 @@ const bodyScrapeSound = createBodyScrapeSound();
 const impactSound = createImpactSound();
 const postHitSound = createPostHitSound();
 const places = createPlaces();
+const streetLampKind = createStreetLampKind(streets, builtUpAreas);
 const roadside = createRoadside({
   scene,
   world,
   streets,
   terrain,
   kinds: [
-    createRoadPostKind(streets),
+    createRoadPostKind(streets, builtUpAreas),
+    streetLampKind,
     ...createRoadSignKinds(streets),
     createDirectionSignKind({ streets, builtUpAreas, places }),
   ],
   onHit: postHitSound.play,
 });
+const streetLights = createStreetLights({ scene, terrain, roadside, lampKind: streetLampKind });
 const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'));
 const suspensionThud = createSuspensionThud();
 const pedestrianSounds = createPedestrianSounds();
@@ -379,6 +384,7 @@ const mainLoop = createMainLoop({
   bushes,
   rocks,
   roadside,
+  streetLights,
   places,
   directionSignHud,
   balls,

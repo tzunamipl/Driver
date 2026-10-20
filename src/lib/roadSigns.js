@@ -174,6 +174,18 @@ function pointAt({ line, pts, s, headings }, sv) {
   };
 }
 
+const hairpinSpansByLine = new WeakMap();
+
+/** Hairpins of one street line as [sEntry, sExit] (metres along it, board to board). */
+export function hairpinSpans(line, streets) {
+  let spans = hairpinSpansByLine.get(line);
+  if (spans) return spans;
+  const found = isRoadsideRoad(line[0].style) ? findCurves(line, streets) : null;
+  spans = (found?.curves ?? []).filter((c) => c.tier === 'hairpin').map((c) => [c.sEntry, c.sExit]);
+  hairpinSpansByLine.set(line, spans);
+  return spans;
+}
+
 /** @param {import('./streets.js').StreetsManager} streets */
 export function createRoadSignKinds(streets) {
   // Line -> Map(seg -> [{ lat, lon, yaw, tier, arrow }]).
@@ -240,6 +252,7 @@ export function createRoadSignKinds(streets) {
       const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.4 });
       kinds.push({
         group: 'curveSigns',
+        hitSound: 'metal',
         geometry,
         material: [front, back],
         halfExtents: { x: width / 2, y: cy, z: 0.1 },

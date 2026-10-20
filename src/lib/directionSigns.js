@@ -512,6 +512,7 @@ export function createDirectionSignKind({ streets, builtUpAreas, places }) {
   const r = DEBRIS_RADIUS;
   return {
     group: 'directionSigns',
+    hitSound: 'metal',
     buildMesh: buildSignMesh,
     halfExtents: { x: 0.2, y: HALF_HEIGHT, z: 0.2 },
     debrisSpheres: [

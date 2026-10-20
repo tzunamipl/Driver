@@ -42,7 +42,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
-    imperfectionCm: 12,
+    imperfectionCm: 10,
   },
   // Built-up area off the road (yards, verges, lots): packed and smoother
   // than open ground, between normal and road.
@@ -53,7 +53,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.35,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.2,
-    imperfectionCm: 5,
+    imperfectionCm: 2,
   },
   // Forest floor (leaf litter, soft soil, roots): a bit less grip and more
   // drag than open ground, and rougher.
@@ -75,7 +75,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.3,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.4,
-    imperfectionCm: 22,
+    imperfectionCm: 25,
   },
   // Glacier ice: almost no grip, width barely matters.
   ice: {
@@ -85,7 +85,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.1,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 0.6,
-    imperfectionCm: 3,
+    imperfectionCm: 1,
   },
   // Scrub (bushes, brush): like open ground but draggier and rougher.
   scrub: {
@@ -105,7 +105,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.8,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 4.0,
-    imperfectionCm: 6,
+    imperfectionCm: 2,
   },
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.

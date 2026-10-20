@@ -55,6 +55,7 @@ export function createMainLoop({
   bushes,
   rocks,
   roadside,
+  streetLights,
   places,
   directionSignHud,
   balls,
@@ -353,6 +354,7 @@ export function createMainLoop({
         currentChassisMesh.position.z
       );
       daylight.update(currentChassisMesh.position, carLat, carLon);
+      streetLights.update(frameDelta, currentChassisMesh.position, daylight.getSunElevation());
       routeGuidance.update(carLat, carLon);
 
       // Stream around the car, but not during a teleport: the origin has

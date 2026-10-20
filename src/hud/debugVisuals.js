@@ -15,6 +15,7 @@ const LAYERS = [
   { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
   // Gameplay objects, not overlays: shown while the debug view is off.
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
+  { id: 'streetLamps', label: 'Street lamps', group: 'graphics' },
   { id: 'curveSigns', label: 'Curve signs', group: 'graphics' },
   { id: 'directionSigns', label: 'Direction signs', group: 'graphics' },
   { id: 'directionSignHud', label: 'Direction sign HUD', group: 'graphics' },
@@ -28,7 +29,7 @@ const LAYER_GROUPS = [
   { id: 'debug', label: 'Debug' },
   { id: 'graphics', label: 'Graphics' },
 ];
-const ROADSIDE_GROUPS = ['roadPosts', 'curveSigns', 'directionSigns'];
+const ROADSIDE_GROUPS = ['roadPosts', 'streetLamps', 'curveSigns', 'directionSigns'];
 
 function loadLayers() {
   const layers = Object.fromEntries(LAYERS.map(({ id, on = true }) => [id, on]));
