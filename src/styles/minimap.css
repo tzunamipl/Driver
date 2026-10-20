@@ -129,3 +129,44 @@
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
+/* Route guidance: next maneuver + remaining distance/time, beside the dial. */
+#minimap-route {
+  position: absolute;
+  left: calc(100% + var(--mm-arrow) + 6px);
+  bottom: 26px;
+  width: 170px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  pointer-events: none;
+}
+#minimap-route[hidden] { display: none; }
+#minimap-route.is-error { color: #ff8080; }
+#minimap-route-next {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+#minimap-route-next:has(span:empty + span:empty) { display: none; }
+#minimap-route-arrow {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  color: #6fa8ff;
+}
+#minimap-route-turn-dist {
+  font-size: 16px;
+  font-weight: 700;
+}
+#minimap-route-turn {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.25;
+}
+#minimap-route-summary {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+#minimap-route-summary:empty { display: none; }

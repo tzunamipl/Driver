@@ -41,6 +41,16 @@
     overflow: hidden;
   }
   #minimap-place { font-size: 12px; }
+  #minimap-route {
+    left: 0;
+    top: calc(100% + var(--mm-arrow) + 4px);
+    bottom: auto;
+    width: 150px;
+    padding: 4px 8px;
+  }
+  #minimap-route-arrow { font-size: 18px; }
+  #minimap-route-turn-dist { font-size: 13px; }
+  #minimap-route-turn { font-size: 11px; }
   #gauges {
     top: 10px;
     bottom: auto;

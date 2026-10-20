@@ -1,9 +1,10 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
+import { strokeRoute } from '../hud/routeLine.js';
 import { NAV_DESTINATION_STORAGE_KEY } from '../config.js';
 
 // Foldable "Navigation" tab: address search + a pannable slippy map to pick
-// a destination, then Teleport (or, later, Navigate) there. Map state is in
+// a destination, then Teleport or Navigate (road route) there. Map state is in
 // normalised Web Mercator (0..1), so zooming needs no re-projection.
 
 const MIN_ZOOM = 2;
@@ -39,9 +40,10 @@ function saveSelection(selection) {
  * @param {object} deps
  * @param {ReturnType<import('./addressSearch.js').createAddressSearch>} deps.addressSearch
  * @param {() => ({ lat: number, lon: number } | null)} deps.getCarLatLon
+ * @param {ReturnType<import('../app/routeGuidance.js').createRouteGuidance>} deps.routeGuidance
  * @param {(selection: { lat: number, lon: number, label: string | null }) => void} [deps.onSelectionChange]
  */
-export function createNavigationPanel({ addressSearch, getCarLatLon, onSelectionChange }) {
+export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidance, onSelectionChange }) {
   const panel = document.getElementById('nav-panel');
   const toggle = document.getElementById('nav-toggle');
   const form = document.getElementById('nav-search');
@@ -113,7 +115,10 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, onSelection
 
   // ---------- Selection ----------
   function select(lat, lon, label) {
+    const moved = selection?.lat !== lat || selection?.lon !== lon;
     selection = { lat, lon, label };
+    // A new pin while navigating replaces the route.
+    if (moved && routeGuidance.isNavigating()) routeGuidance.start(selection);
     selectionEl.textContent = label ? `${label} (${formatCoords(lat, lon)})` : formatCoords(lat, lon);
     saveSelection(selection);
     onSelectionChange?.(selection);
@@ -258,8 +263,25 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, onSelection
     setOpen(false);
     await addressSearch.teleport(lat, lon, label ?? formatCoords(lat, lon));
   });
-  // Placeholder until route guidance exists.
-  navigateBtn.addEventListener('click', () => navigateBtn.blur());
+  navigateBtn.addEventListener('click', () => {
+    navigateBtn.blur();
+    if (routeGuidance.isNavigating()) {
+      routeGuidance.stop();
+      return;
+    }
+    if (!selection) return;
+    setOpen(false);
+    routeGuidance.start(selection);
+  });
+
+  function updateNavigateButton() {
+    const { status } = routeGuidance.getState();
+    const navigating = status === 'active' || status === 'loading';
+    navigateBtn.disabled = !navigating && !selection;
+    navigateBtn.classList.toggle('is-navigating', navigating);
+    const label = status === 'loading' ? 'Routing\u2026' : navigating ? 'Stop' : 'Navigate';
+    if (navigateBtn.textContent !== label) navigateBtn.textContent = label;
+  }
 
   // ---------- Drawing ----------
   function resize() {
@@ -297,6 +319,13 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, onSelection
       }
     }
     tiles.prune();
+
+    const { route, progress } = routeGuidance.getState();
+    if (route) {
+      // Same world copy as the markers below.
+      const wrap = Math.round(cx - route.mx[0]);
+      strokeRoute(ctx, route, progress, left / world - wrap, top / world, world, 5);
+    }
 
     // Markers wrap to the copy of the world nearest the view centre.
     const toScreen = (lat, lon) => {
@@ -346,6 +375,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, onSelection
     }
     draw();
     teleportBtn.disabled = !selection || !addressSearch.canTeleport();
+    updateNavigateButton();
     rafId = requestAnimationFrame(frame);
   }
 

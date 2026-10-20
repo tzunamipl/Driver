@@ -153,7 +153,7 @@
               <div id="nav-selection">Click the map or search to pick a destination</div>
               <div id="nav-actions">
                 <button id="nav-teleport" type="button" disabled>Teleport</button>
-                <button id="nav-navigate" type="button" disabled title="Coming soon">Navigate</button>
+                <button id="nav-navigate" type="button" disabled>Navigate</button>
               </div>
             </div>
           </div>
@@ -206,6 +206,14 @@
         <span id="minimap-scale-label"></span>
       </div>
       <canvas id="minimap-arrows-canvas"></canvas>
+      <div id="minimap-route" hidden>
+        <div id="minimap-route-next">
+          <span id="minimap-route-arrow"></span>
+          <span id="minimap-route-turn-dist"></span>
+        </div>
+        <div id="minimap-route-turn"></div>
+        <div id="minimap-route-summary"></div>
+      </div>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">

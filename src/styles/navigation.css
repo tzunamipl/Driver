@@ -84,8 +84,11 @@
   cursor: default;
 }
 #nav-body #nav-navigate {
-  background: rgba(255, 255, 255, 0.15);
+  background: #2f7cff;
   color: #fff;
+}
+#nav-body #nav-navigate.is-navigating {
+  background: #e53935;
 }
 #nav-results {
   margin: 0;

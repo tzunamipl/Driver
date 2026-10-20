@@ -87,6 +87,7 @@ export function createMainLoop({
   suspensionHud,
   playersPanel,
   minimapHud,
+  routeGuidance,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,
@@ -352,6 +353,7 @@ export function createMainLoop({
         currentChassisMesh.position.z
       );
       daylight.update(currentChassisMesh.position, carLat, carLon);
+      routeGuidance.update(carLat, carLon);
 
       // Stream around the car, but not during a teleport: the origin has
       // already moved while the car hasn't, so tile math would be bogus.

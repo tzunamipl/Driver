@@ -79,6 +79,7 @@ import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createNavigationPanel } from './ui/navigationPanel.js';
+import { createRouteGuidance } from './app/routeGuidance.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
@@ -276,7 +277,12 @@ const terrainStatsHud = createTerrainStatsHud();
 const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
 const playersPanel = createPlayersPanel();
-const minimapHud = createMinimapHud();
+function getCarLatLon() {
+  const pos = carManager.getVehicle()?.chassisBody.position;
+  return pos ? viewFrame.toLatLon(pos.x, pos.z) : null;
+}
+const routeGuidance = createRouteGuidance({ getCarLatLon });
+const minimapHud = createMinimapHud({ getRouteState: routeGuidance.getState });
 createVersionBadge();
 createFpsCounter();
 
@@ -296,10 +302,8 @@ const addressSearch = createAddressSearch({
 });
 createNavigationPanel({
   addressSearch,
-  getCarLatLon() {
-    const pos = carManager.getVehicle()?.chassisBody.position;
-    return pos ? viewFrame.toLatLon(pos.x, pos.z) : null;
-  },
+  getCarLatLon,
+  routeGuidance,
   onSelectionChange: (selection) => minimapHud.setDestination(selection),
 });
 
@@ -401,6 +405,7 @@ const mainLoop = createMainLoop({
   suspensionHud,
   playersPanel,
   minimapHud,
+  routeGuidance,
   debugVisuals,
   addressSearch,
   preventGroundTunneling,

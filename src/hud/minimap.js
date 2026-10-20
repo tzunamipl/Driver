@@ -1,6 +1,8 @@
 import { lon2tileX, lat2tileY, tileSizeMeters } from '../lib/geo.js';
 import { computeHeadingDeg } from '../lib/heading.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
+import { strokeRoute } from './routeLine.js';
+import { formatRouteDistance, formatRouteDuration } from '../lib/routing.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
 // Round, north-up street-map minimap (OSM tiles, see mapTiles.js). The
@@ -56,7 +58,16 @@ function formatDistance(meters) {
   return `${km.toFixed(1)} km`;
 }
 
-export function createMinimapHud() {
+// Text nodes only touched when their content changes.
+function setText(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+/**
+ * @param {object} [deps]
+ * @param {() => import('../app/routeGuidance.js').RouteState} [deps.getRouteState]
+ */
+export function createMinimapHud({ getRouteState } = {}) {
   const root = document.getElementById('minimap');
   const canvas = document.getElementById('minimap-canvas');
   const arrowsCanvas = document.getElementById('minimap-arrows-canvas');
@@ -66,6 +77,11 @@ export function createMinimapHud() {
   const scaleLabelEl = document.getElementById('minimap-scale-label');
   const placeEl = document.getElementById('minimap-place');
   const coordsEl = document.getElementById('minimap-coords');
+  const routeEl = document.getElementById('minimap-route');
+  const routeArrowEl = document.getElementById('minimap-route-arrow');
+  const routeTurnEl = document.getElementById('minimap-route-turn');
+  const routeTurnDistEl = document.getElementById('minimap-route-turn-dist');
+  const routeSummaryEl = document.getElementById('minimap-route-summary');
   if (!root || !canvas) return { update() {}, setDestination() {} };
 
   const ctx = canvas.getContext('2d');
@@ -260,6 +276,12 @@ export function createMinimapHud() {
       }
     }
 
+    const routeState = getRouteState?.();
+    if (routeState?.route) {
+      const worldPx = TILE_SIZE * 2 ** zoom;
+      strokeRoute(ctx, routeState.route, routeState.progress, txf / 2 ** zoom, tyf / 2 ** zoom, worldPx, 4 * s);
+    }
+
     const metersPerPx = tileSizeMeters(zoom, lat) / TILE_SIZE;
     // Peers: local (x, z) metres straight to pixels (+x right, +z down).
     const edgeMargin = 16 * s;
@@ -416,8 +438,42 @@ export function createMinimapHud() {
       };
     });
     draw(lat, lon, headingDeg, peers);
+    updateRouteReadout();
     if (coordsEl) coordsEl.textContent = formatCoords(lat, lon);
     maybeUpdatePlaceName(lat, lon);
+  }
+
+  function updateRouteReadout() {
+    if (!routeEl) return;
+    const state = getRouteState?.();
+    const status = state?.status ?? 'idle';
+    routeEl.hidden = status === 'idle';
+    if (status === 'idle') return;
+    let arrow = '';
+    let turn = '';
+    let turnDist = '';
+    let summary = '';
+    if (status === 'loading') {
+      turn = 'Finding route\u2026';
+    } else if (status === 'error') {
+      turn = `No route: ${state.error}`;
+    } else if (state.progress?.arrived) {
+      arrow = '\u2691';
+      turn = 'You have arrived';
+    } else if (state.progress) {
+      const { next, remainingM, remainingS } = state.progress;
+      if (next) {
+        arrow = next.arrow;
+        turn = next.text;
+        turnDist = formatRouteDistance(next.distanceM);
+      }
+      summary = `${formatRouteDistance(remainingM)} \u00b7 ${formatRouteDuration(remainingS)}`;
+    }
+    routeEl.classList.toggle('is-error', status === 'error');
+    setText(routeArrowEl, arrow);
+    setText(routeTurnEl, turn);
+    setText(routeTurnDistEl, turnDist);
+    setText(routeSummaryEl, summary);
   }
 
   /** Navigation-panel selection shown as a pin; null hides it. */

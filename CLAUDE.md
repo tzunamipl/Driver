@@ -46,7 +46,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
-- `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, `navigationPanel.js` (Navigation tab: search + slippy map, OSM tiles via `hud/mapTiles.js`) on top of `addressSearch.js` (geocoding + teleport).
+- `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, `navigationPanel.js` (Navigation tab: search + slippy map, OSM tiles via `hud/mapTiles.js`) on top of `addressSearch.js` (geocoding + teleport); Navigate = road route from OSRM (`lib/routing.js`), progress in `app/routeGuidance.js`, drawn by `hud/routeLine.js` on the minimap and the tab's map.
 - `index.html` – DOM skeleton for HUD/UI. Styles: `src/styles/*.css` (one per UI area, imported
   in cascade order by `src/styles/index.css`).
 
