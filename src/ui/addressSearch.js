@@ -61,7 +61,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
   function setAddressStatus(text, isError = false) {
     addressStatusEl.textContent = text;
     addressStatusEl.style.display = text ? 'block' : 'none';
-    addressStatusEl.style.color = isError ? '#ff8080' : '#fff';
+    addressStatusEl.classList.toggle('is-error', isError);
   }
 
   let teleporting = false;

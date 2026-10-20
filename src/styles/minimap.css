@@ -18,7 +18,6 @@
      bar/label so they no longer sit under the map dial. */
   height: calc(var(--mm-dial) + 26px);
   z-index: 10;
-  font-family: system-ui, sans-serif;
 }
 #minimap-info {
   position: absolute;
@@ -33,21 +32,20 @@
   align-items: center;
   gap: 2px;
   padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
   white-space: nowrap;
   pointer-events: none;
   text-align: center;
 }
 #minimap-place {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: bold;
 }
 #minimap-coords {
-  font-family: monospace;
   font-size: 11px;
-  opacity: 0.8;
+  color: #444;
 }
 /* Shared positioning for both the map canvas and the peer-arrows
    overlay canvas stacked on top of it: both are centered on the
@@ -92,20 +90,11 @@
   gap: 4px;
 }
 #minimap-zoom button {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font-size: 16px;
+  width: 23px;
+  height: 23px;
+  font-weight: bold;
   line-height: 1;
-  font-weight: 700;
-  cursor: pointer;
   padding: 0;
-}
-#minimap-zoom button:active {
-  background: rgba(79, 195, 255, 0.6);
 }
 #minimap-scale {
   position: absolute;
@@ -119,15 +108,14 @@
 }
 #minimap-scale-bar {
   height: 3px;
-  background: #fff;
-  border-radius: 2px;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  background: #000;
+  box-shadow: 0 0 0 1px #fff;
 }
 #minimap-scale-label {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 11px;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  text-shadow: 1px 1px 0 #000;
 }
 /* Route guidance: next maneuver + remaining distance/time, beside the dial. */
 #minimap-route {
@@ -136,13 +124,13 @@
   bottom: 26px;
   width: 170px;
   padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
   pointer-events: none;
 }
 #minimap-route[hidden] { display: none; }
-#minimap-route.is-error { color: #ff8080; }
+#minimap-route.is-error { color: #c00000; }
 #minimap-route-next {
   display: flex;
   align-items: baseline;
@@ -150,23 +138,24 @@
 }
 #minimap-route-next:has(span:empty + span:empty) { display: none; }
 #minimap-route-arrow {
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
-  font-weight: 700;
-  color: #6fa8ff;
+  font-weight: bold;
+  color: var(--w95-select);
 }
 #minimap-route-turn-dist {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: bold;
 }
 #minimap-route-turn {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.25;
 }
 #minimap-route-summary {
   margin-top: 4px;
+  padding: 1px 4px;
   font-size: 11px;
-  opacity: 0.8;
+  box-shadow: var(--w95-field);
 }
 #minimap-route-summary:empty { display: none; }

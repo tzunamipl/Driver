@@ -290,6 +290,13 @@ export class TerrainManager {
     return this._tileHeightAt(tile, x, z, fx * s, fy * s);
   }
 
+  /** Nearest point where `raycaster` hits a shown terrain tile, or null. */
+  raycast(raycaster) {
+    const meshes = [];
+    for (const tile of this.tiles.values()) if (tile.mesh.visible) meshes.push(tile.mesh);
+    return raycaster.intersectObjects(meshes, false)[0]?.point ?? null;
+  }
+
   /**
    * Aerial imagery colour (sRGB bytes into `out` [r, g, b]) under world (x, z)
    * from the finest loaded tile that has imagery; false if none.

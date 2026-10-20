@@ -6,93 +6,106 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #87ceeb;
-  font-family: system-ui, sans-serif;
-  color: #fff;
+  background: var(--w95-desktop);
+  color: #000;
+  font-size: 11px;
 }
+/* Win95 progress dialog; the heading doubles as its title bar. */
 #loading-screen .loading-card {
   width: min(380px, calc(100vw - 32px));
   box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.72);
-  padding: 20px 22px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 3px 3px 12px;
 }
 #loading-screen h1 {
-  margin: 0 0 4px;
-  font-size: 20px;
+  margin: 0 0 10px;
+  padding: 3px 4px;
+  background: linear-gradient(90deg, var(--w95-select), #1084d0);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 14px;
+}
+#loading-screen .loading-card > :not(h1) {
+  margin-left: 12px;
+  margin-right: 12px;
 }
 #loading-screen .loading-coords {
-  margin: 0 0 14px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
+  margin: 0 0 10px;
+  color: #444;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 #loading-screen .loading-steps {
   list-style: none;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
   padding: 0;
-  font-size: 14px;
+  font-size: 11px;
 }
 #loading-screen .loading-steps li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
+  gap: 6px;
+  padding: 2px 0;
 }
 #loading-screen .loading-steps li::before {
   content: '';
   flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
 }
 #loading-screen .loading-steps li[data-state='pending'] {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--w95-shadow);
+  text-shadow: 1px 1px 0 #fff;
+}
+#loading-screen .loading-steps li[data-state='active'] {
+  font-weight: bold;
 }
 #loading-screen .loading-steps li[data-state='active']::before {
-  border-color: #fff;
-  border-top-color: transparent;
-  animation: loading-spin 0.8s linear infinite;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='5'%3E%3Crect width='5' height='5' fill='%23000080'/%3E%3C/svg%3E") no-repeat 4px 4px;
+  animation: loading-blink 0.8s steps(1) infinite;
 }
 #loading-screen .loading-steps li[data-state='done']::before {
-  background: #5fd38a;
-  border-color: #5fd38a;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Cpath d='M6 0h1v1H6zM5 1h2v1H5zM0 2h1v1H0zM4 2h3v1H4zM0 3h2v1H0zM3 3h3v1H3zM0 4h5v1H0zM1 5h3v1H1zM2 6h1v1H2z'/%3E%3C/svg%3E") no-repeat 3px 3px;
 }
 #loading-screen .loading-step-detail {
   margin-left: auto;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
+  color: #444;
+  font-weight: normal;
   font-variant-numeric: tabular-nums;
 }
 #loading-screen .loading-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.15);
-  overflow: hidden;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 3px;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
 }
 #loading-screen .loading-bar-fill {
   width: 0;
   height: 100%;
-  background: #5fd38a;
-  transition: width 0.2s ease-out;
+  background: var(--w95-blocks);
+  transition: width 0.2s steps(4, end);
 }
 #loading-screen .loading-footer,
 #loading-screen .loading-slow {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 11px;
+  color: #444;
   font-variant-numeric: tabular-nums;
 }
 #loading-screen .loading-slow {
-  color: #ffd27a;
+  padding: 4px 6px;
+  color: #000;
+  background: var(--w95-tooltip);
+  border: 1px solid #000;
 }
-@keyframes loading-spin {
-  to {
-    transform: rotate(360deg);
-  }
+@keyframes loading-blink {
+  50% { background-image: none; }
 }
 /* Just above #net-status (bottom: 20px). */
 #streaming-status {
@@ -102,13 +115,12 @@
   transform: translateX(-50%);
   z-index: 10;
   min-width: 180px;
-  color: rgba(255, 255, 255, 0.85);
-  font-family: system-ui, sans-serif;
+  color: #000;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 4px 9px 5px;
-  border-radius: 8px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 5px 8px 6px;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -126,34 +138,32 @@
 #streaming-status .streaming-status-percent {
   margin-left: auto;
   padding-left: 8px;
-  color: #fff;
-  font-weight: 600;
+  font-weight: bold;
 }
+/* Hourglass, flipping like the Win95 busy cursor. */
 #streaming-status .streaming-status-spinner {
   flex: none;
-  width: 8px;
-  height: 8px;
-  box-sizing: border-box;
-  border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-  border-top-color: transparent;
-  animation: streaming-spin 0.8s linear infinite;
+  width: 7px;
+  height: 9px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='9' shape-rendering='crispEdges'%3E%3Cpath d='M0 0h7v1H6v2H5v1H4v1h1v1h1v2h1v1H0V8h1V6h1V5h1V4H2V3H1V1H0z'/%3E%3Cpath fill='%23fff' d='M2 1h3v2H4v1H3V3H2zM3 6h1v1h1v1H2V7h1z'/%3E%3C/svg%3E") no-repeat;
+  animation: streaming-spin 1.2s steps(2) infinite;
 }
 #streaming-status .streaming-status-bar {
   margin-top: 4px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.18);
-  overflow: hidden;
+  height: 12px;
+  box-sizing: border-box;
+  padding: 2px;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
 }
 #streaming-status .streaming-status-fill {
   width: 0;
   height: 100%;
-  background: #5fd38a;
+  background: repeating-linear-gradient(90deg, var(--w95-select) 0 5px, transparent 5px 7px);
   transition: width 0.25s ease-out;
 }
 #streaming-status [data-kind='render'] .streaming-status-fill {
-  background: #6fb6ff;
+  background: repeating-linear-gradient(90deg, var(--w95-desktop) 0 5px, transparent 5px 7px);
 }
 @keyframes streaming-spin {
   to {

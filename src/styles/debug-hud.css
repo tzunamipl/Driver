@@ -14,19 +14,17 @@
      #players-panel in #top-right-stack), so it automatically moves
      up/down as the help HUD collapses to its pill or is hidden,
      instead of relying on a fixed pixel offset. */
-  color: #fff;
-  font-family: monospace;
-  font-size: 10px;
-  background: rgba(0,0,0,0.5);
-  padding: 8px 10px;
-  border-radius: 6px;
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 6px 8px;
   pointer-events: none;
   z-index: 10;
 }
 #suspension-hud .susp-title {
   margin-bottom: 6px;
-  opacity: 0.8;
-  letter-spacing: 0.5px;
+  font-weight: bold;
 }
 #suspension-hud .susp-grid {
   display: grid;
@@ -42,16 +40,17 @@
 #suspension-hud .susp-terrain {
   width: 10px;
   height: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid #000;
   background: #4caf50;
   flex: none;
 }
 #suspension-hud .susp-bar {
   width: 14px;
   height: 60px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  box-sizing: border-box;
+  border: 2px solid;
+  border-color: var(--w95-shadow) #fff #fff var(--w95-shadow);
+  background: #fff;
   position: relative;
   overflow: hidden;
 }
@@ -61,7 +60,7 @@
   left: 0;
   right: 0;
   height: 50%;
-  background: #4fc3ff;
+  background: var(--w95-select);
 }
 #suspension-hud .susp-rest-line {
   position: absolute;
@@ -69,18 +68,17 @@
   right: -1px;
   top: 50%;
   height: 1px;
-  background: rgba(255, 255, 255, 0.7);
+  background: #000;
   z-index: 1;
 }
 #suspension-hud .susp-label {
-  opacity: 0.85;
   text-align: center;
 }
 #suspension-hud .susp-landed {
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  opacity: 0.85;
+  border-top: 1px solid var(--w95-shadow);
+  box-shadow: inset 0 1px #fff;
 }
 /* Instant vehicle picker in the debug view (toggled with M, same as
    #suspension-hud/#terrain-stats) - a compact version of the lobby's
@@ -88,12 +86,11 @@
    swaps the local car's vehicle kind in place instead of just
    previewing a choice before joining. */
 #vehicle-debug-hud {
-  color: #fff;
-  font-family: monospace;
-  font-size: 10px;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 8px 10px;
-  border-radius: 6px;
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 6px 8px;
   z-index: 10;
   width: 150px;
   /* #top-left-stack is click-through (pointer-events: none) so the
@@ -105,8 +102,7 @@
 }
 #vehicle-debug-hud .susp-title {
   margin-bottom: 6px;
-  opacity: 0.8;
-  letter-spacing: 0.5px;
+  font-weight: bold;
 }
 #vehicle-debug-hud #vehicle-debug-tabs {
   /* Two rows of three so the tabs fit the panel width instead of spilling over the LAYERS panel. */
@@ -115,75 +111,71 @@
   gap: 3px;
   margin-bottom: 6px;
 }
+/* Grid of small toggle buttons here, not property-sheet tabs. */
 #vehicle-debug-hud .vehicle-tab {
   min-width: 0;
-  padding: 4px 2px;
+  height: auto;
+  min-height: 21px;
+  margin: 0;
+  padding: 2px;
+  white-space: normal;
   overflow-wrap: anywhere;
-  font-size: 9px;
-  border-radius: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: var(--w95-raised);
+}
+#vehicle-debug-hud .vehicle-tab.active {
+  height: auto;
+  margin: 0;
+  padding: 2px;
+  background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
+  box-shadow: var(--w95-pressed);
 }
 #vehicle-debug-hud #vehicle-debug-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
   max-height: 240px;
   overflow-y: auto;
+  padding: 2px;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
 }
 #vehicle-debug-hud .vehicle-item {
-  padding: 5px 6px;
-  font-size: 10px;
+  padding: 2px 4px;
 }
+#vehicle-debug-hud .vehicle-item:active { box-shadow: none; }
 #vehicle-debug-color {
   display: block;
   width: 100%;
   height: 26px;
   box-sizing: border-box;
   margin-top: 6px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
 }
-#vehicle-debug-color::-webkit-color-swatch-wrapper { padding: 0; }
-#vehicle-debug-color::-webkit-color-swatch {
-  border: none;
-  border-radius: 3px;
-}
-#vehicle-debug-color::-moz-color-swatch {
-  border: none;
-  border-radius: 3px;
-}
-/* Landcover under the mouse (hud/landcoverHover.js). */
-#landcover-hover {
+/* Ground surface under the mouse (hud/surfaceHover.js). */
+#surface-hover {
   position: fixed;
   display: none;
-  color: #fff;
-  font-family: monospace;
+  color: #000;
   font-size: 11px;
   white-space: pre;
-  background: rgba(0, 0, 0, 0.7);
-  padding: 3px 6px;
-  border-radius: 4px;
+  background: var(--w95-tooltip);
+  border: 1px solid #000;
+  padding: 2px 4px;
   z-index: 20;
   pointer-events: none;
 }
 /* Which debug overlays show in the debug view (persisted per browser). */
 #debug-layers-hud {
-  color: #fff;
-  font-family: monospace;
-  font-size: 10px;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 8px 10px;
-  border-radius: 6px;
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 6px 8px;
   z-index: 10;
   pointer-events: auto; /* #top-left-stack is click-through */
 }
 #debug-layers-hud .susp-title {
   margin-bottom: 6px;
-  opacity: 0.8;
-  letter-spacing: 0.5px;
+  font-weight: bold;
 }
 #debug-layers-hud .debug-layers-list {
   display: flex;
@@ -192,7 +184,7 @@
 }
 #debug-layers-hud .debug-layer-group {
   margin-top: 4px;
-  opacity: 0.6;
+  color: var(--w95-shadow);
 }
 #debug-layers-hud .debug-layer-group:first-child {
   margin-top: 0;
@@ -222,15 +214,9 @@
 }
 #debug-layers-hud .debug-time-btn {
   flex: 1;
-  padding: 3px 4px;
-  font: inherit;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-  cursor: pointer;
+  padding: 0 4px;
 }
 #debug-layers-hud .debug-time-btn.active {
-  background: rgba(255, 255, 255, 0.35);
-  border-color: #fff;
+  background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
+  box-shadow: var(--w95-pressed);
 }

@@ -356,6 +356,10 @@ export class VectorTileLayer {
     this.pendingRemoval.delete(key);
   }
 
+  get visible() {
+    return this._visible;
+  }
+
   /** M-key debug toggle. */
   /** Meshes exist only while shown; hiding drops them (the data keeps streaming if alwaysStream). */
   setVisible(visible) {

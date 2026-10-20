@@ -5,28 +5,23 @@
   z-index: 20;
 }
 #nav-panel {
-  color: #fff;
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  background: rgba(0, 0, 0, 0.6);
-  padding: 8px 12px;
-  border-radius: 6px;
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 6px 8px;
   pointer-events: auto;
   transition: padding var(--hud-fold-ms) ease;
 }
 #nav-panel.collapsed {
-  padding: 6px 10px;
+  padding: 4px;
 }
 #nav-toggle {
   display: block;
   margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: bold 13px monospace;
+  padding: 0 6px;
+  font-weight: bold;
   text-align: left;
-  cursor: pointer;
 }
 #nav-toggle::before { content: '▾ '; }
 #nav-panel.collapsed #nav-toggle::before { content: '▸ '; }
@@ -62,68 +57,60 @@
 #nav-search input {
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font: inherit;
 }
-#nav-search input::placeholder { color: rgba(255, 255, 255, 0.6); }
+#nav-search input::placeholder { color: var(--w95-shadow); }
 #nav-body button:not(#nav-map-controls button):not(#nav-results button) {
-  padding: 7px 14px;
-  border-radius: 6px;
-  border: none;
-  background: #4fc3ff;
-  color: #06222f;
-  font: 600 13px system-ui, sans-serif;
-  cursor: pointer;
+  min-width: 75px;
 }
-#nav-body button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-#nav-body #nav-navigate {
-  background: #2f7cff;
-  color: #fff;
-}
+/* Latched like a pressed toggle button while a route is active. */
 #nav-body #nav-navigate.is-navigating {
-  background: #e53935;
+  background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
+  box-shadow: var(--w95-pressed);
+  font-weight: bold;
 }
 #nav-results {
   margin: 0;
-  padding: 0;
+  padding: 2px;
   list-style: none;
-  max-height: 7.5em;
+  max-height: 8.5em;
   overflow-y: auto;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
 }
 #nav-results:empty { display: none; }
 #nav-results button {
   display: block;
   width: 100%;
-  padding: 4px 8px;
-  border: none;
-  border-radius: 4px;
+  min-height: 0;
+  padding: 2px 4px;
   background: transparent;
-  color: #fff;
-  font: inherit;
+  box-shadow: none;
+  color: #000;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
 }
-#nav-results button:hover { background: rgba(255, 255, 255, 0.12); }
-#nav-results li.is-selected button { background: rgba(79, 195, 255, 0.3); }
-.nav-results-status { padding: 4px 8px; opacity: 0.8; }
-.nav-results-status.is-error { color: #ff8080; opacity: 1; }
+#nav-results button:active { box-shadow: none; }
+#nav-results button:hover { outline: 1px dotted #000; outline-offset: -1px; }
+#nav-results li.is-selected button { background: var(--w95-select); color: #fff; }
+.nav-results-status { padding: 2px 4px; color: #444; }
+.nav-results-status.is-error { color: #c00000; }
 #nav-map {
   position: relative;
   /* Leaves room for the search, results and footer. */
   height: clamp(220px, calc(100vh - 320px), 600px);
-  border-radius: 6px;
   overflow: hidden;
   background: #e9e6df;
+}
+/* Bevel drawn over the canvas: padding would make it smaller than the map's own size used for drawing. */
+#nav-map::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: var(--w95-sunken);
+  pointer-events: none;
 }
 #nav-map-canvas {
   display: block;
@@ -142,25 +129,20 @@
   gap: 4px;
 }
 #nav-map-controls button {
-  width: 30px;
-  height: 30px;
+  width: 23px;
+  height: 23px;
   padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font: 700 18px system-ui, sans-serif;
-  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
 }
-#nav-map-controls button:hover { background: rgba(0, 0, 0, 0.8); }
 #nav-map-attribution {
   position: absolute;
   right: 0;
   bottom: 0;
   padding: 1px 5px;
   background: rgba(255, 255, 255, 0.7);
-  color: #333;
-  font-size: 10px;
+  color: #000;
+  font-size: 11px;
   pointer-events: none;
 }
 #nav-footer {
@@ -171,8 +153,9 @@
 #nav-selection {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
-  opacity: 0.9;
+  padding: 3px 4px;
+  font-size: 11px;
+  box-shadow: var(--w95-field);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -187,11 +170,11 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 11;
-  color: #fff;
-  font-family: system-ui, sans-serif;
-  font-size: 12px;
-  background: rgba(0, 0, 0, 0.55);
-  padding: 4px 10px;
-  border-radius: 5px;
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-tooltip);
+  border: 1px solid #000;
+  padding: 3px 8px;
   display: none;
 }
+#address-search-status.is-error { color: #c00000; }

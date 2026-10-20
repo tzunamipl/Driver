@@ -1,12 +1,46 @@
+@font-face {
+  font-family: "Pixelated MS Sans Serif";
+  src: url("./fonts/ms_sans_serif.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Pixelated MS Sans Serif";
+  src: url("./fonts/ms_sans_serif_bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+}
 /* Shared timing for every HUD fold/hide animation (help panel
    collapse-to-pill, its full dismiss, and the players panel
    collapse) so they all read as the same kind of motion. */
-:root { --hud-fold-ms: 250ms; }
+:root {
+  --hud-fold-ms: 250ms;
+  /* Windows 95 palette + bevels; the pixel font is drawn for 11px (and 2x = 22px). */
+  --w95-font: "Pixelated MS Sans Serif", Tahoma, Arial, sans-serif;
+  --w95-face: #c0c0c0;
+  --w95-light: #dfdfdf;
+  --w95-shadow: #808080;
+  --w95-dark: #0a0a0a;
+  --w95-select: #000080;
+  --w95-desktop: #008080;
+  --w95-tooltip: #ffffe1;
+  --w95-raised: inset -1px -1px var(--w95-dark), inset 1px 1px #fff, inset -2px -2px var(--w95-shadow), inset 2px 2px var(--w95-light);
+  --w95-pressed: inset -1px -1px #fff, inset 1px 1px var(--w95-dark), inset -2px -2px var(--w95-light), inset 2px 2px var(--w95-shadow);
+  --w95-sunken: inset -1px -1px #fff, inset 1px 1px var(--w95-shadow), inset -2px -2px var(--w95-light), inset 2px 2px var(--w95-dark);
+  --w95-etched: inset -1px -1px #fff, inset 1px 1px var(--w95-shadow), inset -2px -2px var(--w95-shadow), inset 2px 2px #fff;
+  --w95-field: inset 1px 1px var(--w95-shadow), inset -1px -1px #fff;
+  /* Win95 progress bar: navy blocks with grey gaps. */
+  --w95-blocks: repeating-linear-gradient(90deg, var(--w95-select) 0 8px, transparent 8px 10px);
+}
 html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
   background: #111;
+  font-family: var(--w95-font);
+  font-size: 11px;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -18,3 +52,124 @@ input, textarea {
 }
 #app { width: 100vw; height: 100vh; }
 canvas { display: block; }
+
+/* Win95 controls for every UI area except the car's dash (#gauges keeps its own look).
+   :where() keeps these at zero specificity so each area's file can override them. */
+:where(#lobby, #hud, #nav-panel, #top-right-stack, #debug-hud-row, #minimap, #touch-controls) :where(button) {
+  min-height: 23px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
+  font: 11px var(--w95-font);
+  text-shadow: none;
+  cursor: pointer;
+}
+:where(#lobby, #hud, #nav-panel, #top-right-stack, #debug-hud-row, #minimap, #touch-controls) :where(button:not(:disabled):active) {
+  box-shadow: var(--w95-pressed);
+}
+:where(#lobby, #hud, #nav-panel, #top-right-stack, #debug-hud-row, #minimap, #touch-controls) :where(button:focus-visible) {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+:where(#lobby, #hud, #nav-panel, #debug-hud-row, #minimap) :where(button:disabled) {
+  color: var(--w95-shadow);
+  text-shadow: 1px 1px 0 #fff;
+  cursor: default;
+}
+:where(#lobby, #nav-panel) :where(input[type="text"]) {
+  height: 21px;
+  box-sizing: border-box;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
+  color: #000;
+  font: 11px var(--w95-font);
+  outline: none;
+}
+:where(#lobby, #debug-hud-row) :where(input[type="color"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 4px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  cursor: pointer;
+}
+:where(#lobby, #debug-hud-row) :where(input[type="color"])::-webkit-color-swatch-wrapper { padding: 0; }
+:where(#lobby, #debug-hud-row) :where(input[type="color"])::-webkit-color-swatch {
+  border: 1px solid #000;
+  border-radius: 0;
+}
+:where(#lobby, #debug-hud-row) :where(input[type="color"])::-moz-color-swatch {
+  border: 1px solid #000;
+  border-radius: 0;
+}
+:where(#debug-hud-row) :where(input[type="checkbox"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
+}
+:where(#debug-hud-row) :where(input[type="checkbox"]:checked) {
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Cpath d='M6 0h1v1H6zM5 1h2v1H5zM0 2h1v1H0zM4 2h3v1H4zM0 3h2v1H0zM3 3h3v1H3zM0 4h5v1H0zM1 5h3v1H1zM2 6h1v1H2z'/%3E%3C/svg%3E") no-repeat 3px 3px;
+}
+:where(#hud) :where(input[type="range"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 21px;
+  background: transparent;
+}
+:where(#hud) :where(input[type="range"])::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+:where(#hud) :where(input[type="range"])::-moz-range-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+:where(#hud) :where(input[type="range"])::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 21px;
+  margin-top: -8px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}
+:where(#hud) :where(input[type="range"])::-moz-range-thumb {
+  width: 11px;
+  height: 21px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}
+/* Win95 scrollbars; Blink ignores ::-webkit-scrollbar once scrollbar-color is set, so that is Firefox-only. */
+@supports not selector(::-webkit-scrollbar) {
+  :where(#lobby, #nav-panel, #top-right-stack, #debug-hud-row) * {
+    scrollbar-color: var(--w95-face) #dfdfdf;
+  }
+}
+:where(#lobby, #nav-panel, #top-right-stack, #debug-hud-row) ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+:where(#lobby, #nav-panel, #top-right-stack, #debug-hud-row) ::-webkit-scrollbar-track {
+  background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
+}
+:where(#lobby, #nav-panel, #top-right-stack, #debug-hud-row) ::-webkit-scrollbar-thumb {
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}

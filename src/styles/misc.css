@@ -3,9 +3,9 @@
   bottom: 4px;
   left: 8px;
   z-index: 10;
-  color: rgba(255, 255, 255, 0.6);
-  font-family: system-ui, sans-serif;
-  font-size: 10px;
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 1px 1px 0 #000;
   pointer-events: none;
 }
 #attribution a {
@@ -17,9 +17,9 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
-  color: rgba(255, 255, 255, 0.6);
-  font-family: system-ui, sans-serif;
-  font-size: 10px;
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 1px 1px 0 #000;
   pointer-events: none;
 }
 #fps-counter:not(:empty)::after {

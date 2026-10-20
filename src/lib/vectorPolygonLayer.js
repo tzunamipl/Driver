@@ -300,14 +300,6 @@ export function createVectorPolygonLayer({ tileZoom, layerName, classify, lift =
       return merged ? new THREE.Mesh(merged, materialFor(style)) : null;
     }
 
-    /** Nearest point where `raycaster` hits the shown overlay, or null (hidden / missed). */
-    raycastOverlay(raycaster) {
-      if (!this._visible) return null;
-      const meshes = [];
-      for (const chunk of this.chunks.values()) meshes.push(...chunk.meshes);
-      return raycaster.intersectObjects(meshes, false)[0]?.point ?? null;
-    }
-
     /** Labels of every fetched polygon (debug-only ones too) containing world (x, z), deduplicated. */
     labelsAt(x, z) {
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
