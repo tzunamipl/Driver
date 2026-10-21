@@ -1,9 +1,9 @@
-import { CAR_STATE_STORAGE_KEY } from '../config.js';
+import { readSaveField, writeSaveField } from './saves.js';
 
 // Remembers the local car's last known position/orientation/odometer
-// reading and latched handbrake across reloads, so the car resumes where it was left off instead
-// of always respawning at the world origin. Mirrors ui/lobby.js's
-// name/color persistence.
+// reading, score and latched handbrake in the active game mode's save slot,
+// so the car resumes where it was left off instead of always respawning at
+// the world origin.
 //
 // Position/orientation are stored in the *network* frame (the same frame
 // published via net.publishPose()) rather than the current view frame, so
@@ -11,23 +11,12 @@ import { CAR_STATE_STORAGE_KEY } from '../config.js';
 // teleported (see ui/addressSearch.js) before reloading.
 
 export function loadCarState() {
-  try {
-    const raw = localStorage.getItem(CAR_STATE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const nums = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'odoKm'];
-    if (!parsed || !nums.every((key) => typeof parsed[key] === 'number' && Number.isFinite(parsed[key]))) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = readSaveField('carState');
+  const nums = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'odoKm'];
+  if (!parsed || !nums.every((key) => typeof parsed[key] === 'number' && Number.isFinite(parsed[key]))) return null;
+  return parsed;
 }
 
 export function saveCarState(state) {
-  try {
-    localStorage.setItem(CAR_STATE_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Storage unavailable (private browsing, quota, etc.) - not persisting
-    // is a harmless degradation, so silently ignore.
-  }
+  writeSaveField('carState', state);
 }

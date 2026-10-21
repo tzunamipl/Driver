@@ -1,7 +1,8 @@
+/* Above the main menu, whose Settings screen opens it. */
 #lobby {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;

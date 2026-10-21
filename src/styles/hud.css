@@ -87,18 +87,18 @@
   border-top: none;
 }
 /* Hanging indent: wrapped lines sit under the description, not the key. */
-#hud .hud-line {
+:is(#hud, #main-menu) .hud-line {
   padding-left: 2ch;
   text-indent: -2ch;
 }
 /* Win95 group box: etched frame with its caption sitting on the top edge. */
-#hud .hud-section {
+:is(#hud, #main-menu) .hud-section {
   position: relative;
   margin-top: 12px;
   padding: 10px 8px 6px;
   box-shadow: var(--w95-etched);
 }
-#hud .hud-section > div:first-child {
+:is(#hud, #main-menu) .hud-section > div:first-child {
   position: absolute;
   top: -8px;
   left: 6px;
@@ -146,6 +146,8 @@
   box-shadow: var(--w95-pressed);
 }
 #hud-reset {
+  display: flex;
+  gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--w95-shadow);

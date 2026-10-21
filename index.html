@@ -43,6 +43,26 @@
         <p class="loading-slow" hidden>Taking longer than usual: the elevation / imagery servers may be slow.</p>
       </div>
     </div>
+    <div id="main-menu" hidden>
+      <div class="menu-screen menu-window" data-screen="root">
+        <h1 class="menu-titlebar">Driver</h1>
+        <div class="menu-buttons">
+          <button type="button" data-action="continue">Continue<span class="menu-continue-mode"></span></button>
+          <button type="button" data-action="modes">Game mode</button>
+          <button type="button" data-action="settings">Settings</button>
+        </div>
+      </div>
+      <div class="menu-screen menu-window" data-screen="modes" hidden>
+        <h1 class="menu-titlebar">Game mode</h1>
+        <div id="menu-modes"></div>
+        <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
+      </div>
+      <div class="menu-screen menu-window" data-screen="settings" hidden>
+        <h1 class="menu-titlebar">Settings</h1>
+        <div id="menu-settings"></div>
+        <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
+      </div>
+    </div>
     <div id="lobby">
       <form id="lobby-form" autocomplete="off">
         <h1>Shared Room</h1>
@@ -71,7 +91,7 @@
           <button id="lobby-cancel" type="button" hidden>Cancel</button>
           <button id="lobby-join" type="submit" disabled>Drive in</button>
         </div>
-        <p id="lobby-status">Loading terrain…</p>
+        <p id="lobby-status"></p>
       </form>
     </div>
     <div id="net-status" hidden></div>
@@ -133,6 +153,7 @@
             </div>
             <div id="hud-reset">
               <button type="button" id="hud-change-choices">Change name/vehicle</button>
+              <button type="button" id="hud-main-menu">Main menu (Esc)</button>
             </div>
           </div>
           <div id="hud-discord">

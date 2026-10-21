@@ -90,9 +90,41 @@ import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
 import { createLobby } from './ui/lobby.js';
+import { createMainMenu } from './ui/mainMenu.js';
 
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
+
+// ---------- Networking ----------
+// Stable clientId across reloads, so a refresh isn't a new peer.
+const net = createNet({ clientId: loadOrCreatePlayerId() });
+
+// ---------- Lobby (name/color + join flow) ----------
+// Before the menu: first-time players set their name there. Its callbacks run after the world is up.
+const lobby = createLobby({
+  net,
+  getCarManager: () => carManager,
+  originChain: () => addressSearch.awaitOriginChain(),
+  onJoined(color, vehicleId) {
+    carManager.spawnLocalCar(color, vehicleId);
+    vehicleDebugPicker.syncFromCar();
+    startLoopOnce();
+    // Start the HUD auto-fold timers only after joining.
+    collapsibleHud.startAutoFold();
+  },
+  onReset() {
+    // lobby.js already respawned the car; just sync the debug picker.
+    vehicleDebugPicker.syncFromCar();
+  },
+});
+
+// ---------- Main menu ----------
+// Settings controls first: the menu's Settings screen shows them before the world loads.
+createVolumeSliders();
+const graphicsDetailPicker = createGraphicsDetailPicker();
+// Picks the game mode, and so the save slot everything below resumes from.
+const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
+await mainMenu.waitForLaunch();
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
@@ -189,10 +221,6 @@ pedestrians.setSoundCallbacks({
   onNearMiss: (id, p) => pedestrianSounds.gasp(id, camera.position.distanceTo(p)),
 });
 
-// ---------- Networking ----------
-// Stable clientId across reloads, so a refresh isn't a new peer.
-const net = createNet({ clientId: loadOrCreatePlayerId() });
-
 // ---------- Car spawn point ----------
 // A few metres back from the origin, dropped onto the terrain.
 const START_POS = new CANNON.Vec3(0, 3, -5);
@@ -251,6 +279,7 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
 const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+carManager.addScore(savedCarState?.score ?? 0);
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
 const devCarChoice = IS_DEV_MODE ? loadDevCarChoice() : null;
@@ -347,7 +376,6 @@ const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
-createVolumeSliders();
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -440,31 +468,13 @@ const mainLoop = createMainLoop({
   floatingOrigin,
   isJoined: () => lobby.isJoined(),
 });
-createGraphicsDetailPicker({ terrain, mainLoop, roadside, trees, bushes, rocks });
+graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
 
 function startLoopOnce() {
   if (loopStarted) return;
   loopStarted = true;
   mainLoop.animate();
 }
-
-// ---------- Lobby (name/color + join flow) ----------
-const lobby = createLobby({
-  net,
-  carManager,
-  originChain: () => addressSearch.awaitOriginChain(),
-  onJoined(color, vehicleId) {
-    carManager.spawnLocalCar(color, vehicleId);
-    vehicleDebugPicker.syncFromCar();
-    startLoopOnce();
-    // Start the HUD auto-fold timers only after joining.
-    collapsibleHud.startAutoFold();
-  },
-  onReset() {
-    // lobby.js already respawned the car; just sync the debug picker.
-    vehicleDebugPicker.syncFromCar();
-  },
-});
 
 // ---------- Startup ----------
 // Load terrain (the car can't fall through), then the gameplay layers (grip, building
@@ -477,15 +487,11 @@ terrain.init().then(async () => {
     initialViewOrigin.lon
   );
   loadingScreen.hide();
+  mainMenu.setInGame();
   if (IS_DEV_MODE) {
-    // Dev: skip the lobby and join with the saved debug pick, if any.
+    // Dev: no profile; join with the saved debug pick, if any.
     lobby.joinRoom('dev_mode', devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);
     return;
   }
-  // Returning player: join straight away with the saved name/colour.
-  if (lobby.tryAutoJoin()) return;
-  lobby.enableJoinButton();
-  lobby.setStatus('Enter your name and pick a color.');
-  carManager.spawnPreviewCar(START_POS);
-  startLoopOnce();
+  lobby.joinSaved();
 });

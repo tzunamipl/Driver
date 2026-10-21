@@ -1,9 +1,10 @@
-import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, IS_DEV_MODE, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
+import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
 import { getVehicleColor, setVehicleColor, defaultVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
+import { readSaveField, writeSaveField } from '../lib/saves.js';
 
-// Saved name/colour/vehicle pick; prefills the lobby and drives auto-join.
+// Saved name/colour/vehicle pick (the profile); prefills the lobby, and its vehicle starts new games.
 function loadSavedChoices() {
   try {
     const raw = localStorage.getItem(LOBBY_STORAGE_KEY);
@@ -26,19 +27,19 @@ function saveChoices(name, color, vehicleId) {
 
 const toHex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 
-// Lobby: name/colour/vehicle form, join flow and network status.
+// Lobby: name/colour/vehicle form, join flow and network status. Before joining
+// it only edits the profile; once in a game it re-picks the car live.
 
 /**
  * @param {object} deps
  * @param {ReturnType<typeof import('../lib/net.js').createNet>} deps.net
- * @param {import('../app/carManager.js').ReturnType} deps.carManager
+ * @param {() => import('../app/carManager.js').ReturnType} deps.getCarManager - created after the menu.
  * @param {(color: number, vehicleId: string) => void} deps.onJoined - spawn the car after joining.
  * @param {() => void} [deps.onReset] - after a mid-drive re-pick respawned the car.
  */
-export function createLobby({ net, carManager, onJoined, onReset, originChain }) {
+export function createLobby({ net, getCarManager, onJoined, onReset, originChain }) {
   const lobbyEl = document.getElementById('lobby');
-  // Dev mode never shows the prompt (see joinRoom).
-  if (IS_DEV_MODE) lobbyEl.style.display = 'none';
+  lobbyEl.style.display = 'none';
   const lobbyForm = document.getElementById('lobby-form');
   const lobbyName = document.getElementById('lobby-name');
   const lobbyJoin = document.getElementById('lobby-join');
@@ -51,6 +52,7 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
   const lobbyColorReset = document.getElementById('lobby-color-reset');
 
   let joined = false;
+  let onProfileSaved = null;
   // Colours edited in this lobby session, per vehicle id; stored only on join/apply.
   const draftColors = new Map();
 
@@ -93,10 +95,13 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     draftColors.clear();
   }
 
-  function showLobby() {
+  function showLobby({ cancellable = joined } = {}) {
     draftColors.clear();
     lobbyEl.style.display = '';
-    lobbyCancel.hidden = !joined;
+    lobbyCancel.hidden = !cancellable;
+    lobbyJoin.disabled = false;
+    lobbyJoin.textContent = joined ? 'Apply' : 'OK';
+    setLobbyStatus('');
     vehiclePreview.start();
   }
 
@@ -105,8 +110,8 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     vehiclePreview.stop();
   }
 
-  // Prefill a saved pick and hide the prompt; tryAutoJoin uses it.
-  const saved = loadSavedChoices();
+  // Prefill a saved pick.
+  let saved = loadSavedChoices();
   if (saved) {
     lobbyName.value = saved.name;
     if (saved.vehicleId) vehiclePicker.select(saved.vehicleId);
@@ -116,11 +121,9 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
       const legacy = Number.parseInt(saved.color.replace('#', ''), 16);
       if (Number.isInteger(legacy)) setVehicleColor(id, legacy);
     }
-    lobbyEl.style.display = 'none';
   }
   vehiclePreview.setVehicle(vehiclePicker.getSelectedId());
   showVehicleColor();
-  if (lobbyEl.style.display !== 'none') vehiclePreview.start();
 
   function selectedColor() {
     const hex = String(lobbyColor.value || '').replace('#', '');
@@ -155,9 +158,8 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
       }
     }
 
-    carManager.setLocalName(name.slice(0, 16));
-    commitDraftColors();
-    saveChoices(name, lobbyColor.value, vehicleId);
+    getCarManager().setLocalName(name.slice(0, 16));
+    writeSaveField('vehicle', { vehicleId, color });
     joined = true;
     hideLobby();
     netStatusEl.hidden = false;
@@ -167,15 +169,22 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
 
   // Re-pick while already joined: apply live, no reconnect.
   function applyLivePick(name, color, vehicleId) {
+    const carManager = getCarManager();
     carManager.setLocalName(name.slice(0, 16));
     carManager.spawnLocalCar(color, vehicleId);
     net.setName(name);
     net.setColor(color);
     net.setVehicleId(vehicleId);
-    commitDraftColors();
-    saveChoices(name, lobbyColor.value, vehicleId);
+    saveProfile(name, vehicleId);
+    writeSaveField('vehicle', { vehicleId, color });
     hideLobby();
     onReset?.();
+  }
+
+  function saveProfile(name, vehicleId) {
+    commitDraftColors();
+    saveChoices(name, lobbyColor.value, vehicleId);
+    saved = loadSavedChoices();
   }
 
   lobbyForm.addEventListener('submit', (e) => {
@@ -187,7 +196,10 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
     if (joined) {
       applyLivePick(name, color, vehicleId);
     } else {
-      joinRoom(name, color, vehicleId);
+      saveProfile(name, vehicleId);
+      hideLobby();
+      onProfileSaved?.();
+      onProfileSaved = null;
     }
   });
 
@@ -200,34 +212,34 @@ export function createLobby({ net, carManager, onJoined, onReset, originChain })
   changeChoicesBtn?.addEventListener('click', () => {
     if (joined) {
       // The debug picker can change the vehicle live, so read the car, not storage.
+      const carManager = getCarManager();
       lobbyName.value = carManager.getLocalName() || lobbyName.value;
       vehiclePicker.select(carManager.getVehicleId());
     }
     vehiclePreview.setVehicle(vehiclePicker.getSelectedId());
-    showLobby();
+    showLobby({ cancellable: true });
     showVehicleColor();
-    lobbyJoin.disabled = false;
-    lobbyJoin.textContent = joined ? 'Apply' : 'Drive in';
-    setLobbyStatus('');
     lobbyName.focus();
   });
 
-  lobbyCancel.addEventListener('click', () => {
-    if (joined) hideLobby();
-  });
+  lobbyCancel.addEventListener('click', hideLobby);
 
   return {
     isJoined: () => joined,
     joinRoom,
-    setStatus: setLobbyStatus,
-    enableJoinButton: () => {
-      lobbyJoin.disabled = false;
-    },
-    // Auto-join with a saved pick; returns whether it did.
-    tryAutoJoin: () => {
-      if (!saved) return false;
-      joinRoom(saved.name, selectedColor(), vehiclePicker.getSelectedId());
-      return true;
+    /** Resolves once a name is saved, asking for one first if there's none yet. */
+    ensureProfile: () =>
+      new Promise((resolve) => {
+        if (saved) return resolve();
+        onProfileSaved = resolve;
+        showLobby({ cancellable: false });
+        lobbyName.focus();
+      }),
+    /** Joins with the profile name and the active mode's car, else the profile's. */
+    joinSaved: () => {
+      const vehicle = readSaveField('vehicle');
+      const vehicleId = vehicle?.vehicleId ?? vehiclePicker.getSelectedId();
+      return joinRoom(saved.name, vehicle?.color ?? getVehicleColor(vehicleId), vehicleId);
     },
   };
 }

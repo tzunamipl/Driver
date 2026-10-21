@@ -127,19 +127,6 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     hookCar(vehicle, chassisMesh);
   }
 
-  /** Spawns the shared "preview" car used before a player has joined a room. */
-  function spawnPreviewCar(startPos) {
-    removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
-      world,
-      scene,
-      startPos,
-      startQuat
-    ));
-    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
-    hookCar(vehicle, chassisMesh);
-  }
-
   // `poses` are already remapped into the view frame by mainLoop.
   function updateRemotes(dt, poses) {
     const seen = new Set();
@@ -196,7 +183,6 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   return {
     remotes,
     spawnLocalCar,
-    spawnPreviewCar,
     setVehicleKind,
     setColor,
     updateRemotes,

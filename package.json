@@ -1,6 +1,6 @@
 {
   "name": "driver",
-  "version": "0.5.30",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {

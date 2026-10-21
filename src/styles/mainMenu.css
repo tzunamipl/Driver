@@ -1,0 +1,126 @@
+/* Over the loading screen (30): the world only loads once a mode is picked. */
+#main-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--w95-desktop);
+  color: #000;
+  font-size: 11px;
+}
+/* Mid-game the world stays visible behind it. */
+#main-menu.in-game { background: rgba(0, 0, 0, 0.35); }
+#main-menu[hidden],
+#main-menu .menu-screen[hidden] { display: none; }
+.menu-window {
+  max-width: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 3px 3px 10px;
+}
+.menu-titlebar {
+  flex: none;
+  margin: 0 0 10px;
+  padding: 3px 4px;
+  background: linear-gradient(90deg, var(--w95-select), #1084d0);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 14px;
+}
+.menu-window > :not(.menu-titlebar) {
+  margin-left: 9px;
+  margin-right: 9px;
+}
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(220px, calc(100vw - 56px));
+  padding: 8px 0 2px;
+}
+#main-menu .menu-buttons button {
+  min-height: 34px;
+  font-size: 22px;
+}
+.menu-continue-mode:not(:empty) {
+  display: block;
+  font-size: 11px;
+  line-height: 13px;
+  padding-bottom: 3px;
+}
+#menu-modes {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+/* Tall raised cards, one per mode. */
+.menu-mode {
+  flex: none;
+  width: 150px;
+  height: min(360px, calc(100dvh - 140px));
+  min-height: 220px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  box-shadow: var(--w95-raised);
+}
+.menu-mode.active { outline: 1px dotted #000; outline-offset: -6px; }
+.menu-mode-title {
+  padding: 3px 4px;
+  background: var(--w95-select);
+  color: #fff;
+  font-weight: bold;
+}
+.menu-mode-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow-y: auto;
+}
+.menu-mode-body p {
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.menu-mode-status {
+  color: #444;
+  white-space: pre-line;
+}
+.menu-mode-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 4px 4px;
+}
+.menu-mode.unavailable { color: var(--w95-shadow); }
+.menu-mode.unavailable .menu-mode-title {
+  background: var(--w95-shadow);
+  color: var(--w95-face);
+}
+.menu-mode.unavailable p { text-shadow: 1px 1px 0 #fff; }
+#menu-settings {
+  min-height: 0;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+#main-menu #hud-body {
+  max-height: none;
+}
+/* Already in the menu. */
+#main-menu #hud-main-menu { display: none; }
+.menu-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.menu-footer button { min-width: 75px; }

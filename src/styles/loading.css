@@ -1,4 +1,3 @@
-/* Above the lobby (z-index 20): the form is useless until terrain is in. */
 #loading-screen {
   position: fixed;
   inset: 0;

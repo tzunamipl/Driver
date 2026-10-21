@@ -1,7 +1,7 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
 import { strokeRoute } from '../hud/routeLine.js';
-import { NAV_DESTINATION_STORAGE_KEY } from '../config.js';
+import { readSaveField, writeSaveField } from '../lib/saves.js';
 
 // Foldable "Navigation" tab: address search + a pannable slippy map to pick
 // a destination, then Teleport or Navigate (road route) there. Map state is in
@@ -19,21 +19,13 @@ const toMercY = (lat) => lat2tileY(lat, 0);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function loadSelection() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(NAV_DESTINATION_STORAGE_KEY));
-    if (!Number.isFinite(parsed?.lat) || !Number.isFinite(parsed?.lon)) return null;
-    return { lat: parsed.lat, lon: parsed.lon, label: typeof parsed.label === 'string' ? parsed.label : null };
-  } catch {
-    return null;
-  }
+  const parsed = readSaveField('navDestination');
+  if (!Number.isFinite(parsed?.lat) || !Number.isFinite(parsed?.lon)) return null;
+  return { lat: parsed.lat, lon: parsed.lon, label: typeof parsed.label === 'string' ? parsed.label : null };
 }
 
 function saveSelection(selection) {
-  try {
-    localStorage.setItem(NAV_DESTINATION_STORAGE_KEY, JSON.stringify(selection));
-  } catch {
-    // Not persisting is harmless.
-  }
+  writeSaveField('navDestination', selection);
 }
 
 /**

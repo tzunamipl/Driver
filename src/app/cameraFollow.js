@@ -15,7 +15,6 @@ import {
   CAMERA_PITCH_SPEED,
   CAMERA_PITCH_MAX_ANGLE,
   CAMERA_PITCH_MIN_SPEED,
-  CAMERA_VIEW_STORAGE_KEY,
   CAMERA_GROUND_CLEARANCE_M,
   TELEPORT_CAMERA_FOV_DEG,
   TELEPORT_CAMERA_ORBIT_RATE,
@@ -34,6 +33,7 @@ import {
 } from '../config.js';
 import { CAMERA_VIEWS, getCameraView, nextCameraView, DEFAULT_CAMERA_VIEW_ID } from './cameraViews/index.js';
 import { getVehicle } from '../lib/vehicles/index.js';
+import { readSaveField, writeSaveField } from '../lib/saves.js';
 
 // Chase camera: aims along the velocity (not facing), smooths yaw to
 // filter suspension jitter, freezes yaw while flipped, and tilts slightly
@@ -49,12 +49,8 @@ function isTypingInField() {
 }
 
 function loadSavedViewId() {
-  try {
-    const id = localStorage.getItem(CAMERA_VIEW_STORAGE_KEY);
-    return CAMERA_VIEWS.some((v) => v.id === id) ? id : null;
-  } catch {
-    return null;
-  }
+  const id = readSaveField('cameraView');
+  return CAMERA_VIEWS.some((v) => v.id === id) ? id : null;
 }
 
 let labelEl = null;
@@ -147,11 +143,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     const view = getCameraView(id, currentVehicleType);
     viewId = view.id;
     resetSmoothing();
-    try {
-      localStorage.setItem(CAMERA_VIEW_STORAGE_KEY, viewId);
-    } catch {
-      // Storage unavailable: works for this session only.
-    }
+    writeSaveField('cameraView', viewId);
     flashViewLabel(view.label);
   }
 

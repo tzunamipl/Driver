@@ -263,6 +263,7 @@ export function createMainLoop({
         qz: currentChassisMesh.quaternion.z,
         qw: currentChassisMesh.quaternion.w,
         odoKm: gaugesHud.getOdometerKm(),
+        score: carManager.getScore(),
         handbrakeLatched: input.getHandbrake().latched,
       };
       if (now >= nextCarStateSave) {
