@@ -52,6 +52,7 @@ const TRUNK_SINK_M = 0.4; // below the ground, so slopes don't show the trunk's 
 const CROWN_RADIUS_M = 3.2;
 const CROWN_HALF_HEIGHT_M = 4.5;
 const CROWN_CENTER_M = 9.5;
+const DISSOLVE_NEAR_M = 120; // trees this close to the car burst into particles when dropped
 const CROWN_COLORS = [0x2f5d24, 0x3d7a2a, 0x24491c, 0x4a7f30].map((c) => new THREE.Color(c));
 // Pine: two stacked closed cones [base y, radius, height] (5 sides each, 20 triangles in all).
 const PINE_TIERS = [
@@ -219,6 +220,7 @@ export function createRocks(deps) {
  * @param {import('./streets.js').StreetsManager} deps.streets
  * @param {import('./waterAreas.js').WaterAreasManager} [deps.waterAreas]
  * @param {import('./rivers.js').RiversManager} [deps.rivers]
+ * @param {ReturnType<import('./dissolve.js').createDissolve>} [deps.dissolve]
  */
 function createVegetation({
   kind,
@@ -229,6 +231,7 @@ function createVegetation({
   streets,
   waterAreas = null,
   rivers = null,
+  dissolve = null,
   drawDistance = TREE_DRAW_DISTANCE_M,
   trunkDistance = TREE_TRUNK_DISTANCE_M,
   growDistance = TREE_GROW_M,
@@ -265,6 +268,7 @@ function createVegetation({
   let dirty = true;
   let unfilledTiles = 0; // in range, skipped for lack of time (not ones waiting for data)
   const bodies = new Map(); // "tx_ty:i" -> static sphere body (solid kinds, within physicsDistance)
+  let nearTrees = new Map(); // "tx_ty:i" -> [x, y, z, scale] drawn within DISSOLVE_NEAR_M at the last rebuild
 
   /** Static spheres for the solid instances in `wanted` ("tx_ty:i" -> [x, y, z, radius]); drops the rest. */
   function syncBodies(wanted) {
@@ -284,6 +288,17 @@ function createVegetation({
       body.position.set(bx, by, bz); // also follows refined terrain
       body.aabbNeedsUpdate = true;
     }
+  }
+
+  /** Bursts last rebuild's near trees that are gone now (tile dropped or out of draw range, e.g. a teleport). */
+  function dissolveDropped(x, z, near) {
+    const maxDistSq = drawDistance * drawDistance;
+    for (const [key, [px, py, pz, s]] of nearTrees) {
+      if (near.has(key)) continue;
+      const gone = !tiles.has(key.slice(0, key.indexOf(':'))) || (px - x) ** 2 + (pz - z) ** 2 > maxDistSq;
+      if (gone) dissolve.dissolveColumn(px, py, pz, (CROWN_CENTER_M + CROWN_HALF_HEIGHT_M) * s);
+    }
+    nearTrees = near;
   }
 
   const toLocal = (lat, lon) => latLonToLocal(lat, lon, landcoverAreas.originLat, landcoverAreas.originLon, landcoverAreas.scaleLat);
@@ -429,6 +444,8 @@ function createVegetation({
     const maxDistSq = drawDistance * drawDistance;
     const trunkDistSq = trunkDistance * trunkDistance;
     const physicsDistSq = physicsDistance * physicsDistance;
+    const nearDistSq = DISSOLVE_NEAR_M * DISSOLVE_NEAR_M;
+    const near = new Map();
     const solids = new Map();
     let count = 0;
     let trunkCount = 0;
@@ -452,6 +469,7 @@ function createVegetation({
         const tilt = kind.tilt ? kind.tilt * hash(tx, ty ^ 0x2c1b3c6d, i) : 0;
         instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5], pine ? 1 : 0, tilt);
         count++;
+        if (dissolve && distSq <= nearDistSq) near.set(`${key}:${i}`, [px, py, pz, trees[i + 2]]);
         if (trunk) trunkCount++;
         if (pine) pineCount++;
         if (kind.solid && world && distSq <= physicsDistSq) {
@@ -461,6 +479,7 @@ function createVegetation({
       }
     }
     if (kind.solid && world) syncBodies(solids);
+    if (dissolve) dissolveDropped(x, z, near);
     ensureCapacity(trunkSet, trunkCount);
     ensureCapacity(crownSet, count - pineCount);
     ensureCapacity(pineSet, pineCount);
@@ -537,6 +556,10 @@ function createVegetation({
     shiftOrigin(dx, dz) {
       lastX -= dx;
       lastZ -= dz;
+      for (const tree of nearTrees.values()) {
+        tree[0] -= dx;
+        tree[2] -= dz;
+      }
     },
   };
 }

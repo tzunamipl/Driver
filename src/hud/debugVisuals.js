@@ -13,6 +13,7 @@ const LAYERS = [
   { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
   { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height
   { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
+  { id: 'dissolve', label: 'Unload dissolve', group: 'debug', on: false }, // tiles, buildings & near trees burst into particles
   // Gameplay objects, not overlays: shown while the debug view is off.
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
   { id: 'streetLamps', label: 'Street lamps', group: 'graphics' },
@@ -80,6 +81,7 @@ function saveEnabled(enabled) {
  * @param {ReturnType<import('../lib/trees.js').createTrees>} [deps.trees]
  * @param {ReturnType<import('../lib/trees.js').createBushes>} [deps.bushes]
  * @param {ReturnType<import('../lib/trees.js').createRocks>} [deps.rocks]
+ * @param {ReturnType<import('../lib/dissolve.js').createDissolve>} [deps.dissolve]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
@@ -100,6 +102,7 @@ export function createDebugVisualsToggle(
     trees,
     bushes,
     rocks,
+    dissolve,
     terrainStatsEl,
     suspensionHudEl,
     vehicleDebugHudEl,
@@ -147,6 +150,7 @@ export function createDebugVisualsToggle(
       rocks.setVisible(kept('rocks'));
       rocks.setShadows(shown('treeShadows'));
     }
+    if (dissolve) dissolve.setEnabled(shown('dissolve'));
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 

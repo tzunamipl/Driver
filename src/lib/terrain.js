@@ -209,6 +209,7 @@ export class TerrainManager {
     this._leaves = []; // desired leaves: [{ z, x, y, key, distMeters, dirX, dirY, detail, covered }]
     this._leafKeys = new Set();
     this._visible = new Set();
+    this.dissolve = null; // optional createDissolve(): shown tiles burst into particles as they go
     this._displayDirty = false; // a load finished; _updateDisplay() runs on the next update()
     this._detailWaiters = [];
     // Bumped by recenter() so in-flight loads for the old origin bail out.
@@ -556,6 +557,7 @@ export class TerrainManager {
     const now = performance.now();
     for (const tile of this.tiles.values()) {
       const show = visible.has(tile.key);
+      if (tile.mesh.visible && !show) this.dissolve?.dissolveMesh(tile.mesh);
       tile.mesh.visible = show;
       if (show) tile.hiddenSince = null;
       else if (tile.hiddenSince == null) tile.hiddenSince = now;
@@ -977,6 +979,7 @@ export class TerrainManager {
   }
 
   _disposeTile(tile) {
+    if (tile.mesh.visible) this.dissolve?.dissolveMesh(tile.mesh);
     this.scene.remove(tile.mesh);
     tile.mesh.geometry.dispose();
     const map = tile.mesh.material.map;

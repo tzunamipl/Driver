@@ -203,6 +203,7 @@ export class BuildingsManager {
     this.terrain = terrain;
     this.chunks = new Map(); // key -> { mesh, bodies[], hitboxLines[], tx, ty, bytes, physics }
     this.pendingRemoval = new Map();
+    this.dissolve = null; // optional createDissolve(): unloaded chunks burst into particles
     this.stats = { created: 0, removed: 0, buildings: 0 };
     this._buildQueue = []; // [{ tx, ty, key }] not yet started
     this._queuedKeys = new Set();
@@ -511,6 +512,7 @@ export class BuildingsManager {
     const chunk = this.chunks.get(key);
     if (!chunk) return;
     if (chunk.mesh) {
+      this.dissolve?.dissolveMesh(chunk.mesh);
       this.scene.remove(chunk.mesh);
       chunk.mesh.geometry.dispose();
     }

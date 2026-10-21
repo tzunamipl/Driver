@@ -19,6 +19,12 @@ import {
   CAMERA_GROUND_CLEARANCE_M,
   TELEPORT_CAMERA_FOV_DEG,
   TELEPORT_CAMERA_ORBIT_RATE,
+  TELEPORT_CAMERA_SPIN_UP_S,
+  TELEPORT_CAMERA_SPIN_DOWN_S,
+  TELEPORT_CAMERA_ROLL_DEG,
+  TELEPORT_CAMERA_JUMP_FOV_DEG,
+  TELEPORT_CAMERA_JUMP_WOBBLE_S,
+  TELEPORT_CAMERA_JUMP_WOBBLE_HZ,
   TELEPORT_CAMERA_ORBIT_RADIUS,
   TELEPORT_CAMERA_ORBIT_HEIGHT,
   TELEPORT_CAMERA_BLEND_IN_S,
@@ -174,7 +180,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   const droneVel = new THREE.Vector3();
   const droneTmp = new THREE.Vector3();
   const droneLookOffset = new THREE.Vector3();
-  // Lagged picture of the car the drone flies by: horizontal velocity, heading,
+  // Lagged picture of the car the drone flies by: velocity, heading,
   // and position kept as an offset from the car (no floating-origin shift needed).
   const droneRefVel = new THREE.Vector3();
   const droneRefOffset = new THREE.Vector3();
@@ -201,7 +207,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     if (droneSweep === null) {
       droneSweep = Math.random() * Math.PI * 2;
       droneVel.set(vel.x, vel.y, vel.z); // take off from wherever the previous view left the camera
-      droneRefVel.set(vel.x, 0, vel.z);
+      droneRefVel.set(vel.x, vel.y, vel.z);
       droneRefOffset.set(0, 0, 0);
       droneRefYaw = smoothedYaw;
     }
@@ -210,9 +216,11 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     // car's, the reference position runs on that velocity and drifts back onto the car.
     const react = 1 - Math.exp(-delta / view.reactionTime);
     droneRefOffset.x += (droneRefVel.x - vel.x) * delta;
+    droneRefOffset.y += (droneRefVel.y - vel.y) * delta;
     droneRefOffset.z += (droneRefVel.z - vel.z) * delta;
     droneRefOffset.multiplyScalar(1 - react);
     droneRefVel.x += (vel.x - droneRefVel.x) * react;
+    droneRefVel.y += (vel.y - droneRefVel.y) * react;
     droneRefVel.z += (vel.z - droneRefVel.z) * react;
     droneRefYaw += Math.atan2(Math.sin(smoothedYaw - droneRefYaw), Math.cos(smoothedYaw - droneRefYaw)) * react;
     const refPos = droneRefPos.copy(carPos).add(droneRefOffset);
@@ -240,12 +248,11 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
       swoop
     );
     const target = tmpVec.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius).add(refPos);
-    target.y = carPos.y + height; // vertical stays on the real car so it never sinks below a drop
 
     // Respawn/teleport or first use from far away: jump there.
     if (camera.position.distanceToSquared(target) > 300 * 300) {
       droneRefOffset.set(0, 0, 0);
-      droneRefVel.set(vel.x, 0, vel.z);
+      droneRefVel.set(vel.x, vel.y, vel.z);
       target.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius).add(carPos);
       camera.position.copy(target);
       droneVel.set(vel.x, vel.y, vel.z);
@@ -257,7 +264,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     desired.clampLength(0, view.maxOwnSpeed);
     const carry = THREE.MathUtils.lerp(view.carryMin, 1, THREE.MathUtils.smoothstep(speed, 0, view.carryFullSpeed));
     desired.x += droneRefVel.x * carry;
-    desired.y += vel.y; // always fall/climb with the car or it's left hanging above a drop
+    desired.y += droneRefVel.y * carry;
     desired.z += droneRefVel.z * carry;
     const accel = desired.sub(droneVel).clampLength(0, view.maxAccel * delta);
     droneVel.add(accel);
@@ -432,18 +439,30 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   const orbitLook = new THREE.Vector3();
   const orbitQuat = new THREE.Quaternion();
   const orbitMatrix = new THREE.Matrix4();
-  let transition = null; // { elapsed, settled, weight, angle }
+  const rollQuat = new THREE.Quaternion();
+  const forwardAxis = new THREE.Vector3(0, 0, -1);
+  let transition = null; // { elapsed, settled, weight, angle, rate, teleporting, sinceJump }
+
+  /** Damped FOV wobble after the jump: starts at the full drop, rings and fades to 0 by the end. */
+  function jumpFovOffset(t) {
+    if (t >= TELEPORT_CAMERA_JUMP_WOBBLE_S) return 0;
+    const u = t / TELEPORT_CAMERA_JUMP_WOBBLE_S;
+    return TELEPORT_CAMERA_JUMP_FOV_DEG * Math.cos(2 * Math.PI * TELEPORT_CAMERA_JUMP_WOBBLE_HZ * t) * Math.exp(-3 * u) * (1 - u);
+  }
 
   /** Starts on `teleporting`; holds until the car has been placed and settled, then blends back. */
   function updateTransition(delta, carPos, cameraScale, teleporting, resetting) {
     if (teleporting && !transition) {
       // Start the orbit where the camera already is, so it only widens and turns.
       tmpVec.subVectors(camera.position, carPos);
-      transition = { elapsed: 0, settled: 0, weight: 0, angle: Math.atan2(tmpVec.x, tmpVec.z) };
+      transition = { elapsed: 0, settled: 0, weight: 0, angle: Math.atan2(tmpVec.x, tmpVec.z), rate: 0, teleporting: true, sinceJump: Infinity };
     }
     if (!transition) return;
 
     transition.elapsed += delta;
+    if (transition.teleporting && !teleporting) transition.sinceJump = 0;
+    else transition.sinceJump += delta;
+    transition.teleporting = teleporting;
     transition.settled = teleporting || resetting ? 0 : transition.settled + delta;
     const holding = transition.elapsed < TELEPORT_CAMERA_MIN_S || transition.settled < TELEPORT_CAMERA_SETTLE_S;
     transition.weight = holding
@@ -458,7 +477,10 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     viewPos.copy(camera.position);
     viewQuat.copy(camera.quaternion);
 
-    transition.angle += TELEPORT_CAMERA_ORBIT_RATE * delta;
+    transition.rate = holding
+      ? Math.min(TELEPORT_CAMERA_ORBIT_RATE, transition.rate + (TELEPORT_CAMERA_ORBIT_RATE / TELEPORT_CAMERA_SPIN_UP_S) * delta)
+      : Math.max(0, transition.rate - (TELEPORT_CAMERA_ORBIT_RATE / TELEPORT_CAMERA_SPIN_DOWN_S) * delta);
+    transition.angle += transition.rate * delta;
     const radius = TELEPORT_CAMERA_ORBIT_RADIUS * cameraScale;
     orbitPos
       .set(Math.sin(transition.angle) * radius, TELEPORT_CAMERA_ORBIT_HEIGHT * cameraScale, Math.cos(transition.angle) * radius)
@@ -466,11 +488,13 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     keepAboveTerrain(orbitPos);
     orbitLook.copy(carPos).y += 1;
     orbitQuat.setFromRotationMatrix(orbitMatrix.lookAt(orbitPos, orbitLook, upVec));
+    const spin = THREE.MathUtils.smoothstep(transition.rate / TELEPORT_CAMERA_ORBIT_RATE, 0, 1);
+    orbitQuat.multiply(rollQuat.setFromAxisAngle(forwardAxis, THREE.MathUtils.degToRad(TELEPORT_CAMERA_ROLL_DEG) * spin));
 
     const w = THREE.MathUtils.smoothstep(transition.weight, 0, 1);
     camera.position.lerp(orbitPos, w);
     camera.quaternion.slerp(orbitQuat, w);
-    camera.fov = THREE.MathUtils.lerp(baseFov, TELEPORT_CAMERA_FOV_DEG, w);
+    camera.fov = THREE.MathUtils.lerp(baseFov, TELEPORT_CAMERA_FOV_DEG, w) - jumpFovOffset(transition.sinceJump);
     camera.updateProjectionMatrix();
   }
 

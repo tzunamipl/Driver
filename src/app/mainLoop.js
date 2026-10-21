@@ -75,6 +75,7 @@ export function createMainLoop({
   tireSmoke,
   terrainDust,
   bodyDust,
+  dissolve,
   clouds,
   remoteCollisions,
   net,
@@ -342,6 +343,7 @@ export function createMainLoop({
     terrainDust.update(frameDelta, currentVehicle, world);
     // Body dust is spawned by collide events; this only ages puffs.
     bodyDust.update(frameDelta);
+    dissolve.update(frameDelta);
     if (currentChassisMesh) {
       clouds.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z, currentChassisMesh.position.y);
     }

@@ -112,11 +112,18 @@ export const CAMERA_PITCH_MIN_SPEED = 2; // m/s; below, the camera levels out
 export const CAMERA_GROUND_CLEARANCE_M = 0.5; // every view stays this far above the terrain
 // Teleport transition: wide orbit round the car while the destination loads.
 export const TELEPORT_CAMERA_FOV_DEG = 115;
-export const TELEPORT_CAMERA_ORBIT_RATE = 0.7; // rad/s
+export const TELEPORT_CAMERA_ORBIT_RATE = 9.5; // rad/s, top spin speed
+export const TELEPORT_CAMERA_SPIN_UP_S = 3.5; // time from still to top spin
+export const TELEPORT_CAMERA_SPIN_DOWN_S = 1.2; // top spin to still once loaded, overlaps the blend out
+export const TELEPORT_CAMERA_ROLL_DEG = 12; // dutch tilt at top spin, eases with the spin speed
+// The jump itself (car placed at the destination): FOV snaps narrower, then wobbles back.
+export const TELEPORT_CAMERA_JUMP_FOV_DEG = 40; // FOV drop at the jump
+export const TELEPORT_CAMERA_JUMP_WOBBLE_S = 1.5;
+export const TELEPORT_CAMERA_JUMP_WOBBLE_HZ = 2.5;
 export const TELEPORT_CAMERA_ORBIT_RADIUS = 14; // m, times descriptor.cameraScale
 export const TELEPORT_CAMERA_ORBIT_HEIGHT = 6; // m above the car, times descriptor.cameraScale
 export const TELEPORT_CAMERA_BLEND_IN_S = 0.8;
-export const TELEPORT_CAMERA_BLEND_OUT_S = 1.5;
+export const TELEPORT_CAMERA_BLEND_OUT_S = 2;
 export const TELEPORT_CAMERA_MIN_S = 2.5; // orbit at least this long, even on a fast load
 export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it drop onto its wheels
 

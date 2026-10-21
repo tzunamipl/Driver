@@ -13,6 +13,7 @@ import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
+import { createDissolve } from './lib/dissolve.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
@@ -136,13 +137,16 @@ const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialV
   lon: ORIGIN_LON,
 });
 const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
+const dissolve = createDissolve(scene); // debug layer: what streams out bursts into particles
+terrain.dissolve = dissolve;
+buildings.dissolve = dissolve;
 const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const builtUpAreas = new BuiltUpAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 pedestrians.setBuiltUpAreas(builtUpAreas);
 const landcoverAreas = new LandcoverAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
-const trees = createTrees({ scene, terrain, landcoverAreas, streets, waterAreas, rivers });
+const trees = createTrees({ scene, terrain, landcoverAreas, streets, waterAreas, rivers, dissolve });
 const bushes = createBushes({ scene, terrain, landcoverAreas, streets, waterAreas, rivers });
 const rocks = createRocks({ scene, world, terrain, landcoverAreas, streets, waterAreas, rivers });
 
@@ -219,6 +223,7 @@ const debugVisuals = createDebugVisualsToggle(
     trees,
     bushes,
     rocks,
+    dissolve,
     terrainStatsEl: document.getElementById('terrain-stats'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
@@ -404,6 +409,7 @@ const mainLoop = createMainLoop({
   tireSmoke,
   terrainDust,
   bodyDust,
+  dissolve,
   clouds,
   remoteCollisions,
   net,
