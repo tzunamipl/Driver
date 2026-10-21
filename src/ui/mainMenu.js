@@ -1,6 +1,6 @@
 import { IS_DEV_MODE, LAUNCH_STORAGE_KEY } from '../config.js';
 import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode } from '../app/gameModes.js';
-import { getLatestModeId, getSaveInfo, clearSave, setActiveMode, getActiveModeId } from '../lib/saves.js';
+import { getLatestModeId, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, isEditorSession } from '../lib/saves.js';
 
 // Main menu: Continue / Game mode / Settings. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
@@ -11,7 +11,8 @@ function takePendingLaunch() {
   try {
     const pending = JSON.parse(sessionStorage.getItem(LAUNCH_STORAGE_KEY));
     sessionStorage.removeItem(LAUNCH_STORAGE_KEY);
-    return getGameMode(pending?.modeId)?.available ? pending : null;
+    const mode = getGameMode(pending?.modeId);
+    return (pending?.editor ? mode?.editorAvailable : mode?.available) ? pending : null;
   } catch {
     return null;
   }
@@ -58,9 +59,9 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
 
   function renderRoot() {
     const mode = getGameMode(continueModeId());
-    const playable = mode?.available && (inGame || getSaveInfo(mode.id));
+    const playable = inGame || (mode?.available && getSaveInfo(mode.id));
     continueBtn.disabled = !playable;
-    continueLabel.textContent = playable ? mode.label : '';
+    continueLabel.textContent = !playable ? '' : inGame && isEditorSession() ? `${mode.label} editor` : mode.label;
   }
 
   function renderModes() {
@@ -107,6 +108,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
           editor.type = 'button';
           editor.textContent = 'Editor';
           editor.disabled = !mode.editorAvailable;
+          editor.addEventListener('click', () => launch(mode.id, false, true));
           actions.append(editor);
         }
         card.append(title, body, actions);
@@ -115,32 +117,32 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     );
   }
 
-  function launch(modeId, fresh) {
+  function launch(modeId, fresh, editor = false) {
     if (fresh && getSaveInfo(modeId) && !window.confirm(`Start a new ${getGameMode(modeId).label} game? The saved one will be lost.`)) return;
     if (inGame) {
-      if (modeId === getActiveModeId() && !fresh) return close();
+      if (modeId === getActiveModeId() && !fresh && editor === isEditorSession()) return close();
       // The slot is cleared after the reload, so this page's last save can't refill it.
       try {
-        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, fresh }));
+        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, fresh, editor }));
       } catch {
         return;
       }
       location.reload();
       return;
     }
-    start(modeId, fresh);
+    start(modeId, fresh, editor);
   }
 
-  function start(modeId, fresh) {
+  function start(modeId, fresh, editor = false) {
     if (fresh) clearSave(modeId);
-    setActiveMode(modeId);
+    setActiveMode(modeId, editor);
     close();
     resolveLaunch?.();
   }
 
   menuEl.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'continue') launch(continueModeId(), false);
+    if (action === 'continue') launch(continueModeId(), false, inGame && isEditorSession());
     else if (action === 'modes' || action === 'settings') showScreen(action);
     else if (action === 'back') showScreen('root');
   });
@@ -166,8 +168,12 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /** Resolves once a mode is active: dev mode and mid-game switches skip the menu. */
     async waitForLaunch() {
       const pending = takePendingLaunch();
-      if (pending) return start(pending.modeId, pending.fresh);
+      if (pending) return start(pending.modeId, pending.fresh, pending.editor);
       if (IS_DEV_MODE) {
+        // Back into the last session, editor included.
+        const last = getLastLaunch();
+        const mode = getGameMode(last?.modeId);
+        if (last?.editor ? mode?.editorAvailable : mode?.available) return start(mode.id, false, last.editor);
         const latest = getGameMode(getLatestModeId());
         return start(latest?.available ? latest.id : DEFAULT_GAME_MODE_ID, false);
       }

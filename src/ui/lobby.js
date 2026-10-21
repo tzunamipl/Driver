@@ -17,6 +17,9 @@ function loadSavedChoices() {
   }
 }
 
+/** The profile's player name, or null before it's set. */
+export const loadProfileName = () => loadSavedChoices()?.name ?? null;
+
 function saveChoices(name, color, vehicleId) {
   try {
     localStorage.setItem(LOBBY_STORAGE_KEY, JSON.stringify({ name, color, vehicleId }));

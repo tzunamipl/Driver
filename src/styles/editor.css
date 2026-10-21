@@ -1,0 +1,92 @@
+/* Scenario editor panel, in the top-right stack under the players panel. */
+#editor-panel {
+  pointer-events: auto;
+  width: 250px;
+  max-height: calc(100dvh - 260px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
+  font-size: 11px;
+  line-height: 1.4;
+}
+#editor-panel[hidden],
+#editor-panel.collapsed .editor-body { display: none; }
+.editor-toggle {
+  flex: none;
+  width: 100%;
+  font-weight: bold;
+  text-align: left;
+}
+.editor-body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 2px 0;
+}
+.editor-body input[type='text'],
+.editor-body input[type='password'],
+.editor-body input[type='number'],
+.editor-body select,
+.editor-body textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+}
+.editor-body textarea { font-family: monospace; resize: vertical; }
+.editor-buttons,
+.editor-place,
+.editor-ref {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.editor-ref > :first-child { flex: 1; }
+.editor-kinds button.active { box-shadow: var(--w95-pressed); font-weight: bold; }
+.editor-heading { margin-top: 4px; font-weight: bold; }
+/* Colour chip of the point type. */
+.editor-place button::before,
+.editor-items li::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border: 1px solid #000;
+  background: var(--editor-swatch, transparent);
+}
+.editor-items {
+  margin: 4px 0 0;
+  padding: 2px 2px 2px 26px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: #fff;
+  box-shadow: var(--w95-field);
+}
+.editor-items:empty { display: none; }
+.editor-items li { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.editor-items li.selected { background: var(--w95-select); color: #fff; }
+.editor-selected:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  box-shadow: var(--w95-etched);
+}
+.editor-export { display: flex; flex-direction: column; gap: 3px; }
+.editor-export[hidden],
+.editor-ref[hidden] { display: none; }
+.editor-body details { padding: 2px 0; }
+.editor-body summary { cursor: pointer; font-weight: bold; }
+.editor-body details[open] { display: flex; flex-direction: column; gap: 3px; }
+.editor-files ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 3px; }
+.editor-note { margin: 0; color: #444; }
+.editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
+.editor-status.is-error { color: #a00000; }

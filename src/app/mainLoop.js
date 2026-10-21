@@ -99,6 +99,7 @@ export function createMainLoop({
   viewFrame,
   floatingOrigin,
   isJoined,
+  scenarioEditor,
 }) {
   let lastTime = performance.now();
   let accumulator = 0;
@@ -398,6 +399,7 @@ export function createMainLoop({
 
       minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
+    scenarioEditor?.update();
     profiler.mark('misc');
 
     renderer.render(scene, camera);

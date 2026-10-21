@@ -269,3 +269,12 @@ export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
+export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits (lib/scenarios/github.js)
+export const EDITOR_SOURCE_STORAGE_KEY = 'driver.editorSource.v1'; // scenario source the editor opens from
+
+// ---------- Scenarios ----------
+// Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.
+export const SCENARIOS_REPO = { owner: 'tzunamipl', repo: 'Driver-scenarios' };
+export const OFFICIAL_SCENARIO_SOURCE = `${SCENARIOS_REPO.owner}/${SCENARIOS_REPO.repo}@main`;
+export const SCENARIO_FORMAT = 1; // files with a newer format are rejected
+export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this

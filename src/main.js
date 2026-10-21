@@ -89,8 +89,13 @@ import { createRouteGuidance } from './app/routeGuidance.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
-import { createLobby } from './ui/lobby.js';
+import { createLobby, loadProfileName } from './ui/lobby.js';
 import { createMainMenu } from './ui/mainMenu.js';
+import { getActiveModeId, isEditorSession } from './lib/saves.js';
+import { getGameMode } from './app/gameModes.js';
+import { SCENARIO_FORMATS } from './lib/scenarios/formats.js';
+import { createScenarioEditor } from './app/scenarioEditor.js';
+import { createEditorPanel } from './ui/editorPanel.js';
 
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
@@ -212,7 +217,9 @@ const roadside = createRoadside({
   onHit: postHitSound.play,
 });
 const streetLights = createStreetLights({ scene, terrain, roadside, lampKind: streetLampKind });
-const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'));
+const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'), {
+  allowed: !isEditorSession() && getGameMode(getActiveModeId())?.directionSignHud !== false,
+});
 const suspensionThud = createSuspensionThud();
 const pedestrianSounds = createPedestrianSounds();
 pedestrians.setSoundCallbacks({
@@ -394,6 +401,24 @@ const scoring = createScoring({
   onAirtimeEnd: () => airtimeHud.hide(),
 });
 
+// ---------- Scenario editor (a mode's Editor button) ----------
+const editorFormat = isEditorSession() ? SCENARIO_FORMATS[getActiveModeId()] : null;
+const scenarioEditor = editorFormat
+  ? createScenarioEditor({
+      format: editorFormat,
+      scene,
+      terrain,
+      streets,
+      viewFrame,
+      carManager,
+      addressSearch,
+      getPlayerName: loadProfileName,
+    })
+  : null;
+if (scenarioEditor) {
+  createEditorPanel(scenarioEditor, { title: `${getGameMode(getActiveModeId()).label} editor`, getPlayerName: loadProfileName });
+}
+
 // ---------- Floating origin ----------
 const floatingOrigin = createFloatingOrigin({
   scene,
@@ -467,6 +492,7 @@ const mainLoop = createMainLoop({
   viewFrame,
   floatingOrigin,
   isJoined: () => lobby.isJoined(),
+  scenarioEditor,
 });
 graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
 

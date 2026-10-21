@@ -1,6 +1,7 @@
 // Game modes listed in the main menu; each keeps its own save slot (lib/saves.js).
 // `starts`: new-game buttons in place of the single "Start new"; `continueLabel` renames Continue.
-// `editor`: the mode gets an Editor button; `editorAvailable` enables it.
+// `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
+// `editor`: the mode gets an Editor button; `editorAvailable` enables it (needs a format in lib/scenarios/formats.js).
 
 export const GAME_MODES = [
   {
@@ -20,7 +21,9 @@ export const GAME_MODES = [
       { id: 'career', label: 'New career' },
     ],
     continueLabel: 'Continue career',
+    directionSignHud: false,
     editor: true,
+    editorAvailable: true,
   },
   {
     id: 'honestWork',

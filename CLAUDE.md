@@ -46,6 +46,10 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
+- Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
+  `lib/scenarios/` = `source.js` (fetch by commit), `github.js` (token commit to the player's fork/branch), one format
+  per mode registered in `formats.js` (`rally.js`), `roadSnap.js` + `gateMarkers.js`. A mode's Editor button starts an
+  editor session (own save slot): `app/scenarioEditor.js` (logic, per-frame markers) + `ui/editorPanel.js`.
 - Game modes: `app/gameModes.js` lists them; `ui/mainMenu.js` (Continue / Game mode / Settings, Esc mid-game)
   picks one before `main.js` builds the world (top-level await; dev mode skips it), switching mid-game reloads.
   `lib/saves.js` = one save slot per mode (car state, vehicle, nav destination, camera view) - per-mode

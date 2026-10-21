@@ -8,9 +8,13 @@ const AHEAD_COS = Math.cos((40 * Math.PI) / 180); // sign within this angle of t
 const FACING_COS = Math.cos((50 * Math.PI) / 180); // ...and turned towards the car
 const LINGER_S = 2; // kept up after passing it, through the junction
 
-/** @param {HTMLElement} el */
-export function createDirectionSignHud(el) {
-  let enabled = true;
+/**
+ * @param {HTMLElement} el
+ * @param {object} [opts]
+ * @param {boolean} [opts.allowed] - false: never shown this session (game mode), whatever setEnabled says.
+ */
+export function createDirectionSignHud(el, { allowed = true } = {}) {
+  let enabled = allowed;
   let shown = null; // item
   let lingered = 0;
 
@@ -67,7 +71,7 @@ export function createDirectionSignHud(el) {
     },
 
     setEnabled(value) {
-      enabled = value;
+      enabled = allowed && value;
     },
   };
 }

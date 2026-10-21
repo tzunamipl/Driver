@@ -8,10 +8,14 @@ import {
 import { DEFAULT_GAME_MODE_ID } from '../app/gameModes.js';
 
 // One save slot per game mode in a single localStorage entry:
-// { latest: modeId, modes: { [modeId]: { savedAt, carState, vehicle, navDestination, cameraView } } }.
-// Fields read and written here belong to the active mode, picked once at launch.
+// { latest: modeId, lastLaunch: { modeId, editor }, modes: { [modeId]: { savedAt, carState, vehicle, navDestination, cameraView } } }.
+// `latest` is the last played mode (Continue); `lastLaunch` also counts editor sessions (dev-mode startup).
+// Fields read and written here belong to the active mode, picked once at launch. A mode's
+// editor sessions get their own slot (`<modeId>.editor`), so they never touch the game save.
 
 let activeModeId = null;
+let editorSession = false;
+const activeSlotId = () => (editorSession ? `${activeModeId}.editor` : activeModeId);
 
 function readStore() {
   try {
@@ -70,26 +74,34 @@ export function clearSave(modeId) {
   writeStore(store);
 }
 
-/** Picks the mode this session plays and marks it as the latest. */
-export function setActiveMode(modeId) {
+/** Picks the mode this session plays (or edits) and marks a played one as the latest. */
+export function setActiveMode(modeId, editor = false) {
   activeModeId = modeId;
+  editorSession = editor;
   const store = readStore();
-  store.latest = modeId;
+  if (!editor) store.latest = modeId;
+  store.lastLaunch = { modeId, editor };
   writeStore(store);
 }
 
+/** Last session started, played or edited: { modeId, editor }, or null. */
+export const getLastLaunch = () => readStore().lastLaunch ?? null;
+
 export const getActiveModeId = () => activeModeId;
+
+/** True when this session is the active mode's scenario editor. */
+export const isEditorSession = () => editorSession;
 
 /** A field of the active mode's slot; null before launch or when unset. */
 export function readSaveField(field) {
   if (!activeModeId) return null;
-  return readStore().modes[activeModeId]?.[field] ?? null;
+  return readStore().modes[activeSlotId()]?.[field] ?? null;
 }
 
 export function writeSaveField(field, value) {
   if (!activeModeId) return;
   const store = readStore();
-  const slot = (store.modes[activeModeId] ??= {});
+  const slot = (store.modes[activeSlotId()] ??= {});
   slot[field] = value;
   slot.savedAt = Date.now();
   writeStore(store);
