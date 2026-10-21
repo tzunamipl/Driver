@@ -17,6 +17,10 @@ let activeModeId = null;
 let editorSession = false;
 const activeSlotId = () => (editorSession ? `${activeModeId}.editor` : activeModeId);
 
+// Settings of the whole mode, not of one game: shared with its editor, kept by a new game.
+const MODE_WIDE_FIELDS = new Set(['cameraView']);
+const slotFor = (field) => (MODE_WIDE_FIELDS.has(field) ? activeModeId : activeSlotId());
+
 function readStore() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SAVES_STORAGE_KEY));
@@ -68,9 +72,15 @@ export function getSaveInfo(modeId) {
   return { savedAt: slot.savedAt ?? null, odoKm: slot.carState.odoKm ?? 0 };
 }
 
-export function clearSave(modeId) {
+/** Empties the mode's slot, except the `keep` fields (e.g. the last picked car). */
+export function clearSave(modeId, keep = []) {
   const store = readStore();
-  delete store.modes[modeId];
+  const slot = store.modes[modeId];
+  const kept = Object.fromEntries(
+    [...keep, ...MODE_WIDE_FIELDS].filter((field) => slot?.[field] != null).map((field) => [field, slot[field]])
+  );
+  if (Object.keys(kept).length) store.modes[modeId] = kept;
+  else delete store.modes[modeId];
   writeStore(store);
 }
 
@@ -95,13 +105,13 @@ export const isEditorSession = () => editorSession;
 /** A field of the active mode's slot; null before launch or when unset. */
 export function readSaveField(field) {
   if (!activeModeId) return null;
-  return readStore().modes[activeSlotId()]?.[field] ?? null;
+  return readStore().modes[slotFor(field)]?.[field] ?? null;
 }
 
 export function writeSaveField(field, value) {
   if (!activeModeId) return;
   const store = readStore();
-  const slot = (store.modes[activeSlotId()] ??= {});
+  const slot = (store.modes[slotFor(field)] ??= {});
   slot[field] = value;
   slot.savedAt = Date.now();
   writeStore(store);

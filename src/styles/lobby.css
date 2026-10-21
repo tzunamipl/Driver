@@ -67,7 +67,8 @@
   min-width: 0;
 }
 /* Win95 property-sheet tabs: raised tabs on top, the active one taller and joined to the panel. */
-#vehicle-tabs {
+#vehicle-tabs,
+.rally-vehicle-tabs {
   position: relative;
   z-index: 1;
   display: flex;
@@ -102,7 +103,8 @@
   margin: 0 -3px;
   padding: 0 8px;
 }
-#vehicle-list {
+#vehicle-list,
+.rally-vehicle-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;

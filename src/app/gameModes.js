@@ -1,5 +1,8 @@
 // Game modes listed in the main menu; each keeps its own save slot (lib/saves.js).
-// `starts`: new-game buttons in place of the single "Start new"; `continueLabel` renames Continue.
+// `starts`: new-game buttons in place of the single "Start new" (`available: false` greys one out);
+// the picked start's id is saved as the slot's `start`. `continueLabel` renames Continue.
+// `keepOnNewGame`: save fields a new game keeps (e.g. the last picked car).
+// `progressStarts`: starts whose progress (car position, results) is saved; default all. Others start over after a reload.
 // `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
 // `editor`: the mode gets an Editor button; `editorAvailable` enables it (needs a format in lib/scenarios/formats.js).
 
@@ -14,13 +17,15 @@ export const GAME_MODES = [
     id: 'rally',
     label: 'Rally',
     blurb: 'Flat out against the clock on real-world roads. Run a single stage, a full rally, or a whole career.',
-    available: false,
+    available: true,
     starts: [
       { id: 'stage', label: 'Single stage' },
       { id: 'rally', label: 'Rally' },
-      { id: 'career', label: 'New career' },
+      { id: 'career', label: 'New career', available: false },
     ],
-    continueLabel: 'Continue career',
+    continueLabel: 'Continue',
+    keepOnNewGame: ['vehicle'],
+    progressStarts: ['career'],
     directionSignHud: false,
     editor: true,
     editorAvailable: true,

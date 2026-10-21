@@ -1,6 +1,6 @@
 import { IS_DEV_MODE, LAUNCH_STORAGE_KEY } from '../config.js';
 import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode } from '../app/gameModes.js';
-import { getLatestModeId, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, isEditorSession } from '../lib/saves.js';
+import { getLatestModeId, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, isEditorSession, writeSaveField } from '../lib/saves.js';
 
 // Main menu: Continue / Game mode / Settings. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
@@ -36,6 +36,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
 
   let inGame = false;
   let resolveLaunch = null;
+  let hooks = {}; // in game: { onOpen, onClose }
 
   function showScreen(name) {
     for (const el of screens) el.hidden = el.dataset.screen !== name;
@@ -46,12 +47,14 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   }
 
   function open(screen = 'root') {
+    if (menuEl.hidden) hooks.onOpen?.();
     menuEl.hidden = false;
     showScreen(screen);
   }
 
   function close() {
     showScreen('root');
+    if (!menuEl.hidden) hooks.onClose?.();
     menuEl.hidden = true;
   }
 
@@ -94,12 +97,12 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
         continueMode.textContent = mode.continueLabel ?? 'Continue';
         continueMode.disabled = !info;
         continueMode.addEventListener('click', () => launch(mode.id, false));
-        const starts = (mode.starts ?? [{ label: 'Start new' }]).map(({ label }) => {
+        const starts = (mode.starts ?? [{ label: 'Start new' }]).map(({ id, label, available = true }) => {
           const startNew = document.createElement('button');
           startNew.type = 'button';
           startNew.textContent = label;
-          startNew.disabled = !mode.available;
-          startNew.addEventListener('click', () => launch(mode.id, true));
+          startNew.disabled = !mode.available || !available;
+          startNew.addEventListener('click', () => launch(mode.id, true, false, id));
           return startNew;
         });
         actions.append(continueMode, ...starts);
@@ -117,25 +120,26 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     );
   }
 
-  function launch(modeId, fresh, editor = false) {
+  function launch(modeId, fresh, editor = false, startId = null) {
     if (fresh && getSaveInfo(modeId) && !window.confirm(`Start a new ${getGameMode(modeId).label} game? The saved one will be lost.`)) return;
     if (inGame) {
       if (modeId === getActiveModeId() && !fresh && editor === isEditorSession()) return close();
       // The slot is cleared after the reload, so this page's last save can't refill it.
       try {
-        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, fresh, editor }));
+        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, fresh, editor, startId }));
       } catch {
         return;
       }
       location.reload();
       return;
     }
-    start(modeId, fresh, editor);
+    start(modeId, fresh, editor, startId);
   }
 
-  function start(modeId, fresh, editor = false) {
-    if (fresh) clearSave(modeId);
+  function start(modeId, fresh, editor = false, startId = null) {
+    if (fresh) clearSave(modeId, getGameMode(modeId)?.keepOnNewGame);
     setActiveMode(modeId, editor);
+    if (fresh && startId) writeSaveField('start', startId);
     close();
     resolveLaunch?.();
   }
@@ -168,7 +172,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /** Resolves once a mode is active: dev mode and mid-game switches skip the menu. */
     async waitForLaunch() {
       const pending = takePendingLaunch();
-      if (pending) return start(pending.modeId, pending.fresh, pending.editor);
+      if (pending) return start(pending.modeId, pending.fresh, pending.editor, pending.startId);
       if (IS_DEV_MODE) {
         // Back into the last session, editor included.
         const last = getLastLaunch();
@@ -183,8 +187,12 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
         open();
       });
     },
-    /** From now on Esc toggles the menu and Continue resumes. */
-    setInGame() {
+    /**
+     * From now on Esc toggles the menu and Continue resumes.
+     * @param {{onOpen?: () => void, onClose?: () => void}} [inGameHooks] - run as the menu covers / uncovers the game.
+     */
+    setInGame(inGameHooks = {}) {
+      hooks = inGameHooks;
       inGame = true;
       menuEl.classList.add('in-game');
     },

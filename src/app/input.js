@@ -244,6 +244,12 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     isTyping,
     getThrottle: () => throttle,
     getHandbrake: () => ({ on: handbrakeOn, latched: handbrakeLatched }),
+    /** Pulls the handbrake as if held to latch; the next Space press releases it. */
+    latchHandbrake() {
+      if (handbrakeLatched) return;
+      handbrakeLatched = true;
+      onHandbrakeLatch?.();
+    },
     getGearMode: () => gearMode,
     toggleGearMode() {
       gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];

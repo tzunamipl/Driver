@@ -20,6 +20,9 @@ function loadSavedChoices() {
 /** The profile's player name, or null before it's set. */
 export const loadProfileName = () => loadSavedChoices()?.name ?? null;
 
+/** The profile's default vehicle, or null. */
+export const loadProfileVehicleId = () => loadSavedChoices()?.vehicleId ?? null;
+
 function saveChoices(name, color, vehicleId) {
   try {
     localStorage.setItem(LOBBY_STORAGE_KEY, JSON.stringify({ name, color, vehicleId }));

@@ -29,6 +29,7 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
   const state = { status: 'idle', route: null, error: null, progress: null };
   let abort = null;
   let errorTimer = 0;
+  let isBlocked = () => false;
 
   function setStatus(status, error = null) {
     state.status = status;
@@ -40,6 +41,7 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
 
   /** Routes from the car to `destination`, replacing any current route. */
   async function start(destination) {
+    if (isBlocked()) return;
     abort?.abort();
     const from = getCarLatLon();
     if (!from) return;
@@ -70,6 +72,7 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
   }
 
   function update(lat, lon) {
+    if (isBlocked() && state.status !== 'idle') stop();
     const { route } = state;
     if (!route) return;
     const at = locateOnRoute(route, lat, lon, state.progress?.index ?? 0);
@@ -93,5 +96,10 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
     /** True while a route is loaded or loading. */
     isNavigating: () => state.status === 'active' || state.status === 'loading',
     getState: () => state,
+    /** Game-mode veto (e.g. a live rally stage): stops any route and refuses new ones. */
+    setBlocked(fn) {
+      isBlocked = fn;
+    },
+    isBlocked: () => isBlocked(),
   };
 }

@@ -10,7 +10,15 @@ import { readSaveField, writeSaveField } from './saves.js';
 // a saved position stays correct even if the player had personally
 // teleported (see ui/addressSearch.js) before reloading.
 
+let enabled = true;
+
+/** Off: nothing is loaded or saved (a game mode start that keeps no progress). */
+export function setCarStateSaving(on) {
+  enabled = on;
+}
+
 export function loadCarState() {
+  if (!enabled) return null;
   const parsed = readSaveField('carState');
   const nums = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'odoKm'];
   if (!parsed || !nums.every((key) => typeof parsed[key] === 'number' && Number.isFinite(parsed[key]))) return null;
@@ -18,5 +26,5 @@ export function loadCarState() {
 }
 
 export function saveCarState(state) {
-  writeSaveField('carState', state);
+  if (enabled) writeSaveField('carState', state);
 }

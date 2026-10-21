@@ -65,6 +65,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
   }
 
   let teleporting = false;
+  let isBlocked = () => false;
 
   // One teleport at a time.
   let teleportChain = Promise.resolve();
@@ -121,7 +122,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
   }
 
   function canTeleport() {
-    return CAN_CHANGE_LOCATION && isJoined() && !teleporting;
+    return CAN_CHANGE_LOCATION && isJoined() && !teleporting && !isBlocked();
   }
 
   return {
@@ -130,6 +131,10 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
     isTeleporting: () => teleporting,
     canTeleport,
     teleport,
+    /** Game-mode veto, e.g. during a rally stage. */
+    setBlocked(fn) {
+      isBlocked = fn;
+    },
     geocode: geocodeAddress,
     reverseGeocode,
   };

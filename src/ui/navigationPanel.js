@@ -269,9 +269,10 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   function updateNavigateButton() {
     const { status } = routeGuidance.getState();
     const navigating = status === 'active' || status === 'loading';
-    navigateBtn.disabled = !navigating && !selection;
+    const blocked = routeGuidance.isBlocked();
+    navigateBtn.disabled = blocked || (!navigating && !selection);
     navigateBtn.classList.toggle('is-navigating', navigating);
-    const label = status === 'loading' ? 'Routing\u2026' : navigating ? 'Stop' : 'Navigate';
+    const label = blocked ? 'On stage' : status === 'loading' ? 'Routing\u2026' : navigating ? 'Stop' : 'Navigate';
     if (navigateBtn.textContent !== label) navigateBtn.textContent = label;
   }
 

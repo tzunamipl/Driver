@@ -86,7 +86,16 @@
 .editor-body details { padding: 2px 0; }
 .editor-body summary { cursor: pointer; font-weight: bold; }
 .editor-body details[open] { display: flex; flex-direction: column; gap: 3px; }
-.editor-files ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 3px; }
 .editor-note { margin: 0; color: #444; }
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
 .editor-status.is-error { color: #a00000; }
+
+/* Scenario source tree (ui/scenarioTree.js), in the editor's Open section and the rally picker. */
+.scenario-tree details { padding-left: 2px; }
+.scenario-tree summary { cursor: pointer; font-weight: bold; padding: 2px 0; }
+.scenario-tree-body,
+.scenario-tree details > .scenario-tree-files,
+.scenario-tree details > details { margin-left: 14px; }
+.scenario-tree-files { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.scenario-tree-files button { text-align: left; min-height: 22px; }
+.scenario-tree-note { margin: 2px 0; color: #444; }

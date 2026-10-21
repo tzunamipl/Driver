@@ -88,7 +88,7 @@ function flashViewLabel(label) {
  * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId, teleporting, resetting }),
  * groundHeightAt(x, z) -> y | null keeps the drone view above terrain and roofs,
  * terrainHeightAt(x, z) -> y | null keeps every view above the terrain;
- * with .cycleView/.setView/.getViewId/.getViews attached.
+ * with .cycleView/.setView/.holdView/.releaseView/.getViewId/.getViews attached.
  */
 export function createCameraFollow(camera, { groundHeightAt = () => null, terrainHeightAt = () => null } = {}) {
   const tmpVec = new THREE.Vector3();
@@ -145,6 +145,23 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     resetSmoothing();
     writeSaveField('cameraView', viewId);
     flashViewLabel(view.label);
+  }
+
+  // View to go back to after holdView(); null when not held.
+  let heldFrom = null;
+
+  /** Switches to `id` for a while (not saved); releaseView() returns to the previous view. */
+  function holdView(id) {
+    if (heldFrom == null) heldFrom = viewId;
+    viewId = getCameraView(id, currentVehicleType).id;
+    resetSmoothing();
+  }
+
+  function releaseView() {
+    if (heldFrom == null) return;
+    viewId = getCameraView(heldFrom, currentVehicleType).id;
+    heldFrom = null;
+    resetSmoothing();
   }
 
   function cycleView() {
@@ -513,6 +530,8 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   };
   updateCamera.cycleView = cycleView;
   updateCamera.setView = setView;
+  updateCamera.holdView = holdView;
+  updateCamera.releaseView = releaseView;
   updateCamera.getViewId = () => viewId;
   updateCamera.getViews = () => CAMERA_VIEWS;
 

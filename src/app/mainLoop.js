@@ -100,6 +100,7 @@ export function createMainLoop({
   floatingOrigin,
   isJoined,
   scenarioEditor,
+  rallySession,
 }) {
   let lastTime = performance.now();
   let accumulator = 0;
@@ -154,7 +155,8 @@ export function createMainLoop({
     }
 
     carManager.getUpdateReset()?.(frameDelta);
-    input.updateControls(vehicle, reset, frameDelta);
+    // Rally: R rocks the car instead of resetting it.
+    input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
@@ -187,6 +189,7 @@ export function createMainLoop({
       if (snapshotPhysics) snapshotPhysics();
       pedestrians.flushHits();
       shots.flushHits();
+      rallySession?.afterStep(FIXED_STEP);
       accumulator -= FIXED_STEP;
       substeps++;
     }
@@ -400,6 +403,7 @@ export function createMainLoop({
       minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
     scenarioEditor?.update();
+    rallySession?.update(frameDelta);
     profiler.mark('misc');
 
     renderer.render(scene, camera);

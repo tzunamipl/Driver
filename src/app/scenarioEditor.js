@@ -131,6 +131,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       listener(state);
     },
     hasToken: () => !!token(),
+    getToken: token,
     setToken(value) {
       writeStored(GITHUB_TOKEN_STORAGE_KEY, value.trim());
       changed({ save: false });
@@ -223,15 +224,12 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       ({ index: state.index } = await loadIndex());
       setStatus(`Loaded ${state.source}`);
     }),
-    open: guard(async (kindId, id) => {
+    /** A file picked in the scenario tree; its source becomes the one stages are added from. */
+    openPicked: guard(async ({ source, opened, kindId, id, json }) => {
       if (state.doc.items.length && !window.confirm(`Open ${id}? Unsaved points will be lost.`)) return;
-      setStatus(`Opening ${id}…`);
-      const { opened, index } = await loadIndex();
-      state.index = index;
-      const target = kindById.get(kindId);
-      const json = await opened.readJson(`${format.folder}/${target.folder}/${id}.json`);
-      if (!json) throw new Error(`${id} not found in ${state.source}`);
-      state.doc = { kind: kindId, ...target.fromFile(json) };
+      editor.setSource(formatSource(source));
+      state.index = (await opened.readJson(`${format.folder}/index.json`)) ?? {};
+      state.doc = { kind: kindId, ...kindById.get(kindId).fromFile(json) };
       state.selected = -1;
       changed();
       setStatus(`Opened ${id} from ${state.source}`);

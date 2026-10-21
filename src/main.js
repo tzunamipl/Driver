@@ -48,7 +48,7 @@ import { WaterAreasManager } from './lib/waterAreas.js';
 import { BuiltUpAreasManager } from './lib/builtUpAreas.js';
 import { LandcoverAreasManager } from './lib/landcoverAreas.js';
 import { createTrees, createBushes, createRocks } from './lib/trees.js';
-import { loadCarState } from './lib/carState.js';
+import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
@@ -89,13 +89,16 @@ import { createRouteGuidance } from './app/routeGuidance.js';
 import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
-import { createLobby, loadProfileName } from './ui/lobby.js';
+import { createLobby, loadProfileName, loadProfileVehicleId } from './ui/lobby.js';
 import { createMainMenu } from './ui/mainMenu.js';
-import { getActiveModeId, isEditorSession } from './lib/saves.js';
+import { getActiveModeId, isEditorSession, readSaveField, writeSaveField } from './lib/saves.js';
+import { getVehicleColor } from './lib/vehicleColors.js';
 import { getGameMode } from './app/gameModes.js';
 import { SCENARIO_FORMATS } from './lib/scenarios/formats.js';
 import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
+import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
+import { createRallyPicker } from './ui/rallyPicker.js';
 
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
@@ -114,6 +117,7 @@ const lobby = createLobby({
     carManager.spawnLocalCar(color, vehicleId);
     vehicleDebugPicker.syncFromCar();
     startLoopOnce();
+    beginModeOnce();
     // Start the HUD auto-fold timers only after joining.
     collapsibleHud.startAutoFold();
   },
@@ -131,6 +135,32 @@ const graphicsDetailPicker = createGraphicsDetailPicker();
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();
 
+// ---------- Rally: first pick before the world ----------
+// Car + stage are chosen first, so terrain streams in at the stage, not where the last session ended.
+// menuPark (set once the world is up) parks the car while the picker covers the game.
+let menuPark = null;
+const isRallyGame = getActiveModeId() === 'rally' && !isEditorSession();
+// Starts outside the mode's progressStarts (e.g. a single stage) keep only the car pick.
+const activeMode = getGameMode(getActiveModeId());
+const keepsProgress = isEditorSession() || !activeMode?.progressStarts || activeMode.progressStarts.includes(readSaveField('start'));
+if (!keepsProgress) {
+  setCarStateSaving(false);
+  writeSaveField('carState', null);
+  writeSaveField('rallyProgress', null);
+}
+const rallyPicker = isRallyGame ? createRallyPicker({ onOpen: () => menuPark?.onOpen(), onClose: () => menuPark?.onClose() }) : null;
+let rallyInitialPick = null;
+if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
+  try {
+    rallyInitialPick = await pickPlan(rallyPicker, { vehicleId: readSaveField('vehicle')?.vehicleId ?? loadProfileVehicleId() ?? undefined });
+    const { vehicleId } = rallyInitialPick;
+    writeSaveField('vehicle', { vehicleId, color: getVehicleColor(vehicleId) });
+  } catch (err) {
+    console.warn('Rally: first pick failed, picking in game instead', err);
+  }
+}
+const rallyStart = planStart(rallyInitialPick?.plan);
+
 // ---------- Rendering environment ----------
 const { renderer, scene, camera } = createSceneEnvironment();
 const daylight = createDaylight({ scene, ...createLighting(scene) });
@@ -143,8 +173,9 @@ const savedCarState = loadCarState();
 // teleport), start the view frame at the car instead, as a teleport does;
 // from then on floatingOrigin.js keeps local coordinates small.
 const VIEW_REBASE_DISTANCE_METERS = 2000;
-const initialViewOrigin =
-  savedCarState && Math.hypot(savedCarState.x, savedCarState.z) > VIEW_REBASE_DISTANCE_METERS
+const initialViewOrigin = rallyStart
+  ? { lat: rallyStart.lat, lon: rallyStart.lon }
+  : savedCarState && Math.hypot(savedCarState.x, savedCarState.z) > VIEW_REBASE_DISTANCE_METERS
     ? localToLatLon(savedCarState.x, savedCarState.z, ORIGIN_LAT, ORIGIN_LON)
     : { lat: ORIGIN_LAT, lon: ORIGIN_LON };
 const viewFrame = createViewFrame(initialViewOrigin.lat, initialViewOrigin.lon);
@@ -234,6 +265,8 @@ const START_POS = new CANNON.Vec3(0, 3, -5);
 const START_QUAT = new CANNON.Quaternion();
 
 function playerSpawnPos() {
+  // Rally start: the view frame is centred on the stage; rallySession then lines the car up on the road.
+  if (rallyStart && !savedCarState) return new CANNON.Vec3(0, (terrain.surfaceHeightAt(0, 0) ?? 0) + 3, 0);
   // Saved pose and START_POS are both network-frame positions.
   if (savedCarState) {
     const { x, z } = viewFrame.fromNetwork(savedCarState.x, savedCarState.z);
@@ -419,6 +452,62 @@ if (scenarioEditor) {
   createEditorPanel(scenarioEditor, { title: `${getGameMode(getActiveModeId()).label} editor`, getPlayerName: loadProfileName });
 }
 
+// ---------- Menus over the game ----------
+// Main menu / stage picker open: the handbrake is pulled and the drone circles the car until they close.
+let menusOpen = 0;
+menuPark = {
+  onOpen() {
+    if (menusOpen++ > 0) return;
+    input.latchHandbrake();
+    cameraFollow.holdView('drone');
+  },
+  onClose() {
+    if (menusOpen === 0 || --menusOpen > 0) return;
+    cameraFollow.releaseView();
+  },
+};
+
+// ---------- Rally game mode ----------
+const rallySession =
+  getActiveModeId() === 'rally' && !isEditorSession()
+    ? createRallySession({
+        scene,
+        streets,
+        terrain,
+        viewFrame,
+        carManager,
+        addressSearch,
+        routeGuidance,
+        picker: rallyPicker,
+        initialPick: rallyInitialPick,
+        getVehicleId: () => carManager.getVehicleId(),
+        switchVehicle,
+        parkCar: input.latchHandbrake,
+        keepsProgress,
+      })
+    : null;
+/** Respawns the local car as `vehicleId` where it stands, with its saved paint. */
+function switchVehicle(vehicleId) {
+  const body = carManager.getVehicle()?.chassisBody;
+  const pos = body?.position.clone();
+  const quat = body?.quaternion.clone();
+  const color = getVehicleColor(vehicleId);
+  carManager.spawnLocalCar(color, vehicleId);
+  if (pos) carManager.getReset()?.(new CANNON.Vec3(pos.x, pos.y + 1, pos.z), quat);
+  net.setColor(color);
+  net.setVehicleId(vehicleId);
+  writeSaveField('vehicle', { vehicleId, color });
+  vehicleDebugPicker.syncFromCar();
+}
+let modeBegun = false;
+function beginModeOnce() {
+  if (modeBegun) return;
+  modeBegun = true;
+  rallySession?.begin();
+  // Editing starts parked, like a stage does.
+  if (scenarioEditor) input.latchHandbrake();
+}
+
 // ---------- Floating origin ----------
 const floatingOrigin = createFloatingOrigin({
   scene,
@@ -426,7 +515,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, ...(rallySession ? [rallySession] : [])],
 });
 
 // ---------- Main loop ----------
@@ -493,6 +582,7 @@ const mainLoop = createMainLoop({
   floatingOrigin,
   isJoined: () => lobby.isJoined(),
   scenarioEditor,
+  rallySession,
 });
 graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
 
@@ -513,10 +603,12 @@ terrain.init().then(async () => {
     initialViewOrigin.lon
   );
   loadingScreen.hide();
-  mainMenu.setInGame();
+  mainMenu.setInGame(menuPark);
   if (IS_DEV_MODE) {
-    // Dev: no profile; join with the saved debug pick, if any.
-    lobby.joinRoom('dev_mode', devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId), devCarChoice?.vehicleId);
+    // Dev: no profile; join with the car picked for the rally, else the saved debug pick.
+    const devVehicleId = rallyInitialPick?.vehicleId ?? devCarChoice?.vehicleId;
+    const devColor = rallyInitialPick ? getVehicleColor(devVehicleId) : devCarChoice?.color ?? defaultVehicleColor(devVehicleId);
+    lobby.joinRoom('dev_mode', devColor, devVehicleId);
     return;
   }
   lobby.joinSaved();

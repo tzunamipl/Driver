@@ -8,6 +8,10 @@ const FORK_POLL_MS = 1500;
 
 export const TOKEN_HELP_URL = 'https://github.com/settings/tokens/new?scopes=public_repo&description=Driver%20scenario%20editor';
 
+const NO_WRITE_MESSAGE =
+  'This GitHub token may not write to the scenarios repo: a classic token needs the public_repo scope, ' +
+  'a fine-grained one needs that repo with Contents: Read and write';
+
 async function gh(token, method, path, body) {
   const res = await fetch(`${API}${path}`, {
     method,
@@ -22,6 +26,8 @@ async function gh(token, method, path, body) {
   if (!res.ok) {
     const message = (await res.json().catch(() => null))?.message ?? res.statusText;
     if (res.status === 401) throw new Error('GitHub token rejected');
+    // GitHub hides repos the token may read but not write to behind 404 on writes.
+    if (res.status === 404 || /not accessible/i.test(message)) throw new Error(NO_WRITE_MESSAGE);
     throw new Error(`GitHub ${res.status}: ${message}`);
   }
   return res.status === 204 ? null : res.json();
@@ -40,19 +46,34 @@ export function branchNameFor(name) {
   return slug || 'player';
 }
 
-/** GitHub login behind the token. */
+/** GitHub login behind the token; fails early for a classic token without a repo-writing scope. */
 export async function getLogin(token) {
-  return (await gh(token, 'GET', '/user')).login;
+  const res = await fetch(`${API}/user`, { headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` } });
+  if (res.status === 401) throw new Error('GitHub token rejected');
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  // Only classic tokens send their scopes; fine-grained ones are caught on the first write.
+  const scopes = res.headers.get('X-OAuth-Scopes');
+  if (scopes != null && !scopes.split(',').some((s) => ['repo', 'public_repo'].includes(s.trim()))) throw new Error(NO_WRITE_MESSAGE);
+  return (await res.json()).login;
+}
+
+/** Current commit of `branch`, or null when it doesn't exist (matching-refs: no 404 for a missing branch). */
+async function branchHead(token, repoPath, branch) {
+  const refs = await gh(token, 'GET', `${repoPath}/git/matching-refs/heads/${branch}`);
+  return refs?.find((ref) => ref.ref === `refs/heads/${branch}`)?.object.sha ?? null;
 }
 
 /** The repo to commit to: upstream if the token owns it, else the token's fork (created / synced). */
 async function writableRepo(token, upstream, login) {
-  if (login.toLowerCase() === upstream.owner.toLowerCase()) return { owner: upstream.owner, repo: upstream.repo };
+  if (login.toLowerCase() === upstream.owner.toLowerCase()) {
+    const info = await gh(token, 'GET', `/repos/${upstream.owner}/${upstream.repo}`);
+    return { owner: upstream.owner, repo: upstream.repo, defaultBranch: info.default_branch };
+  }
   // Returns the existing fork when there is one.
   const fork = await gh(token, 'POST', `/repos/${upstream.owner}/${upstream.repo}/forks`, { default_branch_only: true });
   const repo = { owner: fork.owner.login, repo: fork.name, defaultBranch: fork.default_branch };
   const deadline = Date.now() + FORK_READY_TIMEOUT_MS;
-  while (!(await gh(token, 'GET', `/repos/${repo.owner}/${repo.repo}/git/ref/heads/${repo.defaultBranch}`))) {
+  while (!(await branchHead(token, `/repos/${repo.owner}/${repo.repo}`, repo.defaultBranch))) {
     if (Date.now() > deadline) throw new Error('GitHub is still creating your fork, try again in a minute');
     await sleep(FORK_POLL_MS);
   }
@@ -84,10 +105,9 @@ export async function commitFiles({ token, upstream, branch, message, buildFiles
   const repo = await writableRepo(token, upstream, login);
   const repoPath = `/repos/${repo.owner}/${repo.repo}`;
 
-  let head = (await gh(token, 'GET', `${repoPath}/git/ref/heads/${branch}`))?.object.sha;
+  let head = await branchHead(token, repoPath, branch);
   if (!head) {
-    const defaultBranch = repo.defaultBranch ?? (await gh(token, 'GET', repoPath)).default_branch;
-    head = (await gh(token, 'GET', `${repoPath}/git/ref/heads/${defaultBranch}`)).object.sha;
+    head = await branchHead(token, repoPath, repo.defaultBranch);
     await gh(token, 'POST', `${repoPath}/git/refs`, { ref: `refs/heads/${branch}`, sha: head });
   }
 

@@ -3,7 +3,7 @@
 // Built once and patched on change, so typing in a field keeps its focus.
 
 import { TOKEN_HELP_URL, branchNameFor } from '../lib/scenarios/github.js';
-import { OFFICIAL_SCENARIO_SOURCE } from '../config.js';
+import { createScenarioTree } from './scenarioTree.js';
 
 const hex = (color) => `#${color.toString(16).padStart(6, '0')}`;
 
@@ -60,7 +60,10 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
       button('Close', () => (exportEl.hidden = true)),
     ]),
   ]);
-  const saveButton = button('Save to GitHub', () => editor.save());
+  const saveButton = button('Save to GitHub', async () => {
+    await editor.save();
+    tree.reload();
+  });
   const actionsEl = el('div', { className: 'editor-buttons' }, [
     button('Go to', () => editor.goToSelected(), { title: 'Teleport to the selected point' }),
     button('Export', () => {
@@ -70,25 +73,14 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     saveButton,
   ]);
 
-  const sourceInput = el('input', { type: 'text', spellcheck: false, placeholder: 'owner/repo@branch' });
-  sourceInput.addEventListener('change', () => editor.setSource(sourceInput.value));
-  const filesEl = el('div', { className: 'editor-files' });
-  const openEl = el('details', {}, [
-    el('summary', { textContent: 'Open' }),
-    el('label', { textContent: 'Source' }),
-    el('div', { className: 'editor-ref' }, [
-      sourceInput,
-      button('Load', () => {
-        editor.setSource(sourceInput.value);
-        editor.loadIndex();
-      }),
-    ]),
-    button('Official', () => {
-      editor.setSource(OFFICIAL_SCENARIO_SOURCE);
-      editor.loadIndex();
-    }),
-    filesEl,
-  ]);
+  const tree = createScenarioTree({
+    folder: format.folder,
+    kinds: format.kinds,
+    getToken: editor.getToken,
+    onPick: (pick) => editor.openPicked(pick),
+  });
+  const sourceNote = el('p', { className: 'editor-note' });
+  const openEl = el('details', {}, [el('summary', { textContent: 'Open' }), tree.el, sourceNote]);
 
   const tokenInput = el('input', { type: 'password', placeholder: 'ghp_…', autocomplete: 'off' });
   tokenInput.addEventListener('change', () => editor.setToken(tokenInput.value));
@@ -181,27 +173,12 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     );
   }
 
-  function renderFiles() {
-    if (!state.index) return filesEl.replaceChildren();
-    filesEl.replaceChildren(
-      ...format.kinds.map((kind) => {
-        const ids = state.index[kind.indexKey] ?? [];
-        return el('div', {}, [
-          el('div', { className: 'editor-heading', textContent: `${kind.label}s` }),
-          ids.length
-            ? el('ul', {}, ids.map((id) => el('li', {}, [button(id, () => editor.open(kind.id, id))])))
-            : el('p', { className: 'editor-note', textContent: 'None yet' }),
-        ]);
-      })
-    );
-  }
-
   function render() {
     const kind = editor.kind();
     for (const btn of kindButtons) btn.classList.toggle('active', btn.dataset.kind === kind.id);
     patchValue(idInput, state.doc.id);
     patchValue(nameInput, state.doc.name);
-    patchValue(sourceInput, state.source);
+    sourceNote.textContent = `Stages are added from ${state.source}`;
     if (renderedKind !== kind.id) {
       renderedKind = kind.id;
       renderPlace(kind);
@@ -233,7 +210,6 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
       renderSelected(item);
     }
 
-    renderFiles();
     branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" of your fork.`;
     tokenInput.placeholder = editor.hasToken() ? 'Token saved (enter to replace)' : 'ghp_…';
     for (const btn of root.querySelectorAll('button')) btn.disabled = state.busy && btn !== toggle;

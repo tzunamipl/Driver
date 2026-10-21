@@ -2,7 +2,8 @@
 // sits outside the instructions body, so it stays visible either way.
 // Narrow screens start folded so the panels don't cover the road.
 //
-// The settings panel (#hud) additionally: starts open on load,
+// The settings panel (#hud) additionally: starts open on the session's first
+// load only (later loads - a stage, an editor, a mode switch - start folded),
 // then auto-collapses itself down to the small "Settings" pill after
 // AUTO_COLLAPSE_MS once the player has joined (name/color picked - see
 // startAutoFold() below), if they haven't already toggled it manually.
@@ -20,6 +21,7 @@
 // the help text away before they ever got to read it.
 
 const NARROW = '(max-width: 800px)';
+const SETTINGS_SHOWN_KEY = 'driver.settingsShown'; // sessionStorage
 const AUTO_COLLAPSE_MS = 15_000;
 const PLAYERS_AUTO_FOLD_MS = 15_000;
 const PLAYERS_STAGES = ['full', 'medium', 'collapsed'];
@@ -38,7 +40,14 @@ export function setupCollapsibleHud() {
   let hudInteracted = false;
   let playersInteracted = false;
 
-  wire(hud, hudToggle, startCollapsed, () => {
+  let settingsShown = false;
+  try {
+    settingsShown = sessionStorage.getItem(SETTINGS_SHOWN_KEY) === '1';
+    sessionStorage.setItem(SETTINGS_SHOWN_KEY, '1');
+  } catch {
+    // Storage unavailable: open on every load, as before.
+  }
+  wire(hud, hudToggle, startCollapsed || settingsShown, () => {
     hudInteracted = true;
   });
   wirePlayersPanel(playersPanel, playersToggle, startCollapsed, () => {
