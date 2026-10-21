@@ -7,13 +7,12 @@ import {
   SCENARIOS_REPO,
   OFFICIAL_SCENARIO_SOURCE,
   SCENARIO_FORMAT,
-  GITHUB_TOKEN_STORAGE_KEY,
   EDITOR_SOURCE_STORAGE_KEY,
   EDITOR_SNAP_RADIUS_M,
 } from '../config.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 import { parseSource, formatSource, openSource } from '../lib/scenarios/source.js';
-import { commitFiles, branchNameFor } from '../lib/scenarios/github.js';
+import { commitFiles, branchNameFor, readToken } from '../lib/scenarios/github.js';
 import { snapToRoad } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 
@@ -61,7 +60,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   const roadDirs = new WeakMap();
 
   const kind = () => kindById.get(state.doc.kind);
-  const token = () => readStored(GITHUB_TOKEN_STORAGE_KEY);
+  const token = readToken;
 
   function changed({ save = true } = {}) {
     if (save) writeSaveField('editorDraft', state.doc);
@@ -132,10 +131,6 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     },
     hasToken: () => !!token(),
     getToken: token,
-    setToken(value) {
-      writeStored(GITHUB_TOKEN_STORAGE_KEY, value.trim());
-      changed({ save: false });
-    },
 
     newDoc(kindId) {
       if (state.doc.items.length && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
@@ -242,7 +237,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     save: guard(async () => {
       const problems = kind().validate(state.doc);
       if (problems.length) throw new Error(problems.join('; '));
-      if (!token()) throw new Error('Add a GitHub token first');
+      if (!token()) throw new Error('Saving needs a GitHub token: add it in Settings → GitHub');
       const branch = branchNameFor(getPlayerName());
       const { folder, indexKey } = kind();
       const path = `${format.folder}/${folder}/${state.doc.id}.json`;
@@ -268,6 +263,17 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       ({ index: state.index } = await loadIndex());
       setStatus(result.unchanged ? 'No changes to save' : `Saved. Play it from source ${state.source}`);
     }),
+
+    /** The file's placed points for the minimap, numbered like their 3D markers. */
+    mapPoints() {
+      const points = [];
+      state.doc.items.forEach((item, i) => {
+        const def = format.pointTypes[item.type];
+        if (!def || item.lat == null) return;
+        points.push({ lat: item.lat, lon: item.lon, color: def.color, label: String(i + 1), gate: !!def.gate, selected: i === state.selected });
+      });
+      return points;
+    },
 
     /** Per frame: markers for the current file's points. */
     update() {

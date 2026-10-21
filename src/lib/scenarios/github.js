@@ -2,11 +2,31 @@
 // (classic, `public_repo` scope): to a branch of their fork of the scenarios repo,
 // or of the repo itself when they own it. One commit per save, via the Git Data API.
 
+import { GITHUB_TOKEN_STORAGE_KEY } from '../../config.js';
+
 const API = 'https://api.github.com';
 const FORK_READY_TIMEOUT_MS = 30_000;
 const FORK_POLL_MS = 1500;
 
 export const TOKEN_HELP_URL = 'https://github.com/settings/tokens/new?scopes=public_repo&description=Driver%20scenario%20editor';
+
+/** The player's token, set in Settings → GitHub; null when missing or storage is unavailable. */
+export function readToken() {
+  try {
+    return localStorage.getItem(GITHUB_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function writeToken(value) {
+  try {
+    if (value) localStorage.setItem(GITHUB_TOKEN_STORAGE_KEY, value);
+    else localStorage.removeItem(GITHUB_TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage unavailable: lasts this session only.
+  }
+}
 
 const NO_WRITE_MESSAGE =
   'This GitHub token may not write to the scenarios repo: a classic token needs the public_repo scope, ' +

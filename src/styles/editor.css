@@ -83,14 +83,36 @@
 .editor-export { display: flex; flex-direction: column; gap: 3px; }
 .editor-export[hidden],
 .editor-ref[hidden] { display: none; }
-.editor-body details { padding: 2px 0; }
-.editor-body summary { cursor: pointer; font-weight: bold; }
-.editor-body details[open] { display: flex; flex-direction: column; gap: 3px; }
 .editor-note { margin: 0; color: #444; }
+.editor-token-help {
+  padding: 4px 6px;
+  background: #ffffe1;
+  border: 1px solid #000;
+}
+.editor-token-help p, .editor-token-help ol { margin: 0 0 4px; }
+.editor-token-help ol { padding-left: 2.5ch; }
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
 .editor-status.is-error { color: #a00000; }
 
-/* Scenario source tree (ui/scenarioTree.js), in the editor's Open section and the rally picker. */
+/* Open window (editor panel's Open… button), like the rally picker. */
+#editor-open {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.35);
+  color: #000;
+  font-size: 11px;
+}
+#editor-open[hidden] { display: none; }
+.editor-open-window { width: min(420px, 100%); gap: 4px; }
+.editor-open-window .scenario-tree { max-height: 50dvh; overflow-y: auto; }
+
+/* Scenario source tree (ui/scenarioTree.js), in the editor's Open window and the rally picker. */
 .scenario-tree details { padding-left: 2px; }
 .scenario-tree summary { cursor: pointer; font-weight: bold; padding: 2px 0; }
 .scenario-tree-body,

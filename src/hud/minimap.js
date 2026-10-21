@@ -2,6 +2,7 @@ import { lon2tileX, lat2tileY, tileSizeMeters } from '../lib/geo.js';
 import { computeHeadingDeg } from '../lib/heading.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
 import { strokeRoute } from './routeLine.js';
+import { drawScenarioPoints } from './scenarioPointIcon.js';
 import { formatRouteDistance, formatRouteDuration } from '../lib/routing.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
@@ -82,7 +83,7 @@ export function createMinimapHud({ getRouteState } = {}) {
   const routeTurnEl = document.getElementById('minimap-route-turn');
   const routeTurnDistEl = document.getElementById('minimap-route-turn-dist');
   const routeSummaryEl = document.getElementById('minimap-route-summary');
-  if (!root || !canvas) return { update() {}, setDestination() {} };
+  if (!root || !canvas) return { update() {}, setDestination() {}, setScenarioPoints() {} };
 
   const ctx = canvas.getContext('2d');
   // Off-screen peer arrows go on a click-through overlay canvas above the
@@ -98,6 +99,8 @@ export function createMinimapHud({ getRouteState } = {}) {
   let dpr = 1;
   /** @type {{ lat: number, lon: number } | null} */
   let destination = null;
+  /** Scenario editor points: { lat, lon, color, label, gate, selected }. */
+  let scenarioPoints = [];
 
   // Last successful lookup position, and an in-flight guard.
   let lastGeocodeLat = null;
@@ -216,6 +219,22 @@ export function createMinimapHud({ getRouteState } = {}) {
     ctx.restore();
   }
 
+  function drawEditorPoints(txf, tyf, mapRadius, s) {
+    const worldTiles = 2 ** zoom;
+    drawScenarioPoints(
+      ctx,
+      scenarioPoints,
+      (lat, lon) => {
+        let dtx = lon2tileX(lon, zoom) - txf;
+        dtx -= Math.round(dtx / worldTiles) * worldTiles;
+        const x = dtx * TILE_SIZE;
+        const y = (lat2tileY(lat, zoom) - tyf) * TILE_SIZE;
+        return Math.hypot(x, y) > mapRadius + 6 * s ? null : { x, y };
+      },
+      s
+    );
+  }
+
   function draw(lat, lon, headingDeg, peers) {
     resize();
     const size = sizeCss;
@@ -281,6 +300,8 @@ export function createMinimapHud({ getRouteState } = {}) {
       const worldPx = TILE_SIZE * 2 ** zoom;
       strokeRoute(ctx, routeState.route, routeState.progress, txf / 2 ** zoom, tyf / 2 ** zoom, worldPx, 4 * s);
     }
+
+    drawEditorPoints(txf, tyf, mapRadius, s);
 
     const metersPerPx = tileSizeMeters(zoom, lat) / TILE_SIZE;
     // Peers: local (x, z) metres straight to pixels (+x right, +z down).
@@ -481,5 +502,9 @@ export function createMinimapHud({ getRouteState } = {}) {
     destination = latLon ? { lat: latLon.lat, lon: latLon.lon } : null;
   }
 
-  return { update, setDestination };
+  function setScenarioPoints(points) {
+    scenarioPoints = points ?? [];
+  }
+
+  return { update, setDestination, setScenarioPoints };
 }

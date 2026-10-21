@@ -1,5 +1,6 @@
 // Scenario editor panel (top right): file kind/id/name, place-at-car buttons for the
-// mode's point types, the ordered item list, the selected item's fields, open/save/export.
+// mode's point types, the ordered item list, the selected item's fields, save/export, and
+// an Open window with the scenario tree.
 // Built once and patched on change, so typing in a field keeps its focus.
 
 import { TOKEN_HELP_URL, branchNameFor } from '../lib/scenarios/github.js';
@@ -25,8 +26,9 @@ function patchValue(input, value) {
  * @param {object} opts
  * @param {string} opts.title
  * @param {() => string | null} opts.getPlayerName
+ * @param {() => void} opts.openSettings - shows the main menu's Settings screen.
  */
-export function createEditorPanel(editor, { title, getPlayerName }) {
+export function createEditorPanel(editor, { title, getPlayerName, openSettings }) {
   const { format, state } = editor;
   const root = document.getElementById('editor-panel');
   root.hidden = false;
@@ -61,6 +63,8 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     ]),
   ]);
   const saveButton = button('Save to GitHub', async () => {
+    tokenHelpEl.hidden = editor.hasToken();
+    if (!tokenHelpEl.hidden) return;
     await editor.save();
     tree.reload();
   });
@@ -77,29 +81,48 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     folder: format.folder,
     kinds: format.kinds,
     getToken: editor.getToken,
-    onPick: (pick) => editor.openPicked(pick),
+    onPick: (pick) => {
+      openDialog.hidden = true;
+      editor.openPicked(pick);
+    },
   });
   const sourceNote = el('p', { className: 'editor-note' });
-  const openEl = el('details', {}, [el('summary', { textContent: 'Open' }), tree.el, sourceNote]);
-
-  const tokenInput = el('input', { type: 'password', placeholder: 'ghp_…', autocomplete: 'off' });
-  tokenInput.addEventListener('change', () => editor.setToken(tokenInput.value));
-  const branchEl = el('p', { className: 'editor-note' });
-  const githubEl = el('details', {}, [
-    el('summary', { textContent: 'GitHub' }),
-    el('label', { textContent: 'Personal access token (classic, public_repo)' }),
-    tokenInput,
-    el('p', { className: 'editor-note' }, [
-      el('a', { href: TOKEN_HELP_URL, target: '_blank', rel: 'noopener noreferrer', textContent: 'Create a token' }),
-      ' · stored only in this browser',
+  // Menu-style window over the world; a click on the backdrop closes it too.
+  const openDialog = el('div', { id: 'editor-open', hidden: true }, [
+    el('div', { className: 'menu-window editor-open-window' }, [
+      el('h1', { className: 'menu-titlebar', textContent: `Open · ${title}` }),
+      tree.el,
+      sourceNote,
+      el('div', { className: 'menu-footer' }, [button('Cancel', () => (openDialog.hidden = true))]),
     ]),
-    branchEl,
+  ]);
+  openDialog.addEventListener('click', (e) => {
+    if (e.target === openDialog) openDialog.hidden = true;
+  });
+  document.body.append(openDialog);
+  const openButton = button('Open…', () => (openDialog.hidden = false), { title: 'Open a file from a scenario source' });
+
+  const branchEl = el('p', { className: 'editor-note' });
+  const tokenHelpEl = el('div', { className: 'editor-token-help', hidden: true }, [
+    el('p', { textContent: 'Saving commits this file to a branch of your fork of the scenarios repo, so it needs a GitHub token:' }),
+    el('ol', {}, [
+      el('li', {}, [
+        el('a', { href: TOKEN_HELP_URL, target: '_blank', rel: 'noopener noreferrer', textContent: 'Create a token' }),
+        ' (classic, public_repo scope) on GitHub.',
+      ]),
+      el('li', { textContent: 'Paste it in Settings → GitHub (Esc → Settings).' }),
+      el('li', { textContent: 'Press Save to GitHub again.' }),
+    ]),
+    el('div', { className: 'editor-buttons' }, [
+      button('Open Settings', openSettings),
+      button('Close', () => (tokenHelpEl.hidden = true)),
+    ]),
   ]);
 
   const statusEl = el('p', { className: 'editor-status' });
   const toggle = el('button', { type: 'button', className: 'editor-toggle', textContent: title });
   const body = el('div', { className: 'editor-body' }, [
-    el('div', { className: 'editor-buttons editor-kinds' }, [...kindButtons, newButton]),
+    el('div', { className: 'editor-buttons editor-kinds' }, [...kindButtons, newButton, openButton]),
     el('label', { textContent: 'ID' }),
     idInput,
     el('label', { textContent: 'Name' }),
@@ -111,8 +134,8 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     selectedEl,
     actionsEl,
     exportEl,
-    openEl,
-    githubEl,
+    tokenHelpEl,
+    branchEl,
     statusEl,
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
@@ -215,7 +238,6 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     }
 
     branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" of your fork.`;
-    tokenInput.placeholder = editor.hasToken() ? 'Token saved (enter to replace)' : 'ghp_…';
     for (const btn of root.querySelectorAll('button')) btn.disabled = state.busy && btn !== toggle;
     statusEl.textContent = state.status.text;
     statusEl.classList.toggle('is-error', state.status.error);

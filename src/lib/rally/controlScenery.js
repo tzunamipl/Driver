@@ -135,7 +135,7 @@ function makeFlag() {
   group.add(new Mesh(poleGeometry, greyMaterial));
   // Few segments: the ripple reads as folds, not a smooth sheet.
   const geometry = new PlaneGeometry(FLAG_LENGTH_M, FLAG_WIDTH_M, 5, 2);
-  const flag = new Mesh(geometry, new MeshBasicMaterial({ map: bannerTexture('SPLIT', SPLIT_FLAG_COLOR), side: DoubleSide }));
+  const flag = new Mesh(geometry, new MeshLambertMaterial({ map: bannerTexture('SPLIT', SPLIT_FLAG_COLOR), side: DoubleSide }));
   // Tall feather flag: banner turned upright beside the pole (its local +y edge on the pole).
   flag.rotation.z = Math.PI / 2;
   flag.position.set(0.05 + FLAG_WIDTH_M / 2, FLAG_POLE_M - 2.1, 0);
@@ -154,6 +154,7 @@ function waveFlag({ geometry, base, phase }, t) {
     pos.setZ(i, z);
   }
   pos.needsUpdate = true;
+  geometry.computeVertexNormals(); // folds shade with the light
 }
 
 function makeTent() {

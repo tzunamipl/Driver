@@ -1,6 +1,7 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
 import { strokeRoute } from '../hud/routeLine.js';
+import { drawScenarioPoints } from '../hud/scenarioPointIcon.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
 // Foldable "Navigation" tab: address search + a pannable slippy map to pick
@@ -13,6 +14,8 @@ const OPEN_ZOOM = 14;
 const RESULT_MAX_ZOOM = 17;
 // Pointer travel (px) after which a press counts as a drag, not a click.
 const DRAG_THRESHOLD_PX = 4;
+// Editor point icons, larger than on the minimap.
+const NAV_POINT_SCALE = 1.4;
 
 const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
@@ -50,7 +53,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   const selectionEl = document.getElementById('nav-selection');
   const teleportBtn = document.getElementById('nav-teleport');
   const navigateBtn = document.getElementById('nav-navigate');
-  if (!panel || !canvas) return {};
+  if (!panel || !canvas) return { isOpen: () => false, setScenarioPoints() {} };
 
   const ctx = canvas.getContext('2d');
   const tiles = createMapTileCache();
@@ -60,6 +63,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   let centredOnce = false;
   /** @type {{ lat: number, lon: number, label: string } | null} */
   let selection = null;
+  let scenarioPoints = [];
   let reverseSeq = 0;
   let rafId = 0;
   let widthCss = 0;
@@ -327,6 +331,8 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
       return { x: mx * world - left, y: toMercY(lat) * world - top };
     };
 
+    drawScenarioPoints(ctx, scenarioPoints, toScreen, NAV_POINT_SCALE);
+
     const car = getCarLatLon();
     if (car) {
       const { x, y } = toScreen(car.lat, car.lon);
@@ -372,5 +378,10 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     rafId = requestAnimationFrame(frame);
   }
 
-  return { isOpen };
+  /** Scenario editor points (see hud/scenarioPointIcon.js). */
+  function setScenarioPoints(points) {
+    scenarioPoints = points ?? [];
+  }
+
+  return { isOpen, setScenarioPoints };
 }

@@ -18,6 +18,7 @@ import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
+import { createGithubSettings } from './ui/githubSettings.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
@@ -133,6 +134,7 @@ const lobby = createLobby({
 // Settings controls first: the menu's Settings screen shows them before the world loads.
 createVolumeSliders();
 const graphicsDetailPicker = createGraphicsDetailPicker();
+createGithubSettings();
 // Picks the game mode, and so the save slot everything below resumes from.
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();
@@ -397,7 +399,7 @@ const addressSearch = createAddressSearch({
   isJoined: () => lobby.isJoined(),
 });
 dissolve.setActiveWhen(() => addressSearch.isTeleporting());
-createNavigationPanel({
+const navigationPanel = createNavigationPanel({
   addressSearch,
   getCarLatLon,
   routeGuidance,
@@ -455,7 +457,16 @@ const scenarioEditor = editorFormat
     })
   : null;
 if (scenarioEditor) {
-  createEditorPanel(scenarioEditor, { title: `${getGameMode(getActiveModeId()).label} editor`, getPlayerName: loadProfileName });
+  createEditorPanel(scenarioEditor, {
+    title: `${getGameMode(getActiveModeId()).label} editor`,
+    getPlayerName: loadProfileName,
+    openSettings: mainMenu.openSettings,
+  });
+  scenarioEditor.subscribe(() => {
+    const points = scenarioEditor.mapPoints();
+    minimapHud.setScenarioPoints(points);
+    navigationPanel.setScenarioPoints(points);
+  });
 }
 
 // ---------- Menus over the game ----------

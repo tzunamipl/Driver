@@ -269,7 +269,7 @@ export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
-export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits (lib/scenarios/github.js)
+export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits, set in Settings (ui/githubSettings.js)
 export const EDITOR_SOURCE_STORAGE_KEY = 'driver.editorSource.v1'; // scenario source the editor opens from
 
 // ---------- Scenarios ----------
