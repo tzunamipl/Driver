@@ -28,7 +28,7 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
   }
 
   /**
-   * Resolves with { source ('owner/repo@branch'), opened (lib/scenarios/source.js), json, vehicleId }.
+   * Resolves with { source ('owner/repo@branch'), opened (lib/scenarios/source.js), json, vehicleId }, or null on Back.
    * @param {object} opts
    * @param {string} opts.title
    * @param {string} opts.folder - mode folder, e.g. 'rally'.
@@ -37,6 +37,12 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
    */
   function pick({ title, folder, kind, vehicleId }) {
     return new Promise((resolve) => {
+      const finish = (result) => {
+        root.hidden = true;
+        preview.stop();
+        onClose?.();
+        resolve(result);
+      };
       const tabs = el('div', 'rally-vehicle-tabs');
       const list = el('div', 'rally-vehicle-list');
       const vehicles = createVehiclePicker({ tabsEl: tabs, listEl: list, initialVehicleId: vehicleId, onSelect: showVehicle });
@@ -45,10 +51,7 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
         folder,
         kinds: [kind],
         onPick({ source, opened, json }) {
-          root.hidden = true;
-          preview.stop();
-          onClose?.();
-          resolve({ source: formatSource(source), opened, json, vehicleId: vehicles.getSelectedId() });
+          finish({ source: formatSource(source), opened, json, vehicleId: vehicles.getSelectedId() });
         },
       });
       const win = el('div', 'menu-window rally-picker-window');
@@ -60,6 +63,10 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
       car.append(carPick, showcase);
       win.append(el('h1', 'menu-titlebar', title), el('div', 'rally-picker-heading', 'Car'), car);
       win.append(el('div', 'rally-picker-heading', `${kind.label}s`), tree.el);
+      const back = Object.assign(el('button', '', 'Back'), { type: 'button', onclick: () => finish(null) });
+      const footer = el('div', 'menu-footer');
+      footer.append(back);
+      win.append(footer);
       root.replaceChildren(win);
       root.hidden = false;
       preview.start();

@@ -6,16 +6,25 @@ import { getLatestModeId, getLastLaunch, getSaveInfo, clearSave, setActiveMode, 
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
 // so every subsystem starts from the new slot.
 
-/** Mode queued by a mid-game switch, consumed on the next load. */
+/** Mode (or menu screen) queued by a reload, consumed on the next load. */
 function takePendingLaunch() {
   try {
     const pending = JSON.parse(sessionStorage.getItem(LAUNCH_STORAGE_KEY));
     sessionStorage.removeItem(LAUNCH_STORAGE_KEY);
+    if (pending?.menu) return pending;
     const mode = getGameMode(pending?.modeId);
     return (pending?.editor ? mode?.editorAvailable : mode?.available) ? pending : null;
   } catch {
     return null;
   }
+}
+
+/** Reloads into the menu at `screen`, even in dev mode, e.g. Back out of a launch-time picker. */
+export function reloadToMenu(screen = 'modes') {
+  try {
+    sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ menu: screen }));
+  } catch {}
+  location.reload();
 }
 
 const formatDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -172,8 +181,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /** Resolves once a mode is active: dev mode and mid-game switches skip the menu. */
     async waitForLaunch() {
       const pending = takePendingLaunch();
-      if (pending) return start(pending.modeId, pending.fresh, pending.editor, pending.startId);
-      if (IS_DEV_MODE) {
+      if (pending && !pending.menu) return start(pending.modeId, pending.fresh, pending.editor, pending.startId);
+      if (IS_DEV_MODE && !pending) {
         // Back into the last session, editor included.
         const last = getLastLaunch();
         const mode = getGameMode(last?.modeId);
@@ -184,7 +193,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
       await ensureProfile();
       await new Promise((resolve) => {
         resolveLaunch = resolve;
-        open();
+        open(pending?.menu);
       });
     },
     /**

@@ -82,7 +82,7 @@ const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item 
 /**
  * Asks for the car and a stage / rally (the kind the game was started with) and loads it.
  * Needs no world, so the first pick happens before anything streams.
- * @returns {Promise<{plan: object, vehicleId: string}>}
+ * @returns {Promise<{plan: object, vehicleId: string} | null>} null on Back.
  */
 export async function pickPlan(picker, { vehicleId } = {}) {
   const kind = readSaveField('start') === 'rally' ? 'rally' : 'stage';
@@ -93,6 +93,7 @@ export async function pickPlan(picker, { vehicleId } = {}) {
     kind: def,
     vehicleId,
   });
+  if (!picked) return null;
   return { plan: await buildPlan(kind, picked.source, picked.opened, picked.json), vehicleId: picked.vehicleId };
 }
 
@@ -263,13 +264,14 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     if (busy) return;
     busy = true;
     try {
+      const picked = await pickPlan(picker, { vehicleId: getVehicleId() });
+      if (!picked) return; // Back: keep whatever was shown
       routeGuidance.stop();
       scenery.clear();
       plan = null;
       run = null;
       finished = false;
       saveProgress();
-      const picked = await pickPlan(picker, { vehicleId: getVehicleId() });
       if (picked.vehicleId !== getVehicleId()) switchVehicle(picked.vehicleId);
       await startPlan(picked.plan);
     } catch (err) {

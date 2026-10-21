@@ -92,7 +92,7 @@ import { createViewFrame } from './app/viewFrame.js';
 import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
 import { createLobby, loadProfileName, loadProfileVehicleId } from './ui/lobby.js';
-import { createMainMenu } from './ui/mainMenu.js';
+import { createMainMenu, reloadToMenu } from './ui/mainMenu.js';
 import { getActiveModeId, isEditorSession, readSaveField, writeSaveField } from './lib/saves.js';
 import { getVehicleColor } from './lib/vehicleColors.js';
 import { getGameMode } from './app/gameModes.js';
@@ -155,6 +155,10 @@ let rallyInitialPick = null;
 if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
   try {
     rallyInitialPick = await pickPlan(rallyPicker, { vehicleId: readSaveField('vehicle')?.vehicleId ?? loadProfileVehicleId() ?? undefined });
+    if (!rallyInitialPick) {
+      reloadToMenu();
+      await new Promise(() => {}); // the reload takes over; build nothing meanwhile
+    }
     const { vehicleId } = rallyInitialPick;
     writeSaveField('vehicle', { vehicleId, color: getVehicleColor(vehicleId) });
   } catch (err) {
