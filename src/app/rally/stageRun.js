@@ -47,7 +47,7 @@ export function createStageRun({ points, getGate, best, onEvent }) {
     countdownStart: null,
     countdownFrom: null,
     jumpStart: false,
-    splits: [], // ms after the start, per split/PC passed
+    splits: [], // ms after the start, per split passed (passage controls aren't timed)
   };
 
   const penaltyMs = () => (state.jumpStart ? JUMP_START_PENALTY_MS : 0);
@@ -104,7 +104,7 @@ export function createStageRun({ points, getGate, best, onEvent }) {
       state.finishTime = at;
       state.phase = 'afterFinish';
       onEvent({ type: 'finish', index: state.next, ms: elapsedMs() });
-    } else if (state.phase === 'running') {
+    } else if (state.phase === 'running' && type === 'split') {
       const ms = Math.round((at - state.startTime) * 1000);
       state.splits.push(ms);
       onEvent({ type, index: state.next, ms });

@@ -20,6 +20,7 @@ import {
 import { snapToRoad, walkRoad } from '../scenarios/roadSnap.js';
 import { boardTexture, bannerTexture } from './fiaBoards.js';
 import { createFireworks } from './fireworks.js';
+import { createSparkles } from './sparkles.js';
 
 const SNAP_RADIUS_M = 40;
 const RESOLVE_RETRY_S = 1;
@@ -30,15 +31,16 @@ const BOARD_SIZE_M = 0.9;
 const BOARD_HEIGHT_M = 2.1; // board centre; a type's boardHeight overrides
 const LOW_BOARD_HEIGHT_M = 1;
 const ARCH_TUBE_M = 0.35;
-const FLAG_POLE_M = 7;
+const FLAG_POLE_M = 5;
 const SPLIT_FLAG_COLOR = '#ff6a00';
 // Flag cloth in the wind: a wave running from the pole to the free edge, growing along it.
 const FLAG_LENGTH_M = 4;
 const FLAG_WIDTH_M = 0.9;
-const WAVE_AMP_M = 0.16;
-const WAVE_SPEED = 4.5; // rad/s
+const WAVE_AMP_M = 0.35;
+const WAVE_SPEED = 5.5; // rad/s
 const WAVE_PER_M = 3.2; // rad per metre from the pole
 const WAVE_ALONG = 0.7; // rad per metre up the flag, so it doesn't flap as one sheet
+const SPARKLE_HEIGHT_M = 3; // thrown from this high at both sides of a gate without poles
 const LAMPS = 5;
 const LAMP_OFF = 0x222222;
 const LAMP_RED = 0xff1a1a;
@@ -131,7 +133,8 @@ function makeLights() {
 function makeFlag() {
   const group = new Group();
   group.add(new Mesh(poleGeometry, greyMaterial));
-  const geometry = new PlaneGeometry(FLAG_LENGTH_M, FLAG_WIDTH_M, 12, 6);
+  // Few segments: the ripple reads as folds, not a smooth sheet.
+  const geometry = new PlaneGeometry(FLAG_LENGTH_M, FLAG_WIDTH_M, 5, 2);
   const flag = new Mesh(geometry, new MeshBasicMaterial({ map: bannerTexture('SPLIT', SPLIT_FLAG_COLOR), side: DoubleSide }));
   // Tall feather flag: banner turned upright beside the pole (its local +y edge on the pole).
   flag.rotation.z = Math.PI / 2;
@@ -178,8 +181,10 @@ function disposeGroup(group) {
   });
 }
 
-export function createControlScenery({ scene, streets, terrain, viewFrame }) {
+/** @param {{onSparkle?: () => void}} deps - onSparkle: sound hook, once per sparkle(). */
+export function createControlScenery({ scene, streets, terrain, viewFrame, onSparkle }) {
   const fireworks = createFireworks(scene);
+  const sparkles = createSparkles(scene);
   /** @type {{point: object, travel: {x: number, z: number} | null, resolved: object | null, retryAt: number}[]} */
   let entries = [];
   let time = 0;
@@ -215,6 +220,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame }) {
     const objects = [];
     let lamps = null;
     const flags = [];
+    const poleTops = []; // { object, height }: where sparkles come from
 
     // Right of travel is local +x: (-dirZ, dirX).
     const side = (x, z, offset) => ({ x: x - dirZ * offset, z: z + dirX * offset });
@@ -229,7 +235,9 @@ export function createControlScenery({ scene, streets, terrain, viewFrame }) {
         const offset = along === 0 ? halfSpan : snap.roadWidth / 2 + BOARD_SIDE_GAP_M;
         for (const s of [-1, 1]) {
           const q = { x: p.x - pDirZ * offset * s, z: p.z + pDirX * offset * s };
-          objects.push(anchor(makeBoard(color, def.boards, def.boardHeight), q.x, q.z, pDirX, pDirZ));
+          const object = anchor(makeBoard(color, def.boards, def.boardHeight), q.x, q.z, pDirX, pDirZ);
+          objects.push(object);
+          if (along === 0) poleTops.push({ object, height: (def.boardHeight ?? BOARD_HEIGHT_M) + BOARD_SIZE_M / 2 });
         }
       }
     }
@@ -251,9 +259,10 @@ export function createControlScenery({ scene, streets, terrain, viewFrame }) {
         const object = anchor(makeFlag(), q.x, q.z, dirX, dirZ);
         objects.push(object);
         flags.push(object);
+        poleTops.push({ object, height: FLAG_POLE_M });
       }
     }
-    return { dirX, dirZ, halfWidth: (point.width ?? snap.roadWidth) / 2, objects, lamps, flags };
+    return { dirX, dirZ, halfWidth: (point.width ?? snap.roadWidth) / 2, objects, lamps, flags, poleTops };
   }
 
   function clear() {
@@ -305,6 +314,30 @@ export function createControlScenery({ scene, streets, terrain, viewFrame }) {
       for (const p of spots) fireworks.fire(p.x, p.y + FLAG_POLE_M, p.z);
     },
 
+    /** Sparkles from the tops of point i's poles (flags, control boards), else from both sides of its gate. */
+    sparkle(i) {
+      onSparkle?.();
+      const poleTops = entries[i]?.resolved?.poleTops ?? [];
+      if (poleTops.length) {
+        for (const { object, height } of poleTops) {
+          const { x, y, z } = object.group.position;
+          sparkles.throw(x, y + height, z);
+        }
+        return;
+      }
+      const gate = this.getGate(i);
+      if (!gate) return;
+      // Across the road: perpendicular to travel, or along x while the road is unknown.
+      const ax = gate.dirX == null ? 1 : -gate.dirZ;
+      const az = gate.dirX == null ? 0 : gate.dirX;
+      for (const s of [-1, 1]) {
+        const x = gate.x + ax * s * (gate.halfWidth + 1);
+        const z = gate.z + az * s * (gate.halfWidth + 1);
+        const y = terrain.surfaceHeightAt(x, z);
+        if (y != null) sparkles.throw(x, y + SPARKLE_HEIGHT_M, z);
+      }
+    },
+
     update(dt) {
       time += dt;
       for (const entry of entries) {
@@ -323,8 +356,12 @@ export function createControlScenery({ scene, streets, terrain, viewFrame }) {
         for (const flag of entry.resolved?.flags ?? []) if (flag.group.visible) waveFlag(flag.group.userData.cloth, time);
       }
       fireworks.update(dt);
+      sparkles.update(dt);
     },
 
-    shiftOrigin: fireworks.shiftOrigin,
+    shiftOrigin(dx, dz) {
+      fireworks.shiftOrigin(dx, dz);
+      sparkles.shiftOrigin(dx, dz);
+    },
   };
 }

@@ -21,6 +21,8 @@ async function gh(token, method, path, body) {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
+    // GitHub lets browsers cache GETs for a minute: a stale branch head breaks the next commit.
+    cache: 'no-store',
   });
   if (method === 'GET' && res.status === 404) return null;
   if (!res.ok) {
@@ -98,7 +100,8 @@ async function readText(token, { owner, repo }, path, ref) {
  * @param {string} opts.message
  * @param {(readJson: (path: string) => Promise<any>) => Promise<{path: string, content: string}[]>} opts.buildFiles
  *   - gets the branch's current files, e.g. to merge an index.
- * @returns {Promise<{owner: string, repo: string, branch: string, sha: string}>}
+ * @returns {Promise<{owner: string, repo: string, branch: string, sha: string, unchanged: boolean}>}
+ *   unchanged: the files already matched the branch, so nothing was committed.
  */
 export async function commitFiles({ token, upstream, branch, message, buildFiles }) {
   const login = await getLogin(token);
@@ -120,7 +123,8 @@ export async function commitFiles({ token, upstream, branch, message, buildFiles
     base_tree: baseTree,
     tree: files.map(({ path, content }) => ({ path, mode: '100644', type: 'blob', content })),
   });
+  if (tree.sha === baseTree) return { owner: repo.owner, repo: repo.repo, branch, sha: head, unchanged: true };
   const commit = await gh(token, 'POST', `${repoPath}/git/commits`, { message, tree: tree.sha, parents: [head] });
   await gh(token, 'PATCH', `${repoPath}/git/refs/heads/${branch}`, { sha: commit.sha });
-  return { owner: repo.owner, repo: repo.repo, branch, sha: commit.sha };
+  return { owner: repo.owner, repo: repo.repo, branch, sha: commit.sha, unchanged: false };
 }

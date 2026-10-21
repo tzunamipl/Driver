@@ -106,9 +106,11 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(vehicleId: string) => void} deps.switchVehicle
  * @param {() => void} deps.parkCar - pulls the handbrake once the car is placed at a stage.
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
+ * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
+ * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  */
-export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress }) {
-  const scenery = createControlScenery({ scene, streets, terrain, viewFrame });
+export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, onSparkle, onStartBeep }) {
+  const scenery = createControlScenery({ scene, streets, terrain, viewFrame, onSparkle });
   const rocking = createCarRocking();
   let plan = null;
   let itemIndex = 0;
@@ -121,6 +123,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   let flash = null; // { text, until } short status after a split / GO
   let resultRows = null; // stable array for the HUD while unchanged
   const step = { x: 0, z: 0 };
+  let shownRed = 0; // countdown lights already beeped for
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
@@ -171,9 +174,20 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
 
   function onStageEvent(stage, best, event) {
     if (event.type === 'countdown') saveProgress(true);
-    if (event.type === 'go') flash = { text: 'GO!', until: simTime + GO_SHOW_S };
-    if (event.type === 'split' || event.type === 'passageControl') {
-      if (event.type === 'split') scenery.celebrate(event.index);
+    // Timing clock beeps: check-in at a time / stop control, and the clock stopping at the finish.
+    if (event.type === 'checkIn') onStartBeep?.(false);
+    if (event.type === 'finish') onStartBeep?.(true);
+    if (event.type === 'go') {
+      flash = { text: 'GO!', until: simTime + GO_SHOW_S };
+      onStartBeep?.(true);
+    }
+    if (event.type === 'passageControl') {
+      scenery.sparkle(event.index);
+      flash = { text: 'Passage control ✓', until: simTime + SPLIT_SHOW_S };
+    }
+    if (event.type === 'split') {
+      scenery.celebrate(event.index);
+      scenery.sparkle(event.index);
       const n = run.state.splits.length;
       const delta = run.lastSplitDelta();
       flash = { text: `Split ${n}: ${formatTime(event.ms)}${delta == null ? '' : `  ${formatDelta(delta)}`}`, until: simTime + SPLIT_SHOW_S };
@@ -420,6 +434,9 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
       if (run && run.startIndex >= 0) {
         const { red, green } = run.lights();
         scenery.setLights(run.startIndex, red, green);
+        // A beep as each countdown light comes on.
+        if (red > shownRed) onStartBeep?.(false);
+        shownRed = red;
       }
       hud.render(view());
     },

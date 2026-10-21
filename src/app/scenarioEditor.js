@@ -84,7 +84,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     const isGate = format.pointTypes[type].gate;
     const snap = isGate ? snapToRoad(streets, pos.x, pos.z, EDITOR_SNAP_RADIUS_M) : null;
     const { lat, lon } = viewFrame.toLatLon(snap?.x ?? pos.x, snap?.z ?? pos.z);
-    return { lat, lon, roadWidth: snap ? Math.ceil(snap.roadWidth) : null, snapped: !!snap };
+    return { lat, lon, snapped: !!snap };
   }
 
   function insertItem(item) {
@@ -163,7 +163,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         }
       }
       const item = { type, lat: point.lat, lon: point.lon };
-      if (def.gate) item.width = point.roadWidth ?? format.defaultGateWidth;
+      if (def.gate) item.width = format.defaultGateWidth;
       else item.name = '';
       insertItem(item);
       state.status = def.gate && !point.snapped ? { text: 'No road nearby: placed at the car', error: true } : { text: '', error: false };
@@ -266,7 +266,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       });
       editor.setSource(formatSource({ owner: result.owner, repo: result.repo, ref: result.branch }));
       ({ index: state.index } = await loadIndex());
-      setStatus(`Saved. Play it from source ${state.source}`);
+      setStatus(result.unchanged ? 'No changes to save' : `Saved. Play it from source ${state.source}`);
     }),
 
     /** Per frame: markers for the current file's points. */

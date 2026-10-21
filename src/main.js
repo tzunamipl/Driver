@@ -30,6 +30,8 @@ import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
+import { createSparklePop } from './lib/audio/sparklePop.js';
+import { createStartBeep } from './lib/audio/startBeep.js';
 import { createHeadlights } from './lib/headlights.js';
 import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
@@ -484,6 +486,8 @@ const rallySession =
         switchVehicle,
         parkCar: input.latchHandbrake,
         keepsProgress,
+        onSparkle: createSparklePop().play,
+        onStartBeep: createStartBeep().play,
       })
     : null;
 /** Respawns the local car as `vehicleId` where it stands, with its saved paint. */

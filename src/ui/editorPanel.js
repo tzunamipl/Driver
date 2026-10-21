@@ -139,7 +139,7 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
     placeEl.replaceChildren(
       ...kind.points.map((type) => {
         const def = format.pointTypes[type];
-        const btn = button(def.short, () => editor.place(type), { title: def.label });
+        const btn = button(def.short, () => editor.place(type), { title: `${def.label}: ${def.description}` });
         btn.style.setProperty('--editor-swatch', hex(def.color));
         return btn;
       })
@@ -196,9 +196,13 @@ export function createEditorPanel(editor, { title, getPlayerName }) {
 
     itemsEl.replaceChildren(
       ...state.doc.items.map((item, i) => {
-        const li = el('li', { textContent: itemLabel(item), onclick: () => editor.select(i) });
-        li.classList.toggle('selected', i === state.selected);
         const def = format.pointTypes[item.type];
+        const li = el('li', {
+          textContent: itemLabel(item),
+          title: def?.description ?? 'A stage driven at this point of the rally.',
+          onclick: () => editor.select(i),
+        });
+        li.classList.toggle('selected', i === state.selected);
         if (def) li.style.setProperty('--editor-swatch', hex(def.color));
         return li;
       })

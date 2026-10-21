@@ -9,23 +9,69 @@ const COORD_DECIMALS = 6; // ~0.1 m
 
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// gate: placed across the nearest road and has a width; single: at most one per file.
+// gate: placed across the nearest road and has a width; single: at most one per file;
+// description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
-  timeControl: { label: 'Time control', short: 'TC', color: 0xf2c200, gate: true },
-  start: { label: 'Start', short: 'START', color: 0x20b040, gate: true },
-  split: { label: 'Split', short: 'SPLIT', color: 0x2f7fff, gate: true },
-  passageControl: { label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true },
-  finish: { label: 'Flying finish', short: 'FINISH', color: 0xe02020, gate: true },
-  stop: { label: 'Stop control', short: 'STOP', color: 0x901010, gate: true },
-  base: { label: 'Rally base', short: 'BASE', color: 0x1060c0, single: true },
-  serviceParkIn: { label: 'Service park in', short: 'SP IN', color: 0x00b0c0, gate: true },
-  serviceParkOut: { label: 'Service park out', short: 'SP OUT', color: 0x00b0c0, gate: true },
-  regroup: { label: 'Regroup', short: 'REGROUP', color: 0x909090, gate: true },
-  refuel: { label: 'Refuel zone', short: 'FUEL', color: 0xff8a00, gate: true },
-  tyreFitting: { label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true },
-  remoteService: { label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true },
-  parcFerme: { label: 'Parc fermé', short: 'PARC', color: 0xf0f0f0, gate: true },
-  podium: { label: 'Podium', short: 'PODIUM', color: 0xd4a017, gate: true },
+  timeControl: {
+    label: 'Time control', short: 'TC', color: 0xf2c200, gate: true,
+    description: 'Check-in before the stage: the driver stops in its zone (15 m), then drives on to the start. Place it shortly before the start.',
+  },
+  start: {
+    label: 'Start', short: 'START', color: 0x20b040, gate: true,
+    description: 'Start line: the car stops at it for a 5-light countdown and the clock starts at GO. Moving before GO is a jump start (+10 s). Exactly one per stage.',
+  },
+  split: {
+    label: 'Split', short: 'SPLIT', color: 0x2f7fff, gate: true,
+    description: 'Intermediate timing point between start and finish: crossing it records a split time compared with the best run. Flags, fireworks and sparkles.',
+  },
+  passageControl: {
+    label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true,
+    description: 'Required checkpoint: the stage only counts it when crossed in order, so use it to block shortcuts. Low PC boards, sparkles when passed.',
+  },
+  finish: {
+    label: 'Flying finish', short: 'FINISH', color: 0xe02020, gate: true,
+    description: 'Crossing it at speed stops the clock: this is the stage time. Exactly one per stage, after the start.',
+  },
+  stop: {
+    label: 'Stop control', short: 'STOP', color: 0x901010, gate: true,
+    description: 'A little after the finish: the car must stop in its zone (15 m) to end the stage and see the results.',
+  },
+  base: {
+    label: 'Rally base', short: 'BASE', color: 0x1060c0, single: true,
+    description: "The rally's service park and home. One per rally; not a checkpoint.",
+  },
+  serviceParkIn: {
+    label: 'Service park in', short: 'SP IN', color: 0x00b0c0, gate: true,
+    description: 'Liaison checkpoint at the service park entry: drive through it on the way into service.',
+  },
+  serviceParkOut: {
+    label: 'Service park out', short: 'SP OUT', color: 0x00b0c0, gate: true,
+    description: 'Liaison checkpoint at the service park exit: drive through it on the way out to the next stages.',
+  },
+  regroup: {
+    label: 'Regroup', short: 'REGROUP', color: 0x909090, gate: true,
+    description: 'Liaison checkpoint where the field gathers between stages: drive through it.',
+  },
+  refuel: {
+    label: 'Refuel zone', short: 'FUEL', color: 0xff8a00, gate: true,
+    description: 'Liaison checkpoint at a refuelling zone: drive through it.',
+  },
+  tyreFitting: {
+    label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true,
+    description: 'Liaison checkpoint at a tyre fitting zone: drive through it.',
+  },
+  remoteService: {
+    label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true,
+    description: 'Liaison checkpoint at a remote service zone away from the base: drive through it.',
+  },
+  parcFerme: {
+    label: 'Parc fermé', short: 'PARC', color: 0xf0f0f0, gate: true,
+    description: 'Closed park at the end of a leg or the rally: drive through it.',
+  },
+  podium: {
+    label: 'Podium', short: 'PODIUM', color: 0xd4a017, gate: true,
+    description: 'Ceremonial start / finish ramp with an arch: drive through it.',
+  },
 };
 
 const STAGE_POINTS = ['timeControl', 'start', 'split', 'passageControl', 'finish', 'stop'];
