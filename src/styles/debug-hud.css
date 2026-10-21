@@ -151,7 +151,8 @@
   margin-top: 6px;
 }
 /* Ground surface under the mouse (hud/surfaceHover.js). */
-#surface-hover {
+#surface-hover,
+#road-bed-inspect {
   position: fixed;
   display: none;
   color: #000;
@@ -204,6 +205,33 @@
 #debug-layers-hud .debug-layer input {
   margin: 0;
   cursor: pointer;
+}
+#debug-layers-hud .debug-legend {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 10px;
+  padding: 3px 4px;
+  box-shadow: var(--w95-pressed);
+}
+#debug-layers-hud .debug-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+#debug-layers-hud .debug-legend-hint {
+  grid-column: 1 / -1;
+  color: var(--w95-shadow);
+}
+#debug-layers-hud .debug-legend-swatch {
+  width: 7px;
+  height: 7px;
+  background: var(--swatch);
+  outline: 1px solid #000;
+}
+#debug-layers-hud .debug-legend-swatch.ring {
+  background: #fff;
+  outline: 2px solid var(--swatch);
 }
 #debug-layers-hud .debug-time-title {
   margin-top: 8px;

@@ -11,9 +11,11 @@ import { createTileHeights } from './roadBed.js';
 /**
  * @returns {{ mesh: object, cols: number, rows: number,
  *   heightfield: { heights: Float32Array, cols: number, rows: number, elementSize: number },
- *   roadProfile: { original: Float32Array, adjusted: Float32Array } }}
+ *   roadProfile: { original: Float32Array, adjusted: Float32Array, causes: Uint8Array, records: Array } }}
  *   `heightfield.heights` is row-major from the north edge, square, and
- *   may overshoot the east/south edge.
+ *   may overshoot the east/south edge. `roadProfile.causes` = per surface
+ *   vertex, why the road bed moved it (roadBed.js ROAD_BED_CAUSE, 0 = untouched);
+ *   `records` = per moved vertex, what moved it (roadBed.js evaluateGrid).
  */
 export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMeters, cells, skirtDepth, lines, floorAt }) {
   const step = widthMeters / cells;
@@ -27,22 +29,32 @@ export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMete
   const ringCols = size + 2; // plus a ring for normals
 
   // Step grid from (-1, -1) covering render rows 0..lastRow and the physics square; the south edge row separately.
-  const grid = evaluateGrid(-step, -step, ringCols, size + 2, step);
-  const edge = evaluateGrid(-step, heightMeters - step, ringCols, 3, step);
+  const gridCauses = new Uint8Array(ringCols * (size + 2));
+  const edgeCauses = new Uint8Array(ringCols * 3);
+  const gridRecords = new Array(gridCauses.length);
+  const edgeRecords = new Array(edgeCauses.length);
+  const grid = evaluateGrid(-step, -step, ringCols, size + 2, step, gridCauses, gridRecords);
+  const edge = evaluateGrid(-step, heightMeters - step, ringCols, 3, step, edgeCauses, edgeRecords);
 
   const vertexCount = (cols + 1) * (rows + 1);
   const positions = new Float32Array(vertexCount * 3);
   const normals = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
+  const causes = new Uint8Array(vertexCount);
+  const records = new Array(vertexCount).fill(null);
   for (let r = 0; r <= rows; r++) {
     const onEdge = r > lastRow;
     const src = onEdge ? edge : grid;
+    const srcCauses = onEdge ? edgeCauses : gridCauses;
+    const srcRecords = onEdge ? edgeRecords : gridRecords;
     const mid = onEdge ? 1 : r + 1; // this row within `src`
     const z = onEdge ? heightMeters : r * step;
     for (let c = 0; c <= cols; c++) {
       const i = r * (cols + 1) + c;
       const m = mid * ringCols + c + 1;
       const h = src[m];
+      causes[i] = srcCauses[m];
+      records[i] = srcRecords[m] ?? null;
       positions[i * 3] = c * step;
       positions[i * 3 + 1] = h;
       positions[i * 3 + 2] = z;
@@ -68,6 +80,6 @@ export function buildDetailSurface({ elev, heightOffset, widthMeters, heightMete
     cols,
     rows,
     heightfield: { heights, cols: size, rows: size, elementSize: step },
-    roadProfile: profileLines(),
+    roadProfile: { ...profileLines(), causes, records },
   };
 }

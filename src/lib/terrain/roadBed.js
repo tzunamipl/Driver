@@ -35,6 +35,12 @@ const SKIP_CLASSES = new Set(['path', 'track']);
 const SKIP_BRUNNELS = new Set(['bridge', 'tunnel']);
 const CACHE_SIZE = 32;
 const PROFILE_SAMPLE_METERS = 1; // debug profile lines: spacing of the terrain samples along a road
+const CAUSE_MIN_METERS = 1e-3; // a node moved less than this isn't marked as altered
+
+/** Debug: why the road bed moved a grid node (evaluateGrid `causes`); OR'd with ROAD_BED_OVERRIDE. */
+export const ROAD_BED_CAUSE = { top: 1, fill: 2, cut: 3, bankFade: 4, tailFade: 5 };
+export const ROAD_BED_CAUSE_MASK = 7;
+export const ROAD_BED_OVERRIDE = 8; // a lower class had moved it already
 
 /** Road bed profile of a class key (aliases and `_construction` share their base class's). */
 function roadProfile(key) {
@@ -71,10 +77,15 @@ export function roadBedBorderPx(pixelMeters, cellMeters) {
   return Math.ceil(roadMarginMeters(cellMeters) / pixelMeters) + 2;
 }
 
-/** Class key -> priority (higher = more important); aliases rank as the class they share a style with. */
-function roadPriority(key) {
+/** Class key -> its ROAD_HIERARCHY class (aliases share a style with it). */
+function hierarchyClass(key) {
   const base = ROAD_CLASSES[key.replace(/_construction$/, '')];
-  return ROAD_HIERARCHY.length - ROAD_HIERARCHY.findIndex((cls) => ROAD_CLASSES[cls] === base);
+  return ROAD_HIERARCHY.find((cls) => ROAD_CLASSES[cls] === base);
+}
+
+/** Class key -> priority (higher = more important). */
+function roadPriority(key) {
+  return ROAD_HIERARCHY.length - ROAD_HIERARCHY.indexOf(hierarchyClass(key));
 }
 
 /** Point clusterer: `at(x, z)` = the node within JOIN_METERS of (x, z), created if none; nodes collect `items`. */
@@ -160,7 +171,9 @@ async function decodeRoadTile(tx, ty) {
     const style = classifyRoad(props);
     if (!style) continue;
     const onBed = !SKIP_BRUNNELS.has(props.brunnel) && !SKIP_CLASSES.has(style.key.replace(/_construction$/, ''));
-    const info = onBed ? { halfWidth: style.width / 2, priority: roadPriority(style.key), ...roadProfile(style.key) } : null;
+    const info = onBed
+      ? { halfWidth: style.width / 2, priority: roadPriority(style.key), roadClass: hierarchyClass(style.key), ...roadProfile(style.key) }
+      : null;
     for (const line of feature.loadGeometry()) {
       const flat = line.flatMap((pt) => [tx + pt.x / extent, ty + pt.y / extent]);
       for (const piece of clipPolyline(flat, tx, ty, tx + 1, ty + 1)) {
@@ -623,7 +636,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
   // (fa, fb) = how much of the bed applies (below 1 on a free end's tail).
   const segments = [];
   for (const line of elev ? buildProfiles(lines, terrainAt) : lines) {
-    const { points: p, priority, fillSlope, cutSlope, heights, deltas, fades } = line;
+    const { points: p, priority, roadClass, fillSlope, cutSlope, heights, deltas, fades } = line;
     // Shaped to the grid (see ROAD_PAD_CELLS); `line` keeps the real width for the profile maths.
     const halfWidth = line.halfWidth + ROAD_PAD_CELLS * cellMeters;
     const bankMeters = Math.max(line.bankMeters, BANK_MIN_CELLS * cellMeters);
@@ -633,7 +646,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
       if (Math.max(ax, bx) < -reach || Math.min(ax, bx) > widthMeters + reach) continue;
       if (Math.max(az, bz) < -reach || Math.min(az, bz) > heightMeters + reach) continue;
       segments.push({
-        ax, az, bx, bz, halfWidth, priority, bankMeters, fillSlope, cutSlope, joinA: i > 0, joinB: i + 4 < p.length,
+        ax, az, bx, bz, halfWidth, priority, roadClass, bankMeters, fillSlope, cutSlope, joinA: i > 0, joinB: i + 4 < p.length,
         ha: heights?.[i / 2], hb: heights?.[i / 2 + 1], da: deltas?.[i / 2], db: deltas?.[i / 2 + 1],
         fa: fades?.[i / 2] ?? 1, fb: fades?.[i / 2 + 1] ?? 1,
       });
@@ -642,8 +655,13 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
   // Least important first, so each class is laid over the ones below it.
   segments.sort((a, b) => a.priority - b.priority);
 
-  /** Heights of a cols x rows grid at (x0 + c * step, z0 + r * step), row-major. */
-  function evaluateGrid(x0, z0, cols, rows, step) {
+  /**
+   * Heights of a cols x rows grid at (x0 + c * step, z0 + r * step), row-major.
+   * `causes` (Uint8Array of the same size, zeroed) gets each moved node's ROAD_BED_CAUSE;
+   * `records` (Array of the same size) gets what moved it: { roadClass, g, h, target, edge,
+   * sources: [x, road, z, weight, ground, ...] } (centreline points blended into `target`).
+   */
+  function evaluateGrid(x0, z0, cols, rows, step, causes = null, records = null) {
     const out = new Float32Array(cols * rows);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -659,8 +677,9 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
     const targetSum = new Float32Array(out.length);
     const edgeDist = new Float32Array(out.length).fill(Infinity);
     const fadeSum = new Float32Array(out.length);
+    const layerSources = records && new Array(out.length);
     // Road top inside the edges; outside, a bank at the class's slope down/up to the ground below (incl. lower roads).
-    const applyLayer = ({ bankMeters, fillSlope, cutSlope }) => {
+    const applyLayer = ({ bankMeters, fillSlope, cutSlope, roadClass }) => {
       // At least a cell, or the fade falls between nodes.
       const fade = Math.min(Math.max(BANK_FADE_METERS, step), bankMeters);
       for (let i = 0; i < out.length; i++) {
@@ -669,16 +688,30 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
         const target = targetSum[i] / weightSum[i];
         const e = Math.max(0, edgeDist[i]);
         let h = target > g ? Math.max(g, target - e * fillSlope) : Math.min(g, target + e * cutSlope);
+        let cause = edgeDist[i] <= 0 ? ROAD_BED_CAUSE.top : target > g ? ROAD_BED_CAUSE.fill : ROAD_BED_CAUSE.cut;
         const s = Math.min(1, (bankMeters - e) / fade);
-        if (s < 1) h = g + (h - g) * s * s * (3 - 2 * s);
+        if (s < 1) {
+          h = g + (h - g) * s * s * (3 - 2 * s);
+          cause = ROAD_BED_CAUSE.bankFade;
+        }
         const k = fadeSum[i] / weightSum[i];
-        if (k < 1) h = g + (h - g) * (1 - falloff(k));
+        if (k < 1) {
+          h = g + (h - g) * (1 - falloff(k));
+          cause = ROAD_BED_CAUSE.tailFade;
+        }
         out[i] = h;
+        if (causes && Math.abs(h - g) > CAUSE_MIN_METERS) causes[i] = cause | (causes[i] ? ROAD_BED_OVERRIDE : 0);
+        if (records && Math.abs(h - g) > CAUSE_MIN_METERS) {
+          const sources = layerSources[i];
+          for (let k = 3; k < sources.length; k += 5) sources[k] /= weightSum[i];
+          records[i] = { roadClass, g, h, target, edge: edgeDist[i], sources };
+        }
       }
       weightSum.fill(0);
       fadeSum.fill(0);
       targetSum.fill(0);
       edgeDist.fill(Infinity);
+      layerSources?.fill(undefined);
     };
     // Signed distance past the edge (negative on the road) per node to the nearest road of the layer; heights
     // are weighted toward it, so a bend's other leg or a later stretch of the curve can't drag the road top.
@@ -724,6 +757,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
           if (ha !== undefined) base = ha + (hb - ha) * t;
           else base = terrainAt(cx, cz) + (da === undefined ? 0 : da + (db - da) * t);
           targetSum[i] += w * (base + ROAD_LIFT);
+          if (layerSources) (layerSources[i] ??= []).push(cx, base + ROAD_LIFT, cz, w, terrainAt(cx, cz));
         }
       }
     };

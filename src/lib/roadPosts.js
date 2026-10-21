@@ -1,12 +1,14 @@
 // Simple white posts along both edges of OSM roads, as 3D cues for where the
 // road runs: a roadside.js kind, placed at a fixed spacing along each line
-// (denser through hairpins). Built-up areas get street lamps instead (streetLamps.js).
+// (denser through hairpins). Built-up areas get street lamps instead (streetLamps.js),
+// steep drop-offs guard rails (guardRails.js).
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { latLonToLocal, localToLatLon } from './geo.js';
 import { isRoadsideRoad } from './roadside.js';
 import { hairpinSpans } from './roadSigns.js';
+import { createDropOffCheck } from './guardRails.js';
 import { ROAD_POST_SPACING_M, ROAD_POST_HAIRPIN_DENSITY } from '../config.js';
 
 const EDGE_OFFSET_M = -1.0; // outside the stripe edge; negative = inside the road
@@ -43,11 +45,12 @@ function createPostGeometry() {
 /**
  * Spots along the edges of one segment, `edgeOffset` out from the stripe edge, at multiples
  * of `step` metres along its line where `keep(s, x, z)` (centreline point) says so, on both
- * sides or, if `alternate`, one side per step taking turns, minus any
+ * sides or, if `alternate`, one side per step taking turns, where `keepEdge(x, z, ox, oz, halfWidth)`
+ * (centreline point, outward unit normal) says so, minus any
  * landing on another road: [{ x, z, yaw }] in local metres, yaw turning local +z towards the road.
  * @param {import('./streets.js').StreetsManager} streets
  */
-export function edgeSpots(streets, seg, { step, edgeOffset, keep = () => true, alternate = false }) {
+export function edgeSpots(streets, seg, { step, edgeOffset, keep = () => true, keepEdge = () => true, alternate = false }) {
   const out = [];
   const { style } = seg;
   if (seg.buffer || !isRoadsideRoad(style)) return out;
@@ -71,6 +74,7 @@ export function edgeSpots(streets, seg, { step, edgeOffset, keep = () => true, a
     if (!keep(k * step, cx, cz)) continue;
     for (const side of alternate ? [k % 2 ? 1 : -1] : [-1, 1]) {
       if (streets.containsPoint(cx + nx * checkOffset * side, cz + nz * checkOffset * side)) continue;
+      if (!keepEdge(cx, cz, nx * side, nz * side, halfWidth)) continue;
       out.push({ x: cx + nx * offset * side, z: cz + nz * offset * side, yaw: Math.atan2(-nx * side, -nz * side) });
     }
   }
@@ -85,22 +89,30 @@ export function builtUpReady(builtUpAreas, seg) {
 /**
  * @param {import('./streets.js').StreetsManager} streets
  * @param {import('./builtUpAreas.js').BuiltUpAreasManager} builtUpAreas - street lamps stand there instead
+ * @param {import('./terrain.js').TerrainManager} terrain - guard rails replace them on drop-offs
  */
-export function createRoadPostKind(streets, builtUpAreas, spacing = ROAD_POST_SPACING_M) {
+export function createRoadPostKind(streets, builtUpAreas, terrain, spacing = ROAD_POST_SPACING_M) {
   // Fine grid; the regular one is every DENSITY-th step, so the two line up.
   const step = spacing / ROAD_POST_HAIRPIN_DENSITY;
+  const isDropOff = createDropOffCheck(terrain);
 
-  /** Post positions for one segment, both sides; null until built-up data is in. */
+  /** Post positions for one segment, both sides; null until built-up and terrain data are in. */
   function place(seg) {
     if (!builtUpReady(builtUpAreas, seg)) return null;
+    let ready = true;
+    const keepEdge = (...edge) => {
+      const drop = isDropOff(...edge);
+      if (drop == null) ready = false;
+      return drop === false;
+    };
     const spans = hairpinSpans(seg.line, streets);
     const keep = (s, x, z) =>
       (Math.round(s / step) % ROAD_POST_HAIRPIN_DENSITY === 0 || spans.some(([from, to]) => s >= from && s <= to)) &&
       !builtUpAreas.isBuiltUpAt(x, z);
     const { originLat, originLon, scaleLat } = streets;
-    return edgeSpots(streets, seg, { step, edgeOffset: EDGE_OFFSET_M, keep }).map((p) =>
-      localToLatLon(p.x, p.z, originLat, originLon, scaleLat)
-    );
+    const spots = edgeSpots(streets, seg, { step, edgeOffset: EDGE_OFFSET_M, keep, keepEdge });
+    if (!ready) return null;
+    return spots.map((p) => localToLatLon(p.x, p.z, originLat, originLon, scaleLat));
   }
 
   return {

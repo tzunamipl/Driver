@@ -3,7 +3,17 @@ import * as CANNON from 'cannon-es';
 import { lon2tileX, lat2tileY, localToLatLon, latLonToLocal, tileX2lon, tileY2lat, tileSizeMeters } from './geo.js';
 import { loadTileData } from './terrain/tileLoader.js';
 import { AERIAL_MAX_ZOOM, AERIAL_MAX_REQUESTS } from './terrain/tileUrls.js';
-import { buildTileGeometry, buildTileBorder, buildTileWireframe, buildRoadProfileLines, geometryFromGridMesh } from './terrain/tileMesh.js';
+import {
+  buildTileGeometry,
+  buildTileBorder,
+  buildTileWireframe,
+  buildRoadProfileLines,
+  geometryFromGridMesh,
+  pickCauseDot,
+  causeDotWorldPosition,
+  buildRoadBedSources,
+  disposeRoadBedSources,
+} from './terrain/tileMesh.js';
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
 import './terrain/heightfieldRayFix.js';
@@ -198,6 +208,7 @@ export class TerrainManager {
     this.bordersVisible = true;
     this.wireframeVisible = true;
     this.roadProfileVisible = true;
+    this.roadBedInspection = null; // debug: { tile, vertex, record, cause, group }, see inspectRoadBedAt
     this.roadBed = true; // debug: false builds detail tiles without carved roads
 
     this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, border, wireframe, roadProfile, roadProfileLines, aerialBoost, texBytes, meshBytes, hiddenSince }
@@ -255,6 +266,13 @@ export class TerrainManager {
   /** True once a DETAIL_ZOOM tile's mesh is built - for the debug stats HUD. */
   isTileLoaded(tx, ty) {
     return this.tiles.has(tileKey(DETAIL_ZOOM, tx, ty));
+  }
+
+  /** Grid cell size (m) of the detail tile at (x, z), or null if not loaded. */
+  detailCellAt(x, z) {
+    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+    const tile = this.tiles.get(tileKey(DETAIL_ZOOM, Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM))));
+    return tile?.heightfield?.elementSize ?? null;
   }
 
   /** Detail-tile surface y at (x, z) from its heightfield (no physics body needed), or null if not loaded. */
@@ -583,7 +601,7 @@ export class TerrainManager {
     }
     if (tile.wireframe) tile.wireframe.visible = this.wireframeVisible;
     if (this.roadProfileVisible && tile.roadProfile && !tile.roadProfileLines) {
-      tile.roadProfileLines = buildRoadProfileLines(tile.roadProfile);
+      tile.roadProfileLines = buildRoadProfileLines(tile.roadProfile, tile.surface);
       tile.mesh.add(tile.roadProfileLines);
     }
     if (tile.roadProfileLines) tile.roadProfileLines.visible = this.roadProfileVisible;
@@ -591,6 +609,7 @@ export class TerrainManager {
 
   _removeRoadProfileLines(tile) {
     if (!tile.roadProfileLines) return;
+    if (this.roadBedInspection?.tile === tile) this.clearRoadBedInspection();
     tile.mesh.remove(tile.roadProfileLines);
     for (const line of tile.roadProfileLines.children) line.geometry.dispose();
     tile.roadProfileLines = null;
@@ -1086,6 +1105,47 @@ export class TerrainManager {
   setRoadProfileVisible(visible) {
     this.roadProfileVisible = visible;
     for (const tile of this.tiles.values()) this._syncDebugLines(tile);
+  }
+
+  /**
+   * Debug: selects the road-bed-moved vertex whose profile dot is nearest screen point (sx, sy) of a
+   * `width` x `height` view, within `maxPx`, and draws lines to what moved it. Clears the old one either way.
+   */
+  inspectRoadBedAt(camera, sx, sy, width, height, maxPx) {
+    this.clearRoadBedInspection();
+    if (!this.roadProfileVisible) return null;
+    let best = { dist: maxPx };
+    let bestTile = null;
+    for (const tile of this.tiles.values()) {
+      const causes = tile.roadProfile?.causes;
+      if (!causes || !tile.roadProfileLines || !tile.mesh.visible) continue;
+      const pick = pickCauseDot(tile.mesh, tile.surface, causes, camera, sx, sy, width, height, best);
+      if (pick === best) continue;
+      best = pick;
+      bestTile = tile;
+    }
+    if (!bestTile) return null;
+    const { vertex } = best;
+    const { causes, records } = bestTile.roadProfile;
+    const group = buildRoadBedSources(bestTile.surface, vertex, records[vertex], causes[vertex]);
+    bestTile.roadProfileLines.add(group);
+    this.roadBedInspection = { tile: bestTile, vertex, record: records[vertex], cause: causes[vertex], group };
+    return this.roadBedInspection;
+  }
+
+  /** Debug: the inspected vertex (inspectRoadBedAt) with its world `position` and whether it's `shown`, or null. */
+  getRoadBedInspection() {
+    const inspection = this.roadBedInspection;
+    if (!inspection) return null;
+    const { tile, vertex, record, cause } = inspection;
+    const position = causeDotWorldPosition(tile.mesh, tile.surface, vertex, new THREE.Vector3());
+    return { record, cause, position, shown: tile.mesh.visible && tile.roadProfileLines.visible };
+  }
+
+  clearRoadBedInspection() {
+    if (!this.roadBedInspection) return;
+    disposeRoadBedSources(this.roadBedInspection.group);
+    this.roadBedInspection = null;
   }
 
   /** Toggles the debug wireframe of the rendered terrain triangles on current and future tiles. */

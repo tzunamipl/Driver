@@ -4,6 +4,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { tileX2lon, tileY2lat, latLonToLocal } from '../geo.js';
 import { sampleHeight, perimeterIndices, buildGridMesh } from './surfaceGrid.js';
+import { ROAD_BED_CAUSE, ROAD_BED_CAUSE_MASK, ROAD_BED_OVERRIDE } from './roadBed.js';
 
 /**
  * Displaced square grid for tile (z, x, y), plus a skirt (see buildGridMesh).
@@ -104,8 +105,23 @@ const wireframeMaterial = new THREE.MeshBasicMaterial({ color: LINE_COLOR, wiref
 const profileMaterial = (color) => new LineMaterial({ color, linewidth: 2, depthTest: false, transparent: true, opacity: 0.9 });
 const profileOriginalMaterial = profileMaterial(0xff4040);
 const profileAdjustedMaterial = profileMaterial(0x40e0ff);
+const CAUSE_LIFT = 0.2;
+/** Debug legend for the road profile's vertex dots, keyed like ROAD_BED_CAUSE; `override` = the ring. */
+export const ROAD_BED_CAUSE_LEGEND = [
+  { cause: 'top', color: '#ffffff', label: 'Road top' },
+  { cause: 'fill', color: '#ff9a1f', label: 'Embankment (raised)' },
+  { cause: 'cut', color: '#3d7bff', label: 'Cutting (lowered)' },
+  { cause: 'bankFade', color: '#4ce04c', label: 'Bank fading out' },
+  { cause: 'tailFade', color: '#e04cff', label: 'Free-end tail fade' },
+  { cause: 'override', color: '#ff2a2a', label: 'Over a lower road (ring)' },
+];
+const causeColors = Object.fromEntries(ROAD_BED_CAUSE_LEGEND.map(({ cause, color }) => [cause, new THREE.Color(color)]));
+const causeByCode = Object.fromEntries(Object.entries(ROAD_BED_CAUSE).map(([cause, code]) => [code, causeColors[cause]]));
+const causeDotMaterial = new THREE.PointsMaterial({ size: 7, sizeAttenuation: false, vertexColors: true, fog: false });
+const causeRingMaterial = new THREE.PointsMaterial({ size: 11, sizeAttenuation: false, color: causeColors.override, fog: false });
+const sourceMaterials = new Set(); // per inspected vertex, see buildRoadBedSources
 function updateLineResolution() {
-  for (const m of [borderMaterial, profileOriginalMaterial, profileAdjustedMaterial]) m.resolution.set(window.innerWidth, window.innerHeight);
+  for (const m of [borderMaterial, profileOriginalMaterial, profileAdjustedMaterial, ...sourceMaterials]) m.resolution.set(window.innerWidth, window.innerHeight);
 }
 updateLineResolution();
 window.addEventListener('resize', updateLineResolution);
@@ -132,9 +148,103 @@ export function buildTileBorder(surface, liftScale = 1) {
   return new LineSegments2(liftedSegments(surface, pairs, BORDER_LIFT * liftScale), borderMaterial);
 }
 
-/** Road centreline profiles (roadBed.js `profileLines`): original terrain in red, the road's own height in cyan. */
-export function buildRoadProfileLines({ original, adjusted }) {
+const causeDotPosition = (surface, v) => [0, 1, 2].map((k) => surface.positions[v * 3 + k] + surface.normals[v * 3 + k] * CAUSE_LIFT);
+
+/** Dots on the surface vertices the road bed moved, coloured by cause (ROAD_BED_CAUSE_LEGEND). */
+function buildCauseDots(surface, causes) {
+  const dots = [];
+  const dotColors = [];
+  const rings = [];
+  for (let v = 0; v < causes.length; v++) {
+    const color = causeByCode[causes[v] & ROAD_BED_CAUSE_MASK];
+    if (!color) continue;
+    const p = causeDotPosition(surface, v);
+    dots.push(...p);
+    dotColors.push(color.r, color.g, color.b);
+    if (causes[v] & ROAD_BED_OVERRIDE) rings.push(...p);
+  }
+  const points = [];
+  for (const [positionsOut, colors, material] of [[rings, null, causeRingMaterial], [dots, dotColors, causeDotMaterial]]) {
+    if (!positionsOut.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positionsOut, 3));
+    if (colors) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const dotsMesh = new THREE.Points(geometry, material);
+    dotsMesh.renderOrder = 10;
+    points.push(dotsMesh);
+  }
+  return points;
+}
+
+/**
+ * Debug: the moved vertex of `mesh` (its `surface` + road profile `causes`) nearest screen point
+ * (sx, sy) of a `width` x `height` view; replaces `best` ({ dist } px) when nearer, with { dist, vertex }.
+ */
+export function pickCauseDot(mesh, surface, causes, camera, sx, sy, width, height, best) {
+  const p = new THREE.Vector3();
+  for (let v = 0; v < causes.length; v++) {
+    if (!causes[v]) continue;
+    p.fromArray(causeDotPosition(surface, v)).applyMatrix4(mesh.matrixWorld).project(camera);
+    if (p.z > 1) continue; // behind the camera
+    const dist = Math.hypot(((p.x + 1) / 2) * width - sx, ((1 - p.y) / 2) * height - sy);
+    if (dist < best.dist) best = { dist, vertex: v };
+  }
+  return best;
+}
+
+/** Debug: world position of a cause dot (see pickCauseDot) into `out`. */
+export function causeDotWorldPosition(mesh, surface, vertex, out) {
+  return out.fromArray(causeDotPosition(surface, vertex)).applyMatrix4(mesh.matrixWorld);
+}
+
+/**
+ * Debug: lines from moved vertex `vertex` to each centreline point its height blends (`record.sources`,
+ * roadBed.js evaluateGrid), opacity by weight, each with a drop to the terrain under it. Free with disposeRoadBedSources.
+ */
+export function buildRoadBedSources(surface, vertex, { sources }, cause) {
+  const color = causeByCode[cause & ROAD_BED_CAUSE_MASK];
+  const from = causeDotPosition(surface, vertex);
   const group = new THREE.Group();
+  let maxWeight = 0;
+  for (let k = 3; k < sources.length; k += 5) maxWeight = Math.max(maxWeight, sources[k]);
+  const marks = [...from];
+  for (let k = 0; k < sources.length; k += 5) {
+    const [x, road, z, weight, ground] = sources.slice(k, k + 5);
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions([...from, x, road, z, x, road, z, x, ground, z]);
+    const opacity = 0.2 + 0.8 * (weight / maxWeight);
+    const material = new LineMaterial({ color, linewidth: 2, depthTest: false, transparent: true, opacity });
+    material.resolution.set(window.innerWidth, window.innerHeight);
+    sourceMaterials.add(material);
+    const line = new LineSegments2(geometry, material);
+    line.renderOrder = 11;
+    group.add(line);
+    marks.push(x, road, z);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(marks, 3));
+  const dots = new THREE.Points(geometry, new THREE.PointsMaterial({ color, size: 10, sizeAttenuation: false, depthTest: false, fog: false }));
+  dots.renderOrder = 12;
+  group.add(dots);
+  return group;
+}
+
+export function disposeRoadBedSources(group) {
+  group.removeFromParent();
+  for (const child of group.children) {
+    child.geometry.dispose();
+    child.material.dispose();
+    sourceMaterials.delete(child.material);
+  }
+}
+
+/**
+ * Road centreline profiles (roadBed.js `profileLines`): original terrain in red, the road's own height in cyan;
+ * plus `surface` vertices the road bed moved, as dots by cause.
+ */
+export function buildRoadProfileLines({ original, adjusted, causes }, surface) {
+  const group = new THREE.Group();
+  if (causes) group.add(...buildCauseDots(surface, causes));
   for (const [positions, material] of [[original, profileOriginalMaterial], [adjusted, profileAdjustedMaterial]]) {
     if (!positions.length) continue;
     const geometry = new LineSegmentsGeometry();

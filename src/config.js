@@ -131,6 +131,9 @@ export const TELEPORT_CAMERA_SETTLE_S = 1; // after the car is placed: lets it d
 export const ROAD_POST_SPACING_M = 25; // along the road, each side
 export const ROAD_POST_HAIRPIN_DENSITY = 10; // spacing divisor between a hairpin's chevron boards
 export const STREET_LAMP_SPACING_M = 40; // built-up areas, replacing the posts; between consecutive lamps, sides alternating
+// Guard rails replace the posts on an edge where the ground this far out is this much below the road.
+export const GUARD_RAIL_DROP_M = 2;
+export const GUARD_RAIL_DROP_DISTANCE_M = 8; // past the road bed's flat top (stripe edge + a grid cell)
 export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the car
 
 // ---------- Forests (landcoverAreas.js, trees.js, terrain/forestFloor.js) ----------

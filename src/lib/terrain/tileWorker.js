@@ -317,7 +317,7 @@ self.onmessage = async ({ data: job }) => {
     }
     const { mesh, heightfield, roadProfile } = surface;
     transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
-    transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer);
+    transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer, roadProfile.causes.buffer);
     const elevResult = elev?.heights ? { ok: true, fallbackZoom: elev.fallbackZoom } : elev;
     self.postMessage({ id, elev: elevResult, mips, swatch, surface }, transfer);
     return;

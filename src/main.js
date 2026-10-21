@@ -36,6 +36,7 @@ import { StreetsManager } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
 import { createRoadside } from './lib/roadside.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
+import { createGuardRailKind } from './lib/guardRails.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
 import { createStreetLampKind } from './lib/streetLamps.js';
 import { createStreetLights } from './lib/streetLights.js';
@@ -76,6 +77,7 @@ import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
 import { createSurfaceHover } from './hud/surfaceHover.js';
+import { createRoadBedInspect } from './hud/roadBedInspect.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
 import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
@@ -168,7 +170,8 @@ const roadside = createRoadside({
   streets,
   terrain,
   kinds: [
-    createRoadPostKind(streets, builtUpAreas),
+    createRoadPostKind(streets, builtUpAreas, terrain),
+    createGuardRailKind(streets, builtUpAreas, terrain),
     streetLampKind,
     ...createRoadSignKinds(streets),
     createDirectionSignKind({ streets, builtUpAreas, places }),
@@ -241,6 +244,7 @@ createSurfaceHover({
   terrain,
   layers: { streets, waterAreas, rivers, landcoverAreas, builtUpAreas },
 });
+createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: renderer.domElement, camera, terrain });
 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.

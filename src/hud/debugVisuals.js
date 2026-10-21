@@ -2,6 +2,7 @@
 // picks which 3D overlays show while it's on; both persist.
 
 import { DEBUG_LAYERS_STORAGE_KEY, DEBUG_VISUALS_STORAGE_KEY } from '../config.js';
+import { ROAD_BED_CAUSE_LEGEND } from '../lib/terrain/tileMesh.js';
 
 const LAYERS = [
   { id: 'roads', label: 'Roads', group: 'map' },
@@ -11,11 +12,12 @@ const LAYERS = [
   { id: 'tileBorders', label: 'Tile borders', group: 'debug' },
   { id: 'hitboxes', label: 'Hitboxes', group: 'debug' },
   { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
-  { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height
+  { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height; dots = moved vertices (legend)
   { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
   { id: 'dissolve', label: 'Unload dissolve', group: 'debug', on: false }, // tiles, buildings & near trees burst into particles
   // Gameplay objects, not overlays: shown while the debug view is off.
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
+  { id: 'guardRails', label: 'Guard rails', group: 'graphics' },
   { id: 'streetLamps', label: 'Street lamps', group: 'graphics' },
   { id: 'curveSigns', label: 'Curve signs', group: 'graphics' },
   { id: 'directionSigns', label: 'Direction signs', group: 'graphics' },
@@ -30,7 +32,7 @@ const LAYER_GROUPS = [
   { id: 'debug', label: 'Debug' },
   { id: 'graphics', label: 'Graphics' },
 ];
-const ROADSIDE_GROUPS = ['roadPosts', 'streetLamps', 'curveSigns', 'directionSigns'];
+const ROADSIDE_GROUPS = ['roadPosts', 'guardRails', 'streetLamps', 'curveSigns', 'directionSigns'];
 
 function loadLayers() {
   const layers = Object.fromEntries(LAYERS.map(({ id, on = true }) => [id, on]));
@@ -116,6 +118,7 @@ export function createDebugVisualsToggle(
   const layers = loadLayers();
   // Set once a car exists; carManager re-applies the state on spawn.
   let setCarHitboxVisible = null;
+  let roadProfileLegend = null;
 
   const shown = (id) => debugVisualsEnabled && layers[id];
   const kept = (id) => !debugVisualsEnabled || layers[id];
@@ -129,6 +132,7 @@ export function createDebugVisualsToggle(
     terrain.setBordersVisible(shown('tileBorders'));
     terrain.setWireframeVisible(shown('terrainGrid'));
     terrain.setRoadProfileVisible(shown('roadProfile'));
+    if (roadProfileLegend) roadProfileLegend.style.display = layers.roadProfile ? '' : 'none';
     terrain.setRoadBedEnabled(kept('roadBed'));
     if (roadside) for (const group of ROADSIDE_GROUPS) roadside.setGroupVisible(group, kept(group));
     if (directionSignHud) directionSignHud.setEnabled(kept('directionSignHud'));
@@ -178,7 +182,30 @@ export function createDebugVisualsToggle(
         row.append(box, label);
         grid.append(row);
       }
+      if (group.id === 'debug') {
+        roadProfileLegend = buildRoadProfileLegend();
+        list.append(roadProfileLegend);
+      }
     }
+  }
+
+  function buildRoadProfileLegend() {
+    const legend = document.createElement('div');
+    legend.className = 'debug-legend';
+    for (const { cause, color, label } of ROAD_BED_CAUSE_LEGEND) {
+      const row = document.createElement('div');
+      row.className = 'debug-legend-row';
+      const swatch = document.createElement('span');
+      swatch.className = cause === 'override' ? 'debug-legend-swatch ring' : 'debug-legend-swatch';
+      swatch.style.setProperty('--swatch', color);
+      row.append(swatch, label);
+      legend.append(row);
+    }
+    const hint = document.createElement('div');
+    hint.className = 'debug-legend-hint';
+    hint.textContent = 'Click a dot: lines to the road points it blends';
+    legend.append(hint);
+    return legend;
   }
 
   function setEnabled(enabled) {

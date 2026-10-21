@@ -1,4 +1,4 @@
-// Knockable roadside objects (roadPosts.js, streetLamps.js, roadSigns.js, directionSigns.js) placed from the
+// Knockable roadside objects (roadPosts.js, guardRails.js, streetLamps.js, roadSigns.js, directionSigns.js) placed from the
 // streets layer's segments (vectorLineLayer.js), one InstancedMesh per kind
 // around the car. Objects near the car get a trigger body (like
 // pedestrians.js): a chassis box passing through one swaps it for a tumbling
