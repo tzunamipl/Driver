@@ -17,9 +17,8 @@ const POST_HEIGHT_M = 0.8;
 const POST_SINK_M = 0.3; // below the surface, so the slope side doesn't show a gap
 const RAIL_BOTTOM_M = 0.5;
 const RAIL_HEIGHT_M = 0.32;
-const RAIL_DEPTH_M = 0.06;
-const RIB_DEPTH_M = 0.04; // the W-beam's two ridges, towards the road
-const RIB_HEIGHT_M = 0.08;
+const RAIL_DEPTH_M = 0.08; // the W-beam's two ridges, towards the road
+const RAIL_PROFILE = [[0, 0], [0.25, 1], [0.5, 0], [0.75, 1], [1, 0]]; // (height, depth) fractions
 const DEBRIS_MASS = 40;
 const DEBRIS_SPHERE_RADIUS = 0.1;
 
@@ -44,20 +43,37 @@ export function createDropOffCheck(terrain) {
   };
 }
 
+/** The W-beam as one bent zero-thickness sheet (drawn double-sided) along local x, ridges towards +z. */
+function createRailGeometry() {
+  const half = SECTION_LENGTH_M / 2;
+  const position = [];
+  const uv = [];
+  const index = [];
+  RAIL_PROFILE.forEach(([h, d], i) => {
+    const y = RAIL_BOTTOM_M + h * RAIL_HEIGHT_M;
+    position.push(-half, y, d * RAIL_DEPTH_M, half, y, d * RAIL_DEPTH_M);
+    uv.push(0, h, 1, h);
+    if (i > 0) {
+      const a = 2 * (i - 1);
+      index.push(a, a + 1, a + 3, a, a + 3, a + 2);
+    }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** One section along local x; the rail faces the road (local +z), posts behind it. */
 function createSectionGeometry() {
   const postHeight = POST_HEIGHT_M + POST_SINK_M;
-  const postZ = -(RAIL_DEPTH_M + POST_WIDTH_M) / 2;
-  const railY = RAIL_BOTTOM_M + RAIL_HEIGHT_M / 2;
-  const ribZ = (RAIL_DEPTH_M + RIB_DEPTH_M) / 2;
   return mergeGeometries([
     ...POST_XS.map((x) =>
-      new THREE.BoxGeometry(POST_WIDTH_M, postHeight, POST_WIDTH_M).translate(x, postHeight / 2 - POST_SINK_M, postZ)
+      new THREE.BoxGeometry(POST_WIDTH_M, postHeight, POST_WIDTH_M).translate(x, postHeight / 2 - POST_SINK_M, -POST_WIDTH_M / 2)
     ),
-    new THREE.BoxGeometry(SECTION_LENGTH_M, RAIL_HEIGHT_M, RAIL_DEPTH_M).translate(0, railY, 0),
-    ...[-1, 1].map((s) =>
-      new THREE.BoxGeometry(SECTION_LENGTH_M, RIB_HEIGHT_M, RIB_DEPTH_M).translate(0, railY + s * RAIL_HEIGHT_M * 0.25, ribZ)
-    ),
+    createRailGeometry(),
   ]);
 }
 
@@ -92,12 +108,13 @@ export function createGuardRailKind(streets, builtUpAreas, terrain) {
   return {
     group: 'guardRails',
     hitSound: 'metal',
+    followSlope: true,
     geometry: createSectionGeometry(),
-    material: new THREE.MeshStandardMaterial({ color: 0xa9adb1, roughness: 0.45, metalness: 0.6 }),
+    material: new THREE.MeshStandardMaterial({ color: 0xa9adb1, roughness: 0.45, metalness: 0.6, side: THREE.DoubleSide }),
     halfExtents: { x: half, y: cy, z: 0.1 },
     debrisSpheres: [
       ...[-0.9, -0.3, 0.3, 0.9].map((f) => [f * half, railY, 0]),
-      ...POST_XS.map((x) => [x, -cy + DEBRIS_SPHERE_RADIUS, -(RAIL_DEPTH_M + POST_WIDTH_M) / 2]),
+      ...POST_XS.map((x) => [x, -cy + DEBRIS_SPHERE_RADIUS, -POST_WIDTH_M / 2]),
     ],
     debrisRadius: DEBRIS_SPHERE_RADIUS,
     mass: DEBRIS_MASS,

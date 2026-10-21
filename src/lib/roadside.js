@@ -8,7 +8,7 @@
 // A kind: { geometry (origin on the ground), material, halfExtents {x, y, z}
 // (trigger box, standing on the ground), debrisSpheres [[x, y, z]] (from the
 // box centre), debrisRadius, mass, group (visibility toggle name), hitSound
-// ('metal' or default plastic),
+// ('metal' or default plastic), followSlope (sheared along local x to the ground's slope, posts stay upright),
 // place(seg) -> [{ lat, lon, yaw, ...data }] or null (not ready, asked again later) }.
 // Kinds whose items differ (sign text) give buildMesh(item) -> Object3D (origin
 // on the ground) instead of geometry/material and get one mesh per item.
@@ -47,6 +47,7 @@ const DEBRIS_MAX_S = 30;
 const DEBRIS_MATERIAL = new CANNON.Material('roadside');
 
 const UP = new THREE.Vector3(0, 1, 0);
+const FORWARD = new THREE.Vector3(0, 0, 1);
 
 /**
  * @param {object} deps
@@ -85,6 +86,8 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   const position = new THREE.Vector3();
   const quaternion = new THREE.Quaternion();
   const scale = new THREE.Vector3(1, 1, 1);
+  const shear = new THREE.Matrix4();
+  const tilt = new THREE.Quaternion();
   let lastX = Infinity;
   let lastZ = Infinity;
   let sinceRebuild = Infinity;
@@ -154,10 +157,26 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     });
     body.addShape(item.set.triggerShape);
     body.position.set(x, y + item.set.kind.halfExtents.y, z);
-    body.quaternion.setFromEuler(0, item.yaw, 0);
+    setTriggerRotation(body, item);
     body.addEventListener('collide', (event) => pendingHits.push({ item, by: event.body }));
     world.addBody(body);
     triggers.set(item, body);
+  }
+
+  /** Rise per metre along the item's local x, from the ground at its ends; 0 unless the kind follows the slope. */
+  function slopeAt(item, x, z) {
+    if (!item.set.kind.followSlope) return 0;
+    const h = item.set.kind.halfExtents.x;
+    const dx = Math.cos(item.yaw) * h;
+    const dz = -Math.sin(item.yaw) * h;
+    const a = terrain.surfaceHeightAt(x - dx, z - dz);
+    const b = terrain.surfaceHeightAt(x + dx, z + dz);
+    return a == null || b == null ? 0 : (b - a) / (2 * h);
+  }
+
+  function setTriggerRotation(body, item) {
+    quaternion.setFromAxisAngle(UP, item.yaw).multiply(tilt.setFromAxisAngle(FORWARD, Math.atan(item.slope ?? 0)));
+    body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
   }
 
   function removeTrigger(item) {
@@ -262,6 +281,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     const maxDistSq = drawDistance * drawDistance;
     const triggerDistSq = TRIGGER_RADIUS_M * TRIGGER_RADIUS_M;
     const transforms = new Map(sets.map((set) => [set, []])); // set -> [x, y, z, yaw, ...]
+    const slopes = new Map(sets.map((set) => [set, []])); // set -> [slope, ...]
     const shownItems = new Set(); // per-item meshes placed this rebuild
     const nearItems = new Set();
     let complete = true; // false = fill budget ran out, rebuild next frame
@@ -287,6 +307,7 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
         if (distSq > maxDistSq) continue;
         const y = terrain.surfaceHeightAt(local.x, local.z);
         if (y == null) continue; // retried on the next interval rebuild
+        item.slope = slopeAt(item, local.x, local.z);
         if (item.set.itemMeshes) {
           let object = item.set.itemMeshes.get(item);
           if (!object) {
@@ -299,12 +320,16 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
           shownItems.add(item);
         } else {
           transforms.get(item.set).push(local.x, y, local.z, item.yaw);
+          slopes.get(item.set).push(item.slope);
         }
         if (distSq <= triggerDistSq) {
           nearItems.add(item);
           const trigger = triggers.get(item);
           if (!trigger) addTrigger(item, local.x, y, local.z);
-          else trigger.position.set(local.x, y + item.set.kind.halfExtents.y, local.z); // terrain may have refined
+          else {
+            trigger.position.set(local.x, y + item.set.kind.halfExtents.y, local.z); // terrain may have refined
+            setTriggerRotation(trigger, item);
+          }
         }
       }
     }
@@ -327,7 +352,10 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       for (let i = 0; i < count; i++) {
         position.set(t[i * 4], t[i * 4 + 1], t[i * 4 + 2]);
         quaternion.setFromAxisAngle(UP, t[i * 4 + 3]);
-        set.mesh.setMatrixAt(i, matrix.compose(position, quaternion, scale));
+        matrix.compose(position, quaternion, scale);
+        const k = slopes.get(set)[i];
+        if (k) matrix.multiply(shear.set(1, 0, 0, 0, k, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)); // y += k * x
+        set.mesh.setMatrixAt(i, matrix);
       }
       set.mesh.count = count;
       set.mesh.instanceMatrix.needsUpdate = true;
@@ -354,6 +382,22 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     /** Streaming indicator: in-range street segments still to place objects on. */
     pendingWork() {
       return { downloads: 0, builds: unfilledSegments };
+    },
+
+    /** Graphics detail: draw distance in metres. */
+    setDrawDistance(metres) {
+      drawDistance = metres;
+      dirty = true;
+    },
+
+    /** Debug HUD: standing objects per group, { group: count }. */
+    getCounts() {
+      const counts = {};
+      for (const set of sets) {
+        const n = set.itemMeshes ? set.itemMeshes.size : set.mesh?.count ?? 0;
+        counts[set.kind.group] = (counts[set.kind.group] ?? 0) + n;
+      }
+      return counts;
     },
 
     /** Shows/hides (and stops colliding with) every kind of a `group`. */

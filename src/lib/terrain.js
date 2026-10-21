@@ -30,7 +30,7 @@ import './terrain/heightfieldRayFix.js';
 // carved in as a raised bed (terrain/detailSurface.js, terrain/roadBed.js).
 
 export const DETAIL_ZOOM = 17; // how big tiles are
-const DETAIL_CELLS = 15; // cells across a DETAIL_ZOOM tile (mesh and physics Heightfield); road beds widen to suit
+const DEFAULT_DETAIL_CELLS = 80; // cells across a DETAIL_ZOOM tile (mesh and physics Heightfield); road beds widen to suit
 const DETAIL_SKIRT_DEPTH = 16; // metres; coarse neighbours still leave big cracks
 // Coarser tiles by zoom, finest first: [minZoom, grid]. Far tiles are hazed, so they get fewer vertices.
 const COARSE_GRIDS = [
@@ -210,6 +210,7 @@ export class TerrainManager {
     this.roadProfileVisible = true;
     this.roadBedInspection = null; // debug: { tile, vertex, record, cause, group }, see inspectRoadBedAt
     this.roadBed = true; // debug: false builds detail tiles without carved roads
+    this.detailCells = DEFAULT_DETAIL_CELLS; // graphics detail setting, see setDetailCells
 
     this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, border, wireframe, roadProfile, roadProfileLines, aerialBoost, texBytes, meshBytes, hiddenSince }
     this._loadedBelow = new Map(); // key -> number of loaded tiles strictly inside it
@@ -689,7 +690,7 @@ export class TerrainManager {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'tile';
-      } else if (leaf.detail && tile.roadBed !== this.roadBed) {
+      } else if (leaf.detail && (tile.roadBed !== this.roadBed || tile.detailCells !== this.detailCells)) {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'surface';
@@ -789,7 +790,7 @@ export class TerrainManager {
         const tile = this.tiles.get(key);
         if (aborted || epoch !== this._loadEpoch || !tile) return;
         if (surface && elev?.ok) {
-          this._replaceDetailSurface(tile, surface, detail.roadBed);
+          this._replaceDetailSurface(tile, surface, detail);
           this._noteElevationFallback(tile, elev);
         } else this._failedAt.set(key, performance.now());
         return;
@@ -824,7 +825,7 @@ export class TerrainManager {
         }
       }
       const tile = detail
-        ? this._addDetailTile(job, surface, mips, aerialBoost, detail.roadBed)
+        ? this._addDetailTile(job, surface, mips, aerialBoost, detail)
         : this._addTile(job, heights, mips, aerialBoost);
       tile.swatch = swatch ?? null;
       this._noteElevationFallback(tile, elev);
@@ -855,7 +856,7 @@ export class TerrainManager {
     return {
       widthMeters: se.x - nw.x,
       heightMeters: se.z - nw.z,
-      cells: DETAIL_CELLS,
+      cells: this.detailCells,
       heightOffset: this.heightOffset,
       skirtDepth: DETAIL_SKIRT_DEPTH,
       roadBed: this.roadBed,
@@ -871,25 +872,27 @@ export class TerrainManager {
   }
 
   /** Detail tile from the worker's surface: positions are relative to the NW corner. */
-  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, mips, aerialBoost, roadBed) {
+  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, mips, aerialBoost, { roadBed, cells }) {
     const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
     const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
     const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, mips, aerialBoost);
     tile.heightfield = heightfield;
     tile.roadBed = roadBed;
+    tile.detailCells = cells;
     tile.roadProfile = roadProfile;
     this._syncDebugLines(tile);
     return tile;
   }
 
   /** Swaps a detail tile's mesh geometry, heightfield and physics body for a rebuilt surface. */
-  _replaceDetailSurface(tile, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, roadBed) {
+  _replaceDetailSurface(tile, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, { roadBed, cells }) {
     const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
     tile.mesh.geometry.dispose();
     tile.mesh.geometry = geometry;
     tile.surface = surface;
     tile.heightfield = heightfield;
     tile.roadBed = roadBed;
+    tile.detailCells = cells;
     tile.roadProfile = roadProfile;
     this._removeRoadProfileLines(tile);
     tile.surfaceRevision++;
@@ -1101,6 +1104,13 @@ export class TerrainManager {
     this._pump();
   }
 
+  /** Cells across a detail tile (graphics detail setting); loaded tiles rebuild in place. */
+  setDetailCells(cells) {
+    if (cells === this.detailCells) return;
+    this.detailCells = cells;
+    this._pump();
+  }
+
   /** Toggles the debug road centreline profiles (original terrain vs road height) on detail tiles. */
   setRoadProfileVisible(visible) {
     this.roadProfileVisible = visible;
@@ -1210,9 +1220,11 @@ export class TerrainManager {
       far: { loaded: 0, pending: 0, pendingRemoval: 0, memoryBytes: 0 },
     };
     let elevationFallbacks = 0;
+    let triangles = 0; // visible tiles only, skirts included
     for (const tile of this.tiles.values()) {
       const b = tile.z === DETAIL_ZOOM ? buckets.detail : buckets.far;
       b.loaded++;
+      if (tile.mesh.visible) triangles += tile.mesh.geometry.index.count / 3;
       if (tile.elevationFallbackZoom != null) elevationFallbacks++;
       if (!this._visible.has(tile.key)) b.pendingRemoval++;
       b.memoryBytes += tile.texBytes + tile.meshBytes;
@@ -1253,6 +1265,7 @@ export class TerrainManager {
       grid,
       stray: 0,
       elevationFallbacks,
+      triangles,
       far: { ...buckets.far, created: this.stats.coarse.created, removed: this.stats.coarse.removed },
     };
   }

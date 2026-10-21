@@ -105,7 +105,8 @@
   padding: 0 3px;
   background: var(--w95-face);
 }
-#hud-audio label {
+#hud-audio label,
+#hud-graphics label {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -114,6 +115,11 @@
   pointer-events: auto;
 }
 #hud-audio input {
+  width: 140px;
+  margin: 0;
+  cursor: pointer;
+}
+#hud-graphics select {
   width: 140px;
   margin: 0;
   cursor: pointer;

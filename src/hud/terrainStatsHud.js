@@ -43,6 +43,10 @@ function quadrantBackground(cell, buildings, streets, rivers, waterAreas) {
   );
 }
 
+function formatCount(n) {
+  return n < 1e6 ? `${(n / 1e3).toFixed(1)}k` : `${(n / 1e6).toFixed(2)}M`;
+}
+
 export function createTerrainStatsHud() {
   const terrainStatsEl = document.getElementById('terrain-stats');
   let statsAccum = 0;
@@ -52,7 +56,7 @@ export function createTerrainStatsHud() {
 
   function updateTerrainStats(
     delta,
-    { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame }
+    { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame, roadside, trees, bushes, rocks }
   ) {
     if (!debugVisualsEnabled || !chassisMesh) return;
 
@@ -92,12 +96,22 @@ export function createTerrainStatsHud() {
       `coarse: ${s.far.loaded} loaded  ${s.far.pending} loading  ${s.far.pendingRemoval} hidden`,
       `created: ${s.created}/${s.far.created}  removed: ${s.removed}/${s.far.removed}`,
       `~memory: ${formatBytes(s.memoryBytes + s.far.memoryBytes)}`,
+      `triangles: ${formatCount(s.triangles)}`,
       `ahead: ${aheadTx},${aheadTy}`,
       `buildings: ${b.buildings} in ${b.loaded} tiles${b.building ? ` (${b.building} building\u2026)` : ''}` +
         `${b.regionLoading ? ' (region loading\u2026)' : ''}  ~${formatBytes(b.memoryBytes)}`,
       `far buildings: ${b.far.instances} boxes in ${b.far.tiles} tiles${b.far.pending ? ` (${b.far.pending} loading\u2026)` : ''}` +
         `  ~${formatBytes(b.far.memoryBytes)}`,
     ];
+    if (roadside) {
+      const counts = Object.entries(roadside.getCounts());
+      const total = counts.reduce((sum, [, n]) => sum + n, 0);
+      textLines.push(`doodads: ${total}  (${counts.map(([group, n]) => `${group} ${n}`).join(', ')})`);
+    }
+    if (trees && bushes && rocks) {
+      const [t, b, r] = [trees, bushes, rocks].map((v) => v.getCount());
+      textLines.push(`foliage: ${t + b + r}  (trees ${t}, bushes ${b}, rocks ${r})`);
+    }
     if (builtUpAreas) {
       const { x, z } = chassisMesh.position;
       const landuse = builtUpAreas.classifyAt(x, z);

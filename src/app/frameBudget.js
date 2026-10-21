@@ -19,6 +19,10 @@ export function createFrameBudget(budgetMs, onStep = () => {}) {
   let frame = 0;
 
   return {
+    setBudgetMs(ms) {
+      budgetMs = ms;
+    },
+
     add(tier, name, step) {
       tiers.get(tier).push({ name, step });
     },

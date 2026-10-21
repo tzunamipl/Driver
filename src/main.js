@@ -17,6 +17,7 @@ import { createDissolve } from './lib/dissolve.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
+import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
@@ -139,7 +140,7 @@ const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialV
   lon: ORIGIN_LON,
 });
 const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
-const dissolve = createDissolve(scene); // debug layer: what streams out bursts into particles
+const dissolve = createDissolve(scene); // debug layer: what streams out on a teleport bursts into particles
 terrain.dissolve = dissolve;
 buildings.dissolve = dissolve;
 const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
@@ -320,6 +321,7 @@ const addressSearch = createAddressSearch({
   viewFrame,
   isJoined: () => lobby.isJoined(),
 });
+dissolve.setActiveWhen(() => addressSearch.isTeleporting());
 createNavigationPanel({
   addressSearch,
   getCarLatLon,
@@ -438,6 +440,7 @@ const mainLoop = createMainLoop({
   floatingOrigin,
   isJoined: () => lobby.isJoined(),
 });
+createGraphicsDetailPicker({ terrain, mainLoop, roadside, trees, bushes, rocks });
 
 function startLoopOnce() {
   if (loopStarted) return;

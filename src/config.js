@@ -212,6 +212,39 @@ export const MAX_SUBSTEPS = 5;
 // streamer in priority order (app/frameBudget.js). Terrain tile installs aren't on it.
 export const STREAMING_BUDGET_MS = 6;
 
+// ---------- Graphics detail (Settings) ----------
+// Foliage: drawDistance in m, areaPerItem = m² of landcover per tree / bush / rock (density).
+export const GRAPHICS_DETAIL_LEVELS = {
+  low: {
+    label: 'Low',
+    terrainCells: 15,
+    streamingBudgetMs: 3,
+    roadsideDrawDistance: 100,
+    trees: { drawDistance: 350, areaPerItem: 800 },
+    bushes: { drawDistance: 150, areaPerItem: 3000 },
+    rocks: { drawDistance: 150, areaPerItem: 3000 },
+  },
+  medium: {
+    label: 'Medium',
+    terrainCells: 40,
+    streamingBudgetMs: 4.5,
+    roadsideDrawDistance: 150,
+    trees: { drawDistance: 550, areaPerItem: 450 },
+    bushes: { drawDistance: 250, areaPerItem: 1800 },
+    rocks: { drawDistance: 250, areaPerItem: 1800 },
+  },
+  high: {
+    label: 'High',
+    terrainCells: 80,
+    streamingBudgetMs: STREAMING_BUDGET_MS,
+    roadsideDrawDistance: ROADSIDE_DRAW_DISTANCE_M,
+    trees: { drawDistance: TREE_DRAW_DISTANCE_M, areaPerItem: TREE_AREA_PER_TREE_M2 },
+    bushes: { drawDistance: BUSH_DRAW_DISTANCE_M, areaPerItem: BUSH_AREA_PER_BUSH_M2 },
+    rocks: { drawDistance: ROCK_DRAW_DISTANCE_M, areaPerItem: ROCK_AREA_PER_ROCK_M2 },
+  },
+};
+export const DEFAULT_GRAPHICS_DETAIL = 'high';
+
 // ---------- Minimap HUD ----------
 export const MINIMAP_MIN_ZOOM = 3; // continent
 export const MINIMAP_MAX_ZOOM = 19; // buildings
@@ -226,6 +259,7 @@ export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1';
 export const VEHICLE_COLORS_STORAGE_KEY = 'driver.vehicleColors.v1'; // per-vehicle paint
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
+export const GRAPHICS_DETAIL_STORAGE_KEY = 'driver.graphicsDetail';
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1';
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // M-key debug view on/off

@@ -301,6 +301,10 @@ export function createMainLoop({
       debugVisualsEnabled,
       pedestrians,
       viewFrame,
+      roadside,
+      trees,
+      bushes,
+      rocks,
     });
     streamingStatus.update(frameDelta, {
       terrain,
@@ -400,5 +404,5 @@ export function createMainLoop({
     profiler.end();
   }
 
-  return { animate };
+  return { animate, setStreamingBudgetMs: streaming.setBudgetMs };
 }

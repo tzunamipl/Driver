@@ -232,15 +232,17 @@ function createVegetation({
   waterAreas = null,
   rivers = null,
   dissolve = null,
-  drawDistance = TREE_DRAW_DISTANCE_M,
+  drawDistance: baseDrawDistance = TREE_DRAW_DISTANCE_M,
   trunkDistance = TREE_TRUNK_DISTANCE_M,
   growDistance = TREE_GROW_M,
-  areaPerTree = TREE_AREA_PER_TREE_M2,
+  areaPerTree: initialAreaPerTree = TREE_AREA_PER_TREE_M2,
   gap = TREE_GAP_M,
   physicsDistance = ROCK_PHYSICS_DISTANCE_M,
 }) {
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9, flatShading: true });
   const crownMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: !!kind.flatShading });
+  let drawDistance = baseDrawDistance;
+  let areaPerTree = initialAreaPerTree;
   const grow = { value: new THREE.Vector2(Math.max(0, drawDistance - growDistance), drawDistance) };
   applyDistanceGrow(trunkMaterial, grow);
   applyDistanceGrow(crownMaterial, grow);
@@ -250,7 +252,7 @@ function createVegetation({
     { geometry: buildPineGeometry(), material: crownMaterial, mesh: null },
   ];
   const [trunkSet, crownSet, pineSet] = sets;
-  const spacing = Math.sqrt(areaPerTree);
+  let spacing = Math.sqrt(areaPerTree);
   const tiles = new Map(); // "tx_ty" -> Float32Array of TREE_FIELDS per tree
   const matrix = new THREE.Matrix4();
   const position = new THREE.Vector3();
@@ -538,6 +540,25 @@ function createVegetation({
     /** Streaming indicator: in-range tiles still to place. */
     pendingWork() {
       return { downloads: 0, builds: visible ? unfilledTiles : 0 };
+    },
+
+    /** Graphics detail: draw distance (grow-in scales with it) and m² per item; a new density re-places every tile. */
+    setDetail({ drawDistance: distance, areaPerItem }) {
+      drawDistance = distance;
+      grow.value.set(Math.max(0, drawDistance - growDistance * (distance / baseDrawDistance)), drawDistance);
+      if (areaPerItem !== areaPerTree) {
+        areaPerTree = areaPerItem;
+        spacing = Math.sqrt(areaPerTree);
+        tiles.clear();
+        nearTrees = new Map(); // no dissolve burst for trees that are only being re-placed
+      }
+      dirty = true;
+      sinceRebuild = Infinity;
+    },
+
+    /** Debug HUD: drawn instances (one per crown). */
+    getCount() {
+      return visible ? (crownSet.mesh?.count ?? 0) + (pineSet.mesh?.count ?? 0) : 0;
     },
 
     setVisible(value) {

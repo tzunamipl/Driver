@@ -1,5 +1,5 @@
-// Debug effect: streamed-out meshes burst into blue rectangles that drift up,
-// spin and shrink away. One instanced mesh for every particle; visual only.
+// Debug effect: meshes streamed out during a teleport burst into blue rectangles that
+// drift up, spin and shrink away. One instanced mesh for every particle; visual only.
 
 import * as THREE from 'three';
 
@@ -14,6 +14,7 @@ const MESH_PARTICLES = 220;
 const MESH_SIZE_FRACTION = 0.05; // of the bounding radius
 const MIN_SIZE_M = 0.25;
 const MAX_SIZE_M = 40;
+const LINGER_S = 2; // after a teleport, for the tiles still being swapped
 
 const randIn = (min, max) => min + Math.random() * (max - min);
 
@@ -47,6 +48,9 @@ export function createDissolve(scene) {
   }));
   let live = 0;
   let enabled = false;
+  let isActive = () => true;
+  let linger = 0;
+  const spawning = () => enabled && (linger > 0 || isActive());
 
   const matrix = new THREE.Matrix4();
   const quaternion = new THREE.Quaternion();
@@ -74,10 +78,15 @@ export function createDissolve(scene) {
       if (!value) live = mesh.count = 0;
     },
 
+    /** `fn() -> bool`: only bursts while it's true (and LINGER_S after). */
+    setActiveWhen(fn) {
+      isActive = fn;
+    },
+
     /** Bursts `object3d`'s geometry (sampled vertices, world space) into particles. */
     dissolveMesh(object3d, count = MESH_PARTICLES) {
       const position = object3d?.geometry?.attributes.position;
-      if (!enabled || !position?.count) return;
+      if (!spawning() || !position?.count) return;
       const geometry = object3d.geometry;
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
       const size = THREE.MathUtils.clamp(geometry.boundingSphere.radius * MESH_SIZE_FRACTION, MIN_SIZE_M, MAX_SIZE_M);
@@ -90,7 +99,7 @@ export function createDissolve(scene) {
 
     /** Bursts a column (e.g. a tree) of `height` metres standing at x, y, z. */
     dissolveColumn(x, y, z, height, count = 24) {
-      if (!enabled) return;
+      if (!spawning()) return;
       const size = THREE.MathUtils.clamp(height * 0.12, MIN_SIZE_M, MAX_SIZE_M);
       const radius = height * 0.25;
       for (let i = 0; i < count; i++) {
@@ -100,6 +109,7 @@ export function createDissolve(scene) {
 
     /** Call once per frame. */
     update(dt) {
+      linger = isActive() ? LINGER_S : Math.max(0, linger - dt);
       if (!live) return;
       for (let i = 0; i < live; ) {
         const p = particles[i];

@@ -14,7 +14,7 @@ const LAYERS = [
   { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
   { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height; dots = moved vertices (legend)
   { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
-  { id: 'dissolve', label: 'Unload dissolve', group: 'debug', on: false }, // tiles, buildings & near trees burst into particles
+  { id: 'dissolve', label: 'Teleport dissolve', group: 'debug', on: false }, // on teleport, tiles, buildings & near trees burst into particles
   // Gameplay objects, not overlays: shown while the debug view is off.
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
   { id: 'guardRails', label: 'Guard rails', group: 'graphics' },
