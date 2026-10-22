@@ -101,7 +101,7 @@
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
 .editor-status.is-error { color: #a00000; }
 
-/* Hover tooltip for point types and items, left of the panel. Win98 tooltip look. */
+/* Hover tooltip for point types and items, right of the mouse. Win98 tooltip look. */
 .editor-tip {
   position: fixed;
   z-index: 25;

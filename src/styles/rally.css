@@ -1,12 +1,7 @@
-/* Rally HUD (hud/rallyHud.js), top centre where the direction sign HUD sits in other modes. */
+/* Rally HUD (hud/rallyHud.js), in the top-centre stack where the direction sign HUD sits in other modes. */
 #rally-hud {
-  position: fixed;
-  top: calc(10px + env(safe-area-inset-top, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 15;
   min-width: 240px;
-  max-width: calc(100vw - 32px);
+  max-width: 100%;
   box-sizing: border-box;
   padding: 6px 12px 8px;
   background: rgba(0, 0, 0, 0.72);

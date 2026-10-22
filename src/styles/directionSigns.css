@@ -1,18 +1,29 @@
-/* Direction sign HUD (hud/directionSignHud.js): arrow boards, top centre. */
-#direction-sign-hud {
+/* Top-centre column: direction signs or rally HUD, route guidance below whichever is up. */
+#top-centre-stack {
   position: fixed;
   top: calc(10px + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  align-items: stretch; /* boards share the widest one's width */
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100vw - 32px);
   pointer-events: none;
   z-index: 15;
+}
+
+/* Direction sign HUD (hud/directionSignHud.js): arrow boards. */
+#direction-sign-hud {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch; /* boards share the widest one's width */
+  gap: 4px;
   opacity: 0;
   transition: opacity 0.25s;
 }
+/* No boards: no stack gap either. */
+#direction-sign-hud:empty { display: none; }
 
 #direction-sign-hud.visible {
   opacity: 1;

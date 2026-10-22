@@ -153,7 +153,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);
 
-  // Instant tooltip left of the panel for point types and items (native titles show late).
+  // Instant tooltip right of the mouse for point types and items (native titles show late).
   const tipEl = el('div', { className: 'editor-tip', hidden: true });
   document.body.append(tipEl);
   let tipTarget = null;
@@ -161,9 +161,10 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     tipTarget = target;
     tipEl.replaceChildren(el('b', { textContent: target.dataset.tipHeading }), el('p', { textContent: target.dataset.tip }));
     tipEl.hidden = false;
-    const rect = target.getBoundingClientRect();
-    tipEl.style.right = `${window.innerWidth - root.getBoundingClientRect().left + 6}px`;
-    tipEl.style.top = `${Math.max(4, Math.min(rect.top, window.innerHeight - tipEl.offsetHeight - 4))}px`;
+  }
+  function placeTip(x, y) {
+    tipEl.style.left = `${Math.max(4, Math.min(x + 14, window.innerWidth - tipEl.offsetWidth - 4))}px`;
+    tipEl.style.top = `${Math.max(4, Math.min(y + 14, window.innerHeight - tipEl.offsetHeight - 4))}px`;
   }
   function hideTip() {
     tipTarget = null;
@@ -172,6 +173,9 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   root.addEventListener('pointerover', (e) => {
     const target = e.target.closest('[data-tip]');
     if (target !== tipTarget) target ? showTip(target) : hideTip();
+  });
+  root.addEventListener('pointermove', (e) => {
+    if (tipTarget) placeTip(e.clientX, e.clientY);
   });
   root.addEventListener('pointerleave', hideTip);
 

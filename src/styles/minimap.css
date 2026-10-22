@@ -117,12 +117,11 @@
   color: #fff;
   text-shadow: 1px 1px 0 #000;
 }
-/* Route guidance: next maneuver + remaining distance/time, beside the dial. */
+/* Route guidance: next maneuver + remaining distance/time, in the top-centre stack. */
 #minimap-route {
-  position: absolute;
-  left: calc(100% + var(--mm-arrow) + 6px);
-  bottom: 26px;
-  width: 170px;
+  width: 200px;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 6px 10px;
   background: var(--w95-face);
   box-shadow: var(--w95-raised);

@@ -42,9 +42,6 @@
     overflow: hidden;
   }
   #minimap-route {
-    left: 0;
-    top: calc(100% + var(--mm-arrow) + 4px);
-    bottom: auto;
     width: 150px;
     padding: 4px 8px;
   }

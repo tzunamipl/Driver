@@ -633,9 +633,10 @@ terrain.init().then(async () => {
   loadingScreen.hide();
   mainMenu.setInGame(menuPark);
   if (IS_DEV_MODE) {
-    // Dev: no profile; join with the car picked for the rally, else the saved debug pick.
-    const devVehicleId = rallyInitialPick?.vehicleId ?? devCarChoice?.vehicleId;
-    const devColor = rallyInitialPick ? getVehicleColor(devVehicleId) : devCarChoice?.color ?? defaultVehicleColor(devVehicleId);
+    // Dev: no profile; join with the rally's car (just picked or resumed), else the saved debug pick.
+    const rallyVehicle = isRallyGame ? readSaveField('vehicle') : null;
+    const devVehicleId = rallyVehicle?.vehicleId ?? devCarChoice?.vehicleId;
+    const devColor = rallyVehicle?.color ?? devCarChoice?.color ?? defaultVehicleColor(devVehicleId);
     lobby.joinRoom('dev_mode', devColor, devVehicleId);
     return;
   }

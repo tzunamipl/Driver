@@ -224,8 +224,18 @@
     <div id="score-toasts"></div>
     <div id="system-notices"></div>
     <div id="airtime-hud"></div>
-    <div id="direction-sign-hud"></div>
-    <div id="rally-hud" hidden></div>
+    <div id="top-centre-stack">
+      <div id="direction-sign-hud"></div>
+      <div id="rally-hud" hidden></div>
+      <div id="minimap-route" hidden>
+        <div id="minimap-route-next">
+          <span id="minimap-route-arrow"></span>
+          <span id="minimap-route-turn-dist"></span>
+        </div>
+        <div id="minimap-route-turn"></div>
+        <div id="minimap-route-summary"></div>
+      </div>
+    </div>
     <div id="rally-picker" hidden></div>
     <div id="surface-hover"></div>
     <div id="road-bed-inspect"></div>
@@ -253,14 +263,6 @@
         <span id="minimap-scale-label"></span>
       </div>
       <canvas id="minimap-arrows-canvas"></canvas>
-      <div id="minimap-route" hidden>
-        <div id="minimap-route-next">
-          <span id="minimap-route-arrow"></span>
-          <span id="minimap-route-turn-dist"></span>
-        </div>
-        <div id="minimap-route-turn"></div>
-        <div id="minimap-route-summary"></div>
-      </div>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">

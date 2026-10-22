@@ -29,7 +29,9 @@ const SNAP_RADIUS_M = 40;
 const RESOLVE_RETRY_S = 1;
 const WARNING_BOARD_M = 100; // yellow board before the control
 const ZONE_END_M = 25; // beige board after it
-const BOARD_SIDE_GAP_M = 1.2; // board post beyond the road edge
+// Poles stand on the asphalt, inside the road edge, so they read as framing the road.
+const POLE_INSET_M = 1;
+const MIN_POLE_HALF_SPAN_M = 2; // narrow roads: keep a car's width between the poles
 const BOARD_SIZE_M = 0.9;
 const BOARD_HEIGHT_M = 2.1; // board centre; a type's boardHeight overrides
 const ARCH_TUBE_M = 0.35;
@@ -113,6 +115,9 @@ function makeBoard(color, symbol, height = BOARD_HEIGHT_M, twoFaced = false) {
   group.add(front, back);
   return group;
 }
+
+/** Distance from the road's centre line to a gate's poles. */
+const poleHalfSpan = (roadHalf) => Math.max(roadHalf - POLE_INSET_M, MIN_POLE_HALF_SPAN_M);
 
 /** Arch over the road, spanning local x; banner faces local +z. */
 function makeArch(halfSpan, text, color) {
@@ -267,7 +272,8 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
     const sign = travelSign(streets, snap, neighbour(entry.points, entry.index - 1), neighbour(entry.points, entry.index + 1));
     const dirX = snap.dirX * sign;
     const dirZ = snap.dirZ * sign;
-    const halfSpan = Math.max(point.width ?? 0, snap.roadWidth) / 2 + BOARD_SIDE_GAP_M;
+    const roadHalf = Math.max(point.width ?? 0, snap.roadWidth) / 2;
+    const halfSpan = poleHalfSpan(roadHalf);
     const def = SCENERY[point.type] ?? {};
     const objects = [];
     let lamps = null;
@@ -287,7 +293,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
         // walkRoad gives the walking direction: backwards for boards before the control.
         const pDirX = (along === 0 ? dirX : p.dirX * Math.sign(along)) * facing;
         const pDirZ = (along === 0 ? dirZ : p.dirZ * Math.sign(along)) * facing;
-        const offset = along === 0 ? halfSpan : snap.roadWidth / 2 + BOARD_SIDE_GAP_M;
+        const offset = along === 0 ? halfSpan : poleHalfSpan(snap.roadWidth / 2);
         for (const s of [-1, 1]) {
           const q = { x: p.x - pDirZ * offset * s, z: p.z + pDirX * offset * s };
           const object = anchor(makeBoard(color, def.boards, def.boardHeight, def.bothWays && along === 0), q.x, q.z, pDirX, pDirZ);
@@ -306,7 +312,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       }
     }
     if (def.arch) objects.push(anchor(makeArch(halfSpan, def.arch, def.archColor), snap.x, snap.z, dirX, dirZ));
-    if (def.line) objects.push(anchor(makeLine(halfSpan - BOARD_SIDE_GAP_M), snap.x, snap.z, dirX, dirZ));
+    if (def.line) objects.push(anchor(makeLine(roadHalf), snap.x, snap.z, dirX, dirZ));
     if (def.lights) {
       const lights = makeLights();
       const q = side(snap.x, snap.z, halfSpan + 1);
@@ -321,7 +327,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
     }
     if (def.flags) {
       for (const s of [-1, 1]) {
-        const q = side(snap.x, snap.z, s * (halfSpan + 0.5));
+        const q = side(snap.x, snap.z, s * halfSpan);
         const object = anchor(makeFlag(def.flags), q.x, q.z, dirX, dirZ);
         object.group.userData.setLit(isLit(entry.index));
         objects.push(object);
@@ -363,7 +369,9 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       object.group.position.set(x, y, z);
       object.group.rotation.y = object.yaw;
     }
-    const pulse = 1 + 0.35 * Math.sin(time * DOT_PULSE_HZ * Math.PI * 2);
+    // Only the next point's dots pulse and spin; the one after holds still.
+    const moving = entry.index === lit;
+    const pulse = moving ? 1 + 0.35 * Math.sin(time * DOT_PULSE_HZ * Math.PI * 2) : 1;
     for (const flag of entry.resolved?.flags ?? []) if (flag.group.visible) waveFlag(flag.group.userData.cloth, time);
     for (const object of entry.resolved?.lit ?? []) {
       const { dots } = object.group.userData;
@@ -374,7 +382,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       dots.scale.setScalar(scale);
       // Ring bottom stays on the pole top as it grows.
       dots.position.y = dots.userData.height + DOT_RADIUS_M * scale;
-      dots.rotation.y = time * DOT_SPIN;
+      dots.rotation.y = moving ? time * DOT_SPIN : 0;
     }
   }
 
@@ -457,8 +465,8 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       const ax = gate.dirX == null ? 1 : -gate.dirZ;
       const az = gate.dirX == null ? 0 : gate.dirX;
       for (const s of [-1, 1]) {
-        const x = gate.x + ax * s * (gate.halfWidth + 1);
-        const z = gate.z + az * s * (gate.halfWidth + 1);
+        const x = gate.x + ax * s * poleHalfSpan(gate.halfWidth);
+        const z = gate.z + az * s * poleHalfSpan(gate.halfWidth);
         const y = terrain.surfaceHeightAt(x, z);
         if (y != null) sparkles.throw(x, y + SPARKLE_HEIGHT_M, z);
       }

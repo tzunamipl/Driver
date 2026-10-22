@@ -18,6 +18,7 @@ import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
 import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
 import { createStageRun } from './stageRun.js';
 import { createCarRocking } from '../carRocking.js';
+import { getVehicle } from '../../lib/vehicles/index.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
@@ -165,17 +166,18 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
 
   /** Where the game stands, for the main menu's mode card. */
   function progressStatus() {
+    const head = `${plan.name}\n${getVehicle(getVehicleId()).name}`;
     const stages = plan.items.filter((i) => i.type === 'stage').length;
     if (finished) {
       const dnf = results.some((r) => r.ms == null);
-      return `${plan.name}\nFinished · ${dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))}`;
+      return `${head}\nFinished · ${dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))}`;
     }
     const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
     const item = currentItem();
-    if (item.type !== 'stage') return `${plan.name}\nLiaison to ${pointLabel(item.point.type).toLowerCase()} · ${ss}/${stages} stages done`;
+    if (item.type !== 'stage') return `${head}\nLiaison to ${pointLabel(item.point.type).toLowerCase()} · ${ss}/${stages} stages done`;
     const { phase } = run.state;
     const where = phase === 'running' ? `${formatTime(run.elapsedMs())} on the clock` : phase === 'afterFinish' ? 'past the finish' : 'before the start';
-    return `${plan.name}\nSS${ss}/${stages} ${item.stage.name} · ${where}`;
+    return `${head}\nSS${ss}/${stages} ${item.stage.name} · ${where}`;
   }
 
   function carPosition() {
