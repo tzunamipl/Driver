@@ -431,7 +431,11 @@ export class BuildingsManager {
           this._groundHeightAt(built.aabb.centerX, built.aabb.centerZ) ??
           this._groundHeightAt(points.reduce((s, p) => s + p.x, 0) / points.length, points.reduce((s, p) => s + p.z, 0) / points.length) ??
           0;
-        const center = { x: built.aabb.centerX, z: built.aabb.centerZ };
+        // Shape origin must be inside the hull (cannon-es checks normals against it); the AABB centre often isn't.
+        const center = {
+          x: built.hull.reduce((s, p) => s + p.x, 0) / built.hull.length,
+          z: built.hull.reduce((s, p) => s + p.z, 0) / built.hull.length,
+        };
         // Roof at centre ground + height (matches the mesh); bottom below
         // the lowest ground sample plus a skirt.
         const topY = groundY + entry.height;
