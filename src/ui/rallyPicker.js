@@ -1,29 +1,32 @@
 // Stage / rally picker: the car to drive (ui/vehiclePicker.js, with the lobby's turning
 // model + stats, ui/vehiclePreview.js) and a folding tree of the official scenarios and
 // every player's branch (ui/scenarioTree.js); picking a file shows its plan on a map
-// (ui/rallyPlanMap.js), Start (or a double-click) drives it.
+// (ui/rallyPlanMap.js) with its best times (ui/rallyBestTimes.js), Start (or a double-click) drives it.
 
 import { formatSource } from '../lib/scenarios/source.js';
 import { createScenarioTree } from './scenarioTree.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
 import { createRallyPlanMap } from './rallyPlanMap.js';
+import { createRallyBestTimes } from './rallyBestTimes.js';
 import { getVehicleColor } from '../lib/vehicleColors.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 
 /**
- * @param {object} [hooks]
- * @param {() => void} [hooks.onOpen] - e.g. park the car while the picker covers the game.
- * @param {() => void} [hooks.onClose]
+ * @param {object} opts
+ * @param {string} opts.playerId - finds the player's own row on the online boards.
+ * @param {() => void} [opts.onOpen] - e.g. park the car while the picker covers the game.
+ * @param {() => void} [opts.onClose]
  */
-export function createRallyPicker({ onOpen, onClose } = {}) {
+export function createRallyPicker({ playerId, onOpen, onClose }) {
   const root = document.getElementById('rally-picker');
   // One preview (its own WebGL renderer) for every pick; it only renders while shown.
   const canvas = el('canvas', 'rally-vehicle-preview');
   const stats = el('dl', 'rally-vehicle-stats');
   const preview = createVehiclePreview({ canvas, statsEl: stats });
   const map = createRallyPlanMap();
+  const times = createRallyBestTimes({ playerId });
 
   function showVehicle(vehicleId) {
     preview.setVehicle(vehicleId);
@@ -55,6 +58,7 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
       const startSelected = () => finish({ plan: selected.plan, vehicleId: vehicles.getSelectedId() });
       start.onclick = startSelected;
       map.show(null, `Pick a ${kind.label.toLowerCase()} to see its map`);
+      times.show(null);
 
       function select({ source, opened, key, json }) {
         if (selected?.opened === opened && selected.key === key) return;
@@ -63,12 +67,14 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
         startWhenLoaded = false;
         start.disabled = true;
         map.show(null, 'Loading…');
+        times.show(null);
         loadPlan({ source: formatSource(source), opened, key, json }).then(
           (plan) => {
             if (selected !== current) return;
             current.plan = plan;
             start.disabled = false;
             map.show(plan);
+            times.show(plan);
             if (startWhenLoaded) startSelected();
           },
           (err) => {
@@ -100,7 +106,7 @@ export function createRallyPicker({ onOpen, onClose } = {}) {
       car.append(carPick, showcase);
       win.append(el('h1', 'menu-titlebar', title), el('div', 'rally-picker-heading', 'Car'), car);
       const planPick = el('div', 'rally-plan');
-      planPick.append(tree.el, map.el);
+      planPick.append(tree.el, map.el, times.el);
       win.append(el('div', 'rally-picker-heading', `${kind.label}s`), planPick);
       const back = Object.assign(el('button', '', 'Back'), { type: 'button', onclick: () => finish(null) });
       const footer = el('div', 'menu-footer');

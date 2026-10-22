@@ -6,7 +6,7 @@
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
-import { RALLY_BEST_STORAGE_KEY, OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
+import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
 import { leaderboardEnabled, submitStageTime } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
@@ -14,6 +14,7 @@ import { rallyFormat } from '../../lib/scenarios/rally.js';
 import { filePath } from '../../lib/scenarios/paths.js';
 import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
+import { readLocalBests, writeLocalBests, localBestKey } from '../../lib/rally/localBest.js';
 import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
 import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
 import { createStageRun } from './stageRun.js';
@@ -35,22 +36,6 @@ const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
-
-function readBest() {
-  try {
-    return JSON.parse(localStorage.getItem(RALLY_BEST_STORAGE_KEY)) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function writeBest(all) {
-  try {
-    localStorage.setItem(RALLY_BEST_STORAGE_KEY, JSON.stringify(all));
-  } catch {
-    // Storage unavailable: bests last this session only.
-  }
-}
 
 /** Stage file -> { id (its file key), name, points }. */
 function readStage(json, id) {
@@ -154,7 +139,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   routeGuidance.setBlocked(isLive);
 
   const currentItem = () => plan?.items[itemIndex] ?? null;
-  const bestKey = (stage) => `${plan.source}|${stage.id}`;
+  const bestKey = (stage) => localBestKey(plan.source, stage.id);
 
   function saveProgress() {
     if (!keepsProgress) return;
@@ -194,7 +179,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     run = null;
     resultRows = null;
     if (item?.type === 'stage') {
-      const best = readBest()[bestKey(item.stage)] ?? null;
+      const best = readLocalBests()[bestKey(item.stage)] ?? null;
       run = createStageRun({ points: item.stage.points, getGate: scenery.getGate, best, onEvent: (e) => onStageEvent(item.stage, best, e) });
       if (savedRun) run.restore(savedRun);
     }
@@ -231,10 +216,10 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     }
     if (event.type === 'jumpStart') flash = { text: 'Jump start! +10 s', until: simTime + SPLIT_SHOW_S };
     if (event.type === 'done') {
-      const all = readBest();
+      const all = readLocalBests();
       if (!all[bestKey(stage)] || event.ms < all[bestKey(stage)].totalMs) {
         all[bestKey(stage)] = { totalMs: event.ms, splits: run.state.splits };
-        writeBest(all);
+        writeLocalBests(all);
       }
       const result = { name: stage.name, ms: event.ms, splits: run.state.splits, penaltyMs: run.penaltyMs(), best };
       submitOnline(stage, result);

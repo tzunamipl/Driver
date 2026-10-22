@@ -1,10 +1,19 @@
-// Online stage leaderboards: each player's best time on official stages, through the
+// Online stage leaderboards: each player's best time per vehicle on official stages, through the
 // leaderboard worker (worker/), which keeps them in a GitHub data repo. Off when the
 // build has no VITE_LEADERBOARD_URL.
 
 import { LEADERBOARD_URL } from '../config.js';
 
+const BOARD_CACHE_MS = 60_000;
+
 export const leaderboardEnabled = () => !!LEADERBOARD_URL;
+
+const boardCache = new Map(); // stage -> { at, board: Promise }
+
+function cacheBoard(stage, board) {
+  board.catch(() => boardCache.get(stage)?.board === board && boardCache.delete(stage));
+  boardCache.set(stage, { at: performance.now(), board });
+}
 
 async function api(path, init) {
   const res = await fetch(`${LEADERBOARD_URL}${path}`, init);
@@ -24,9 +33,24 @@ export async function playerHash(playerId) {
  *   totalMs: number, splits: number[], penaltyMs: number}} run - stage = its file key, sha = scenarios commit it was loaded from.
  * @returns {Promise<{board: {entries: object[]}, rank: number | null, improved: boolean}>}
  */
-export const submitStageTime = (run) =>
-  api('/results', {
+export async function submitStageTime(run) {
+  const result = await api('/results', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...run, version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '' }),
   });
+  cacheBoard(run.stage, Promise.resolve(result.board));
+  return result;
+}
+
+/**
+ * An official stage's board, fastest first; cached a minute so re-picking a stage doesn't refetch.
+ * @param {string} stage - its file key.
+ * @returns {Promise<{entries: {player: string, name: string, vehicle: string, totalMs: number}[]}>}
+ */
+export function fetchStageBoard(stage) {
+  const hit = boardCache.get(stage);
+  if (hit && performance.now() - hit.at < BOARD_CACHE_MS) return hit.board;
+  cacheBoard(stage, api(`/board?stage=${encodeURIComponent(stage)}`).then((res) => res.board));
+  return boardCache.get(stage).board;
+}

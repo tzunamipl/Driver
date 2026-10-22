@@ -1,5 +1,5 @@
 // Driver leaderboard API: checks stage times against the official stage files and keeps each
-// player's best in a GitHub data repo, one JSON file per stage. The token stays here.
+// player's best per vehicle in a GitHub data repo, one JSON file per stage. The token stays here.
 //   GET  /board?stage=<country/region/id>  -> { board }
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
 //        -> { board, rank, improved }
@@ -156,9 +156,10 @@ async function submit(env, sub) {
   for (let attempt = 0; ; attempt++) {
     const { board: stored, sha } = await readBoard(env, sub.stage);
     const board = currentBoard(stored, sub.stage, print);
-    const own = board.entries.find((e) => e.player === player);
+    const mine = (e) => e.player === player && e.vehicle === sub.vehicle;
+    const own = board.entries.find(mine);
     if (own && own.totalMs <= entry.totalMs) return { board, improved: false };
-    const entries = [...board.entries.filter((e) => e.player !== player), entry]
+    const entries = [...board.entries.filter((e) => !mine(e)), entry]
       .sort((a, b) => a.totalMs - b.totalMs || a.at.localeCompare(b.at))
       .slice(0, MAX_ENTRIES);
     const next = { stage: sub.stage, fingerprint: print, entries };
@@ -212,7 +213,7 @@ export default {
         }
         const { board, improved } = await submit(env, sub);
         const player = await playerHash(sub.playerId);
-        const rank = board.entries.findIndex((e) => e.player === player) + 1 || null;
+        const rank = board.entries.findIndex((e) => e.player === player && e.vehicle === sub.vehicle) + 1 || null;
         return json({ board, rank, improved }, 200, cors);
       }
       return json({ error: 'Not found' }, 404, cors);

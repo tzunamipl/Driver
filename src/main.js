@@ -154,7 +154,7 @@ if (!keepsProgress) {
   writeSaveField('carState', null);
   writeSaveField('rallyProgress', null);
 }
-const rallyPicker = isRallyGame ? createRallyPicker({ onOpen: () => menuPark?.onOpen(), onClose: () => menuPark?.onClose() }) : null;
+const rallyPicker = isRallyGame ? createRallyPicker({ playerId, onOpen: () => menuPark?.onOpen(), onClose: () => menuPark?.onClose() }) : null;
 let rallyInitialPick = null;
 if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
   try {

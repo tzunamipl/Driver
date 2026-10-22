@@ -98,7 +98,7 @@
   font-size: 11px;
 }
 #rally-picker[hidden] { display: none; }
-.rally-picker-window { width: min(720px, 100%); gap: 4px; }
+.rally-picker-window { width: min(900px, 100%); gap: 4px; }
 /* Stage / rally tree beside its plan map (ui/rallyPlanMap.js). */
 .rally-plan { display: flex; gap: 10px; }
 .rally-plan .scenario-tree { flex: 1 1 0; min-width: 0; height: min(240px, 30dvh); overflow-y: auto; }
@@ -122,6 +122,26 @@
   pointer-events: none;
 }
 .rally-plan-map-info { min-height: 13px; font-variant-numeric: tabular-nums; }
+/* Best times (ui/rallyBestTimes.js) beside the map. */
+.rally-best { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rally-best-box {
+  height: min(240px, 30dvh);
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
+}
+.rally-best-title { padding: 3px 6px; font-weight: bold; border-bottom: 1px solid #c0c0c0; }
+.rally-best-list { flex: 1 1 auto; overflow-y: auto; padding: 2px 4px; }
+.rally-best-row { display: flex; gap: 6px; padding: 1px 2px; font-variant-numeric: tabular-nums; }
+.rally-best-row.mine { background: var(--w95-select); color: #fff; }
+.rally-best-rank { flex: 0 0 2.4em; text-align: right; }
+.rally-best-who { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rally-best-vehicle { margin-left: 5px; opacity: 0.65; }
+.rally-best-time { font-family: monospace; white-space: nowrap; }
+.rally-best-gap { padding-left: 2.4em; color: #808080; }
+.rally-best-message { padding: 4px 2px; color: #444; }
+.rally-best-local { min-height: 13px; font-variant-numeric: tabular-nums; }
 .rally-picker-heading { margin: 6px 0 2px; font-weight: bold; }
 /* Car: tabs + list beside the lobby-style turning model and stats. */
 .rally-car { display: flex; gap: 10px; }
@@ -152,5 +172,6 @@
   .rally-plan { flex-direction: column; }
   .rally-plan .scenario-tree { height: auto; max-height: 25dvh; }
   .rally-plan-map-view { height: 180px; }
+  .rally-best-box { height: auto; max-height: 30dvh; }
   .rally-vehicle-preview { height: 120px; }
 }
