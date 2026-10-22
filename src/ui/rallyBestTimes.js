@@ -52,9 +52,12 @@ export function createRallyBestTimes({ playerId }) {
 
   function row(entry, rank, mine) {
     const r = el('div', `rally-best-row${mine ? ' mine' : ''}`);
-    const who = el('span', 'rally-best-who');
-    who.append(el('span', 'rally-best-name', entry.name), el('span', 'rally-best-vehicle', getVehicle(entry.vehicle).name));
-    r.append(el('span', 'rally-best-rank', `${rank}.`), who, el('span', 'rally-best-time', formatTime(entry.totalMs)));
+    r.append(
+      el('span', 'rally-best-rank', `${rank}.`),
+      el('span', 'rally-best-name', entry.name),
+      el('span', 'rally-best-vehicle', getVehicle(entry.vehicle).name),
+      el('span', 'rally-best-time', formatTime(entry.totalMs))
+    );
     return r;
   }
 

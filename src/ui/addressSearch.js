@@ -102,6 +102,9 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       const groundY = findGroundY(world, 0, 0) ?? 0;
       const reset = carManager.getReset();
       if (reset) reset({ x: 0, y: groundY + TELEPORT_DROP_HEIGHT, z: 0 });
+      // Stay "teleporting" until the ease lands: it starts at the old spot's
+      // stale coordinates, and streaming around it would drop the new ground.
+      while (carManager.isResetting()) await new Promise(requestAnimationFrame);
       setAddressStatus(`Teleported to ${label}`);
       setTimeout(() => setAddressStatus(''), 3000);
     } finally {

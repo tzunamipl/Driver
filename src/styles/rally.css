@@ -136,8 +136,11 @@
 .rally-best-row { display: flex; gap: 6px; padding: 1px 2px; font-variant-numeric: tabular-nums; }
 .rally-best-row.mine { background: var(--w95-select); color: #fff; }
 .rally-best-rank { flex: 0 0 2.4em; text-align: right; }
-.rally-best-who { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rally-best-vehicle { margin-left: 5px; opacity: 0.65; }
+.rally-best-name,
+.rally-best-vehicle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rally-best-name { flex: 1.4 1 0; }
+.rally-best-vehicle { flex: 1 1 0; color: #444; }
+.rally-best-row.mine .rally-best-vehicle { color: inherit; }
 .rally-best-time { font-family: monospace; white-space: nowrap; }
 .rally-best-gap { padding-left: 2.4em; color: #808080; }
 .rally-best-message { padding: 4px 2px; color: #444; }

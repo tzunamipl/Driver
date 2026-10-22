@@ -123,7 +123,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   let shownRed = 0; // countdown lights already beeped for
   let shownProgress = null; // plan panel + map icons are rebuilt when this key changes
   let nextProgressSave = 0;
-  const online = new WeakMap(); // result -> { rank, count, leader } | { error } | null while sending
+  const online = new WeakMap(); // result -> { rank, vehicle, count, leader } | { error } | null while sending
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
@@ -232,17 +232,18 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   function submitOnline(stage, result) {
     if (!leaderboardEnabled() || plan.source !== OFFICIAL_SCENARIO_SOURCE || !plan.sha) return;
     online.set(result, null);
+    const vehicle = getVehicleId();
     submitStageTime({
       stage: stage.id,
       sha: plan.sha,
       playerId,
       name: getPlayerName() ?? '',
-      vehicle: getVehicleId(),
+      vehicle,
       totalMs: result.ms,
       splits: result.splits,
       penaltyMs: result.penaltyMs,
     })
-      .then(({ board, rank }) => online.set(result, { rank, count: board.entries.length, leader: board.entries[0] }))
+      .then(({ board, rank }) => online.set(result, { rank, vehicle, count: board.entries.length, leader: board.entries[0] }))
       .catch((err) => {
         console.warn('Leaderboard:', err);
         online.set(result, { error: err.message });
@@ -402,8 +403,8 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   function onlineRows(entry) {
     if (!entry) return [['World rank', 'Sending…']];
     if (entry.error) return [['World rank', entry.error]];
-    const rows = [['World rank', entry.rank ? `${entry.rank} / ${entry.count}` : '-']];
-    if (entry.leader) rows.push(['World best', `${formatTime(entry.leader.totalMs)} · ${entry.leader.name}`]);
+    const rows = [['World rank', entry.rank ? `${entry.rank} / ${entry.count} · ${getVehicle(entry.vehicle).name}` : '-']];
+    if (entry.leader) rows.push(['World best', `${formatTime(entry.leader.totalMs)} · ${entry.leader.name} · ${getVehicle(entry.leader.vehicle).name}`]);
     return rows;
   }
 
