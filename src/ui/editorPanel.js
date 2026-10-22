@@ -132,26 +132,23 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
 
   const statusEl = el('p', { className: 'editor-status' });
   const toggle = el('button', { type: 'button', className: 'editor-toggle', textContent: title });
+  // Two columns: the file and what to place on the left, the item list and its editing on the right.
   const body = el('div', { className: 'editor-body' }, [
-    el('div', { className: 'editor-buttons editor-kinds' }, [...kindButtons, newButton, openButton]),
-    el('label', { textContent: 'Country' }),
-    countryInput,
-    el('label', { textContent: 'Region / theme' }),
-    regionInput,
-    el('label', { textContent: 'ID' }),
-    idInput,
-    el('label', { textContent: 'Name' }),
-    nameInput,
-    el('div', { className: 'editor-heading', textContent: 'Place at car' }),
-    placeEl,
-    refRow,
-    itemsEl,
-    selectedEl,
-    actionsEl,
-    exportEl,
-    tokenHelpEl,
-    branchEl,
-    statusEl,
+    el('div', { className: 'editor-column' }, [
+      el('div', { className: 'editor-buttons editor-kinds' }, [...kindButtons, newButton, openButton]),
+      el('label', { textContent: 'Country' }),
+      countryInput,
+      el('label', { textContent: 'Region / theme' }),
+      regionInput,
+      el('label', { textContent: 'ID' }),
+      idInput,
+      el('label', { textContent: 'Name' }),
+      nameInput,
+      el('div', { className: 'editor-heading', textContent: 'Place at car' }),
+      placeEl,
+      refRow,
+    ]),
+    el('div', { className: 'editor-column' }, [itemsEl, selectedEl, actionsEl, exportEl, tokenHelpEl, branchEl, statusEl]),
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);

@@ -38,6 +38,14 @@ const FLAG_POLE_M = 5;
 const FLAG_LENGTH_M = 4;
 const FLAG_WIDTH_M = 0.9;
 const FLAG_IDLE_COLOR = '#8a8a8a';
+const LIT_AHEAD = 2; // the next point and the one after have flags in colour and glowing dots on their poles
+const BOARD_DOT_COLOR = '#ffc400';
+const DOT_RADIUS_M = 0.12;
+const DOT_PULSE_HZ = 1.5;
+const DOT_SPIN = 6; // rad/s round the pole
+// Further than this from the car the dots grow with distance, so they stay visible far ahead.
+const DOT_GROW_FROM_M = 40;
+const DOT_MAX_SCALE = 15;
 const WAVE_AMP_M = 0.35;
 const WAVE_SPEED = 5.5; // rad/s
 const WAVE_PER_M = 3.2; // rad per metre from the pole
@@ -78,6 +86,8 @@ postGeometry.translate(0, (BOARD_HEIGHT_M + BOARD_SIZE_M / 2) / 2, 0);
 const poleGeometry = new CylinderGeometry(0.06, 0.06, FLAG_POLE_M, 6);
 poleGeometry.translate(0, FLAG_POLE_M / 2, 0);
 const boardGeometry = new PlaneGeometry(BOARD_SIZE_M, BOARD_SIZE_M);
+const dotGeometry = new SphereGeometry(DOT_RADIUS_M, 10, 8);
+dotGeometry.userData.shared = true;
 const lampGeometry = new SphereGeometry(0.11, 10, 8);
 const greyMaterial = new MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.6 });
 const whiteMaterial = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
@@ -151,6 +161,33 @@ function flagMaterial(text, color) {
   return flagMaterials.get(key);
 }
 
+const dotMaterials = new Map();
+
+// Unlit and outside tone mapping: reads as a glowing light even at night.
+function dotMaterial(color) {
+  if (!dotMaterials.has(color)) {
+    const material = new MeshBasicMaterial({ color, toneMapped: false });
+    material.userData.shared = true;
+    dotMaterials.set(color, material);
+  }
+  return dotMaterials.get(color);
+}
+
+/** Glowing dots in a ring round a pole top at `height`, shown while the point is lit. */
+function makeDots(color, height) {
+  const dots = new Group();
+  for (let n = 0; n < 4; n++) {
+    const a = (n / 4) * Math.PI * 2;
+    const dot = new Mesh(dotGeometry, n % 2 ? dotMaterial('#ffffff') : dotMaterial(color));
+    dot.position.set(Math.cos(a) * 0.18, 0, Math.sin(a) * 0.18);
+    dots.add(dot);
+  }
+  dots.add(new Mesh(dotGeometry, dotMaterial('#ffffff')));
+  dots.userData.height = height;
+  dots.visible = false;
+  return dots;
+}
+
 function makeFlag({ text, color, pole = FLAG_POLE_M, length = FLAG_LENGTH_M, width = FLAG_WIDTH_M }) {
   const group = new Group();
   const poleMesh = new Mesh(poleGeometry, greyMaterial);
@@ -163,8 +200,14 @@ function makeFlag({ text, color, pole = FLAG_POLE_M, length = FLAG_LENGTH_M, wid
   flag.rotation.z = Math.PI / 2;
   flag.position.set(0.05 + width / 2, pole - 0.1 - length / 2, 0);
   group.add(flag);
+  const dots = makeDots(color, pole);
+  group.add(dots);
   group.userData.cloth = { geometry, width, base: geometry.attributes.position.array.slice(), phase: Math.random() * Math.PI * 2 };
-  group.userData.setLit = (lit) => (flag.material = flagMaterial(text, lit ? color : FLAG_IDLE_COLOR));
+  group.userData.dots = dots;
+  group.userData.setLit = (lit) => {
+    flag.material = flagMaterial(text, lit ? color : FLAG_IDLE_COLOR);
+    dots.visible = lit;
+  };
   return group;
 }
 
@@ -200,10 +243,11 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
   /** @type {{point: object, travel: {x: number, z: number} | null, resolved: object | null, retryAt: number}[]} */
   let entries = [];
   let active = 0; // entries index of the active item's first point
-  let lit = -1; // entries index whose flags are in colour
+  let lit = -1; // entries index of the first of LIT_AHEAD points whose flags are in colour
   let baseEntry = null; // rally base: shown for the whole rally, not one of the indexed points
   let time = 0;
 
+  const isLit = (index) => lit >= 0 && index >= lit && index < lit + LIT_AHEAD;
   const neighbour = (points, i) => (points[i] ? viewFrame.fromLatLon(points[i].lat, points[i].lon) : null);
 
   function anchor(group, x, z, dirX, dirZ) {
@@ -228,6 +272,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
     const objects = [];
     let lamps = null;
     const flags = [];
+    const lit = []; // objects with userData.setLit / dots: flags and the control boards
     const poleTops = []; // { object, height }: where sparkles come from
 
     // Right of travel is local +x: (-dirZ, dirX).
@@ -247,7 +292,16 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
           const q = { x: p.x - pDirZ * offset * s, z: p.z + pDirX * offset * s };
           const object = anchor(makeBoard(color, def.boards, def.boardHeight, def.bothWays && along === 0), q.x, q.z, pDirX, pDirZ);
           objects.push(object);
-          if (along === 0) poleTops.push({ object, height: (def.boardHeight ?? BOARD_HEIGHT_M) + BOARD_SIZE_M / 2 });
+          if (along === 0) {
+            const height = (def.boardHeight ?? BOARD_HEIGHT_M) + BOARD_SIZE_M / 2;
+            const dots = makeDots(BOARD_DOT_COLOR, height);
+            object.group.add(dots);
+            object.group.userData.dots = dots;
+            object.group.userData.setLit = (on) => (dots.visible = on);
+            object.group.userData.setLit(isLit(entry.index));
+            lit.push(object);
+            poleTops.push({ object, height });
+          }
         }
       }
     }
@@ -269,13 +323,14 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       for (const s of [-1, 1]) {
         const q = side(snap.x, snap.z, s * (halfSpan + 0.5));
         const object = anchor(makeFlag(def.flags), q.x, q.z, dirX, dirZ);
-        object.group.userData.setLit(entry.index === lit);
+        object.group.userData.setLit(isLit(entry.index));
         objects.push(object);
         flags.push(object);
+        lit.push(object);
         poleTops.push({ object, height: def.flags.pole ?? FLAG_POLE_M });
       }
     }
-    return { dirX, dirZ, halfWidth: (point.width ?? snap.roadWidth) / 2, objects, lamps, flags, poleTops };
+    return { dirX, dirZ, halfWidth: (point.width ?? snap.roadWidth) / 2, objects, lamps, flags, lit, poleTops };
   }
 
   function removeObjects(entry) {
@@ -308,7 +363,19 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       object.group.position.set(x, y, z);
       object.group.rotation.y = object.yaw;
     }
+    const pulse = 1 + 0.35 * Math.sin(time * DOT_PULSE_HZ * Math.PI * 2);
     for (const flag of entry.resolved?.flags ?? []) if (flag.group.visible) waveFlag(flag.group.userData.cloth, time);
+    for (const object of entry.resolved?.lit ?? []) {
+      const { dots } = object.group.userData;
+      if (!dots.visible) continue;
+      const { x, z } = object.group.position;
+      const dist = focus ? Math.hypot(x - focus.x, z - focus.z) : 0;
+      const scale = pulse * Math.min(DOT_MAX_SCALE, Math.max(1, dist / DOT_GROW_FROM_M));
+      dots.scale.setScalar(scale);
+      // Ring bottom stays on the pole top as it grows.
+      dots.position.y = dots.userData.height + DOT_RADIUS_M * scale;
+      dots.rotation.y = time * DOT_SPIN;
+    }
   }
 
   return {
@@ -346,12 +413,12 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
       return { x, z, dirX: r?.dirX ?? null, dirZ: r?.dirZ ?? null, halfWidth: r?.halfWidth ?? (entry.point.width ?? 10) / 2 };
     },
 
-    /** Point i's flags in colour (the next one to pass), all others grey; -1 = none. */
+    /** Point i (the next one to pass) and the one after: flags in colour, glowing dots on poles; others grey; -1 = none. */
     setNext(i) {
       const next = i >= 0 ? active + i : -1;
       if (next === lit) return;
       lit = next;
-      entries.forEach((entry, n) => entry.resolved?.flags.forEach((flag) => flag.group.userData.setLit(n === lit)));
+      entries.forEach((entry, n) => entry.resolved?.lit.forEach((object) => object.group.userData.setLit(isLit(n))));
     },
 
     /** Start lights at point i: `red` lamps lit (0..5), or all green. */

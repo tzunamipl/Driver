@@ -543,7 +543,9 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     /** Per frame: scenery, start lights, HUD. */
     update(dt) {
       scenery.update(dt, carPosition());
-      scenery.setNext(run && run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1);
+      // A liaison item is its one point: index 0.
+      const next = run ? (run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1) : plan && !finished && currentItem() ? 0 : -1;
+      scenery.setNext(next);
       if (run && run.startIndex >= 0) {
         const { red, green } = run.lights();
         scenery.setLights(run.startIndex, red, green);

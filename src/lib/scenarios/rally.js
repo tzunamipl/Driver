@@ -6,7 +6,8 @@
 import { SCENARIO_FORMAT } from '../../config.js';
 
 const DEFAULT_GATE_WIDTH_M = 10;
-const NARROW_GATE_WIDTH_M = 4; // stop controls and service zones: about one lane
+const NARROW_GATE_WIDTH_M = 4; // service zones: about one lane
+const STAGE_CONTROL_WIDTH_M = 3; // time control, start, stop: one car at a time
 const COORD_DECIMALS = 6; // ~0.1 m
 
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -16,11 +17,11 @@ const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
   timeControl: {
-    label: 'Time control', short: 'TC', color: 0xf2c200, gate: true, defaultWidth: NARROW_GATE_WIDTH_M,
+    label: 'Time control', short: 'TC', color: 0xf2c200, gate: true, defaultWidth: STAGE_CONTROL_WIDTH_M,
     description: 'Check-in before the stage: the driver stops in its zone (15 m), then drives on to the start. Place it shortly before the start.',
   },
   start: {
-    label: 'Start', short: 'START', color: 0x20b040, gate: true, defaultWidth: NARROW_GATE_WIDTH_M,
+    label: 'Start', short: 'START', color: 0x20b040, gate: true, defaultWidth: STAGE_CONTROL_WIDTH_M,
     description: 'Start line: the car stops at it for a 5-light countdown and the clock starts at GO. Moving before GO is a jump start (+10 s). Exactly one per stage.',
   },
   split: {
@@ -36,7 +37,7 @@ const POINT_TYPES = {
     description: 'Crossing it at speed stops the clock: this is the stage time. Exactly one per stage, after the start.',
   },
   stop: {
-    label: 'Stop control', short: 'STOP', color: 0x901010, gate: true, defaultWidth: NARROW_GATE_WIDTH_M,
+    label: 'Stop control', short: 'STOP', color: 0x901010, gate: true, defaultWidth: STAGE_CONTROL_WIDTH_M,
     description: 'A little after the finish: the car must stop in its zone (15 m) to end the stage and see the results.',
   },
   base: {
