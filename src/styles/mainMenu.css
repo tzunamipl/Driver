@@ -66,8 +66,8 @@
 /* Tall raised cards, one per mode. */
 .menu-mode {
   flex: none;
-  width: 150px;
-  height: min(360px, calc(100dvh - 140px));
+  width: 210px;
+  height: min(500px, calc(100dvh - 120px));
   min-height: 220px;
   box-sizing: border-box;
   display: flex;
