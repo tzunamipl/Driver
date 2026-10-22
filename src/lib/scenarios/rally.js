@@ -4,15 +4,18 @@
 // definition for the mode: file kinds, point types and their fields.
 
 import { SCENARIO_FORMAT } from '../../config.js';
+import { boardSpots } from '../rally/controlScenery.js';
+import { BOARD_COLORS } from '../rally/fiaBoards.js';
 
 const DEFAULT_GATE_WIDTH_M = 10;
 const NARROW_GATE_WIDTH_M = 4; // service zones: about one lane
 const STAGE_CONTROL_WIDTH_M = 3; // time control, start, stop: one car at a time
 const COORD_DECIMALS = 6; // ~0.1 m
+const HEADING_DECIMALS = 1;
 
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// gate: placed across the nearest road and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
+// gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
 // stop: a liaison point done by stopping in its zone instead of driving through;
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
@@ -83,11 +86,22 @@ const RALLY_POINTS = ['base', 'serviceParkIn', 'serviceParkOut', 'regroup', 'ref
 
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
-const gate = ({ type, lat, lon, width }) => ({ type, lat: round(lat), lon: round(lon), width: round(width ?? defaultWidth(type)) });
+const normalHeading = (deg) => Number((((deg % 360) + 360) % 360).toFixed(HEADING_DECIMALS)) % 360;
+const gate = ({ type, lat, lon, width, heading, snap }) => ({
+  type,
+  lat: round(lat),
+  lon: round(lon),
+  width: round(width ?? defaultWidth(type)),
+  ...(Number.isFinite(heading) ? { heading: normalHeading(heading) } : {}),
+  ...(snap === false ? { snap: false } : {}),
+});
 
 function readGate(entry) {
   if (!POINT_TYPES[entry?.type] || !Number.isFinite(entry.lat) || !Number.isFinite(entry.lon)) return null;
-  return { type: entry.type, lat: entry.lat, lon: entry.lon, width: Number.isFinite(entry.width) ? entry.width : defaultWidth(entry.type) };
+  const point = { type: entry.type, lat: entry.lat, lon: entry.lon, width: Number.isFinite(entry.width) ? entry.width : defaultWidth(entry.type) };
+  if (Number.isFinite(entry.heading)) point.heading = normalHeading(entry.heading);
+  if (entry.snap === false) point.snap = false;
+  return point;
 }
 
 const fileMeta = (doc) => ({ country: doc.country, region: doc.region, id: doc.id, name: doc.name });
@@ -107,6 +121,9 @@ function validateCommon(doc, problems) {
 export const rallyFormat = {
   folder: 'rally',
   defaultGateWidth: defaultWidth,
+  normalHeading,
+  // Roadside boards the game adds around a point (editor preview).
+  satellites: (type) => boardSpots(type).map(([color, along, facing]) => ({ color: BOARD_COLORS[color], along, facing })),
   pointTypes: POINT_TYPES,
   kinds: [
     {

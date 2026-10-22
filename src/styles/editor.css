@@ -87,6 +87,20 @@
   padding: 4px;
   box-shadow: var(--w95-etched);
 }
+.editor-heading-row { display: flex; align-items: center; gap: 10px; }
+.editor-checks { display: flex; flex-direction: column; gap: 4px; }
+.editor-check { display: flex; align-items: center; gap: 4px; }
+.editor-check input { margin: 0; }
+.editor-dial-row { display: flex; align-items: center; gap: 6px; }
+.editor-dial-row input { width: 6ch; }
+.editor-dial { width: 48px; height: 48px; flex: none; cursor: grab; touch-action: none; }
+.editor-dial:focus-visible { outline: 1px dotted #000; }
+.editor-dial circle { fill: #fff; stroke: #000; stroke-width: 1; }
+.editor-dial text { font: bold 7px sans-serif; fill: #444; pointer-events: none; }
+.editor-dial-needle line { stroke: #c00; stroke-width: 2; }
+.editor-dial-needle path { fill: #c00; }
+.editor-dial-needle.is-road line { stroke: #888; stroke-dasharray: 3 2; }
+.editor-dial-needle.is-road path { fill: #888; }
 .editor-export { display: flex; flex-direction: column; gap: 3px; }
 .editor-export[hidden],
 .editor-ref[hidden] { display: none; }

@@ -4,7 +4,7 @@ import { RALLY_HANDBRAKE_HOLD_STORAGE_KEY } from '../config.js';
 
 export function createGameplaySettings() {
   const rallyHandbrakeHold = document.getElementById('rally-handbrake-hold-input');
-  rallyHandbrakeHold.checked = readFlag(RALLY_HANDBRAKE_HOLD_STORAGE_KEY, true);
+  rallyHandbrakeHold.checked = readFlag(RALLY_HANDBRAKE_HOLD_STORAGE_KEY, false);
   rallyHandbrakeHold.addEventListener('change', () => {
     try { localStorage.setItem(RALLY_HANDBRAKE_HOLD_STORAGE_KEY, String(rallyHandbrakeHold.checked)); } catch { /* private mode */ }
     rallyHandbrakeHold.blur(); // Space is the handbrake, not a checkbox toggle

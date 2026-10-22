@@ -1,5 +1,6 @@
 // Nearest road centreline to a world point, from the streets layer's fetched segments.
-// Gates sit across the road there: no stored direction, so play and editor agree.
+// Gates sit across the road there unless the file turns them by hand or unsnaps them,
+// so play and editor agree without storing road directions.
 
 import { latLonToLocal } from '../geo.js';
 
@@ -111,4 +112,50 @@ export function walkRoad(streets, snap, metres) {
     forward = next.forward;
     pos = forward ? line[0].dist : line[line.length - 1].dist + line[line.length - 1].len;
   }
+}
+
+/** Unit travel direction for a compass heading (degrees clockwise from north; north is -z). */
+export function headingToDir(degrees) {
+  const rad = (degrees * Math.PI) / 180;
+  return { dirX: Math.sin(rad), dirZ: -Math.cos(rad) };
+}
+
+/** Inverse of headingToDir, in [0, 360). */
+export const dirToHeading = (dirX, dirZ) => ((Math.atan2(dirX, -dirZ) * 180) / Math.PI + 360) % 360;
+
+/**
+ * Where a point's control stands. `snap` (default on) puts it on the nearest road's
+ * centreline, its boards following the road; off, it stays at (x, z) with boards in a
+ * straight line. A stored `heading` turns it by hand, else it faces along the nearest road,
+ * travelling from `prev` towards `next` (world points or null).
+ * @param {{heading?: number, snap?: boolean}} point
+ * @returns {{x: number, z: number, dirX: number, dirZ: number, roadWidth: number | null,
+ *   walk: (metres: number) => {x: number, z: number, dirX: number, dirZ: number}} | null}
+ *   travel direction, the road's width (null off-road), and the point `metres` along travel
+ *   (negative = before) with the travel direction there; null while the road isn't loaded.
+ */
+export function controlFrame(streets, x, z, { heading, snap: onRoad = true }, prev, next, maxDistance) {
+  const manual = Number.isFinite(heading) ? headingToDir(heading) : null;
+  const straight = (dirX, dirZ) => ({ x, z, dirX, dirZ, roadWidth: null, walk: (m) => ({ x: x + dirX * m, z: z + dirZ * m, dirX, dirZ }) });
+  if (manual && !onRoad) return straight(manual.dirX, manual.dirZ);
+  const snap = snapToRoad(streets, x, z, maxDistance);
+  if (!snap) return null;
+  // A hand-set heading picks the road direction closer to it.
+  const sign = manual ? (snap.dirX * manual.dirX + snap.dirZ * manual.dirZ >= 0 ? 1 : -1) : travelSign(streets, snap, prev, next);
+  const dirX = manual?.dirX ?? snap.dirX * sign;
+  const dirZ = manual?.dirZ ?? snap.dirZ * sign;
+  if (!onRoad) return straight(dirX, dirZ);
+  return {
+    x: snap.x,
+    z: snap.z,
+    dirX,
+    dirZ,
+    roadWidth: snap.roadWidth,
+    walk(m) {
+      const p = walkRoad(streets, snap, m * sign);
+      // walkRoad gives the walking direction: backwards for points before the control.
+      const s = m < 0 ? -1 : 1;
+      return { x: p.x, z: p.z, dirX: p.dirX * s, dirZ: p.dirZ * s };
+    },
+  };
 }

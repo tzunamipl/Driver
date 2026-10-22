@@ -49,9 +49,11 @@ async function fetchStage(env, key, ref) {
   return res.json();
 }
 
-/** Points that decide the timing; any edit to them starts the stage's board over. */
+/** Points that decide the timing; any edit to them starts the stage's board over. Heading and snap only when set, so older files keep theirs. */
 const fingerprint = (stage) =>
-  sha256Hex(JSON.stringify((stage.points ?? []).map((p) => [p.type, p.lat, p.lon, p.width ?? null]))).then((h) => h.slice(0, 16));
+  sha256Hex(
+    JSON.stringify((stage.points ?? []).map((p) => [p.type, p.lat, p.lon, p.width ?? null, ...(p.heading != null ? [p.heading] : []), ...(p.snap === false ? ['free'] : [])]))
+  ).then((h) => h.slice(0, 16));
 
 function distanceM(a, b) {
   const R = 6_371_000;

@@ -1,6 +1,6 @@
 // Scenario editor panel (top right): file kind/id/name, place-at-car buttons for the
-// mode's point types, the ordered item list, the selected item's fields, save/export, and
-// an Open window with the scenario tree.
+// mode's point types, the ordered item list, the selected item's fields (road snap,
+// road orientation and a heading dial for gates), save/export, and an Open window with the scenario tree.
 // Built once and patched on change, so typing in a field keeps its focus.
 
 import { TOKEN_HELP_URL, branchNameFor } from '../lib/scenarios/github.js';
@@ -25,6 +25,71 @@ function setTip(node, heading, text) {
 /** Sets an input's value unless the player is typing in it. */
 function patchValue(input, value) {
   if (document.activeElement !== input && input.value !== value) input.value = value;
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const DIAL_STEP_DEG = 15; // Shift-drag and Shift+arrow steps
+
+function svg(tag, attrs, children = []) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+  node.append(...children);
+  return node;
+}
+
+/**
+ * Compass dial for a gate's direction of travel (north up): drag or arrow keys to turn,
+ * degrees field. A dashed needle is the road's direction.
+ * @param {(degrees: number | null) => void} onChange
+ */
+function createHeadingDial(onChange) {
+  const needle = svg('g', { class: 'editor-dial-needle' }, [svg('line', { x1: 0, y1: 6, x2: 0, y2: -14 }), svg('path', { d: 'M0 -17 L-4 -10 L4 -10 Z' })]);
+  const face = svg('svg', { viewBox: '-20 -20 40 40', class: 'editor-dial', tabindex: 0 }, [
+    svg('circle', { r: 19 }),
+    svg('text', { y: -11, 'text-anchor': 'middle', 'dominant-baseline': 'middle' }, ['N']),
+    needle,
+  ]);
+  let current = null;
+  const turnTo = (degrees, step) => onChange(Math.round(degrees / step) * step);
+  const fromPointer = (e) => {
+    const box = face.getBoundingClientRect();
+    const dx = e.clientX - (box.left + box.width / 2);
+    const dy = e.clientY - (box.top + box.height / 2);
+    turnTo((Math.atan2(dx, -dy) * 180) / Math.PI, e.shiftKey ? DIAL_STEP_DEG : 1);
+  };
+  face.addEventListener('pointerdown', (e) => {
+    face.setPointerCapture(e.pointerId);
+    fromPointer(e);
+  });
+  face.addEventListener('pointermove', (e) => face.hasPointerCapture(e.pointerId) && fromPointer(e));
+  face.addEventListener('keydown', (e) => {
+    const sign = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[e.key];
+    if (!sign) return;
+    e.preventDefault();
+    // The game's keys stay off while turning the dial.
+    e.stopPropagation();
+    turnTo((current ?? 0) + sign * (e.shiftKey ? DIAL_STEP_DEG : 1), 1);
+  });
+  const input = el('input', { type: 'number', min: 0, max: 359, step: 1, placeholder: 'road' });
+  input.addEventListener('input', () => input.value !== '' && Number.isFinite(Number(input.value)) && onChange(Number(input.value)));
+  const node = el('div', { className: 'editor-dial-row' }, [face, el('div', {}, [input, ' °'])]);
+  setTip(
+    node,
+    'Heading',
+    'Direction of travel through the gate (0° = north). Drag the dial (Shift: 15° steps) or use the arrow keys; turning it unticks Road orientation. Dashed = the road it follows now.'
+  );
+
+  return {
+    el: node,
+    /** @param {number | null} heading - shown direction; @param {boolean} manual - set by hand (else the road's). */
+    set(heading, manual) {
+      current = heading;
+      needle.style.display = heading == null ? 'none' : '';
+      if (heading != null) needle.setAttribute('transform', `rotate(${heading})`);
+      needle.classList.toggle('is-road', !manual);
+      patchValue(input, manual ? String(Math.round(heading)) : '');
+    },
+  };
 }
 
 /**
@@ -189,12 +254,14 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   function itemLabel(item) {
     if (item.type === 'ref') return `Stage: ${item.ref}${item.name ? ` (${item.name})` : ''}`;
     const def = format.pointTypes[item.type];
-    if (def.gate) return `${def.label} · ${item.width} m`;
+    if (def.gate) return `${def.label} · ${item.width} m${Number.isFinite(item.heading) ? ` · ${Math.round(item.heading)}°` : ''}`;
     return item.name ? `${def.label}: ${item.name}` : def.label;
   }
 
   let renderedKind = null;
   let renderedSelection = null;
+  let dial = null; // the selected gate's heading dial
+  let gateChecks = null; // the selected gate's { snap, road } checkboxes
 
   function renderPlace(kind) {
     placeEl.replaceChildren(
@@ -208,7 +275,17 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     );
   }
 
+  function check(label, tip, onChange) {
+    const input = el('input', { type: 'checkbox' });
+    input.addEventListener('change', () => onChange(input.checked));
+    const row = el('label', { className: 'editor-check' }, [input, label]);
+    setTip(row, label, tip);
+    return { input, row };
+  }
+
   function renderSelected(item) {
+    dial = null;
+    gateChecks = null;
     if (!item) return selectedEl.replaceChildren();
     const fields = [];
     const isRef = item.type === 'ref';
@@ -219,6 +296,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
         if (value > 0) editor.setField('width', value);
       });
       fields.push(el('label', { textContent: 'Width (m)' }), width);
+      const snap = check('Snap position to road', 'On: stands across the nearest road\'s centreline, its boards along the road. Off: exactly at its point (Move to car = where the car is), boards in a straight line, even off-road.', (on) => editor.setSnap(on));
+      const road = check('Road orientation', 'On: faces along the nearest road, in driving order. Off: faces the heading set on the dial (Move to car = the way the car faces).', (on) => editor.setRoadOrientation(on));
+      gateChecks = { snap: snap.input, road: road.input };
+      dial = createHeadingDial((degrees) => editor.setHeading(degrees));
+      fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row])]));
     } else {
       const name = el('input', { type: 'text', value: item.name ?? '', placeholder: isRef ? 'Name for this pass (optional)' : 'Name' });
       name.addEventListener('input', () => editor.setField('name', name.value));
@@ -273,6 +355,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     if (selection !== renderedSelection) {
       renderedSelection = selection;
       renderSelected(item);
+    }
+    dial?.set(editor.headingOf(state.selected), Number.isFinite(item.heading));
+    if (gateChecks) {
+      gateChecks.snap.checked = item.snap !== false;
+      gateChecks.road.checked = !Number.isFinite(item.heading);
     }
 
     // The list was rebuilt: the hovered row is gone.

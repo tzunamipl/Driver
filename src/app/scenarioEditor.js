@@ -1,5 +1,6 @@
 // Scenario editor session (a game mode's Editor button): free driving plus placing the
-// mode's points at the car, snapped across the nearest road. Mode-specific parts come
+// mode's points at the car. Each gate snaps across the nearest road and faces along it unless
+// unticked per point (then exactly where placed / turned by hand). Mode-specific parts come
 // from its format (lib/scenarios/formats.js); the panel is ui/editorPanel.js. The draft
 // lives in the editor's save slot; Save commits it to the player's branch on GitHub.
 
@@ -13,7 +14,7 @@ import {
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 import { parseSource, formatSource, openSource } from '../lib/scenarios/source.js';
 import { commitFiles, branchNameFor, readToken } from '../lib/scenarios/github.js';
-import { snapToRoad } from '../lib/scenarios/roadSnap.js';
+import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
 
@@ -58,8 +59,9 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     status: { text: '', error: false },
     busy: false,
   };
-  // item -> { dirX, dirZ } or { failedAt }: road direction for its marker.
-  const roadDirs = new WeakMap();
+  // item -> { signature, dirX, dirZ, boards } or { signature, failedAt }: travel direction and
+  // roadside board spots (lat/lon, so origin shifts don't move them) for its markers.
+  const frames = new WeakMap();
 
   const kind = () => kindById.get(state.doc.kind);
   const token = readToken;
@@ -74,18 +76,56 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     changed({ save: false });
   }
 
-  function carPosition() {
-    return carManager.getVehicle()?.chassisBody.position ?? null;
+  /**
+   * Point fields for the car's position. Gates go onto the nearest road (`snap`) and take the
+   * car's heading when turned by hand (`manual`); with no road nearby, both fall back to the car.
+   */
+  function pointAtCar(type, { snap = true, manual = false } = {}) {
+    const body = carManager.getVehicle()?.chassisBody;
+    if (!body) return null;
+    const { position: pos, quaternion: q } = body;
+    if (!format.pointTypes[type].gate) return { ...viewFrame.toLatLon(pos.x, pos.z), snap: true, heading: null, roadless: false };
+    // Chassis forward (local +z) in world space.
+    const fx = 2 * (q.x * q.z + q.w * q.y);
+    const fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    const carHeading = format.normalHeading(dirToHeading(fx, fz));
+    const road = snapToRoad(streets, pos.x, pos.z, EDITOR_SNAP_RADIUS_M);
+    if (!road) return { ...viewFrame.toLatLon(pos.x, pos.z), snap: false, heading: carHeading, roadless: true };
+    const at = snap ? road : pos;
+    return { ...viewFrame.toLatLon(at.x, at.z), snap, heading: manual ? carHeading : null, roadless: false };
   }
 
-  /** Point fields for the car's position: snapped onto the road for gates. */
-  function pointAtCar(type) {
-    const pos = carPosition();
-    if (!pos) return null;
-    const isGate = format.pointTypes[type].gate;
-    const snap = isGate ? snapToRoad(streets, pos.x, pos.z, EDITOR_SNAP_RADIUS_M) : null;
-    const { lat, lon } = viewFrame.toLatLon(snap?.x ?? pos.x, snap?.z ?? pos.z);
-    return { lat, lon, snapped: !!snap };
+  /** Moves a gate to `point`, taking its snap and heading. */
+  function putAt(item, point) {
+    Object.assign(item, { lat: point.lat, lon: point.lon });
+    if (point.heading != null) item.heading = point.heading;
+    else delete item.heading;
+    if (point.snap) delete item.snap;
+    else item.snap = false;
+  }
+
+  const roadlessStatus = (point) =>
+    point.roadless ? { text: 'No road nearby: placed at the car, facing its way (snap and road orientation off)', error: true } : { text: '', error: false };
+
+  const isPoint = (item) => !!format.pointTypes[item?.type];
+
+  /** Item i's travel direction and board spots, as the game will place them; null while its road isn't loaded. */
+  function resolveFrame(i, x, z) {
+    const { items } = state.doc;
+    const item = items[i];
+    const neighbour = (j) => (isPoint(items[j]) ? viewFrame.fromLatLon(items[j].lat, items[j].lon) : null);
+    const frame = controlFrame(streets, x, z, item, neighbour(i - 1), neighbour(i + 1), EDITOR_SNAP_RADIUS_M);
+    if (!frame) return null;
+    const half = (frame.roadWidth ?? item.width ?? 0) / 2;
+    const boards = [];
+    for (const { color, along, facing } of format.satellites?.(item.type) ?? []) {
+      if (along === 0) continue; // the gate marker stands there
+      const p = frame.walk(along);
+      for (const s of [-1, 1]) {
+        boards.push({ ...viewFrame.toLatLon(p.x - p.dirZ * half * s, p.z + p.dirX * half * s), color, dirX: p.dirX * facing, dirZ: p.dirZ * facing });
+      }
+    }
+    return { ...viewFrame.toLatLon(frame.x, frame.z), dirX: frame.dirX, dirZ: frame.dirZ, boards };
   }
 
   function insertItem(item) {
@@ -154,16 +194,17 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         const existing = state.doc.items.findIndex((item) => item.type === type);
         if (existing >= 0) {
           Object.assign(state.doc.items[existing], { lat: point.lat, lon: point.lon });
-          roadDirs.delete(state.doc.items[existing]);
           state.selected = existing;
           return changed();
         }
       }
       const item = { type, lat: point.lat, lon: point.lon };
-      if (def.gate) item.width = format.defaultGateWidth(type);
-      else item.name = '';
+      if (def.gate) {
+        item.width = format.defaultGateWidth(type);
+        putAt(item, point);
+      } else item.name = '';
       insertItem(item);
-      state.status = def.gate && !point.snapped ? { text: 'No road nearby: placed at the car', error: true } : { text: '', error: false };
+      state.status = roadlessStatus(point);
       changed();
     },
     addRef(key) {
@@ -184,11 +225,39 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     moveSelectedToCar() {
       const item = state.doc.items[state.selected];
       if (!item || item.type === 'ref') return;
-      const point = pointAtCar(item.type);
+      const point = pointAtCar(item.type, { snap: item.snap !== false, manual: Number.isFinite(item.heading) });
       if (!point) return;
-      Object.assign(item, { lat: point.lat, lon: point.lon });
-      roadDirs.delete(item);
+      if (format.pointTypes[item.type].gate) putAt(item, point);
+      else Object.assign(item, { lat: point.lat, lon: point.lon });
+      state.status = roadlessStatus(point);
       changed();
+    },
+    /** Selected gate: on = across the nearest road's centreline, off = exactly at its lat/lon. */
+    setSnap(on) {
+      const item = state.doc.items[state.selected];
+      if (!format.pointTypes[item?.type]?.gate) return;
+      if (on) delete item.snap;
+      else item.snap = false;
+      changed();
+    },
+    /** Selected gate: on = faces along the road, off = keeps the direction it shows now, then turned by hand. */
+    setRoadOrientation(on) {
+      editor.setHeading(on ? null : editor.headingOf(state.selected) ?? 0);
+    },
+    /** Turns the selected gate to `degrees` (compass, direction of travel); null = follow the road again. */
+    setHeading(degrees) {
+      const item = state.doc.items[state.selected];
+      if (!format.pointTypes[item?.type]?.gate) return;
+      if (degrees == null) delete item.heading;
+      else item.heading = format.normalHeading(degrees);
+      changed();
+    },
+    /** Item i's travel direction in compass degrees: its own heading, else the road's once known. */
+    headingOf(i) {
+      const item = state.doc.items[i];
+      if (Number.isFinite(item?.heading)) return item.heading;
+      const frame = item && frames.get(item);
+      return frame?.dirX != null ? dirToHeading(frame.dirX, frame.dirZ) : null;
     },
     shiftSelected(delta) {
       const { items } = state.doc;
@@ -279,22 +348,36 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       return points;
     },
 
-    /** Per frame: markers for the current file's points. */
+    /** Per frame: markers for the current file's points and their roadside boards. */
     update() {
       const now = performance.now();
+      const { items } = state.doc;
       const entries = [];
-      state.doc.items.forEach((item, i) => {
+      let selectedResolved = false;
+      items.forEach((item, i) => {
         const def = format.pointTypes[item.type];
         if (!def) return;
-        const { x, z } = viewFrame.fromLatLon(item.lat, item.lon);
+        let { x, z } = viewFrame.fromLatLon(item.lat, item.lon);
+        let dir = frames.get(item);
+        if (def.gate) {
+          // Facing depends on the neighbours: recomputed when any of them moves.
+          const at = (it) => (isPoint(it) ? `${it.lat},${it.lon}` : '');
+          const signature = `${at(item)},${item.heading},${item.snap}|${at(items[i - 1])}|${at(items[i + 1])}`;
+          if (dir?.signature !== signature || (dir.failedAt != null && now - dir.failedAt > DIR_RETRY_MS)) {
+            dir = { signature, ...(resolveFrame(i, x, z) ?? { failedAt: now }) };
+            frames.set(item, dir);
+            if (i === state.selected && dir.dirX != null) selectedResolved = true;
+          }
+          // Where the game will stand it: on the road when snapped.
+          if (dir.lat != null) ({ x, z } = viewFrame.fromLatLon(dir.lat, dir.lon));
+          dir.boards?.forEach((board, j) => {
+            const p = viewFrame.fromLatLon(board.lat, board.lon);
+            const by = terrain.surfaceHeightAt(p.x, p.z);
+            if (by != null) entries.push({ key: `${i}:${j}`, board: true, color: board.color, x: p.x, y: by, z: p.z, dirX: board.dirX, dirZ: board.dirZ });
+          });
+        }
         const y = terrain.surfaceHeightAt(x, z);
         if (y == null) return;
-        let dir = roadDirs.get(item);
-        if (def.gate && (!dir || (dir.failedAt != null && now - dir.failedAt > DIR_RETRY_MS))) {
-          const snap = snapToRoad(streets, x, z, EDITOR_SNAP_RADIUS_M);
-          dir = snap ? { dirX: snap.dirX, dirZ: snap.dirZ } : { failedAt: now };
-          roadDirs.set(item, dir);
-        }
         entries.push({
           key: item,
           gate: !!def.gate,
@@ -310,6 +393,8 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         });
       });
       markers.sync(entries);
+      // The dial shows the road's direction once it's known.
+      if (selectedResolved) changed({ save: false });
     },
   };
   return editor;

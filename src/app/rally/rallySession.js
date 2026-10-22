@@ -12,7 +12,7 @@ import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat } from '../../lib/scenarios/rally.js';
 import { filePath } from '../../lib/scenarios/paths.js';
-import { snapToRoad, walkRoad } from '../../lib/scenarios/roadSnap.js';
+import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
 import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
 import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
@@ -289,17 +289,13 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     if (teleport && !(await addressSearch.teleport(first.lat, first.lon, plan.name))) return;
     const at = viewFrame.fromLatLon(first.lat, first.lon);
     const next = points[1] ? viewFrame.fromLatLon(points[1].lat, points[1].lon) : null;
-    const snap = snapToRoad(streets, at.x, at.z, 40);
+    const frame = controlFrame(streets, at.x, at.z, first, null, next, 40);
     let pos = at;
     let dirX = next ? next.x - at.x : 0;
     let dirZ = next ? next.z - at.z : 1;
-    if (snap) {
-      const sign = snap.dirX * dirX + snap.dirZ * dirZ >= 0 ? 1 : -1;
-      const back = walkRoad(streets, snap, -SPAWN_BACK_M * sign);
-      pos = back;
-      // Walked backwards: travel is the other way.
-      dirX = -back.dirX;
-      dirZ = -back.dirZ;
+    if (frame) {
+      pos = frame.walk(-SPAWN_BACK_M);
+      ({ dirX, dirZ } = pos);
     }
     const y = (terrain.surfaceHeightAt(pos.x, pos.z) ?? 0) + SPAWN_DROP_M;
     const quat = new CANNON.Quaternion();

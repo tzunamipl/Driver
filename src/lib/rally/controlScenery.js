@@ -18,7 +18,7 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three';
-import { snapToRoad, travelSign, walkRoad } from '../scenarios/roadSnap.js';
+import { controlFrame } from '../scenarios/roadSnap.js';
 import { boardTexture, bannerTexture } from './fiaBoards.js';
 import { createFireworks } from './fireworks.js';
 import { createSparkles } from './sparkles.js';
@@ -94,6 +94,19 @@ const lampGeometry = new SphereGeometry(0.11, 10, 8);
 const greyMaterial = new MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.6 });
 const whiteMaterial = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
 const boardMaterials = new Map();
+
+/**
+ * The point type's control boards as [colour, metres along travel, facing]: facing 1 =
+ * towards traffic in driving order, -1 = the other way. Empty for types without boards.
+ */
+export function boardSpots(type) {
+  const def = SCENERY[type];
+  if (!def?.boards) return [];
+  const spots = [['yellow', -WARNING_BOARD_M, 1], ['red', 0, 1]];
+  if (def.bothWays) spots.push(['yellow', WARNING_BOARD_M, -1]);
+  else if (def.zoneEnd !== false) spots.push(['beige', ZONE_END_M, 1]);
+  return spots;
+}
 
 function boardMaterial(color, symbol) {
   const key = `${color}|${symbol}`;
@@ -262,17 +275,16 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
     return { group, ...viewFrame.toLatLon(x, z), yaw: yawFacing(dirX, dirZ) };
   }
 
-  /** Builds the point's scenery around its snapped road; null while the streets there aren't loaded. */
+  /** Builds the point's scenery around its road (or heading); null while the streets there aren't loaded. */
   function resolve(entry) {
     const { point } = entry;
     const at = viewFrame.fromLatLon(point.lat, point.lon);
-    const snap = snapToRoad(streets, at.x, at.z, SNAP_RADIUS_M);
-    if (!snap) return null;
     // Facing follows the driving order: from the previous point towards the next one.
-    const sign = travelSign(streets, snap, neighbour(entry.points, entry.index - 1), neighbour(entry.points, entry.index + 1));
-    const dirX = snap.dirX * sign;
-    const dirZ = snap.dirZ * sign;
-    const roadHalf = Math.max(point.width ?? 0, snap.roadWidth) / 2;
+    const frame = controlFrame(streets, at.x, at.z, point, neighbour(entry.points, entry.index - 1), neighbour(entry.points, entry.index + 1), SNAP_RADIUS_M);
+    if (!frame) return null;
+    const { dirX, dirZ } = frame;
+    const roadWidth = frame.roadWidth ?? point.width ?? 0;
+    const roadHalf = Math.max(point.width ?? 0, roadWidth) / 2;
     const halfSpan = poleHalfSpan(roadHalf);
     const def = SCENERY[point.type] ?? {};
     const objects = [];
@@ -284,16 +296,11 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
     // Right of travel is local +x: (-dirZ, dirX).
     const side = (x, z, offset) => ({ x: x - dirZ * offset, z: z + dirX * offset });
     if (def.boards) {
-      // [colour, metres along travel, facing: 1 = towards traffic in driving order, -1 = the other way]
-      const spots = [['yellow', -WARNING_BOARD_M, 1], ['red', 0, 1]];
-      if (def.bothWays) spots.push(['yellow', WARNING_BOARD_M, -1]);
-      else if (def.zoneEnd !== false) spots.push(['beige', ZONE_END_M, 1]);
-      for (const [color, along, facing] of spots) {
-        const p = along === 0 ? { x: snap.x, z: snap.z, dirX, dirZ } : walkRoad(streets, snap, along * sign);
-        // walkRoad gives the walking direction: backwards for boards before the control.
-        const pDirX = (along === 0 ? dirX : p.dirX * Math.sign(along)) * facing;
-        const pDirZ = (along === 0 ? dirZ : p.dirZ * Math.sign(along)) * facing;
-        const offset = along === 0 ? halfSpan : poleHalfSpan(snap.roadWidth / 2);
+      for (const [color, along, facing] of boardSpots(point.type)) {
+        const p = along === 0 ? frame : frame.walk(along);
+        const pDirX = p.dirX * facing;
+        const pDirZ = p.dirZ * facing;
+        const offset = along === 0 ? halfSpan : poleHalfSpan(roadWidth / 2);
         for (const s of [-1, 1]) {
           const q = { x: p.x - pDirZ * offset * s, z: p.z + pDirX * offset * s };
           const object = anchor(makeBoard(color, def.boards, def.boardHeight, def.bothWays && along === 0), q.x, q.z, pDirX, pDirZ);
@@ -311,23 +318,23 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
         }
       }
     }
-    if (def.arch) objects.push(anchor(makeArch(halfSpan, def.arch, def.archColor), snap.x, snap.z, dirX, dirZ));
-    if (def.line) objects.push(anchor(makeLine(roadHalf), snap.x, snap.z, dirX, dirZ));
+    if (def.arch) objects.push(anchor(makeArch(halfSpan, def.arch, def.archColor), frame.x, frame.z, dirX, dirZ));
+    if (def.line) objects.push(anchor(makeLine(roadHalf), frame.x, frame.z, dirX, dirZ));
     if (def.lights) {
       const lights = makeLights();
-      const q = side(snap.x, snap.z, halfSpan + 1);
+      const q = side(frame.x, frame.z, halfSpan + 1);
       objects.push(anchor(lights.group, q.x, q.z, dirX, dirZ));
       lamps = lights.lamps;
     }
     if (def.props) {
       // Builders put +x away from the road: turned round on the left side.
       const s = def.propsLeft ? -1 : 1;
-      const q = side(snap.x, snap.z, s * (halfSpan + PROPS_GAP_M));
+      const q = side(frame.x, frame.z, s * (halfSpan + PROPS_GAP_M));
       objects.push(anchor(bakeProps(def.props()), q.x, q.z, s * dirX, s * dirZ));
     }
     if (def.flags) {
       for (const s of [-1, 1]) {
-        const q = side(snap.x, snap.z, s * halfSpan);
+        const q = side(frame.x, frame.z, s * halfSpan);
         const object = anchor(makeFlag(def.flags), q.x, q.z, dirX, dirZ);
         object.group.userData.setLit(isLit(entry.index));
         objects.push(object);
@@ -336,7 +343,7 @@ export function createControlScenery({ scene, streets, terrain, viewFrame, onSpa
         poleTops.push({ object, height: def.flags.pole ?? FLAG_POLE_M });
       }
     }
-    return { dirX, dirZ, halfWidth: (point.width ?? snap.roadWidth) / 2, objects, lamps, flags, lit, poleTops };
+    return { dirX, dirZ, halfWidth: (point.width ?? roadWidth) / 2, objects, lamps, flags, lit, poleTops };
   }
 
   function removeObjects(entry) {
