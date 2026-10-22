@@ -120,6 +120,7 @@
 #main-menu #hud-main-menu { display: none; }
 .menu-footer {
   display: flex;
+  gap: 6px;
   justify-content: flex-end;
   margin-top: 10px;
 }

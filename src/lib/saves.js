@@ -7,17 +7,20 @@ import {
 } from '../config.js';
 import { DEFAULT_GAME_MODE_ID } from '../app/gameModes.js';
 
-// One save slot per game mode in a single localStorage entry:
-// { latest: modeId, lastLaunch: { modeId, editor }, modes: { [modeId]: { savedAt, carState, vehicle, navDestination, cameraView } } }.
-// `latest` is the last played mode (Continue); `lastLaunch` also counts editor sessions (dev-mode startup).
-// Fields read and written here belong to the active mode, picked once at launch. A mode's
-// editor sessions get their own slot (`<modeId>.editor`), so they never touch the game save.
+// One save slot per game mode (per mode + start for modes with starts) in a single localStorage entry:
+// { latest: { modeId, startId }, lastLaunch: { modeId, editor, startId }, modes: { [slotId]: { savedAt, carState, vehicle, navDestination, cameraView, status } } }.
+// Slot ids: `<modeId>`, `<modeId>.<startId>` (e.g. rally.career), `<modeId>.editor`.
+// `latest` is the last played game that keeps progress (Continue); `lastLaunch` also counts editor sessions
+// and starts that keep nothing (dev-mode startup). Fields read and written here belong to the active slot,
+// picked once at launch, so a mode's editor sessions and starts never touch each other's saves.
 
 let activeModeId = null;
+let activeStartId = null;
 let editorSession = false;
-const activeSlotId = () => (editorSession ? `${activeModeId}.editor` : activeModeId);
+const slotId = (modeId, startId) => (startId ? `${modeId}.${startId}` : modeId);
+const activeSlotId = () => (editorSession ? `${activeModeId}.editor` : slotId(activeModeId, activeStartId));
 
-// Settings of the whole mode, not of one game: shared with its editor, kept by a new game.
+// Settings of the whole mode, not of one game: shared with its editor and starts, kept by a new game.
 const MODE_WIDE_FIELDS = new Set(['cameraView']);
 const slotFor = (field) => (MODE_WIDE_FIELDS.has(field) ? activeModeId : activeSlotId());
 
@@ -47,7 +50,7 @@ function migrateLegacy() {
     if (!carState) return store;
     const lobby = JSON.parse(localStorage.getItem(LOBBY_STORAGE_KEY));
     const color = Number.parseInt(String(lobby?.color ?? '').replace('#', ''), 16);
-    store.latest = DEFAULT_GAME_MODE_ID;
+    store.latest = { modeId: DEFAULT_GAME_MODE_ID, startId: null };
     store.modes[DEFAULT_GAME_MODE_ID] = {
       savedAt: Date.now(),
       carState,
@@ -62,42 +65,54 @@ function migrateLegacy() {
   return store;
 }
 
-/** Last played mode, or null before the first game. */
-export const getLatestModeId = () => readStore().latest ?? null;
-
-/** Summary for the menu: { savedAt, odoKm } or null without a save. */
-export function getSaveInfo(modeId) {
-  const slot = readStore().modes[modeId];
-  if (!slot?.carState) return null;
-  return { savedAt: slot.savedAt ?? null, odoKm: slot.carState.odoKm ?? 0 };
+/** Last played game that keeps progress: { modeId, startId }, or null before the first one. */
+export function getLatest() {
+  const latest = readStore().latest;
+  // Saves from before starts had their own slots: a bare mode id.
+  if (typeof latest === 'string') return { modeId: latest, startId: null };
+  return latest?.modeId ? { modeId: latest.modeId, startId: latest.startId ?? null } : null;
 }
 
-/** Empties the mode's slot, except the `keep` fields (e.g. the last picked car). */
-export function clearSave(modeId, keep = []) {
+/** Summary for the menu: { savedAt, odoKm, status } or null without a save. */
+export function getSaveInfo(modeId, startId = null) {
+  const slot = readStore().modes[slotId(modeId, startId)];
+  if (!slot?.carState) return null;
+  return { savedAt: slot.savedAt ?? null, odoKm: slot.carState.odoKm ?? 0, status: slot.status ?? null };
+}
+
+/** Empties a game's slot, except the `keep` fields (e.g. the last picked car). */
+export function clearSave(modeId, startId = null, keep = []) {
   const store = readStore();
-  const slot = store.modes[modeId];
-  const kept = Object.fromEntries(
-    [...keep, ...MODE_WIDE_FIELDS].filter((field) => slot?.[field] != null).map((field) => [field, slot[field]])
-  );
-  if (Object.keys(kept).length) store.modes[modeId] = kept;
-  else delete store.modes[modeId];
+  const id = slotId(modeId, startId);
+  const slot = store.modes[id];
+  // Without a start the slot also holds the mode-wide fields.
+  const kept = Object.fromEntries([...keep, ...(startId ? [] : MODE_WIDE_FIELDS)].filter((field) => slot?.[field] != null).map((field) => [field, slot[field]]));
+  if (Object.keys(kept).length) store.modes[id] = kept;
+  else delete store.modes[id];
   writeStore(store);
 }
 
-/** Picks the mode this session plays (or edits) and marks a played one as the latest. */
-export function setActiveMode(modeId, editor = false) {
+/**
+ * Picks the game this session plays (or edits).
+ * @param {{editor?: boolean, startId?: string | null, keepsProgress?: boolean}} [opts] - a played game that keeps progress becomes the latest.
+ */
+export function setActiveMode(modeId, { editor = false, startId = null, keepsProgress = true } = {}) {
   activeModeId = modeId;
+  activeStartId = editor ? null : startId;
   editorSession = editor;
   const store = readStore();
-  if (!editor) store.latest = modeId;
-  store.lastLaunch = { modeId, editor };
+  if (!editor && keepsProgress) store.latest = { modeId, startId: activeStartId };
+  store.lastLaunch = { modeId, editor, startId: activeStartId };
   writeStore(store);
 }
 
-/** Last session started, played or edited: { modeId, editor }, or null. */
+/** Last session started, played or edited: { modeId, editor, startId }, or null. */
 export const getLastLaunch = () => readStore().lastLaunch ?? null;
 
 export const getActiveModeId = () => activeModeId;
+
+/** The active game's start (e.g. 'rally', 'career'), or null in an editor / a mode without starts. */
+export const getActiveStartId = () => activeStartId;
 
 /** True when this session is the active mode's scenario editor. */
 export const isEditorSession = () => editorSession;

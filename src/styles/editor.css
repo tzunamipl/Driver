@@ -94,6 +94,22 @@
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
 .editor-status.is-error { color: #a00000; }
 
+/* Hover tooltip for point types and items, left of the panel. Win98 tooltip look. */
+.editor-tip {
+  position: fixed;
+  z-index: 25;
+  width: 220px;
+  padding: 3px 5px;
+  background: var(--w95-tooltip);
+  border: 1px solid #000;
+  color: #000;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.editor-tip[hidden] { display: none; }
+.editor-tip p { margin: 2px 0 0; }
+
 /* Open window (editor panel's Open… button), like the rally picker. */
 #editor-open {
   position: fixed;

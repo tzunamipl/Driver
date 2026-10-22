@@ -37,9 +37,9 @@ function isTypingInField() {
 
 /**
  * @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean,
- *   onGearEvent?: (type: string, engine: object) => void }} [options]
+ *   holdLatchesHandbrake?: () => boolean, onGearEvent?: (type: string, engine: object) => void }} [options]
  */
-export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, onGearEvent } = {}) {
+export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, holdLatchesHandbrake = () => true, onGearEvent } = {}) {
   const keys = new Set();
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
@@ -201,7 +201,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     handbrakeWasPressed = handbrakePressed;
     const handbrakeHeld = handbrakePressed && !handbrakeReleasing;
     handbrakeHeldS = handbrakeHeld ? handbrakeHeldS + dt : 0;
-    if (handbrakeHeld && !handbrakeLatched && handbrakeHeldS >= HANDBRAKE_LATCH_S) {
+    if (handbrakeHeld && !handbrakeLatched && handbrakeHeldS >= HANDBRAKE_LATCH_S && holdLatchesHandbrake()) {
       handbrakeLatched = true;
       onHandbrakeLatch?.();
     }

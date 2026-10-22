@@ -270,12 +270,13 @@ export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gear
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
 export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits, set in Settings (ui/githubSettings.js)
+export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
 export const EDITOR_SOURCE_STORAGE_KEY = 'driver.editorSource.v1'; // scenario source the editor opens from
 
 // ---------- Scenarios ----------
 // Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.
 export const SCENARIOS_REPO = { owner: 'tzunamipl', repo: 'Driver-scenarios' };
 export const OFFICIAL_SCENARIO_SOURCE = `${SCENARIOS_REPO.owner}/${SCENARIOS_REPO.repo}@main`;
-export const SCENARIO_FORMAT = 1; // files with a newer format are rejected
+export const SCENARIO_FORMAT = 2; // files with a newer format are rejected
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }

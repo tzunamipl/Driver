@@ -1,6 +1,6 @@
 import { IS_DEV_MODE, LAUNCH_STORAGE_KEY } from '../config.js';
-import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode } from '../app/gameModes.js';
-import { getLatestModeId, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, isEditorSession, writeSaveField } from '../lib/saves.js';
+import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode, getStart, keepsProgress } from '../app/gameModes.js';
+import { getLatest, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, getActiveStartId, isEditorSession } from '../lib/saves.js';
 
 // Main menu: Continue / Game mode / Settings. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
@@ -28,6 +28,16 @@ export function reloadToMenu(screen = 'modes') {
 }
 
 const formatDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+/** Menu text for a save: the game's own status (e.g. rally progress), else the distance driven. */
+const describeSave = (info) =>
+  `${info.status ?? `${info.odoKm.toFixed(1)} km driven`}${info.savedAt ? `\nLast played ${formatDate(info.savedAt)}` : ''}`;
+
+const button = (label, disabled, onClick) => {
+  const el = Object.assign(document.createElement('button'), { type: 'button', textContent: label, disabled });
+  el.addEventListener('click', onClick);
+  return el;
+};
 
 /**
  * @param {object} deps
@@ -67,19 +77,23 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     menuEl.hidden = true;
   }
 
-  const continueModeId = () => (inGame ? getActiveModeId() : getLatestModeId());
+  /** The game Continue resumes: { modeId, startId, editor }. */
+  const continueTarget = () =>
+    inGame ? { modeId: getActiveModeId(), startId: getActiveStartId(), editor: isEditorSession() } : { ...getLatest(), editor: false };
 
   function renderRoot() {
-    const mode = getGameMode(continueModeId());
-    const playable = inGame || (mode?.available && getSaveInfo(mode.id));
+    const { modeId, startId, editor } = continueTarget();
+    const mode = getGameMode(modeId);
+    const playable = inGame || (mode?.available && getSaveInfo(modeId, startId));
+    const name = getStart(mode, startId)?.name;
     continueBtn.disabled = !playable;
-    continueLabel.textContent = !playable ? '' : inGame && isEditorSession() ? `${mode.label} editor` : mode.label;
+    continueLabel.textContent = !playable ? '' : editor ? `${mode.label} editor` : name ? `${mode.label} · ${name}` : mode.label;
   }
 
+  /** Mode card: the blurb, each saving game's progress, then Resume / New buttons per start. */
   function renderModes() {
     modesEl.replaceChildren(
       ...GAME_MODES.map((mode) => {
-        const info = mode.available ? getSaveInfo(mode.id) : null;
         const card = document.createElement('div');
         card.className = 'menu-mode';
         card.classList.toggle('unavailable', !mode.available);
@@ -91,71 +105,63 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
         body.className = 'menu-mode-body';
         const blurb = document.createElement('p');
         blurb.textContent = mode.blurb ?? '';
-        const status = document.createElement('p');
-        status.className = 'menu-mode-status';
-        status.textContent = !mode.available
-          ? 'Coming soon'
-          : info
-            ? `${info.savedAt ? `Last played ${formatDate(info.savedAt)}\n` : ''}${info.odoKm.toFixed(1)} km driven`
-            : 'No save yet';
-        body.append(blurb, status);
+        body.append(blurb);
         const actions = document.createElement('div');
         actions.className = 'menu-mode-actions';
-        const continueMode = document.createElement('button');
-        continueMode.type = 'button';
-        continueMode.textContent = mode.continueLabel ?? 'Continue';
-        continueMode.disabled = !info;
-        continueMode.addEventListener('click', () => launch(mode.id, false));
-        const starts = (mode.starts ?? [{ label: 'Start new' }]).map(({ id, label, available = true }) => {
-          const startNew = document.createElement('button');
-          startNew.type = 'button';
-          startNew.textContent = label;
-          startNew.disabled = !mode.available || !available;
-          startNew.addEventListener('click', () => launch(mode.id, true, false, id));
-          return startNew;
-        });
-        actions.append(continueMode, ...starts);
-        if (mode.editor) {
-          const editor = document.createElement('button');
-          editor.type = 'button';
-          editor.textContent = 'Editor';
-          editor.disabled = !mode.editorAvailable;
-          editor.addEventListener('click', () => launch(mode.id, false, true));
-          actions.append(editor);
+        const status = (text) => body.append(Object.assign(document.createElement('p'), { className: 'menu-mode-status', textContent: text }));
+        if (!mode.available) status('Coming soon');
+        // One Resume (or Continue) per game that saves: a mode without starts is one game.
+        for (const st of mode.starts ? mode.starts.filter((s) => s.saves) : [null]) {
+          const playable = mode.available && (st?.available ?? true);
+          const info = playable ? getSaveInfo(mode.id, st?.id) : null;
+          const text = !playable ? 'Coming soon' : info ? describeSave(info) : 'No save yet';
+          if (mode.available) status(st ? `${st.name}: ${text}` : text);
+          actions.append(button(st ? `Resume ${st.name.toLowerCase()}` : 'Continue', !info, () => launch(mode.id, st?.id ?? null, false)));
         }
+        for (const st of mode.starts ?? [null]) {
+          const label = st ? `New ${st.name.toLowerCase()}` : 'Start new';
+          actions.append(button(label, !mode.available || !(st?.available ?? true), () => launch(mode.id, st?.id ?? null, true)));
+        }
+        if (mode.editor) actions.append(button('Editor', !mode.editorAvailable, () => launch(mode.id, null, false, true)));
         card.append(title, body, actions);
         return card;
       })
     );
   }
 
-  function launch(modeId, fresh, editor = false, startId = null) {
-    if (fresh && getSaveInfo(modeId) && !window.confirm(`Start a new ${getGameMode(modeId).label} game? The saved one will be lost.`)) return;
+  function launch(modeId, startId, fresh, editor = false) {
+    const mode = getGameMode(modeId);
+    const what = getStart(mode, startId)?.name.toLowerCase() ?? `${mode.label} game`;
+    if (fresh && getSaveInfo(modeId, startId) && !window.confirm(`Start a new ${what}? The saved one will be lost.`)) return;
     if (inGame) {
-      if (modeId === getActiveModeId() && !fresh && editor === isEditorSession()) return close();
+      const same = modeId === getActiveModeId() && editor === isEditorSession() && (editor || startId === getActiveStartId());
+      if (same && !fresh) return close();
       // The slot is cleared after the reload, so this page's last save can't refill it.
       try {
-        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, fresh, editor, startId }));
+        sessionStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify({ modeId, startId, fresh, editor }));
       } catch {
         return;
       }
       location.reload();
       return;
     }
-    start(modeId, fresh, editor, startId);
+    start(modeId, startId, fresh, editor);
   }
 
-  function start(modeId, fresh, editor = false, startId = null) {
-    if (fresh) clearSave(modeId, getGameMode(modeId)?.keepOnNewGame);
-    setActiveMode(modeId, editor);
-    if (fresh && startId) writeSaveField('start', startId);
+  function start(modeId, startId, fresh, editor = false) {
+    const mode = getGameMode(modeId);
+    if (fresh) clearSave(modeId, startId, mode?.keepOnNewGame);
+    setActiveMode(modeId, { editor, startId, keepsProgress: keepsProgress(mode, startId) });
     close();
     resolveLaunch?.();
   }
 
   menuEl.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
-    if (action === 'continue') launch(continueModeId(), false, inGame && isEditorSession());
+    if (action === 'continue') {
+      const { modeId, startId, editor } = continueTarget();
+      launch(modeId, startId, false, editor);
+    }
     else if (action === 'modes' || action === 'settings') showScreen(action);
     else if (action === 'back') showScreen('root');
   });
@@ -182,14 +188,15 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /** Resolves once a mode is active: dev mode and mid-game switches skip the menu. */
     async waitForLaunch() {
       const pending = takePendingLaunch();
-      if (pending && !pending.menu) return start(pending.modeId, pending.fresh, pending.editor, pending.startId);
+      if (pending && !pending.menu) return start(pending.modeId, pending.startId ?? null, pending.fresh, pending.editor);
       if (IS_DEV_MODE && !pending) {
         // Back into the last session, editor included.
         const last = getLastLaunch();
         const mode = getGameMode(last?.modeId);
-        if (last?.editor ? mode?.editorAvailable : mode?.available) return start(mode.id, false, last.editor);
-        const latest = getGameMode(getLatestModeId());
-        return start(latest?.available ? latest.id : DEFAULT_GAME_MODE_ID, false);
+        if (last?.editor ? mode?.editorAvailable : mode?.available) return start(mode.id, last.startId ?? null, false, last.editor);
+        const latest = getLatest();
+        if (getGameMode(latest?.modeId)?.available) return start(latest.modeId, latest.startId, false);
+        return start(DEFAULT_GAME_MODE_ID, null, false);
       }
       await ensureProfile();
       await new Promise((resolve) => {

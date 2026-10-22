@@ -74,7 +74,7 @@ canvas { display: block; }
   outline: 1px dotted #000;
   outline-offset: -4px;
 }
-:where(#lobby, #main-menu, #hud, #nav-panel, #debug-hud-row, #minimap) :where(button:disabled) {
+:where(#lobby, #main-menu, #hud, #nav-panel, #top-right-stack, #debug-hud-row, #minimap) :where(button:disabled) {
   color: var(--w95-shadow);
   text-shadow: 1px 1px 0 #fff;
   cursor: default;

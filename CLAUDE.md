@@ -47,16 +47,16 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
-  `lib/scenarios/` = `source.js` (fetch by commit), `github.js` (token commit to the player's fork/branch), one format
+  `lib/scenarios/` = `source.js` (fetch by commit), `paths.js` (files at `<mode>/<country>/<region>/<kind>/<id>.json`; the `country/region/id` key is what index + refs use), `github.js` (token commit to the player's fork/branch), one format
   per mode registered in `formats.js` (`rally.js`), `roadSnap.js` + `gateMarkers.js`. A mode's Editor button starts an
   editor session (own save slot): `app/scenarioEditor.js` (logic, per-frame markers) + `ui/editorPanel.js`.
-- Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js`, itinerary, spawn, progress save, blocks
+- Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js` + plan map `ui/rallyPlanMap.js`, itinerary, spawn, progress save, blocks
   teleport/navigation via their `setBlocked` while a stage is live) + `stageRun.js` (per-physics-step timing state
-  machine); `lib/rally/` = FIA boards, arches, split flags, fireworks (`controlScenery.js`); `hud/rallyHud.js`;
+  machine); `hud/rallyPlanHud.js` = itinerary side panel, plan icons go to the minimap / Navigation map via `setScenarioPoints`; `lib/rally/` = FIA boards, arches, split flags, fireworks (`controlScenery.js`), per-point-type props (`zoneProps.js`); `hud/rallyHud.js`;
   R rocks the car (`app/carRocking.js`) instead of resetting it.
 - Game modes: `app/gameModes.js` lists them; `ui/mainMenu.js` (Continue / Game mode / Settings, Esc mid-game)
   picks one before `main.js` builds the world (top-level await; dev mode skips it), switching mid-game reloads.
-  `lib/saves.js` = one save slot per mode (car state, vehicle, nav destination, camera view) - per-mode
+  `lib/saves.js` = one save slot per mode, or per mode + start (e.g. `rally.career`; car state, vehicle, nav destination, menu status) - per-mode
   state goes through `readSaveField`/`writeSaveField`. `ui/lobby.js` = profile (name + default vehicle), asked once.
 - `src/hud/` – DOM HUD widgets (minimap, gauges, debug HUDs). `src/ui/` – lobby, pickers, `navigationPanel.js` (Navigation tab: search + slippy map, OSM tiles via `hud/mapTiles.js`) on top of `addressSearch.js` (geocoding + teleport); Navigate = road route from OSRM (`lib/routing.js`), progress in `app/routeGuidance.js`, drawn by `hud/routeLine.js` on the minimap and the tab's map.
 - `index.html` – DOM skeleton for HUD/UI. Styles: `src/styles/*.css` (one per UI area, imported

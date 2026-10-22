@@ -37,6 +37,23 @@ export function snapToRoad(streets, x, z, maxDistance) {
   return best;
 }
 
+const ORIENT_WALK_M = 30;
+
+/**
+ * +1 if driving along the snapped segment's direction goes from `prev` towards `next`
+ * (world points of the neighbouring points in driving order, either may be null), else -1.
+ * Compares where the road leads both ways rather than straight lines, so curves don't flip it.
+ */
+export function travelSign(streets, snap, prev, next) {
+  const fwd = walkRoad(streets, snap, ORIENT_WALK_M);
+  const back = walkRoad(streets, snap, -ORIENT_WALK_M);
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+  let score = 0;
+  if (next) score += dist(back, next) - dist(fwd, next);
+  if (prev) score += dist(fwd, prev) - dist(back, prev);
+  return score >= 0 ? 1 : -1;
+}
+
 const JOIN_M = 1.5; // line ends this close are one junction
 const MAX_HOPS = 20;
 

@@ -15,6 +15,7 @@ import { parseSource, formatSource, openSource } from '../lib/scenarios/source.j
 import { commitFiles, branchNameFor, readToken } from '../lib/scenarios/github.js';
 import { snapToRoad } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
+import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
 
 // Points without a known road direction retry the snap this often (streets still loading).
 const DIR_RETRY_MS = 1000;
@@ -46,13 +47,14 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   const kindById = new Map(format.kinds.map((kind) => [kind.id, kind]));
   const listeners = new Set();
 
-  const emptyDoc = (kind) => ({ kind, id: '', name: '', items: [] });
+  // A new file keeps the folder of the one before it: authors work a region at a time.
+  const emptyDoc = (kind, { country = '', region = '' } = {}) => ({ kind, country, region, id: '', name: '', items: [] });
   const draft = readSaveField('editorDraft');
   const state = {
-    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? draft : emptyDoc(format.kinds[0].id),
+    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', ...draft } : emptyDoc(format.kinds[0].id),
     selected: -1,
     source: readStored(EDITOR_SOURCE_STORAGE_KEY) ?? OFFICIAL_SCENARIO_SOURCE,
-    index: null, // the source's index.json: { [indexKey]: ids }
+    index: null, // the source's index.json: { [indexKey]: file keys }
     status: { text: '', error: false },
     busy: false,
   };
@@ -113,7 +115,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     const source = parseSource(state.source);
     if (!source) throw new Error('Source must look like owner/repo@branch');
     const opened = await openSource(source, token());
-    const index = (await opened.readJson(`${format.folder}/index.json`)) ?? {};
+    const index = (await opened.readJson(indexPath(format.folder))) ?? {};
     return { opened, index };
   }
 
@@ -134,7 +136,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
 
     newDoc(kindId) {
       if (state.doc.items.length && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
-      state.doc = emptyDoc(kindId);
+      state.doc = emptyDoc(kindId, state.doc);
       state.selected = -1;
       state.status = { text: '', error: false };
       changed();
@@ -158,15 +160,15 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         }
       }
       const item = { type, lat: point.lat, lon: point.lon };
-      if (def.gate) item.width = format.defaultGateWidth;
+      if (def.gate) item.width = format.defaultGateWidth(type);
       else item.name = '';
       insertItem(item);
       state.status = def.gate && !point.snapped ? { text: 'No road nearby: placed at the car', error: true } : { text: '', error: false };
       changed();
     },
-    addRef(id) {
-      if (!id) return;
-      insertItem({ type: 'ref', ref: id, name: '' });
+    addRef(key) {
+      if (!key) return;
+      insertItem({ type: 'ref', ref: key, name: '' });
       changed();
     },
     select(i) {
@@ -220,42 +222,44 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       setStatus(`Loaded ${state.source}`);
     }),
     /** A file picked in the scenario tree; its source becomes the one stages are added from. */
-    openPicked: guard(async ({ source, opened, kindId, id, json }) => {
-      if (state.doc.items.length && !window.confirm(`Open ${id}? Unsaved points will be lost.`)) return;
+    openPicked: guard(async ({ source, opened, kindId, key, json }) => {
+      if (state.doc.items.length && !window.confirm(`Open ${key}? Unsaved points will be lost.`)) return;
       editor.setSource(formatSource(source));
-      state.index = (await opened.readJson(`${format.folder}/index.json`)) ?? {};
-      state.doc = { kind: kindId, ...kindById.get(kindId).fromFile(json) };
+      state.index = (await opened.readJson(indexPath(format.folder))) ?? {};
+      // The file's folder is where it's saved back to.
+      state.doc = { kind: kindId, ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
       state.selected = -1;
       changed();
-      setStatus(`Opened ${id} from ${state.source}`);
+      setStatus(`Opened ${key} from ${state.source}`);
     }),
 
     problems: () => kind().validate(state.doc),
     exportJson: toFileJson,
-    fileName: () => `${format.folder}/${kind().folder}/${state.doc.id || 'unnamed'}.json`,
+    fileName: () => filePath(format.folder, kind(), fileKey({ ...state.doc, id: state.doc.id || 'unnamed' })),
 
     save: guard(async () => {
       const problems = kind().validate(state.doc);
       if (problems.length) throw new Error(problems.join('; '));
       if (!token()) throw new Error('Saving needs a GitHub token: add it in Settings → GitHub');
       const branch = branchNameFor(getPlayerName());
-      const { folder, indexKey } = kind();
-      const path = `${format.folder}/${folder}/${state.doc.id}.json`;
-      const indexPath = `${format.folder}/index.json`;
+      const { indexKey } = kind();
+      const key = fileKey(state.doc);
+      const path = filePath(format.folder, kind(), key);
+      const index = indexPath(format.folder);
       setStatus(`Saving to branch ${branch}…`);
       const result = await commitFiles({
         token: token(),
         upstream: SCENARIOS_REPO,
         branch,
-        message: `${kind().label} ${state.doc.id}: ${state.doc.name}`,
+        message: `${kind().label} ${key}: ${state.doc.name}`,
         async buildFiles(readJson) {
-          const index = (await readJson(indexPath)) ?? {};
-          const ids = new Set(index[indexKey] ?? []);
-          ids.add(state.doc.id);
-          const nextIndex = { ...index, format: SCENARIO_FORMAT, [indexKey]: [...ids].sort() };
+          const current = (await readJson(index)) ?? {};
+          const keys = new Set(current[indexKey] ?? []);
+          keys.add(key);
+          const nextIndex = { ...current, format: SCENARIO_FORMAT, [indexKey]: [...keys].sort() };
           return [
             { path, content: toFileJson() },
-            { path: indexPath, content: `${JSON.stringify(nextIndex, null, 2)}\n` },
+            { path: index, content: `${JSON.stringify(nextIndex, null, 2)}\n` },
           ];
         },
       });

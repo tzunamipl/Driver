@@ -4,8 +4,8 @@ import { lon2tileX, lat2tileY } from './geo.js';
 // flattened into one polyline with per-vertex distance/time so the car's
 // progress along it is a nearest-segment lookup.
 
-const OSRM_ROUTE_URL = (from, to) =>
-  `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}` +
+const OSRM_ROUTE_URL = (points) =>
+  `https://router.project-osrm.org/route/v1/driving/${points.map((p) => `${p.lon},${p.lat}`).join(';')}` +
   '?overview=false&steps=true&geometries=geojson';
 
 const EARTH_RADIUS = 6371000;
@@ -25,15 +25,32 @@ const LOCAL_WINDOW_AHEAD = 400;
  */
 
 /** @returns {Promise<Route>} */
-export async function fetchRoute(from, to, signal) {
-  const res = await fetch(OSRM_ROUTE_URL(from, to), { signal, headers: { Accept: 'application/json' } });
+export function fetchRoute(from, to, signal) {
+  return fetchRouteVia([from, to], signal);
+}
+
+/**
+ * Road route through every waypoint in order; `legStarts[i]` = first vertex of the leg
+ * from waypoint i to i + 1 (the leg ends where the next one starts, the last at the end).
+ * @returns {Promise<Route & { legStarts: number[] }>}
+ */
+export async function fetchRouteVia(points, signal) {
+  const res = await fetch(OSRM_ROUTE_URL(points), { signal, headers: { Accept: 'application/json' } });
   const data = await res.json().catch(() => null);
   if (data?.code !== 'Ok' || !data.routes?.length) {
     throw new Error(data?.code === 'NoRoute' ? 'no road route found' : data?.message || `routing failed (${res.status})`);
   }
-  const steps = data.routes[0].legs.flatMap((leg) => leg.steps);
+  const legs = data.routes[0].legs;
+  const steps = legs.flatMap((leg) => leg.steps);
   if (!steps.length) throw new Error('no road route found');
-  return buildRoute(steps, to);
+  const route = buildRoute(steps, points[points.length - 1]);
+  let firstStep = 0;
+  route.legStarts = legs.map((leg) => {
+    const start = route.steps[Math.min(firstStep, steps.length - 1)].index;
+    firstStep += leg.steps.length;
+    return start;
+  });
+  return route;
 }
 
 function buildRoute(osrmSteps, destination) {

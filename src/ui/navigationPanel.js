@@ -378,7 +378,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     rafId = requestAnimationFrame(frame);
   }
 
-  /** Scenario editor points (see hud/scenarioPointIcon.js). */
+  /** Scenario points: editor or rally plan (see hud/scenarioPointIcon.js). */
   function setScenarioPoints(points) {
     scenarioPoints = points ?? [];
   }

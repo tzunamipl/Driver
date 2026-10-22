@@ -151,6 +151,14 @@
                 <select id="graphics-detail-select" aria-label="Graphics detail level"></select>
               </label>
             </div>
+            <div class="hud-section" id="hud-gameplay">
+              <div>Gameplay</div>
+              <div class="hud-subsection-title">Rally</div>
+              <label>
+                <input id="rally-handbrake-hold-input" type="checkbox" />
+                Hold handbrake to lock it
+              </label>
+            </div>
             <div class="hud-section" id="hud-github">
               <div>GitHub</div>
               <label for="github-token-input">Token for saving editor scenarios (classic, public_repo scope)</label>
@@ -226,6 +234,7 @@
         <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
         <div id="players-list"></div>
       </div>
+      <div id="rally-plan" hidden></div>
       <div id="editor-panel" hidden></div>
       <div id="terrain-stats"></div>
     </div>

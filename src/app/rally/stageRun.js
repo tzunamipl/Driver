@@ -160,6 +160,16 @@ export function createStageRun({ points, getGate, best, onEvent }) {
       return i >= 0 && best?.splits?.[i] != null ? state.splits[i] - best.splits[i] : null;
     },
 
+    /** Plain copy of the run's state, for the save slot. */
+    snapshot: () => structuredClone(state),
+
+    /** Picks up a saved run: the clock carries on from where it stood. */
+    restore(saved) {
+      Object.assign(state, structuredClone(saved));
+      // A countdown cut off starts over: stop at the line again.
+      if (state.phase === 'countdown') Object.assign(state, { phase: 'approach', countdownStart: null, countdownFrom: null, jumpStart: false });
+    },
+
     retire() {
       if (state.phase === 'done') return;
       state.phase = 'retired';

@@ -219,7 +219,7 @@ export function createMinimapHud({ getRouteState } = {}) {
     ctx.restore();
   }
 
-  function drawEditorPoints(txf, tyf, mapRadius, s) {
+  function drawScenarioMarkers(txf, tyf, mapRadius, s) {
     const worldTiles = 2 ** zoom;
     drawScenarioPoints(
       ctx,
@@ -301,7 +301,7 @@ export function createMinimapHud({ getRouteState } = {}) {
       strokeRoute(ctx, routeState.route, routeState.progress, txf / 2 ** zoom, tyf / 2 ** zoom, worldPx, 4 * s);
     }
 
-    drawEditorPoints(txf, tyf, mapRadius, s);
+    drawScenarioMarkers(txf, tyf, mapRadius, s);
 
     const metersPerPx = tileSizeMeters(zoom, lat) / TILE_SIZE;
     // Peers: local (x, z) metres straight to pixels (+x right, +z down).

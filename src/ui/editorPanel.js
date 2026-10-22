@@ -16,6 +16,12 @@ function el(tag, props = {}, children = []) {
 
 const button = (text, onClick, props = {}) => el('button', { type: 'button', textContent: text, onclick: onClick, ...props });
 
+/** Marks `node` for the panel's hover tooltip: a bold heading over the text. */
+function setTip(node, heading, text) {
+  node.dataset.tipHeading = heading;
+  node.dataset.tip = text;
+}
+
 /** Sets an input's value unless the player is typing in it. */
 function patchValue(input, value) {
   if (document.activeElement !== input && input.value !== value) input.value = value;
@@ -39,6 +45,10 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     return btn;
   });
   const newButton = button('New', () => editor.newDoc(state.doc.kind));
+  const countryInput = el('input', { type: 'text', placeholder: 'poland', spellcheck: false });
+  countryInput.addEventListener('input', () => editor.setMeta('country', countryInput.value.trim()));
+  const regionInput = el('input', { type: 'text', placeholder: 'bieszczady', spellcheck: false, title: 'Region or theme the file is filed under' });
+  regionInput.addEventListener('input', () => editor.setMeta('region', regionInput.value.trim()));
   const idInput = el('input', { type: 'text', placeholder: 'my-stage', spellcheck: false });
   idInput.addEventListener('input', () => editor.setMeta('id', idInput.value.trim()));
   const nameInput = el('input', { type: 'text', placeholder: 'Name' });
@@ -123,6 +133,10 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   const toggle = el('button', { type: 'button', className: 'editor-toggle', textContent: title });
   const body = el('div', { className: 'editor-body' }, [
     el('div', { className: 'editor-buttons editor-kinds' }, [...kindButtons, newButton, openButton]),
+    el('label', { textContent: 'Country' }),
+    countryInput,
+    el('label', { textContent: 'Region / theme' }),
+    regionInput,
     el('label', { textContent: 'ID' }),
     idInput,
     el('label', { textContent: 'Name' }),
@@ -140,6 +154,28 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);
+
+  // Instant tooltip left of the panel for point types and items (native titles show late).
+  const tipEl = el('div', { className: 'editor-tip', hidden: true });
+  document.body.append(tipEl);
+  let tipTarget = null;
+  function showTip(target) {
+    tipTarget = target;
+    tipEl.replaceChildren(el('b', { textContent: target.dataset.tipHeading }), el('p', { textContent: target.dataset.tip }));
+    tipEl.hidden = false;
+    const rect = target.getBoundingClientRect();
+    tipEl.style.right = `${window.innerWidth - root.getBoundingClientRect().left + 6}px`;
+    tipEl.style.top = `${Math.max(4, Math.min(rect.top, window.innerHeight - tipEl.offsetHeight - 4))}px`;
+  }
+  function hideTip() {
+    tipTarget = null;
+    tipEl.hidden = true;
+  }
+  root.addEventListener('pointerover', (e) => {
+    const target = e.target.closest('[data-tip]');
+    if (target !== tipTarget) target ? showTip(target) : hideTip();
+  });
+  root.addEventListener('pointerleave', hideTip);
 
   function download() {
     const blob = new Blob([exportText.value], { type: 'application/json' });
@@ -162,7 +198,8 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     placeEl.replaceChildren(
       ...kind.points.map((type) => {
         const def = format.pointTypes[type];
-        const btn = button(def.short, () => editor.place(type), { title: `${def.label}: ${def.description}` });
+        const btn = button(def.short, () => editor.place(type));
+        setTip(btn, `Place ${def.label}`, def.description);
         btn.style.setProperty('--editor-swatch', hex(def.color));
         return btn;
       })
@@ -199,6 +236,8 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   function render() {
     const kind = editor.kind();
     for (const btn of kindButtons) btn.classList.toggle('active', btn.dataset.kind === kind.id);
+    patchValue(countryInput, state.doc.country);
+    patchValue(regionInput, state.doc.region);
     patchValue(idInput, state.doc.id);
     patchValue(nameInput, state.doc.name);
     sourceNote.textContent = `Stages are added from ${state.source}`;
@@ -209,22 +248,19 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
 
     refRow.hidden = !kind.refKind;
     if (kind.refKind) {
-      const ids = state.index?.[format.kinds.find((k) => k.id === kind.refKind).indexKey] ?? [];
+      const keys = state.index?.[format.kinds.find((k) => k.id === kind.refKind).indexKey] ?? [];
       const current = refSelect.value;
       refSelect.replaceChildren(
-        ...(ids.length ? ids : ['']).map((id) => el('option', { value: id, textContent: id || 'No stages in source' }))
+        ...(keys.length ? keys : ['']).map((key) => el('option', { value: key, textContent: key || 'No stages in source' }))
       );
-      if (ids.includes(current)) refSelect.value = current;
+      if (keys.includes(current)) refSelect.value = current;
     }
 
     itemsEl.replaceChildren(
       ...state.doc.items.map((item, i) => {
         const def = format.pointTypes[item.type];
-        const li = el('li', {
-          textContent: itemLabel(item),
-          title: def?.description ?? 'A stage driven at this point of the rally.',
-          onclick: () => editor.select(i),
-        });
+        const li = el('li', { textContent: itemLabel(item), onclick: () => editor.select(i) });
+        setTip(li, `${i + 1}. ${itemLabel(item)}`, def?.description ?? 'A stage driven at this point of the rally.');
         li.classList.toggle('selected', i === state.selected);
         if (def) li.style.setProperty('--editor-swatch', hex(def.color));
         return li;
@@ -237,6 +273,8 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       renderSelected(item);
     }
 
+    // The list was rebuilt: the hovered row is gone.
+    if (tipTarget && !tipTarget.isConnected) hideTip();
     branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" of your fork.`;
     for (const btn of root.querySelectorAll('button')) btn.disabled = state.busy && btn !== toggle;
     statusEl.textContent = state.status.text;

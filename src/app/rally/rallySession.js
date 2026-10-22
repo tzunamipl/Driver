@@ -2,27 +2,33 @@
 // order. A stage item is a stageRun.js; a point item (service park, regroup, ...) is a
 // liaison checkpoint to drive through, routed by the Navigation tab. Teleport and
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
-// Progress (item, results) lives in the rally save slot; a stage cut off mid-run restarts.
+// Progress (item, results, the live stage's clock and controls) lives in the game's save slot,
+// so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
 import { RALLY_BEST_STORAGE_KEY } from '../../config.js';
-import { readSaveField, writeSaveField } from '../../lib/saves.js';
+import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat } from '../../lib/scenarios/rally.js';
+import { filePath } from '../../lib/scenarios/paths.js';
 import { snapToRoad, walkRoad } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
 import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
+import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
 import { createStageRun } from './stageRun.js';
 import { createCarRocking } from '../carRocking.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
 const LIAISON_PASS_PAD_M = 3; // liaison point passed within its half width + this
+const LIAISON_STOP_ZONE_M = 15; // stop-type liaison points: stop within this
+const LIAISON_STOP_SPEED = 0.6; // m/s: counts as stopped
 const ROUTE_MIN_M = 250; // closer targets aren't worth a navigation route
 const JUMP_GUARD_M = 50; // a step moving the car further (teleport, reset) checks nothing
 const SPLIT_SHOW_S = 5;
 const GO_SHOW_S = 1.5;
 const NEAR_ZONE_M = 80;
+const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the car state
 
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
@@ -44,17 +50,17 @@ function writeBest(all) {
   }
 }
 
-/** Stage file -> { id, name, points }. */
-function readStage(json, id = json.id) {
+/** Stage file -> { id (its file key), name, points }. */
+function readStage(json, id) {
   const { name, items } = stageKind.fromFile(json);
   return { id, name, points: items };
 }
 
 /** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
-async function buildPlan(kind, source, opened, json) {
+async function buildPlan(kind, source, opened, key, json) {
   if (kind === 'stage') {
-    const stage = readStage(json);
-    return { kind, source, id: json.id, name: stage.name, items: [{ type: 'stage', stage }] };
+    const stage = readStage(json, key);
+    return { kind, source, id: key, name: stage.name, items: [{ type: 'stage', stage }] };
   }
   const rally = rallyKind.fromFile(json);
   const stages = new Map();
@@ -66,14 +72,15 @@ async function buildPlan(kind, source, opened, json) {
       continue;
     }
     if (!stages.has(item.ref)) {
-      const stageJson = await opened.readJson(`${rallyFormat.folder}/${stageKind.folder}/${item.ref}.json`);
+      const stageJson = await opened.readJson(filePath(rallyFormat.folder, stageKind, item.ref));
       if (!stageJson) throw new Error(`Stage ${item.ref} is missing from ${source}`);
       stages.set(item.ref, readStage(stageJson, item.ref));
     }
     const stage = stages.get(item.ref);
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
-  return { kind, source, id: json.id, name: rally.name, items };
+  const base = rally.items.find((item) => item.type === 'base') ?? null;
+  return { kind, source, id: key, name: rally.name, base, items };
 }
 
 /** Points of a plan item, in driving order. */
@@ -85,16 +92,15 @@ const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item 
  * @returns {Promise<{plan: object, vehicleId: string} | null>} null on Back.
  */
 export async function pickPlan(picker, { vehicleId } = {}) {
-  const kind = readSaveField('start') === 'rally' ? 'rally' : 'stage';
+  const kind = getActiveStartId() === 'stage' ? 'stage' : 'rally';
   const def = kind === 'rally' ? rallyKind : stageKind;
-  const picked = await picker.pick({
+  return picker.pick({
     title: kind === 'rally' ? 'Choose a rally' : 'Choose a stage',
     folder: rallyFormat.folder,
     kind: def,
+    loadPlan: ({ source, opened, key, json }) => buildPlan(kind, source, opened, key, json),
     vehicleId,
   });
-  if (!picked) return null;
-  return { plan: await buildPlan(kind, picked.source, picked.opened, picked.json), vehicleId: picked.vehicleId };
 }
 
 /** Where a plan starts: its first item's first point (lat/lon), or null. */
@@ -109,8 +115,9 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
  * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
+ * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
  */
-export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, onSparkle, onStartBeep }) {
+export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, onSparkle, onStartBeep, onMapPoints }) {
   const scenery = createControlScenery({ scene, streets, terrain, viewFrame, onSparkle });
   const rocking = createCarRocking();
   let plan = null;
@@ -125,6 +132,8 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   let resultRows = null; // stable array for the HUD while unchanged
   const step = { x: 0, z: 0 };
   let shownRed = 0; // countdown lights already beeped for
+  let shownProgress = null; // plan panel + map icons are rebuilt when this key changes
+  let nextProgressSave = 0;
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
@@ -133,6 +142,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     newRally: () => choose(),
     pickAgain: () => choose(),
   });
+  const planHud = createRallyPlanHud();
 
   const isLive = () => !!run?.isLive();
   addressSearch.setBlocked(isLive);
@@ -141,26 +151,46 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   const currentItem = () => plan?.items[itemIndex] ?? null;
   const bestKey = (stage) => `${plan.source}|${stage.id}`;
 
-  function saveProgress(stageStarted = false) {
+  function saveProgress() {
     if (!keepsProgress) return;
+    nextProgressSave = simTime + PROGRESS_SAVE_S;
+    writeSaveField('status', plan ? progressStatus() : null);
     if (!plan) return writeSaveField('rallyProgress', null);
-    writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, stageStarted });
+    writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, run: finished ? null : run?.snapshot() ?? null });
+  }
+
+  /** Where the game stands, for the main menu's mode card. */
+  function progressStatus() {
+    const stages = plan.items.filter((i) => i.type === 'stage').length;
+    if (finished) {
+      const dnf = results.some((r) => r.ms == null);
+      return `${plan.name}\nFinished · ${dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))}`;
+    }
+    const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
+    const item = currentItem();
+    if (item.type !== 'stage') return `${plan.name}\nLiaison to ${pointLabel(item.point.type).toLowerCase()} · ${ss}/${stages} stages done`;
+    const { phase } = run.state;
+    const where = phase === 'running' ? `${formatTime(run.elapsedMs())} on the clock` : phase === 'afterFinish' ? 'past the finish' : 'before the start';
+    return `${plan.name}\nSS${ss}/${stages} ${item.stage.name} · ${where}`;
   }
 
   function carPosition() {
     return carManager.getVehicle()?.chassisBody.position ?? null;
   }
 
-  /** Scenery for the current item and the next one, so a stage's boards show on the way to it. */
-  function showItem() {
+  /**
+   * Makes the current item the one timed and checked; scenery for the whole plan stays up.
+   * @param {object | null} [savedRun] - the stage's run as saved, to carry on with.
+   */
+  function showItem(savedRun = null) {
     const item = currentItem();
-    const points = [...itemPoints(item), ...itemPoints(plan.items[itemIndex + 1])];
-    scenery.setPoints(points);
+    scenery.setActive(plan.items.slice(0, itemIndex).reduce((n, it) => n + itemPoints(it).length, 0));
     run = null;
     resultRows = null;
     if (item?.type === 'stage') {
       const best = readBest()[bestKey(item.stage)] ?? null;
       run = createStageRun({ points: item.stage.points, getGate: scenery.getGate, best, onEvent: (e) => onStageEvent(item.stage, best, e) });
+      if (savedRun) run.restore(savedRun);
     }
     routeToItem();
   }
@@ -174,7 +204,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   }
 
   function onStageEvent(stage, best, event) {
-    if (event.type === 'countdown') saveProgress(true);
+    if (event.type === 'countdown') saveProgress();
     // Timing clock beeps: check-in at a time / stop control, and the clock stopping at the finish.
     if (event.type === 'checkIn') onStartBeep?.(false);
     if (event.type === 'finish') onStartBeep?.(true);
@@ -214,8 +244,9 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
       saveProgress();
       return;
     }
-    saveProgress();
+    // The next item's run first: the saved status reads it.
     showItem();
+    saveProgress();
   }
 
   /** Puts the car just before the item's first point, facing along the road towards it; teleports there first unless the world is already loaded around it. */
@@ -247,15 +278,20 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     prev = null;
   }
 
-  /** @param {'teleport' | 'place' | null} spawn - how to bring the car to the item, if at all. */
-  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport') {
+  /**
+   * @param {'teleport' | 'place' | null} spawn - how to bring the car to the item, if at all.
+   * @param {object | null} [savedRun] - the current stage's run as saved.
+   */
+  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null) {
     plan = newPlan;
+    scenery.setPoints(plan.items.flatMap(itemPoints));
+    scenery.setBase(plan.base);
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
     if (finished) return;
+    showItem(savedRun);
     saveProgress();
-    showItem();
     if (spawn) await spawnAt(itemIndex, spawn === 'teleport');
     routeToItem();
   }
@@ -349,6 +385,64 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     };
   }
 
+  /** Where an item stands: 'done', 'current' or ''. */
+  const itemState = (i) => (finished || i < itemIndex ? 'done' : i === itemIndex ? 'current' : '');
+  /** Where point j of the current stage stands. */
+  const pointState = (i, j) => {
+    const state = itemState(i);
+    if (state !== 'current') return state;
+    return j < run.state.next ? 'done' : j === run.state.next ? 'current' : '';
+  };
+
+  /** Side panel: the itinerary, stage by stage. */
+  function planView() {
+    const rows = [];
+    let ss = 0;
+    plan.items.forEach((item, i) => {
+      const state = itemState(i);
+      if (item.type !== 'stage') {
+        rows.push({ label: pointLabel(item.point.type), state });
+        return;
+      }
+      // Results hold one entry per stage driven, in itinerary order.
+      const result = state === 'done' ? results[ss] : null;
+      ss++;
+      rows.push({ label: `SS${ss} ${item.stage.name}`, value: result ? (result.ms == null ? 'DNF' : formatTime(result.ms)) : '', state });
+    });
+    return { title: plan.name, rows };
+  }
+
+  /** Map icons: liaison points, the current stage's controls, other stages' start + finish; no PCs. */
+  function mapPoints() {
+    const points = [];
+    const add = (p, label, state) =>
+      points.push({ lat: p.lat, lon: p.lon, color: rallyFormat.pointTypes[p.type]?.color ?? 0x808080, label, gate: p.type !== 'base', done: state === 'done', selected: state === 'current' });
+    if (plan.base) add({ ...plan.base, type: 'base' }, rallyFormat.pointTypes.base.short, '');
+    let ss = 0;
+    plan.items.forEach((item, i) => {
+      if (item.type !== 'stage') {
+        add(item.point, rallyFormat.pointTypes[item.point.type]?.short ?? '', itemState(i));
+        return;
+      }
+      ss++;
+      const current = itemState(i) === 'current';
+      item.stage.points.forEach((p, j) => {
+        if (p.type === 'passageControl' || (!current && p.type !== 'start' && p.type !== 'finish')) return;
+        const label = p.type === 'start' && plan.kind === 'rally' ? `SS${ss}` : rallyFormat.pointTypes[p.type].short;
+        add(p, label, pointState(i, j));
+      });
+    });
+    return points;
+  }
+
+  function syncProgress() {
+    const key = plan ? `${itemIndex}|${run?.state.next}|${finished}|${results.length}` : '';
+    if (shownProgress && key === shownProgress.key && plan === shownProgress.plan) return;
+    shownProgress = { key, plan };
+    planHud.render(plan?.kind === 'rally' ? planView() : null);
+    onMapPoints?.(plan ? mapPoints() : []);
+  }
+
   function view() {
     if (!plan && busy) return { title: 'Rally', status: 'Choose a stage or rally' };
     // Loading failed: say why, and offer the picker again.
@@ -361,10 +455,21 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     const dist = gate && pos ? Math.round(Math.hypot(gate.x - pos.x, gate.z - pos.z)) : null;
     return {
       title: plan.name,
-      status: flash && simTime < flash.until ? flash.text : `Liaison: drive to ${pointLabel(item.point.type).toLowerCase()}`,
+      status: flash && simTime < flash.until ? flash.text : liaisonStatus(item.point.type, dist),
       next: dist == null ? '' : `${pointLabel(item.point.type)} · ${dist} m`,
     };
   }
+
+  function liaisonStatus(type, dist) {
+    const label = pointLabel(type).toLowerCase();
+    if (rallyFormat.pointTypes[type]?.stop && dist != null && dist < NEAR_ZONE_M) return `Stop in the ${label} zone`;
+    return `Liaison: drive to ${label}`;
+  }
+
+  // Between throttled saves, so a reload or a closed tab keeps the clock where it stood.
+  window.addEventListener('pagehide', () => {
+    if (plan && !busy) saveProgress();
+  });
 
   return {
     /** After joining: resume saved progress, else pick a stage / rally. */
@@ -386,11 +491,11 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
       try {
         const opened = await openSource(source);
         const def = progress.kind === 'rally' ? rallyKind : stageKind;
-        const json = await opened.readJson(`${rallyFormat.folder}/${def.folder}/${progress.id}.json`);
+        const json = await opened.readJson(filePath(rallyFormat.folder, def, progress.id));
         if (!json) throw new Error(`${progress.id} is gone from ${progress.source}`);
-        const saved = await buildPlan(progress.kind, progress.source, opened, json);
-        // A stage cut off mid-run starts over from its beginning.
-        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], progress.stageStarted ? 'teleport' : null);
+        const saved = await buildPlan(progress.kind, progress.source, opened, progress.id, json);
+        // The car resumes where it was saved (lib/carState.js), so it needs no spawn.
+        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], null, progress.run ?? null);
         resumed = true;
       } catch (err) {
         console.warn('Rally: could not resume', err);
@@ -416,12 +521,17 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
         prev = { x: step.x, z: step.z };
         return;
       }
+      if (keepsProgress && simTime >= nextProgressSave) saveProgress();
       const item = currentItem();
       if (item.type === 'stage') {
         run.step(dt, prev, step, carManager.getVehicle().chassisBody.velocity.length());
       } else {
         const gate = scenery.getGate(0);
-        if (gate && Math.hypot(step.x - gate.x, step.z - gate.z) < gate.halfWidth + LIAISON_PASS_PAD_M) {
+        const dist = gate ? Math.hypot(step.x - gate.x, step.z - gate.z) : Infinity;
+        const done = rallyFormat.pointTypes[item.point.type]?.stop
+          ? dist < LIAISON_STOP_ZONE_M && carManager.getVehicle().chassisBody.velocity.length() < LIAISON_STOP_SPEED
+          : dist < gate?.halfWidth + LIAISON_PASS_PAD_M;
+        if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
           itemDone(null);
         }
@@ -432,7 +542,8 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
 
     /** Per frame: scenery, start lights, HUD. */
     update(dt) {
-      scenery.update(dt);
+      scenery.update(dt, carPosition());
+      scenery.setNext(run && run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1);
       if (run && run.startIndex >= 0) {
         const { red, green } = run.lights();
         scenery.setLights(run.startIndex, red, green);
@@ -441,6 +552,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
         shownRed = red;
       }
       hud.render(view());
+      syncProgress();
     },
 
     shiftOrigin(dx, dz) {

@@ -43,6 +43,52 @@
 .rally-buttons { display: flex; justify-content: center; gap: 6px; margin-top: 8px; pointer-events: auto; }
 .rally-buttons button { color: #000; }
 
+/* Rally plan (hud/rallyPlanHud.js), in #top-right-stack under the players panel. */
+#rally-plan {
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 4px;
+  line-height: 1.5;
+  min-width: 180px;
+  max-width: 240px;
+}
+#rally-plan[hidden] { display: none; }
+.rally-plan-title {
+  pointer-events: auto;
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0 6px;
+  font-weight: bold;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rally-plan-title::before { content: '▾ '; }
+#rally-plan.collapsed .rally-plan-title { margin-bottom: 0; }
+#rally-plan.collapsed .rally-plan-title::before { content: '▸ '; }
+#rally-plan.collapsed .rally-plan-list { display: none; }
+.rally-plan-list {
+  position: relative;
+  padding: 0 4px;
+  max-height: min(320px, 40dvh);
+  overflow-y: auto;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
+  pointer-events: auto;
+}
+.rally-plan-row { display: flex; gap: 4px; padding: 1px 0; }
+.rally-plan-row.done { color: var(--w95-shadow); }
+.rally-plan-row.current { font-weight: bold; }
+.rally-plan-row.current { margin: 0 -4px; padding: 1px 4px; background: var(--w95-select); color: #fff; }
+.rally-plan-mark { flex: 0 0 1.2em; text-align: center; }
+.rally-plan-row.done .rally-plan-mark { color: #008000; }
+.rally-plan-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rally-plan-value { font-family: monospace; white-space: nowrap; }
+
 /* Stage / rally picker (ui/rallyPicker.js): a menu-style window over the world. */
 #rally-picker {
   position: fixed;
@@ -57,8 +103,30 @@
   font-size: 11px;
 }
 #rally-picker[hidden] { display: none; }
-.rally-picker-window { width: min(640px, 100%); gap: 4px; }
-.rally-picker-window .scenario-tree { max-height: 30dvh; overflow-y: auto; }
+.rally-picker-window { width: min(720px, 100%); gap: 4px; }
+/* Stage / rally tree beside its plan map (ui/rallyPlanMap.js). */
+.rally-plan { display: flex; gap: 10px; }
+.rally-plan .scenario-tree { flex: 1 1 0; min-width: 0; height: min(240px, 30dvh); overflow-y: auto; }
+.rally-plan .scenario-tree-files button.selected { box-shadow: var(--w95-pressed); font-weight: bold; }
+.rally-plan-map { flex: 1.3 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rally-plan-map-view {
+  position: relative;
+  height: min(240px, 30dvh);
+  background: #e9e6df;
+  box-shadow: var(--w95-sunken);
+  overflow: hidden;
+}
+.rally-plan-map-view canvas { display: block; width: 100%; height: 100%; }
+.rally-plan-map-attribution {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 9px;
+  pointer-events: none;
+}
+.rally-plan-map-info { min-height: 13px; font-variant-numeric: tabular-nums; }
 .rally-picker-heading { margin: 6px 0 2px; font-weight: bold; }
 /* Car: tabs + list beside the lobby-style turning model and stats. */
 .rally-car { display: flex; gap: 10px; }
@@ -85,6 +153,9 @@
 .rally-vehicle-stats dt { white-space: nowrap; color: #444; }
 .rally-vehicle-stats dd { margin: 0; white-space: nowrap; font-weight: bold; font-variant-numeric: tabular-nums; }
 @media (max-width: 600px) {
-  .rally-car { flex-direction: column; }
+  .rally-car,
+  .rally-plan { flex-direction: column; }
+  .rally-plan .scenario-tree { height: auto; max-height: 25dvh; }
+  .rally-plan-map-view { height: 180px; }
   .rally-vehicle-preview { height: 120px; }
 }

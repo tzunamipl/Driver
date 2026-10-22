@@ -19,6 +19,7 @@ import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
 import { createGithubSettings } from './ui/githubSettings.js';
+import { createGameplaySettings } from './ui/gameplaySettings.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
@@ -94,9 +95,9 @@ import { createFloatingOrigin } from './app/floatingOrigin.js';
 import { createDaylight } from './app/daylight.js';
 import { createLobby, loadProfileName, loadProfileVehicleId } from './ui/lobby.js';
 import { createMainMenu, reloadToMenu } from './ui/mainMenu.js';
-import { getActiveModeId, isEditorSession, readSaveField, writeSaveField } from './lib/saves.js';
+import { getActiveModeId, getActiveStartId, isEditorSession, readSaveField, writeSaveField } from './lib/saves.js';
 import { getVehicleColor } from './lib/vehicleColors.js';
-import { getGameMode } from './app/gameModes.js';
+import { getGameMode, keepsProgress as gameKeepsProgress } from './app/gameModes.js';
 import { SCENARIO_FORMATS } from './lib/scenarios/formats.js';
 import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
@@ -134,6 +135,7 @@ const lobby = createLobby({
 // Settings controls first: the menu's Settings screen shows them before the world loads.
 createVolumeSliders();
 const graphicsDetailPicker = createGraphicsDetailPicker();
+const gameplaySettings = createGameplaySettings();
 createGithubSettings();
 // Picks the game mode, and so the save slot everything below resumes from.
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
@@ -144,9 +146,8 @@ await mainMenu.waitForLaunch();
 // menuPark (set once the world is up) parks the car while the picker covers the game.
 let menuPark = null;
 const isRallyGame = getActiveModeId() === 'rally' && !isEditorSession();
-// Starts outside the mode's progressStarts (e.g. a single stage) keep only the car pick.
-const activeMode = getGameMode(getActiveModeId());
-const keepsProgress = isEditorSession() || !activeMode?.progressStarts || activeMode.progressStarts.includes(readSaveField('start'));
+// Starts that don't save (e.g. a single stage) keep only the car pick.
+const keepsProgress = isEditorSession() || gameKeepsProgress(getGameMode(getActiveModeId()), getActiveStartId());
 if (!keepsProgress) {
   setCarStateSaving(false);
   writeSaveField('carState', null);
@@ -348,6 +349,7 @@ const input = createInputController({
   onHandbrakeLatch: () => handbrakeSound.play(3),
   onGearEvent: (type, engine) => gearShiftSound.play(type, engine.mass),
   initialHandbrakeLatched: savedCarState?.handbrakeLatched === true,
+  holdLatchesHandbrake: () => !isRallyGame || gameplaySettings.rallyHandbrakeHold(),
 });
 const lightSwitchSound = createLightSwitchSound();
 const headlightSwitch = createHeadlightSwitch({ onToggle: lightSwitchSound.play });
@@ -503,6 +505,10 @@ const rallySession =
         keepsProgress,
         onSparkle: createSparklePop().play,
         onStartBeep: createStartBeep().play,
+        onMapPoints: (points) => {
+          minimapHud.setScenarioPoints(points);
+          navigationPanel.setScenarioPoints(points);
+        },
       })
     : null;
 /** Respawns the local car as `vehicleId` where it stands, with its saved paint. */
