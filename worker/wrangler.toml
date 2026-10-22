@@ -1,0 +1,18 @@
+# Leaderboard API (src/index.js). Deployed by .github/workflows/worker.yml. Secret DATA_TOKEN: a fine-grained
+# GitHub token with Contents: Read and write on DATA_REPO only. Local: put it in worker/.dev.vars.
+name = "driver-leaderboard"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+DATA_REPO = "tzunamipl/Driver-data"
+DATA_BRANCH = "main"
+SCENARIOS_REPO = "tzunamipl/Driver-scenarios"
+SCENARIOS_BRANCH = "main"
+ALLOWED_ORIGINS = "https://tzunamipl.github.io,http://localhost:5173"
+
+# Per player + IP; `wrangler dev` simulates it locally.
+[[ratelimits]]
+name = "SUBMIT_LIMIT"
+namespace_id = "1001"
+simple = { limit = 6, period = 60 }

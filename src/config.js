@@ -279,4 +279,5 @@ export const SCENARIOS_REPO = { owner: 'tzunamipl', repo: 'Driver-scenarios' };
 export const OFFICIAL_SCENARIO_SOURCE = `${SCENARIOS_REPO.owner}/${SCENARIOS_REPO.repo}@main`;
 export const SCENARIO_FORMAT = 2; // files with a newer format are rejected
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
+export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }

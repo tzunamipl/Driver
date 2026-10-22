@@ -31,6 +31,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Repository variable (Settings > Secrets and variables > Actions > Variables): the leaderboard worker's URL.
+          VITE_LEADERBOARD_URL: ${{ vars.LEADERBOARD_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

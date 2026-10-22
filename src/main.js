@@ -109,7 +109,8 @@ import { createRallyPicker } from './ui/rallyPicker.js';
 
 // ---------- Networking ----------
 // Stable clientId across reloads, so a refresh isn't a new peer.
-const net = createNet({ clientId: loadOrCreatePlayerId() });
+const playerId = loadOrCreatePlayerId();
+const net = createNet({ clientId: playerId });
 
 // ---------- Lobby (name/color + join flow) ----------
 // Before the menu: first-time players set their name there. Its callbacks run after the world is up.
@@ -503,6 +504,8 @@ const rallySession =
         switchVehicle,
         parkCar: input.latchHandbrake,
         keepsProgress,
+        playerId,
+        getPlayerName: loadProfileName,
         onSparkle: createSparklePop().play,
         onStartBeep: createStartBeep().play,
         onMapPoints: (points) => {

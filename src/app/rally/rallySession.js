@@ -6,7 +6,8 @@
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
-import { RALLY_BEST_STORAGE_KEY } from '../../config.js';
+import { RALLY_BEST_STORAGE_KEY, OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
+import { leaderboardEnabled, submitStageTime } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat } from '../../lib/scenarios/rally.js';
@@ -60,7 +61,7 @@ function readStage(json, id) {
 async function buildPlan(kind, source, opened, key, json) {
   if (kind === 'stage') {
     const stage = readStage(json, key);
-    return { kind, source, id: key, name: stage.name, items: [{ type: 'stage', stage }] };
+    return { kind, source, sha: opened.sha, id: key, name: stage.name, items: [{ type: 'stage', stage }] };
   }
   const rally = rallyKind.fromFile(json);
   const stages = new Map();
@@ -80,7 +81,7 @@ async function buildPlan(kind, source, opened, key, json) {
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
   const base = rally.items.find((item) => item.type === 'base') ?? null;
-  return { kind, source, id: key, name: rally.name, base, items };
+  return { kind, source, sha: opened.sha, id: key, name: rally.name, base, items };
 }
 
 /** Points of a plan item, in driving order. */
@@ -113,11 +114,13 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(vehicleId: string) => void} deps.switchVehicle
  * @param {() => void} deps.parkCar - pulls the handbrake once the car is placed at a stage.
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
+ * @param {string} deps.playerId - for the online leaderboard.
+ * @param {() => string | null} deps.getPlayerName
  * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
  */
-export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, onSparkle, onStartBeep, onMapPoints }) {
+export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onStartBeep, onMapPoints }) {
   const scenery = createControlScenery({ scene, streets, terrain, viewFrame, onSparkle });
   const rocking = createCarRocking();
   let plan = null;
@@ -134,6 +137,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   let shownRed = 0; // countdown lights already beeped for
   let shownProgress = null; // plan panel + map icons are rebuilt when this key changes
   let nextProgressSave = 0;
+  const online = new WeakMap(); // result -> { rank, count, leader } | { error } | null while sending
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
@@ -230,9 +234,35 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
         all[bestKey(stage)] = { totalMs: event.ms, splits: run.state.splits };
         writeBest(all);
       }
-      itemDone({ name: stage.name, ms: event.ms, splits: run.state.splits, penaltyMs: run.penaltyMs(), best });
+      const result = { name: stage.name, ms: event.ms, splits: run.state.splits, penaltyMs: run.penaltyMs(), best };
+      submitOnline(stage, result);
+      itemDone(result);
     }
     if (event.type === 'retired') itemDone({ name: stage.name, ms: null, splits: run.state.splits, penaltyMs: 0, best });
+  }
+
+  /** Official stages only; the results card shows the rank once it's back. */
+  function submitOnline(stage, result) {
+    if (!leaderboardEnabled() || plan.source !== OFFICIAL_SCENARIO_SOURCE || !plan.sha) return;
+    online.set(result, null);
+    submitStageTime({
+      stage: stage.id,
+      sha: plan.sha,
+      playerId,
+      name: getPlayerName() ?? '',
+      vehicle: getVehicleId(),
+      totalMs: result.ms,
+      splits: result.splits,
+      penaltyMs: result.penaltyMs,
+    })
+      .then(({ board, rank }) => online.set(result, { rank, count: board.entries.length, leader: board.entries[0] }))
+      .catch((err) => {
+        console.warn('Leaderboard:', err);
+        online.set(result, { error: err.message });
+      })
+      .finally(() => {
+        resultRows = null;
+      });
   }
 
   function itemDone(result) {
@@ -371,6 +401,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
         rows.push(['Stage time', r?.ms == null ? 'DNF' : formatTime(r.ms)]);
         if (r?.best) rows.push(['Best', formatTime(r.best.totalMs)]);
         else if (r?.ms != null) rows.push(['Best', 'New best!']);
+        if (r && online.has(r)) rows.push(...onlineRows(online.get(r)));
       } else {
         for (const r of results) rows.push([r.name, r.ms == null ? 'DNF' : formatTime(r.ms)]);
         const dnf = results.some((r) => r.ms == null);
@@ -383,6 +414,14 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
       results: resultRows,
       buttons: plan.kind === 'stage' ? ['restart', 'pick'] : ['newRally'],
     };
+  }
+
+  function onlineRows(entry) {
+    if (!entry) return [['World rank', 'Sending…']];
+    if (entry.error) return [['World rank', entry.error]];
+    const rows = [['World rank', entry.rank ? `${entry.rank} / ${entry.count}` : '-']];
+    if (entry.leader) rows.push(['World best', `${formatTime(entry.leader.totalMs)} · ${entry.leader.name}`]);
+    return rows;
   }
 
   /** Where an item stands: 'done', 'current' or ''. */
