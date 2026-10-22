@@ -14,9 +14,9 @@ const FIT_PAD_PX = 28;
 const SS_COLOR = '#e02020';
 const LIAISON_COLOR = '#2f7cff';
 // Locator inset (top-left): where on the continent the plan is.
-const INSET_ZOOM = 3;
-const INSET_W = 96;
-const INSET_H = 72;
+const INSET_ZOOM = 2;
+const INSET_W = 128;
+const INSET_H = 96;
 const INSET_MARGIN = 6;
 
 const toMercX = (lon) => lon2tileX(lon, 0);
