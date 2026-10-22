@@ -13,6 +13,11 @@ const MAX_ZOOM = 16;
 const FIT_PAD_PX = 28;
 const SS_COLOR = '#e02020';
 const LIAISON_COLOR = '#2f7cff';
+// Locator inset (top-left): where on the continent the plan is.
+const INSET_ZOOM = 3;
+const INSET_W = 96;
+const INSET_H = 72;
+const INSET_MARGIN = 6;
 
 const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
@@ -231,6 +236,40 @@ export function createRallyPlanMap() {
     ctx.restore();
   }
 
+  function drawInset(cx, cy) {
+    const world = TILE_SIZE * 2 ** INSET_ZOOM;
+    const left = cx * world - INSET_W / 2;
+    // Keep the inset inside the map vertically (x wraps).
+    const top = Math.min(world - INSET_H, Math.max(0, cy * world - INSET_H / 2));
+    ctx.save();
+    ctx.translate(INSET_MARGIN, INSET_MARGIN);
+    ctx.beginPath();
+    ctx.rect(0, 0, INSET_W, INSET_H);
+    ctx.fillStyle = '#aad3df';
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    for (let ty = Math.floor(top / TILE_SIZE); ty <= Math.floor((top + INSET_H) / TILE_SIZE); ty++) {
+      for (let tx = Math.floor(left / TILE_SIZE); tx <= Math.floor((left + INSET_W) / TILE_SIZE); tx++) {
+        const entry = tiles.get(INSET_ZOOM, tx, ty);
+        if (entry?.ready) ctx.drawImage(entry.img, tx * TILE_SIZE - left, ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
+      }
+    }
+    ctx.restore();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#404040';
+    ctx.strokeRect(0.5, 0.5, INSET_W - 1, INSET_H - 1);
+    const x = cx * world - left;
+    const y = cy * world - top;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = SS_COLOR;
+    ctx.stroke();
+    drawDot({ x, y }, SS_COLOR);
+    ctx.restore();
+  }
+
   function draw() {
     const dpr = resize();
     if (!widthCss || !heightCss) return;
@@ -258,6 +297,7 @@ export function createRallyPlanMap() {
     const toScreen = (mx, my) => ({ x: mx * world - left, y: my * world - top });
     drawLegs(toScreen);
     drawMarkers(toScreen);
+    drawInset(cx, cy);
   }
 
   function frame() {

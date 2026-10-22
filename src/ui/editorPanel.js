@@ -91,6 +91,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     folder: format.folder,
     kinds: format.kinds,
     getToken: editor.getToken,
+    ownBranch: () => branchNameFor(getPlayerName()),
     onPick: (pick) => {
       openDialog.hidden = true;
       editor.openPicked(pick);

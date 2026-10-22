@@ -20,9 +20,10 @@ const note = (text) => el('p', { className: 'scenario-tree-note', textContent: t
  * @param {(pick: {source: object, opened: object, kindId: string, key: string, json: object}) => void} opts.onPick
  * @param {(pick: object) => void} [opts.onActivate] - double-click, same argument as onPick.
  * @param {() => string | null} [opts.getToken]
+ * @param {() => string | null} [opts.ownBranch] - player's branch: opened instead of Official when listed.
  * @returns {{el: HTMLElement, reload: () => void}}
  */
-export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken = () => null }) {
+export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken = () => null, ownBranch = () => null }) {
   const root = el('div', { className: 'scenario-tree' });
   let selectedButton = null;
 
@@ -117,10 +118,12 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken
     root.replaceChildren(note('Loading…'));
     try {
       const sources = await listSources(getToken());
-      const official = sources.filter((s) => s.official).map((s) => sourceNode(s, true));
-      const players = sources.filter((s) => !s.official).map((s) => sourceNode(s, false));
+      const branch = ownBranch();
+      const own = sources.find((s) => !s.official && s.source.ref === branch);
+      const official = sources.filter((s) => s.official).map((s) => sourceNode(s, !own));
+      const players = sources.filter((s) => !s.official).map((s) => sourceNode(s, s === own));
       const playersBody = el('div', { className: 'scenario-tree-body' }, players.length ? players : [note('No player scenarios yet')]);
-      root.replaceChildren(...official, el('details', {}, [el('summary', { textContent: 'Players' }), playersBody]));
+      root.replaceChildren(...official, el('details', { open: !!own }, [el('summary', { textContent: 'Players' }), playersBody]));
     } catch (err) {
       root.replaceChildren(note(err.message));
     }
