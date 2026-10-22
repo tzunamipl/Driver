@@ -101,6 +101,8 @@ import { getGameMode, keepsProgress as gameKeepsProgress } from './app/gameModes
 import { SCENARIO_FORMATS } from './lib/scenarios/formats.js';
 import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
+import { createEditorNotePicking } from './app/editorNotePicking.js';
+import { createPacenotePanel } from './ui/pacenotePanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
 
@@ -465,6 +467,8 @@ if (scenarioEditor) {
     getPlayerName: loadProfileName,
     openSettings: mainMenu.openSettings,
   });
+  if (editorFormat.kinds.some((kind) => kind.id === 'stage')) createPacenotePanel(scenarioEditor);
+  createEditorNotePicking({ canvas: renderer.domElement, camera, editor: scenarioEditor });
   scenarioEditor.subscribe(() => {
     const points = scenarioEditor.mapPoints();
     minimapHud.setScenarioPoints(points);

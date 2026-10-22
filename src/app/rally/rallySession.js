@@ -18,6 +18,8 @@ import { readLocalBests, writeLocalBests, localBestKey } from '../../lib/rally/l
 import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
 import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
 import { createStageRun } from './stageRun.js';
+import { createPacenoteRun } from './pacenoteRun.js';
+import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { getVehicle } from '../../lib/vehicles/index.js';
 
@@ -37,10 +39,10 @@ const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
 
-/** Stage file -> { id (its file key), name, points }. */
+/** Stage file -> { id (its file key), name, points, pacenotes }. */
 function readStage(json, id) {
-  const { name, items } = stageKind.fromFile(json);
-  return { id, name, points: items };
+  const { name, items, pacenotes } = stageKind.fromFile(json);
+  return { id, name, points: items, pacenotes };
 }
 
 /** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
@@ -113,6 +115,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
   let itemIndex = 0;
   let results = []; // { name, ms | null (DNF) }
   let run = null;
+  let pacenoteRun = null; // the current stage's, when it has pacenotes
   let finished = false;
   let busy = false; // picking / loading / spawning
   let prev = null; // car world position after the last step
@@ -133,6 +136,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     pickAgain: () => choose(),
   });
   const planHud = createRallyPlanHud();
+  const pacenoteHud = createPacenoteHud();
 
   const isLive = () => !!run?.isLive();
   addressSearch.setBlocked(isLive);
@@ -177,8 +181,10 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     const item = currentItem();
     scenery.setActive(plan.items.slice(0, itemIndex).reduce((n, it) => n + itemPoints(it).length, 0));
     run = null;
+    pacenoteRun = null;
     resultRows = null;
     if (item?.type === 'stage') {
+      if (item.stage.pacenotes?.notes.length) pacenoteRun = createPacenoteRun(item.stage.pacenotes, viewFrame);
       const best = readLocalBests()[bestKey(item.stage)] ?? null;
       run = createStageRun({ points: item.stage.points, getGate: scenery.getGate, best, onEvent: (e) => onStageEvent(item.stage, best, e) });
       if (savedRun) run.restore(savedRun);
@@ -483,6 +489,15 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
     };
   }
 
+  /** Notes from the countdown to the finish. */
+  function pacenoteView() {
+    const phase = run?.state.phase;
+    const pos = carPosition();
+    if (!pacenoteRun || !pos || busy || (phase !== 'countdown' && phase !== 'running')) return null;
+    pacenoteRun.update(pos, phase === 'countdown');
+    return { pacenotes: currentItem().stage.pacenotes, indices: pacenoteRun.shown() };
+  }
+
   function liaisonStatus(type, dist) {
     const label = pointLabel(type).toLowerCase();
     if (rallyFormat.pointTypes[type]?.stop && dist != null && dist < NEAR_ZONE_M) return `Stop in the ${label} zone`;
@@ -577,6 +592,7 @@ export function createRallySession({ scene, streets, terrain, viewFrame, carMana
         shownRed = red;
       }
       hud.render(view());
+      pacenoteHud.render(pacenoteView());
       syncProgress();
     },
 

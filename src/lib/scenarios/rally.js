@@ -1,4 +1,5 @@
-// Rally scenario files (format in the scenarios repo README): stages are ordered gates,
+// Rally scenario files (format in the scenarios repo README): stages are ordered gates
+// (plus optional pacenotes, lib/rally/pacenoteCalls.js),
 // rallies are a base plus an itinerary of gates and stage references (stage file keys,
 // lib/scenarios/paths.js). Both sit in a country / region-or-theme folder. Also the editor's
 // definition for the mode: file kinds, point types and their fields.
@@ -6,6 +7,7 @@
 import { SCENARIO_FORMAT } from '../../config.js';
 import { boardSpots } from '../rally/controlScenery.js';
 import { BOARD_COLORS } from '../rally/fiaBoards.js';
+import { DIRS, GRADES } from '../rally/pacenoteCalls.js';
 
 const DEFAULT_GATE_WIDTH_M = 10;
 const NARROW_GATE_WIDTH_M = 4; // service zones: about one lane
@@ -104,6 +106,36 @@ function readGate(entry) {
   return point;
 }
 
+const isRoutePoint = (p) => Number.isFinite(p?.lat) && Number.isFinite(p.lon) && Number.isFinite(p.s);
+const readRoutePoint = (p) => ({ lat: p.lat, lon: p.lon, s: p.s });
+const writeRoutePoint = (p) => ({ lat: round(p.lat), lon: round(p.lon), s: p.s });
+
+/** Stage file `pacenotes` -> { length, notes } (pacenoteCalls.js), or null; bad notes are dropped. */
+function readPacenotes(entry) {
+  if (!Number.isFinite(entry?.length) || !Array.isArray(entry.notes)) return null;
+  const notes = entry.notes
+    .filter((n) => isRoutePoint(n) && isRoutePoint(n.show) && isRoutePoint(n.apex) && DIRS.includes(n.dir))
+    .filter((n) => n.dir === 'S' || GRADES.includes(n.grade))
+    .map((n) => ({
+      lat: n.lat,
+      lon: n.lon,
+      s: n.s,
+      len: Number.isFinite(n.len) ? n.len : 0,
+      dir: n.dir,
+      ...(n.dir === 'S' ? {} : { grade: n.grade }),
+      ...(n.junction ? { junction: true } : {}),
+      show: readRoutePoint(n.show),
+      apex: readRoutePoint(n.apex),
+    }))
+    .sort((p, q) => p.s - q.s);
+  return { length: entry.length, notes };
+}
+
+const writePacenotes = (pacenotes) =>
+  pacenotes?.notes.length
+    ? { pacenotes: { length: pacenotes.length, notes: pacenotes.notes.map((n) => ({ ...n, lat: round(n.lat), lon: round(n.lon), show: writeRoutePoint(n.show), apex: writeRoutePoint(n.apex) })) } }
+    : {};
+
 const fileMeta = (doc) => ({ country: doc.country, region: doc.region, id: doc.id, name: doc.name });
 const docMeta = (json) => ({ country: json.country ?? '', region: json.region ?? '', id: json.id ?? '', name: json.name ?? '' });
 
@@ -132,8 +164,8 @@ export const rallyFormat = {
       folder: 'stages',
       indexKey: 'stages',
       points: STAGE_POINTS,
-      toFile: (doc) => ({ format: SCENARIO_FORMAT, ...fileMeta(doc), points: doc.items.map(gate) }),
-      fromFile: (json) => ({ ...docMeta(json), items: (json.points ?? []).map(readGate).filter(Boolean) }),
+      toFile: (doc) => ({ format: SCENARIO_FORMAT, ...fileMeta(doc), points: doc.items.map(gate), ...writePacenotes(doc.pacenotes) }),
+      fromFile: (json) => ({ ...docMeta(json), items: (json.points ?? []).map(readGate).filter(Boolean), pacenotes: readPacenotes(json.pacenotes) }),
       validate(doc) {
         const problems = [];
         validateCommon(doc, problems);

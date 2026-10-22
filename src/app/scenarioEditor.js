@@ -1,6 +1,7 @@
 // Scenario editor session (a game mode's Editor button): free driving plus placing the
 // mode's points at the car. Each gate snaps across the nearest road and faces along it unless
-// unticked per point (then exactly where placed / turned by hand). Mode-specific parts come
+// unticked per point (then exactly where placed / turned by hand). Stages get generated,
+// hand-corrected pacenotes (lib/rally/pacenotes.js). Mode-specific parts come
 // from its format (lib/scenarios/formats.js); the panel is ui/editorPanel.js. The draft
 // lives in the editor's save slot; Save commits it to the player's branch on GitHub.
 
@@ -9,6 +10,7 @@ import {
   OFFICIAL_SCENARIO_SOURCE,
   SCENARIO_FORMAT,
   EDITOR_SOURCE_STORAGE_KEY,
+  EDITOR_PACENOTE_BOARDS_STORAGE_KEY,
   EDITOR_SNAP_RADIUS_M,
 } from '../config.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
@@ -17,9 +19,13 @@ import { commitFiles, branchNameFor, readToken } from '../lib/scenarios/github.j
 import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
+import { generatePacenotes, pacenoteAt } from '../lib/rally/pacenotes.js';
+import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
 
 // Points without a known road direction retry the snap this often (streets still loading).
 const DIR_RETRY_MS = 1000;
+const NOTE_MARKER_M = 300; // pacenote markers within this of the car
+const NOTE_COLOR = 0xffffff; // minimap dot
 
 function readStored(key) {
   try {
@@ -54,6 +60,9 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   const state = {
     doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', ...draft } : emptyDoc(format.kinds[0].id),
     selected: -1,
+    selectedNote: -1, // index into doc.pacenotes.notes
+    hoverNote: -1, // under the mouse in the world
+    showNoteBoards: readStored(EDITOR_PACENOTE_BOARDS_STORAGE_KEY) !== '0',
     source: readStored(EDITOR_SOURCE_STORAGE_KEY) ?? OFFICIAL_SCENARIO_SOURCE,
     index: null, // the source's index.json: { [indexKey]: file keys }
     status: { text: '', error: false },
@@ -178,6 +187,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       if (state.doc.items.length && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
       state.doc = emptyDoc(kindId, state.doc);
       state.selected = -1;
+      state.selectedNote = -1;
       state.status = { text: '', error: false };
       changed();
     },
@@ -279,6 +289,82 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       addressSearch.teleport(item.lat, item.lon, format.pointTypes[item.type].label);
     },
 
+    /** Stage: pacenotes from the start through splits / passage controls to the finish, over OSM roads. */
+    generatePacenotes: guard(async () => {
+      if (state.doc.pacenotes?.notes.length && !window.confirm('Generate pacenotes again? Your edits to them will be lost.')) return;
+      setStatus('Pacenotes: fetching roads…');
+      const pacenotes = await generatePacenotes(state.doc.items, {
+        onProgress: (done, total) => setStatus(`Pacenotes: fetching roads ${done}/${total}…`),
+      });
+      state.doc.pacenotes = pacenotes;
+      state.selectedNote = -1;
+      changed();
+      setStatus(`${pacenotes.notes.length} pacenotes over ${(pacenotes.length / 1000).toFixed(1)} km. Move a point? Generate again.`);
+    }),
+    /** Stage: one note where the car is, on the stage road, slotted in by distance and selected. */
+    addNote: guard(async () => {
+      const pos = carManager.getVehicle()?.chassisBody.position;
+      if (!pos) return;
+      const { lat, lon } = viewFrame.toLatLon(pos.x, pos.z);
+      setStatus('Pacenote: fetching roads…');
+      const { length, note } = await pacenoteAt(state.doc.items, lat, lon, {
+        onProgress: (done, total) => setStatus(`Pacenote: fetching roads ${done}/${total}…`),
+      });
+      state.doc.pacenotes ??= { length, notes: [] };
+      const { notes } = state.doc.pacenotes;
+      const i = notes.findIndex((n) => n.s > note.s);
+      state.selectedNote = i < 0 ? notes.length : i;
+      notes.splice(state.selectedNote, 0, note);
+      changed();
+      setStatus(`Added ${noteLabel(note)} at ${note.s} m. Adjust it below.`);
+    }),
+    /** `toggle`: selecting the selected note again clears it (list clicks). */
+    selectNote(i, toggle = true) {
+      state.selectedNote = toggle && state.selectedNote === i ? -1 : i;
+      changed({ save: false });
+    },
+    /** Pacenote tile hit by the ray, as an index, or -1. */
+    pickNote(raycaster) {
+      const note = markers.pick(raycaster);
+      return note ? state.doc.pacenotes?.notes.indexOf(note) ?? -1 : -1;
+    },
+    setHoverNote(i) {
+      state.hoverNote = i;
+    },
+    /** Pacenote boards on the road (and clicking them) on / off. */
+    setShowNoteBoards(on) {
+      state.showNoteBoards = on;
+      writeStored(EDITOR_PACENOTE_BOARDS_STORAGE_KEY, on ? null : '0');
+      if (!on) state.hoverNote = -1;
+      changed({ save: false });
+    },
+    /** Selected note: dir ('L' | 'R' | 'S'), grade (1..6) or junction (boolean). */
+    setNoteField(field, value) {
+      const note = state.doc.pacenotes?.notes[state.selectedNote];
+      if (!note) return;
+      if (field === 'junction') {
+        if (value) note.junction = true;
+        else delete note.junction;
+      } else note[field] = value;
+      // Straight on is only a junction call; a corner needs a grade.
+      if (note.dir === 'S') {
+        delete note.grade;
+        note.junction = true;
+      } else note.grade ??= 6;
+      changed();
+    },
+    deleteNote() {
+      const notes = state.doc.pacenotes?.notes;
+      if (!notes?.[state.selectedNote]) return;
+      notes.splice(state.selectedNote, 1);
+      state.selectedNote = Math.min(state.selectedNote, notes.length - 1);
+      changed();
+    },
+    goToNote() {
+      const note = state.doc.pacenotes?.notes[state.selectedNote];
+      if (note) addressSearch.teleport(note.lat, note.lon, `Pacenote ${state.selectedNote + 1}`);
+    },
+
     setSource(text) {
       state.source = text.trim();
       writeStored(EDITOR_SOURCE_STORAGE_KEY, state.source);
@@ -298,6 +384,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       // The file's folder is where it's saved back to.
       state.doc = { kind: kindId, ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
       state.selected = -1;
+      state.selectedNote = -1;
       changed();
       setStatus(`Opened ${key} from ${state.source}`);
     }),
@@ -345,6 +432,8 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         if (!def || item.lat == null) return;
         points.push({ lat: item.lat, lon: item.lon, color: def.color, label: String(i + 1), gate: !!def.gate, selected: i === state.selected });
       });
+      const note = state.doc.pacenotes?.notes[state.selectedNote];
+      if (note) points.push({ lat: note.lat, lon: note.lon, color: NOTE_COLOR, label: noteLabel(note), gate: false, selected: true });
       return points;
     },
 
@@ -391,6 +480,15 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
           dirX: dir?.dirX ?? 0,
           dirZ: dir?.dirZ ?? 0,
         });
+      });
+      const car = carManager.getVehicle()?.chassisBody.position;
+      const { pacenotes } = state.doc;
+      if (state.showNoteBoards) pacenotes?.notes.forEach((note, i) => {
+        const { x, z } = viewFrame.fromLatLon(note.lat, note.lon);
+        if (!car || Math.hypot(x - car.x, z - car.z) > NOTE_MARKER_M) return;
+        const y = terrain.surfaceHeightAt(x, z);
+        if (y == null) return;
+        entries.push({ key: note, note, label: noteLabel(note), gap: gapLabel(pacenotes, i), selected: i === state.selectedNote, hover: i === state.hoverNote, x, y, z, dirX: 0, dirZ: 0 });
       });
       markers.sync(entries);
       // The dial shows the road's direction once it's known.

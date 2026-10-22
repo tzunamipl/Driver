@@ -272,6 +272,7 @@ export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy
 export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits, set in Settings (ui/githubSettings.js)
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
 export const EDITOR_SOURCE_STORAGE_KEY = 'driver.editorSource.v1'; // scenario source the editor opens from
+export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
 
 // ---------- Scenarios ----------
 // Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.

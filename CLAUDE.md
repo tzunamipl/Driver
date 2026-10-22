@@ -56,7 +56,10 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
 - Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js` + plan map `ui/rallyPlanMap.js`, itinerary, spawn, progress save, blocks
   teleport/navigation via their `setBlocked` while a stage is live) + `stageRun.js` (per-physics-step timing state
   machine); `hud/rallyPlanHud.js` = itinerary side panel, plan icons go to the minimap / Navigation map via `setScenarioPoints`; `lib/rally/` = FIA boards, arches, split flags, fireworks (`controlScenery.js`), per-point-type props (`zoneProps.js`); `hud/rallyHud.js`;
-  R rocks the car (`app/carRocking.js`) instead of resetting it.
+  R rocks the car (`app/carRocking.js`) instead of resetting it. Pacenotes: stage files carry optional `pacenotes` (format +
+  wording in `lib/rally/pacenoteCalls.js`), generated in the editor by `lib/rally/pacenotes.js` (corners/junctions) over
+  `lib/rally/stageRoute.js` (own OSM tile fetch + road graph + route through the gates); in play `app/rally/pacenoteRun.js`
+  tracks the next note, `hud/pacenoteHud.js` draws the strip.
 - Game modes: `app/gameModes.js` lists them; `ui/mainMenu.js` (Continue / Game mode / Settings, Esc mid-game)
   picks one before `main.js` builds the world (top-level await; dev mode skips it), switching mid-game reloads.
   `lib/saves.js` = one save slot per mode, or per mode + start (e.g. `rally.career`; car state, vehicle, nav destination, menu status) - per-mode
