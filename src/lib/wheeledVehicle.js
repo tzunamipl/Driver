@@ -55,11 +55,11 @@ const HANDBRAKE_DYNAMIC_GRIP = 0.7;
 // Over-limit tyres only slide (dynamic grip) past this slip; below it they hold
 // static grip at a slip angle. Thresholds scale with patch speed (peak slip
 // angle in rad, peak slip ratio), with a floor in m/s for low speeds.
-const PEAK_SLIP_ANGLE = 0.12;
+const PEAK_SLIP_ANGLE = 0.4;
 const PEAK_SLIP_RATIO = 0.15;
 const MIN_SLIDE_SLIP_SPEED = 0.5;
 // A sliding tyre regrips only below this share of the slide threshold.
-const REGRIP_SLIP_SHARE = 0.5;
+const REGRIP_SLIP_SHARE = 0.7;
 // Bearing/air drag on a wheel spinning in the air, 1/s.
 const AIR_SPIN_DRAG_PER_S = 0.4;
 // Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
