@@ -17,7 +17,7 @@ export const formatDelta = (ms) => `${ms > 0 ? '+' : ms < 0 ? '-' : '±'}${(Math
 const el = (tag, className) => Object.assign(document.createElement(tag), { className });
 
 /**
- * @param {Record<string, () => void>} actions - button id -> handler (retire, restart, pick, newRally, pickAgain).
+ * @param {Record<string, () => void>} actions - button id -> handler (retire, restart, pick, newRally, pickAgain, mainMenu).
  */
 export function createRallyHud(actions) {
   const root = document.getElementById('rally-hud');
@@ -32,7 +32,7 @@ export function createRallyHud(actions) {
   const buttons = el('div', 'rally-buttons');
   root.append(title, clock, lights, status, next, penalty, results, buttons);
 
-  const LABELS = { retire: 'Retire', restart: 'Restart stage', pick: 'Choose stage', newRally: 'Choose rally', pickAgain: 'Choose again' };
+  const LABELS = { retire: 'Retire', restart: 'Restart stage', pick: 'Choose stage', newRally: 'Choose rally', pickAgain: 'Choose again', mainMenu: 'Main menu' };
   let shownButtons = '';
   let shownResults = null;
 

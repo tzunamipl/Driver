@@ -55,6 +55,7 @@ import { LandcoverAreasManager } from './lib/landcoverAreas.js';
 import { createTrees, createBushes, createRocks } from './lib/trees.js';
 import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
+import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
@@ -86,7 +87,6 @@ import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
 import { createSurfaceHover } from './hud/surfaceHover.js';
 import { createRoadBedInspect } from './hud/roadBedInspect.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
-import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
 import { createFpsGraph } from './hud/fpsGraph.js';
@@ -116,6 +116,11 @@ import { createRallyPicker } from './ui/rallyPicker.js';
 // Stable clientId across reloads, so a refresh isn't a new peer.
 const playerId = loadOrCreatePlayerId();
 const net = createNet({ clientId: playerId });
+
+// ---------- Cloud save ----------
+// Before anything reads the profile or the save slots: a newer backup replaces them.
+await restoreCloudSave(playerId);
+const cloudSave = createCloudSave(playerId);
 
 // ---------- Lobby (name/color + join flow) ----------
 // Before the menu: first-time players set their name there. Its callbacks run after the world is up.
@@ -352,7 +357,6 @@ const vehicleDebugPicker = createVehicleDebugPicker({
   listEl: document.getElementById('vehicle-debug-list'),
   colorEl: document.getElementById('vehicle-debug-color'),
   initialVehicleId: devCarChoice?.vehicleId,
-  initialColor: devCarChoice?.color ?? defaultVehicleColor(devCarChoice?.vehicleId),
 });
 
 // ---------- Input ----------
@@ -378,6 +382,7 @@ const cameraFollow = createCameraFollow(camera, {
     return roof == null ? ground : Math.max(roof, ground ?? -Infinity);
   },
   terrainHeightAt: (x, z) => terrain.surfaceHeightAt(x, z),
+  defaultViewId: getGameMode(getActiveModeId())?.cameraView,
 });
 
 // ---------- HUD ----------
@@ -490,11 +495,12 @@ if (scenarioEditor) {
 }
 
 // ---------- Menus over the game ----------
-// Main menu / stage picker open: the handbrake is pulled and the drone circles the car until they close.
+// Main menu / stage picker / rally results open: the handbrake is pulled and the drone circles the car until they close.
 let menusOpen = 0;
 menuPark = {
   onOpen() {
     if (menusOpen++ > 0) return;
+    cloudSave.push();
     input.latchHandbrake();
     cameraFollow.holdView('drone');
   },
@@ -532,6 +538,8 @@ const rallySession =
           minimapHud.setScenarioPoints(points);
           navigationPanel.setScenarioPoints(points);
         },
+        onFinishHold: (held) => (held ? menuPark.onOpen() : menuPark.onClose()),
+        openMainMenu: mainMenu.open,
       })
     : null;
 /** Respawns the local car as `vehicleId` where it stands, with its saved paint. */
@@ -658,8 +666,7 @@ terrain.init().then(async () => {
     // Dev: no profile; join with the rally's car (just picked or resumed), else the saved debug pick.
     const rallyVehicle = isRallyGame ? readSaveField('vehicle') : null;
     const devVehicleId = rallyVehicle?.vehicleId ?? devCarChoice?.vehicleId;
-    const devColor = rallyVehicle?.color ?? devCarChoice?.color ?? defaultVehicleColor(devVehicleId);
-    lobby.joinRoom('dev_mode', devColor, devVehicleId);
+    lobby.joinRoom('dev_mode', getVehicleColor(devVehicleId), devVehicleId);
     return;
   }
   lobby.joinSaved();

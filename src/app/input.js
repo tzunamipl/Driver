@@ -96,6 +96,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     // Driven wheels; default RWD (hover rigs ignore the index).
     const driveWheels = vehicle.driveWheels ?? [2, 3];
     if (isTypingInField()) {
+      brakePedal = 0;
       for (const i of driveWheels) vehicle.applyEngineForce(0, i);
       steer(vehicle, 0, 0);
       vehicle.airControlYaw = 0;
@@ -260,6 +261,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     isTyping,
     getThrottle: () => throttle,
     getHandbrake: () => ({ on: handbrakeOn, latched: handbrakeLatched }),
+    isBraking: () => brakePedal > 0,
     /** Pulls the handbrake as if held to latch; the next Space press releases it. */
     latchHandbrake() {
       if (handbrakeLatched) return;

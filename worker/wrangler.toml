@@ -23,3 +23,9 @@ simple = { limit = 6, period = 60 }
 name = "SAVE_LIMIT"
 namespace_id = "1002"
 simple = { limit = 6, period = 60 }
+
+# Player backups, per player + IP.
+[[ratelimits]]
+name = "PLAYER_LIMIT"
+namespace_id = "1003"
+simple = { limit = 6, period = 60 }

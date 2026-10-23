@@ -61,10 +61,11 @@ function loadSavedViewId() {
 /**
  * Returns updateCamera(delta, { chassisMesh, podMesh, vehicle, vehicleId, teleporting, resetting }),
  * groundHeightAt(x, z) -> y | null keeps the drone view above terrain and roofs,
- * terrainHeightAt(x, z) -> y | null keeps every view above the terrain;
+ * terrainHeightAt(x, z) -> y | null keeps every view above the terrain,
+ * defaultViewId = view until the player picks one (e.g. the game mode's);
  * with .cycleView/.setView/.holdView/.releaseView/.getViewId/.getViews attached.
  */
-export function createCameraFollow(camera, { groundHeightAt = () => null, terrainHeightAt = () => null } = {}) {
+export function createCameraFollow(camera, { groundHeightAt = () => null, terrainHeightAt = () => null, defaultViewId = DEFAULT_CAMERA_VIEW_ID } = {}) {
   const tmpVec = new THREE.Vector3();
   const tmpOffsetVec = new THREE.Vector3();
   const tmpLookOffsetVec = new THREE.Vector3();
@@ -89,7 +90,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   const tmpAccelLag = new THREE.Vector3();
   let droneSweep = null; // side-to-side sweep phase; null = just switched to the drone
 
-  let viewId = loadSavedViewId() ?? DEFAULT_CAMERA_VIEW_ID;
+  let viewId = loadSavedViewId() ?? defaultViewId;
   const cameraList = createCameraListHud();
   // Current vehicle's vehicleType, refreshed each frame, used to filter
   // vehicle-specific views. null = not known yet (matches any view).

@@ -37,16 +37,16 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`
-    (backfire pops for >290 hp petrol engines, tips from descriptor `exhaustTips`) (all on
+    (backfire pops scaled by descriptor `backfire` 0..1, tips from `exhaustTips`) (all on
     `particles/puffPool.js`), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
-    `headlights.js` = cosmetic lamps (on/off in `app/headlightSwitch.js`); geometry builders tag lamp
+    `headlights.js` = cosmetic lamps + front and rear ground spotlights (brake/reverse on the rear; on/off in `app/headlightSwitch.js`); geometry builders tag lamp
     materials with `userData: { lamp: 'head' | 'tail' | 'fog' }`.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
     `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
-    `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage).
+    `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
   `lib/scenarios/` = `source.js` (fetch by commit), `paths.js` (files at `<mode>/<country>/<region>/<kind>/<id>.json`; the `country/region/id` key is what index + refs use), `publish.js` (editor save via the worker to the player-name branch + PR), one format
   per mode registered in `formats.js` (`rally.js`), `roadSnap.js` + `gateMarkers.js`. A mode's Editor button starts an

@@ -5,6 +5,8 @@
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
 //        -> { board, rank, improved }
 //   POST /scenarios { branch, folder, kindFolder, key, content } -> { owner, repo, branch, sha, unchanged, pr }
+//   POST /player/load { playerId } -> { save: { updatedAt, data } | null }
+//   POST /player/save { playerId, updatedAt, data } -> { stored }  (also sent as a text/plain beacon)
 
 const SLUG = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const STAGE_KEY_RE = new RegExp(`^(?:${SLUG}/${SLUG}/)?${SLUG}$`); // bare `id` = flat layout from before countries
@@ -22,6 +24,9 @@ const STAGE_CACHE_S = 300;
 const BRANCH_RE = new RegExp(`^${SLUG}$`);
 const BRANCH_MAX = 40;
 const SCENARIO_MAX_BYTES = 256 * 1024;
+const PLAYER_SAVE_MAX_BYTES = 128 * 1024;
+// localStorage keys a player backup may hold (src/lib/cloudSave.js).
+const PLAYER_SAVE_KEYS = new Set(['driver.saves.v1', 'driver.lobby.v1', 'driver.vehicleOdometers.v1']);
 // `<mode folder>/<kind folder>` the editor may save -> its index.json list and commit label.
 const SCENARIO_KINDS = {
   'rally/stages': { indexKey: 'stages', label: 'Stage' },
@@ -195,6 +200,55 @@ async function getBoard(env, key) {
   return currentBoard(board, key, await fingerprint(head));
 }
 
+// ---------- Player backups ----------
+
+const playerSavePath = (player) => `players/${player}.json`;
+
+function readPlayerSave(body) {
+  const { playerId, updatedAt, data } = body ?? {};
+  if (!PLAYER_ID_RE.test(playerId ?? '')) throw new HttpError(400, 'Bad playerId');
+  if (!Number.isInteger(updatedAt) || updatedAt <= 0) throw new HttpError(400, 'Bad updatedAt');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new HttpError(400, 'Bad data');
+  for (const [key, value] of Object.entries(data)) {
+    if (!PLAYER_SAVE_KEYS.has(key) || (value !== null && typeof value !== 'string')) throw new HttpError(400, 'Bad data');
+  }
+  if (JSON.stringify(data).length > PLAYER_SAVE_MAX_BYTES) throw new HttpError(413, 'Save too large');
+  return { playerId, updatedAt, data };
+}
+
+/** Backup file + its blob sha (null when the player has none). */
+async function readPlayerFile(env, player) {
+  const res = await gh(env, 'GET', `/contents/${playerSavePath(player)}?ref=${encodeURIComponent(env.DATA_BRANCH)}`);
+  if (res.status === 404) return { save: null, sha: null };
+  if (!res.ok) throw new HttpError(502, `Data repo: ${res.status}`);
+  const file = await res.json();
+  return { save: JSON.parse(fromBase64(file.content)), sha: file.sha };
+}
+
+async function loadPlayer(env, body) {
+  if (!PLAYER_ID_RE.test(body?.playerId ?? '')) throw new HttpError(400, 'Bad playerId');
+  const { save } = await readPlayerFile(env, await playerHash(body.playerId));
+  return { save: save && { updatedAt: save.updatedAt, data: save.data } };
+}
+
+/** Keeps the newer copy: one older than the stored backup (another tab, a late beacon) is dropped. */
+async function savePlayer(env, sub) {
+  const player = await playerHash(sub.playerId);
+  for (let attempt = 0; ; attempt++) {
+    const { save, sha } = await readPlayerFile(env, player);
+    if (save && save.updatedAt >= sub.updatedAt) return { stored: false };
+    const res = await gh(env, 'PUT', `/contents/${playerSavePath(player)}`, {
+      message: `player ${player}`,
+      content: toBase64(`${JSON.stringify({ updatedAt: sub.updatedAt, data: sub.data })}\n`),
+      branch: env.DATA_BRANCH,
+      ...(sha ? { sha } : {}),
+    });
+    if (res.ok) return { stored: true };
+    if ((res.status === 409 || res.status === 422) && attempt < PUT_RETRIES) continue;
+    throw new HttpError(502, `Data repo: ${res.status}`);
+  }
+}
+
 // ---------- Scenario saves ----------
 
 /** Scenarios repo call that throws on failure; GET 404 -> null. */
@@ -334,6 +388,18 @@ export default {
         const ip = request.headers.get('CF-Connecting-IP') ?? '';
         if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: ip })).success) throw new HttpError(429, 'Too many saves, wait a minute');
         return json(await saveScenario(env, save), 200, cors);
+      }
+      if (request.method === 'POST' && url.pathname === '/player/load') {
+        return json(await loadPlayer(env, await request.json().catch(() => null)), 200, cors);
+      }
+      if (request.method === 'POST' && url.pathname === '/player/save') {
+        // Read as text: beacons come as text/plain.
+        const sub = readPlayerSave(await request.text().then(JSON.parse).catch(() => null));
+        const ip = request.headers.get('CF-Connecting-IP') ?? '';
+        if (env.PLAYER_LIMIT && !(await env.PLAYER_LIMIT.limit({ key: `${sub.playerId}|${ip}` })).success) {
+          throw new HttpError(429, 'Too many saves');
+        }
+        return json(await savePlayer(env, sub), 200, cors);
       }
       return json({ error: 'Not found' }, 404, cors);
     } catch (err) {

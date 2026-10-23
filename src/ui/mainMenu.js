@@ -184,6 +184,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   );
 
   return {
+    open: () => open(),
     openSettings: () => open('settings'),
     /** Resolves once a mode is active: dev mode and mid-game switches skip the menu. */
     async waitForLaunch() {

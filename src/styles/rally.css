@@ -35,7 +35,7 @@
 .rally-results { margin-top: 6px; font: 13px/1.5 monospace; text-align: left; }
 .rally-result-row { display: flex; justify-content: space-between; gap: 24px; }
 .rally-result-row:last-child { font-weight: bold; border-top: 1px solid #888; }
-.rally-buttons { display: flex; justify-content: center; gap: 6px; margin-top: 8px; pointer-events: auto; }
+.rally-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; pointer-events: auto; }
 .rally-buttons button { color: #000; }
 
 /* Pacenote strip under the rally clock, the coming note first. */
@@ -182,6 +182,7 @@
 .rally-car-pick,
 .rally-car-showcase { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .rally-car-showcase { gap: 6px; }
+.rally-car-pick .vehicle-color { margin-top: 6px; }
 .rally-vehicle-preview {
   width: 100%;
   height: 160px;

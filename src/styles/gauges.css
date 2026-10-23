@@ -51,7 +51,7 @@
 #transmission-mode {
   position: absolute;
   left: 50%;
-  top: 73%;
+  top: 67%;
   transform: translate(-50%, -50%);
   padding: 2px 8px;
   border: 1px solid currentColor;
@@ -64,7 +64,8 @@
   cursor: pointer;
 }
 #gear-mode[data-mode="comfort"] { color: #4fc3ff; }
-/* Manual box: sport/comfort doesn't apply. */
+#gear-mode[data-mode="eco"] { color: #6fdc6f; }
+/* Manual box: sport/comfort/eco doesn't apply. */
 #gear-mode.inactive { opacity: 0.35; pointer-events: none; }
 #transmission-mode {
   top: 85%;

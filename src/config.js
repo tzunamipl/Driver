@@ -282,6 +282,7 @@ export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1'; // legacy, migrated i
 export const SAVES_STORAGE_KEY = 'driver.saves.v1'; // per-game-mode save slots (lib/saves.js)
 export const LAUNCH_STORAGE_KEY = 'driver.launch'; // sessionStorage: mode to start after a menu reload
 export const VEHICLE_COLORS_STORAGE_KEY = 'driver.vehicleColors.v1'; // per-vehicle paint
+export const DEFAULT_PAINT_STORAGE_KEY = 'driver.defaultPaint.v1'; // '1' = every car in its default paint
 export const VEHICLE_ODOMETERS_STORAGE_KEY = 'driver.vehicleOdometers.v1'; // per-vehicle km, shared by all modes
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
@@ -290,7 +291,7 @@ export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
-export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
+export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort/eco gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
 export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old editor saves; wiped on start
@@ -306,3 +307,10 @@ export const SCENARIO_FORMAT = 2; // files with a newer format are rejected
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
 export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times or editor saves
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }
+
+// ---------- Cloud save ----------
+// Backup of save slots, profile and odometers through the worker (lib/cloudSave.js), keyed by the player id.
+export const CLOUD_SAVE_STORAGE_KEY = 'driver.cloudSave.v1'; // { hash, updatedAt, pushedAt } of the backed-up data
+export const CLOUD_SAVE_INTERVAL_MS = 2 * 60_000; // each push is a data-repo commit
+export const CLOUD_SAVE_MIN_GAP_MS = 30_000; // menu opens push sooner, but not more often than this
+export const CLOUD_SAVE_RESTORE_TIMEOUT_MS = 3000; // launch waits this long for the backup, then plays on local data

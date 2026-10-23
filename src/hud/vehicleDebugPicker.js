@@ -1,12 +1,13 @@
 // Debug-view vehicle/colour picker (dev mode has no lobby): swaps the car
 // live via carManager, broadcasts via net, and persists the pick to
-// DEV_CAR_STORAGE_KEY for the next dev-mode join. Switching vehicles always
-// starts from the vehicle's default colour.
+// DEV_CAR_STORAGE_KEY for the next dev-mode join. Paint goes through the shared
+// per-vehicle colours (ui/vehicleColorPicker.js), stored as it changes.
 
 import { createVehiclePicker } from '../ui/vehiclePicker.js';
-import { DEFAULT_BODY_COLOR, DEV_CAR_STORAGE_KEY } from '../config.js';
+import { createVehicleColorPicker } from '../ui/vehicleColorPicker.js';
+import { DEV_CAR_STORAGE_KEY } from '../config.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
-import { defaultVehicleColor } from '../lib/vehicleColors.js';
+import { getVehicleColor } from '../lib/vehicleColors.js';
 
 /** Saved dev-mode car/colour pick, if any. */
 export function loadDevCarChoice() {
@@ -29,53 +30,52 @@ function saveDevCarChoice(color, vehicleId) {
   }
 }
 
-function colorToHex(color) {
-  return `#${color.toString(16).padStart(6, '0')}`;
-}
-
 /**
  * @param {object} deps
  * @param {import('../app/carManager.js').CarManager} deps.carManager
  * @param {ReturnType<import('../lib/net.js').createNet>} deps.net
  * @param {HTMLElement} deps.tabsEl
  * @param {HTMLElement} deps.listEl
- * @param {HTMLInputElement} [deps.colorEl] - colour input
+ * @param {HTMLElement} [deps.colorEl] - container for the paint widget
  * @param {string} [deps.initialVehicleId] - initial highlight (saved pick before spawn)
- * @param {number} [deps.initialColor]
  */
-export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colorEl, initialVehicleId, initialColor }) {
+export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colorEl, initialVehicleId }) {
   const picker = createVehiclePicker({
     tabsEl,
     listEl,
     initialVehicleId: initialVehicleId ?? carManager.getVehicleId(),
     onSelect: (vehicleId) => {
-      const color = defaultVehicleColor(vehicleId);
+      const color = getVehicleColor(vehicleId);
       carManager.setVehicleKind(vehicleId, color);
       net.setVehicleId(vehicleId);
       net.setColor(color);
-      if (colorEl) colorEl.value = colorToHex(color);
+      colors?.show(vehicleId);
       saveDevCarChoice(color, vehicleId);
     },
   });
 
-  if (colorEl) {
-    colorEl.value = colorToHex(initialColor ?? carManager.getColor() ?? DEFAULT_BODY_COLOR);
-    colorEl.addEventListener('input', () => {
-      const hex = String(colorEl.value || '').replace('#', '');
-      const n = Number.parseInt(hex, 16);
-      const color = Number.isInteger(n) && n >= 0 && n <= 0xffffff ? n : DEFAULT_BODY_COLOR;
-      const vehicleId = carManager.getVehicleId() ?? DEFAULT_VEHICLE_ID;
-      carManager.setColor(color);
-      net.setColor(color);
-      saveDevCarChoice(color, vehicleId);
-    });
+  // Live: every edit repaints the car and is stored straight away.
+  const colors = colorEl
+    ? createVehicleColorPicker({
+        onChange: (color) => {
+          colors?.commit();
+          if (!carManager.getVehicle() || color === carManager.getColor()) return;
+          carManager.setColor(color);
+          net.setColor(color);
+          saveDevCarChoice(color, carManager.getVehicleId() ?? DEFAULT_VEHICLE_ID);
+        },
+      })
+    : null;
+  if (colors) {
+    colorEl.append(colors.el);
+    colors.show(picker.getSelectedId());
   }
 
   return {
     // Re-sync with the actual car after a (re)spawn.
     syncFromCar: () => {
       picker.select(carManager.getVehicleId());
-      if (colorEl) colorEl.value = colorToHex(carManager.getColor() ?? DEFAULT_BODY_COLOR);
+      colors?.show(carManager.getVehicleId());
     },
   };
 }

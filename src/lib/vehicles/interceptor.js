@@ -25,8 +25,8 @@ export default {
     frictionSlip: 1.0,
     dampingRelaxation: 8.5,
     dampingCompression: 6.0,
-    rollInfluence: 0.2,
-    pitchInfluence: 0.6,
+    rollInfluence: 0.3,
+    pitchInfluence: 1.0,
   },
   suspensionForceG: 8,
   engine: 'v8',
@@ -43,6 +43,7 @@ export default {
   abs: false,
   mass: 1550,
   fuelTankL: 180, // twin boot tanks
+  backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,

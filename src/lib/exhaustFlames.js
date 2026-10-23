@@ -1,12 +1,12 @@
-// Exhaust backfire: flame pops from the tailpipes of powerful petrol engines
-// while revving high off load (lift-off, gear-change torque cut).
+// Exhaust backfire: flame pops from the tailpipes while revving high off load
+// (lift-off, gear-change torque cut). Amount from descriptor `backfire` (0 none .. 1 full).
 // Tips come from descriptor `exhaustTips` ([{ pos: [x, y, z], dir: [x, y, z] }],
 // chassis-local); without them, one tip at the rear bottom of the body.
 
 import * as THREE from 'three';
 import { createPuffPool } from './particles/puffPool.js';
 
-const MIN_POWER_HP = 290;
+const DEFAULT_BACKFIRE = 0;
 const POOL_SIZE = 96;
 const PARTICLE_LIFETIME_S = 0.12;
 const START_SCALE = 0.07;
@@ -108,7 +108,8 @@ export function createExhaustFlames(scene, { onPop } = {}) {
 
     const engine = vehicle?.engine;
     if (!engine || !chassisMesh || !descriptor) return;
-    if ((descriptor.enginePowerHp ?? 0) <= MIN_POWER_HP || descriptor.fuelType === 'diesel') return;
+    const backfire = descriptor.backfire ?? DEFAULT_BACKFIRE;
+    if (backfire <= 0) return;
 
     const revFraction = (engine.rpm - engine.idleRpm) / (engine.redlineRpm - engine.idleRpm);
     const shiftStarted = engine.shiftTimer > prevShiftTimer;
@@ -117,14 +118,14 @@ export function createExhaustFlames(scene, { onPop } = {}) {
     prevRevFraction = revFraction;
 
     resolveTips(descriptor, chassisMesh);
-    if (shiftStarted && shiftRevFraction > MIN_REV_FRACTION) {
+    if (shiftStarted && shiftRevFraction > MIN_REV_FRACTION && Math.random() < backfire) {
       pop(chassisMesh, vehicle.chassisBody.velocity, 1);
       return;
     }
     const offLoad = engine.throttle === 0 || engine.shiftTimer > 0;
     if (!offLoad || revFraction <= MIN_REV_FRACTION) return;
     const k = Math.min(1, (revFraction - MIN_REV_FRACTION) / (1 - MIN_REV_FRACTION));
-    const rate = POP_RATE_PER_S[0] + (POP_RATE_PER_S[1] - POP_RATE_PER_S[0]) * k;
+    const rate = (POP_RATE_PER_S[0] + (POP_RATE_PER_S[1] - POP_RATE_PER_S[0]) * k) * backfire;
     if (Math.random() < rate * dt) pop(chassisMesh, vehicle.chassisBody.velocity, OVERRUN_STRENGTH[0] + (OVERRUN_STRENGTH[1] - OVERRUN_STRENGTH[0]) * k);
   }
 

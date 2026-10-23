@@ -26,7 +26,9 @@ const COMFORT_DOWNSHIFT_BAND_FRACTION = 0.15;
 const COMFORT_HUNT_MARGIN = 1.15;
 // After a manual shift the automatic holds off this long.
 const MANUAL_HOLD_S = 5;
-export const GEAR_MODES = ['sport', 'comfort'];
+export const GEAR_MODES = ['sport', 'comfort', 'eco'];
+// Pedal cap per automatic mode; eco shifts like comfort.
+const MODE_THROTTLE_CAP = { sport: 1, comfort: 0.75, eco: 0.5 };
 // On throttle in a slide: drop a gear below this rpm if the lower gear lands
 // under SLIDE_TARGET_RPM_FRACTION (gap below the upshift point avoids hunting).
 const SLIDE_DOWNSHIFT_RPM_FRACTION = 0.65;
@@ -294,7 +296,8 @@ export function createEngineState(descriptor, wheelRadius) {
    * unsigned chassis speed (m/s), picks the upshift point. grounded: no
    * upshifts while the driven wheels are in the air. slipping: driven wheels
    * sliding: on throttle it drops gears to keep rpm high, else it holds.
-   * mode: 'sport' (late shifts, slide downshifts) or 'comfort' (early shifts).
+   * mode: 'sport' (late shifts, slide downshifts), 'comfort' (early shifts, 75% pedal)
+   * or 'eco' (early shifts, 50% pedal); manual ignores it.
    */
   function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, forwardSpeed: signedSpeed = 0, grounded = true, slipping = false, mode = 'sport' }) {
     forwardSpeed = signedSpeed;
@@ -347,14 +350,15 @@ export function createEngineState(descriptor, wheelRadius) {
     if (!engine.manual && engine.gear >= 1 && engine.shiftTimer <= 0 && engine.manualHoldTimer <= 0 && grounded) {
       const groundRpm = toRpm(groundAngularSpeed, ratio);
       const upshiftRpm = Math.min(engine.rpm, groundRpm);
-      const shift = mode === 'comfort' ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
+      const shift = mode !== 'sport' ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
       if (shift !== 0) shiftTo(engine.gear + shift);
     }
 
     // Gear may have changed above.
     const totalRatio = Math.abs(ratioForGear(engine.gear)) * profile.finalDriveRatio;
     const inTorqueCut = engine.shiftTimer > profile.shiftDurationS * (1 - SHIFT_TORQUE_CUT_FRACTION);
-    const clampedThrottle = direction === 0 ? 0 : Math.max(0, throttle);
+    const throttleCap = engine.manual ? 1 : MODE_THROTTLE_CAP[mode] ?? 1;
+    const clampedThrottle = direction === 0 ? 0 : Math.min(throttleCap, Math.max(0, throttle));
     engine.throttle = clampedThrottle;
     // Torque from the unsmoothed wheel rpm, so the limiter bites immediately;
     // while the clutch slips at pull-away, from the revving engine instead.

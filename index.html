@@ -71,11 +71,8 @@
           <div id="lobby-fields">
             <label for="lobby-name">Name</label>
             <input id="lobby-name" name="nickname" type="text" maxlength="16" required placeholder="Your name" />
-            <label for="lobby-color">Color</label>
-            <div id="lobby-color-row">
-              <input id="lobby-color" name="color" type="color" value="#ffffff" />
-              <button id="lobby-color-reset" type="button" title="Restore this vehicle's default colour">Default</button>
-            </div>
+            <label id="lobby-color-label">Color</label>
+            <div id="lobby-color"></div>
             <label>Vehicle</label>
             <div id="vehicle-picker">
               <div id="vehicle-tabs" role="tablist"></div>
@@ -127,7 +124,7 @@
             <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
             <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
             <div class="hud-line">Shift &mdash; turbo</div>
-            <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT on the rev counter)</div>
+            <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT/ECO on the rev counter)</div>
             <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
             <div class="hud-line">H &mdash; horn</div>
             <div class="hud-line">L &mdash; headlights (automatic at night)</div>
@@ -211,7 +208,7 @@
           <div class="susp-title">VEHICLE</div>
           <div id="vehicle-debug-tabs"></div>
           <div id="vehicle-debug-list"></div>
-          <input id="vehicle-debug-color" type="color" value="#ffffff" aria-label="Car color" />
+          <div id="vehicle-debug-color"></div>
         </div>
         <div id="debug-layers-hud">
           <div class="susp-title">LAYERS</div>

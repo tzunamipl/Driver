@@ -137,7 +137,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       button('Close', () => (exportEl.hidden = true)),
     ]),
   ]);
-  const saveButton = button('Save', async () => {
+  const saveButton = button('Publish', async () => {
     await editor.save();
     tree.reload();
   });
@@ -345,7 +345,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
 
     // The list was rebuilt: the hovered row is gone.
     if (tipTarget && !tipTarget.isConnected) hideTip();
-    branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" (shared by everyone with your name) and are sent for review.`;
+    branchEl.textContent = `Publishing goes to branch "${branchNameFor(getPlayerName())}" (shared by everyone with your name) and are sent for review.`;
     for (const btn of root.querySelectorAll('button')) btn.disabled = state.busy && btn !== toggle;
     statusEl.textContent = state.status.text;
     statusEl.classList.toggle('is-error', state.status.error);

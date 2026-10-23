@@ -22,6 +22,7 @@ import { createPacenoteRun } from './pacenoteRun.js';
 import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { getVehicle } from '../../lib/vehicles/index.js';
+import { getVehicleColor } from '../../lib/vehicleColors.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
@@ -31,6 +32,7 @@ const LIAISON_STOP_SPEED = 0.6; // m/s: counts as stopped
 const ROUTE_MIN_M = 250; // closer targets aren't worth a navigation route
 const JUMP_GUARD_M = 50; // a step moving the car further (teleport, reset) checks nothing
 const SPLIT_SHOW_S = 5;
+const STAGE_DONE_SHOW_S = 10; // rally: a finished stage's time + world rank over the next item
 const GO_SHOW_S = 1.5;
 const NEAR_ZONE_M = 80;
 const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the car state
@@ -109,8 +111,10 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  * @param {() => number} [deps.getTimeOfDayMs] - simulated clock (epoch ms) for the control clocks.
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
+ * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
+ * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -119,10 +123,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   let run = null;
   let pacenoteRun = null; // the current stage's, when it has pacenotes
   let finished = false;
+  let finishHeld = false;
   let busy = false; // picking / loading / spawning
   let prev = null; // car world position after the last step
   let simTime = 0;
-  let flash = null; // { text, until } short status after a split / GO
+  let flash = null; // { text, until, result? } short status after a split / GO / a rally's stage
   let resultRows = null; // stable array for the HUD while unchanged
   const step = { x: 0, z: 0 };
   let shownRed = 0; // countdown lights already beeped for
@@ -136,6 +141,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     pick: () => choose(),
     newRally: () => choose(),
     pickAgain: () => choose(),
+    mainMenu: () => openMainMenu?.(),
   });
   const planHud = createRallyPlanHud();
   const pacenoteHud = createPacenoteHud();
@@ -231,6 +237,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       }
       const result = { name: stage.name, ms: event.ms, splits: run.state.splits, penaltyMs: run.penaltyMs(), best };
       submitOnline(stage, result);
+      if (plan.kind === 'rally') showStageDone(result);
       itemDone(result);
     }
     if (event.type === 'retired') itemDone({ name: stage.name, ms: null, splits: run.state.splits, penaltyMs: 0, best });
@@ -258,7 +265,14 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       })
       .finally(() => {
         resultRows = null;
+        if (flash?.result === result) showStageDone(result);
       });
+  }
+
+  /** Rally: the stage just driven, and its world rank once that's back, over the next item's status. */
+  function showStageDone(result) {
+    const rank = online.has(result) ? `  ·  World rank: ${onlineRank(online.get(result))}` : '';
+    flash = { text: `${result.name}: ${formatTime(result.ms)}${rank}`, until: simTime + STAGE_DONE_SHOW_S, result };
   }
 
   function itemDone(result) {
@@ -330,7 +344,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       run = null;
       finished = false;
       saveProgress();
-      if (picked.vehicleId !== getVehicleId()) switchVehicle(picked.vehicleId);
+      if (picked.vehicleId !== getVehicleId() || getVehicleColor(picked.vehicleId) !== carManager.getColor()) switchVehicle(picked.vehicleId);
       await startPlan(picked.plan);
     } catch (err) {
       console.warn('Rally:', err);
@@ -395,7 +409,10 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         else if (r?.ms != null) rows.push(['Best', 'New best!']);
         if (r && online.has(r)) rows.push(...onlineRows(online.get(r)));
       } else {
-        for (const r of results) rows.push([r.name, r.ms == null ? 'DNF' : formatTime(r.ms)]);
+        for (const r of results) {
+          rows.push([r.name, r.ms == null ? 'DNF' : formatTime(r.ms)]);
+          if (online.has(r)) rows.push(...onlineRows(online.get(r)));
+        }
         const dnf = results.some((r) => r.ms == null);
         rows.push(['Total', dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))]);
       }
@@ -404,14 +421,19 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     return {
       title: plan.kind === 'stage' ? `${plan.name} · finished` : `${plan.name} · rally finished`,
       results: resultRows,
-      buttons: plan.kind === 'stage' ? ['restart', 'pick'] : ['newRally'],
+      buttons: plan.kind === 'stage' ? ['restart', 'pick', 'mainMenu'] : ['newRally', 'mainMenu'],
     };
   }
 
+  function onlineRank(entry) {
+    if (!entry) return 'Sending…';
+    if (entry.error) return entry.error;
+    return entry.rank ? `${entry.rank} / ${entry.count} · ${getVehicle(entry.vehicle).name}` : '-';
+  }
+
   function onlineRows(entry) {
-    if (!entry) return [['World rank', 'Sending…']];
-    if (entry.error) return [['World rank', entry.error]];
-    const rows = [['World rank', entry.rank ? `${entry.rank} / ${entry.count} · ${getVehicle(entry.vehicle).name}` : '-']];
+    const rows = [['World rank', onlineRank(entry)]];
+    if (!entry || entry.error) return rows;
     if (entry.leader) rows.push(['World best', `${formatTime(entry.leader.totalMs)} · ${entry.leader.name} · ${getVehicle(entry.leader.vehicle).name}`]);
     return rows;
   }
@@ -592,6 +614,12 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         // A beep as each countdown light comes on.
         if (red > shownRed) onStartBeep?.(false);
         shownRed = red;
+      }
+      // Results up: parked under the drone, as with a menu open, until a new run starts.
+      const hold = finished && !!plan;
+      if (hold !== finishHeld) {
+        finishHeld = hold;
+        onFinishHold?.(hold);
       }
       hud.render(view());
       pacenoteHud.render(pacenoteView());

@@ -25,8 +25,8 @@ const SUSPENSION = {
   frictionSlip: 1.0,
   dampingRelaxation: 2.71,
   dampingCompression: 1.48,
-  rollInfluence: 0.13,
-  pitchInfluence: 0.5,
+  rollInfluence: 0.3,
+  pitchInfluence: 1.0,
 };
 
 const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
@@ -78,6 +78,7 @@ export default {
   abs: false,
   mass: MASS,
   fuelTankL: 120,
+  backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.55, -0.3, -1.95] })),
   steerSpeedD: STEER_SPEED_D,
   maxSteerAt0: MAX_STEER_AT_0,

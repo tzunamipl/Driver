@@ -21,8 +21,8 @@ export default {
     frictionSlip: 1.1,
     dampingRelaxation: 5.3,
     dampingCompression: 3.7,
-    rollInfluence: 0.15,
-    pitchInfluence: 0.5,
+    rollInfluence: 0.3,
+    pitchInfluence: 1.0,
   },
   suspensionForceG: 8,
   engine: 'r4',
@@ -39,6 +39,7 @@ export default {
   abs: false,
   mass: 1230,
   fuelTankL: 60,
+  backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [{ pos: [-0.5, -0.27, -2.24] }],
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,

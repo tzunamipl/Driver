@@ -31,8 +31,8 @@ export default {
     frictionSlip: 1.0,
     dampingRelaxation: 3.4,
     dampingCompression: 2.4,
-    rollInfluence: 0.12,
-    pitchInfluence: 0.5,
+    rollInfluence: 0.3,
+    pitchInfluence: 1.0,
   },
   suspensionForceG: 9,
   engine: 'v8',
@@ -50,6 +50,7 @@ export default {
   abs: false,
   mass: 4000,
   fuelTankL: 400,
+  backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].flatMap((sx) => [0, 1, 2].map((i) => ({ pos: [sx * (0.86 + i * 0.07), 1.88, 1.22 - i * 0.18], dir: [sx * 0.12, 0.97, -0.2] }))), // stack tops
   steerSpeedD: 0.006,
   maxSteerAt0: 0.5,

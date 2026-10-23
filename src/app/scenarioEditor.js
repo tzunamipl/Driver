@@ -3,7 +3,7 @@
 // unticked per point (then exactly where placed / turned by hand). Stages get generated,
 // hand-corrected pacenotes (lib/rally/pacenotes.js). Mode-specific parts come
 // from its format (lib/scenarios/formats.js); the panel is ui/editorPanel.js. The draft
-// lives in the editor's save slot; Save commits it to the player's branch (lib/scenarios/publish.js).
+// lives in the editor's save slot; Publish commits it to the player's branch (lib/scenarios/publish.js).
 
 import {
   OFFICIAL_SCENARIO_SOURCE,
@@ -391,9 +391,9 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     save: guard(async () => {
       const problems = kind().validate(state.doc);
       if (problems.length) throw new Error(problems.join('; '));
-      if (!publishEnabled()) throw new Error('Saving is off in this build: use Export');
+      if (!publishEnabled()) throw new Error('Publishing is off in this build: use Export');
       const branch = branchNameFor(getPlayerName());
-      setStatus(`Saving to branch ${branch}…`);
+      setStatus(`Publishing to branch ${branch}…`);
       const result = await publishScenario({
         branch,
         folder: format.folder,
@@ -403,7 +403,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       });
       editor.setSource(formatSource({ owner: result.owner, repo: result.repo, ref: result.branch }));
       ({ index: state.index } = await loadIndex());
-      setStatus(result.unchanged ? 'No changes to save' : `Saved, sent for review. Play it from source ${state.source}`);
+      setStatus(result.unchanged ? 'No changes to publish' : `Published, sent for review. Play it from source ${state.source}`);
     }),
 
     /** The file's placed points for the minimap, numbered like their 3D markers. */

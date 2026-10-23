@@ -34,28 +34,39 @@
   font-size: 11px;
   margin-bottom: 4px;
 }
-#lobby label[for="lobby-color"] {
+#lobby-color-label {
   margin-top: 12px;
 }
 #lobby input[type="text"] {
   width: 100%;
 }
-#lobby-color-row {
-  display: flex;
-  gap: 8px;
+#lobby-color {
   margin: 0 0 12px;
 }
-#lobby-color-reset {
+/* Paint widget (ui/vehicleColorPicker.js): colour + Default, then the default-paint toggle. */
+.vehicle-color-row {
+  display: flex;
+  gap: 8px;
+}
+.vehicle-color-reset {
   flex: none;
   min-width: 75px;
 }
-#lobby-color {
+.vehicle-color-input {
   display: block;
   flex: 1;
   min-width: 0;
   height: 26px;
   box-sizing: border-box;
   margin: 0;
+}
+#lobby .vehicle-color-toggle,
+.vehicle-color-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 0;
+  white-space: nowrap;
 }
 #lobby-body {
   display: flex;

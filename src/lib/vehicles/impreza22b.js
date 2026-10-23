@@ -40,6 +40,7 @@ export default {
   abs: false,
   mass: 1270,
   fuelTankL: 60,
+  backfire: 0.3,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

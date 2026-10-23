@@ -3,6 +3,7 @@
 // (`available: false` greys one out). The menu labels them "New <name>" and, for `saves` starts,
 // "Resume <name>"; other starts keep nothing but `keepOnNewGame` fields and start over after a reload.
 // `keepOnNewGame`: save fields a new game keeps (e.g. the last picked car).
+// `cameraView`: camera view until the player picks one (C), else the global default.
 // `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
 // `editor`: the mode gets an Editor button; `editorAvailable` enables it (needs a format in lib/scenarios/formats.js).
 
@@ -24,6 +25,7 @@ export const GAME_MODES = [
       { id: 'career', name: 'Career', saves: true, available: false },
     ],
     keepOnNewGame: ['vehicle'],
+    cameraView: 'close',
     directionSignHud: false,
     editor: true,
     editorAvailable: true,

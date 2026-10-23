@@ -320,6 +320,8 @@ export function createMainLoop({
       chassisMesh: currentChassisMesh,
       wheeled: currentVehicle?.vehicleType !== 'hover',
       on: lightsOn,
+      braking: input.isBraking(),
+      reversing: currentVehicle?.engine?.gear === 0,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
     const debugVisualsEnabled = debugVisuals.isEnabled();

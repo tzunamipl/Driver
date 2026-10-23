@@ -1,5 +1,5 @@
 // Stage / rally picker: the car to drive (ui/vehiclePicker.js, with the lobby's turning
-// model + stats, ui/vehiclePreview.js) and a folding tree of the official scenarios and
+// model + stats, ui/vehiclePreview.js, and its paint, ui/vehicleColorPicker.js) and a folding tree of the official scenarios and
 // every player's branch (ui/scenarioTree.js); picking a file shows its plan on a map
 // (ui/rallyPlanMap.js) with its best times (ui/rallyBestTimes.js), Start (or a double-click) drives it.
 
@@ -9,7 +9,7 @@ import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
 import { createRallyPlanMap } from './rallyPlanMap.js';
 import { createRallyBestTimes } from './rallyBestTimes.js';
-import { getVehicleColor } from '../lib/vehicleColors.js';
+import { createVehicleColorPicker } from './vehicleColorPicker.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 
@@ -27,10 +27,12 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
   const preview = createVehiclePreview({ canvas, statsEl: stats });
   const map = createRallyPlanMap();
   const times = createRallyBestTimes({ playerId });
+  // Paint edits are stored on Start, dropped on Back.
+  const colors = createVehicleColorPicker({ onChange: (color) => preview.setColor(color) });
 
   function showVehicle(vehicleId) {
     preview.setVehicle(vehicleId);
-    preview.setColor(getVehicleColor(vehicleId));
+    colors.show(vehicleId);
   }
 
   /**
@@ -46,6 +48,8 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
   function pick({ title, folder, kind, loadPlan, vehicleId }) {
     return new Promise((resolve) => {
       const finish = (result) => {
+        if (result) colors.commit();
+        else colors.discard();
         root.hidden = true;
         preview.stop();
         map.stop();
@@ -99,7 +103,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
       });
       const win = el('div', 'menu-window rally-picker-window');
       const carPick = el('div', 'rally-car-pick');
-      carPick.append(tabs, list);
+      carPick.append(tabs, list, colors.el);
       const showcase = el('div', 'rally-car-showcase');
       showcase.append(canvas, stats);
       const car = el('div', 'rally-car');

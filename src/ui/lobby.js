@@ -1,7 +1,8 @@
-import { DEFAULT_BODY_COLOR, NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
+import { NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
-import { getVehicleColor, setVehicleColor, defaultVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
+import { createVehicleColorPicker } from './vehicleColorPicker.js';
+import { getVehicleColor, setVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
 // Saved name/colour/vehicle pick (the profile); prefills the lobby, and its vehicle starts new games.
@@ -49,17 +50,13 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   const lobbyName = document.getElementById('lobby-name');
   const lobbyJoin = document.getElementById('lobby-join');
   const lobbyStatus = document.getElementById('lobby-status');
-  const lobbyColor = document.getElementById('lobby-color');
   const netStatusEl = document.getElementById('net-status');
   const vehicleTabsEl = document.getElementById('vehicle-tabs');
   const vehicleListEl = document.getElementById('vehicle-list');
   const lobbyCancel = document.getElementById('lobby-cancel');
-  const lobbyColorReset = document.getElementById('lobby-color-reset');
 
   let joined = false;
   let onProfileSaved = null;
-  // Colours edited in this lobby session, per vehicle id; stored only on join/apply.
-  const draftColors = new Map();
 
   // ---- Vehicle picker (category tabs + list) with a 3D preview + stats.
   const vehiclePreview = createVehiclePreview({
@@ -70,38 +67,18 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
     tabsEl: vehicleTabsEl,
     listEl: vehicleListEl,
     onSelect: (id) => {
-      // A newly picked vehicle starts in its own paint; repaint before joining to keep another.
-      draftColors.set(id, defaultVehicleColor(id));
       vehiclePreview.setVehicle(id);
       showVehicleColor();
     },
   });
-  lobbyColor.addEventListener('input', () => {
-    draftColors.set(vehiclePicker.getSelectedId(), selectedColor());
-    showVehicleColor();
-  });
-  lobbyColorReset.addEventListener('click', () => {
-    const id = vehiclePicker.getSelectedId();
-    draftColors.set(id, defaultVehicleColor(id));
-    showVehicleColor();
-  });
+  // Paint edits are drafts until join/apply.
+  const colorPicker = createVehicleColorPicker({ onChange: (color) => vehiclePreview.setColor(color) });
+  document.getElementById('lobby-color').append(colorPicker.el);
 
-  /** Shows the selected vehicle's (draft or stored) colour in the input and preview. */
-  function showVehicleColor() {
-    const id = vehiclePicker.getSelectedId();
-    const color = draftColors.get(id) ?? getVehicleColor(id);
-    lobbyColor.value = toHex(color);
-    lobbyColorReset.disabled = color === defaultVehicleColor(id);
-    vehiclePreview.setColor(color);
-  }
-
-  function commitDraftColors() {
-    for (const [id, color] of draftColors) setVehicleColor(id, color);
-    draftColors.clear();
-  }
+  const showVehicleColor = () => colorPicker.show(vehiclePicker.getSelectedId());
 
   function showLobby({ cancellable = joined } = {}) {
-    draftColors.clear();
+    colorPicker.discard();
     lobbyEl.style.display = '';
     lobbyCancel.hidden = !cancellable;
     lobbyJoin.disabled = false;
@@ -129,12 +106,6 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   }
   vehiclePreview.setVehicle(vehiclePicker.getSelectedId());
   showVehicleColor();
-
-  function selectedColor() {
-    const hex = String(lobbyColor.value || '').replace('#', '');
-    const n = Number.parseInt(hex, 16);
-    return Number.isInteger(n) && n >= 0 && n <= 0xffffff ? n : DEFAULT_BODY_COLOR;
-  }
 
   function setLobbyStatus(text) {
     lobbyStatus.textContent = text;
@@ -187,8 +158,8 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   }
 
   function saveProfile(name, vehicleId) {
-    commitDraftColors();
-    saveChoices(name, lobbyColor.value, vehicleId);
+    colorPicker.commit();
+    saveChoices(name, toHex(colorPicker.getColor()), vehicleId);
     saved = loadSavedChoices();
   }
 
@@ -196,7 +167,7 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
     e.preventDefault();
     const name = lobbyName.value.trim();
     if (!name || lobbyJoin.disabled) return;
-    const color = selectedColor();
+    const color = colorPicker.getColor();
     const vehicleId = vehiclePicker.getSelectedId();
     if (joined) {
       applyLivePick(name, color, vehicleId);
@@ -240,11 +211,10 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
         showLobby({ cancellable: false });
         lobbyName.focus();
       }),
-    /** Joins with the profile name and the active mode's car, else the profile's. */
+    /** Joins with the profile name and the active mode's car, else the profile's, in its current paint. */
     joinSaved: () => {
-      const vehicle = readSaveField('vehicle');
-      const vehicleId = vehicle?.vehicleId ?? vehiclePicker.getSelectedId();
-      return joinRoom(saved.name, vehicle?.color ?? getVehicleColor(vehicleId), vehicleId);
+      const vehicleId = readSaveField('vehicle')?.vehicleId ?? vehiclePicker.getSelectedId();
+      return joinRoom(saved.name, getVehicleColor(vehicleId), vehicleId);
     },
   };
 }
