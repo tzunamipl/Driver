@@ -28,9 +28,9 @@
   </head>
   <body>
     <div id="app"></div>
-    <div id="loading-screen">
+    <div id="loading-screen" data-booting>
       <div class="loading-card">
-        <h1>Loading real-world terrain</h1>
+        <h1>Loading Driver…</h1>
         <p class="loading-coords"></p>
         <ul class="loading-steps">
           <li data-step="baseline"><span class="loading-step-label">Elevation at start point</span><span class="loading-step-detail"></span></li>
@@ -63,7 +63,7 @@
         <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
       </div>
     </div>
-    <div id="lobby">
+    <div id="lobby" style="display: none">
       <form id="lobby-form" autocomplete="off">
         <h1>Shared Room</h1>
         <p class="hint">Enter your name and pick a color. Everyone on this page drives on the same map.</p>
@@ -201,6 +201,11 @@
           <div class="susp-title">SUSPENSION</div>
           <div class="susp-grid" id="susp-grid"></div>
           <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+          <div class="susp-landed" id="susp-fuel" title="Average fuel consumption over the last minute">
+            <div>Fuel 1 min: <span id="susp-fuel-per100">&mdash;</span> L/100km</div>
+            <div>Fuel 1 min: <span id="susp-fuel-perhour">&mdash;</span> L/h</div>
+            <div>Tank: <span id="susp-fuel-tank">&mdash;</span> L</div>
+          </div>
         </div>
         <div id="vehicle-debug-hud">
           <div class="susp-title">VEHICLE</div>
@@ -236,9 +241,12 @@
     <div id="surface-hover"></div>
     <div id="road-bed-inspect"></div>
     <div id="top-right-stack">
-      <div id="players-panel">
-        <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
-        <div id="players-list"></div>
+      <div id="top-right-row">
+        <div id="fps-graph-panel"><canvas id="fps-graph"></canvas><div id="fps-graph-label"></div></div>
+        <div id="players-panel">
+          <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
+          <div id="players-list"></div>
+        </div>
       </div>
       <div id="rally-plan" hidden></div>
       <div id="editor-panel" hidden></div>
@@ -259,6 +267,7 @@
         <span id="minimap-scale-label"></span>
       </div>
       <canvas id="minimap-arrows-canvas"></canvas>
+      <div id="ground-speed" hidden title="Actual speed over ground"><span id="ground-speed-value">0</span> km/h</div>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">
@@ -274,12 +283,13 @@
       </div>
     </div>
     <div id="gauges">
+      <div id="warning-lamps" hidden></div>
+      <div class="gauge" id="aux-gauge"></div>
       <div class="gauge" id="tach">
         <div class="gauge-face"></div>
-        <div class="tach-ticks" id="tach-ticks"></div>
+        <div class="dial-ticks" id="tach-ticks"></div>
         <div class="gauge-needle" id="tach-needle"></div>
-        <div class="gauge-value" id="tach-gear">1</div>
-        <div class="gauge-label" id="tach-rpm">0 RPM</div>
+        <div class="gauge-hub"></div>
         <button type="button" id="gear-mode" title="Gearbox mode (click to switch) - E/Q shift up/down">SPORT</button>
         <button type="button" id="transmission-mode" title="Gearbox: automatic / manual (click to switch)">AUTO</button>
       </div>
@@ -289,23 +299,20 @@
         </div>
         <div class="gauge" id="speedo">
           <div class="gauge-face"></div>
+          <div class="dial-ticks" id="speedo-ticks"></div>
           <div class="gauge-needle" id="speedo-needle"></div>
-          <div class="gauge-value" id="speedo-value">0</div>
+          <div class="gauge-hub"></div>
           <div class="gauge-label">km/h</div>
-          <svg id="handbrake-icon" viewBox="0 0 32 24" aria-label="Hamulec ręczny">
-            <circle cx="16" cy="12" r="8" />
-            <path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15" />
-            <text x="16" y="16.2" text-anchor="middle">P</text>
-          </svg>
-          <svg id="lights-icon" viewBox="0 0 32 24" role="button" aria-label="Światła mijania" aria-pressed="false">
-            <title>Headlights (L)</title>
-            <path class="lamp" d="M17 5c6 0 9.5 3 9.5 7s-3.5 7-9.5 7z" />
-            <path d="M13.5 6.5L5 8.5M13.5 10.5L5 12.5M13.5 14.5L5 16.5" />
-          </svg>
           <div id="odometer" aria-label="Licznik 0.0 kilometrów">
             <div class="odo-bezel">
-              <div class="odo-wheels" id="odo-wheels"></div>
-              <span class="odo-unit">km</span>
+              <div class="odo-row">
+                <div class="odo-wheels" id="odo-wheels"></div>
+                <span class="odo-unit">km</span>
+              </div>
+              <div class="odo-row odo-trip" title="Distance driven in this save">
+                <div class="odo-wheels" id="odo-trip-wheels"></div>
+                <span class="odo-unit">trip</span>
+              </div>
             </div>
           </div>
         </div>

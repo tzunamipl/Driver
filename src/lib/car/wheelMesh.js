@@ -35,21 +35,21 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
   const treadGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
   treadGeo.rotateZ(Math.PI / 2);
 
-  const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, side: THREE.DoubleSide });
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
   group.add(new THREE.Mesh(tyreGeo1, tireMat));
   group.add(new THREE.Mesh(tyreGeo2, tireMat));
   group.add(new THREE.Mesh(treadGeo, tireMat));
 
   const tire = new THREE.Mesh(
     mergeGeometries([tyreGeo1, tyreGeo2, treadGeo]),
-    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 })
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true })
   );
   tire.castShadow = true;
   group.add(tire);
 
   const rimGeo = new THREE.CylinderGeometry(rimDiameter / 2, rimDiameter / 2, rimWidth, segments);
   rimGeo.rotateZ(Math.PI / 2);
-  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: rimColor, metalness: 0.8, roughness: 0.35 }));
+  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: rimColor, metalness: 0.8, roughness: 0.35, flatShading: true }));
   rim.castShadow = true;
   group.add(rim);
 

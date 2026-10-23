@@ -36,6 +36,8 @@ export default {
   shiftDurationS: 0.1,
   brakeForce: 400,
   mass: 1500,
+  fuelTankL: 70,
+  exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.65, -0.35, -0.8] })),
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

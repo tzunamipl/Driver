@@ -1,8 +1,7 @@
 // Knockable roadside objects (roadPosts.js, guardRails.js, streetLamps.js, roadSigns.js, directionSigns.js) placed from the
 // streets layer's segments (vectorLineLayer.js), one InstancedMesh per kind
-// around the car. Objects near the car get a trigger body (like
-// pedestrians.js): a chassis box passing through one swaps it for a tumbling
-// body. Knocked objects are local only and stand again once they've left the
+// around the car. Objects near the car get a trigger body (knockable.js):
+// a chassis box passing through one swaps it for a tumbling body. Knocked objects are local only and stand again once they've left the
 // draw distance.
 //
 // A kind: { geometry (origin on the ground), material, halfExtents {x, y, z}
@@ -15,9 +14,8 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GROUND_COLLISION_GROUP, GROUND_MATERIAL } from './terrain.js';
-import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from './buildings.js';
 import { latLonToLocal } from './geo.js';
+import { createTrigger, launchDebris, settleDebris } from './knockable.js';
 import { ROADSIDE_DRAW_DISTANCE_M } from '../config.js';
 
 export const ROADSIDE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
@@ -31,20 +29,8 @@ export function isRoadsideRoad(style) {
 const REBUILD_MOVE_M = 10;
 const REBUILD_INTERVAL_S = 0.5; // also picks up new terrain / street data
 const INITIAL_CAPACITY = 64;
-const ROADSIDE_GROUP = 64;
-const LOCAL_CHASSIS_GROUP = 1;
 const TRIGGER_RADIUS_M = 40; // > REBUILD_MOVE_M plus a frame of top speed
 const TRIGGER_PAD_M = 0.05; // trigger slightly fatter than the mesh
-const DEBRIS_SPEED_FACTOR = 1.15; // of the car's velocity, so it flies clear ahead
-const DEBRIS_UP_SPEED = 2.5;
-const DEBRIS_SIDE_SPEED = 2; // away from the car's centreline
-const DEBRIS_SPIN = 8; // rad/s
-// At rest this long, its body goes and the mesh stays where it lies.
-const DEBRIS_REST_SPEED = 0.3; // m/s
-const DEBRIS_REST_S = 1;
-// Still moving after this (fell through the ground or off the physics tiles): hidden and dropped.
-const DEBRIS_MAX_S = 30;
-const DEBRIS_MATERIAL = new CANNON.Material('roadside');
 
 const UP = new THREE.Vector3(0, 1, 0);
 const FORWARD = new THREE.Vector3(0, 0, 1);
@@ -59,13 +45,6 @@ const FORWARD = new THREE.Vector3(0, 0, 1);
  * @param {(speed: number, kind: object) => void} [deps.onHit] - the car knocked one over (sound).
  */
 export function createRoadside({ scene, world, streets, terrain, kinds, onHit = () => {}, drawDistance = ROADSIDE_DRAW_DISTANCE_M }) {
-  // The world default friction is near zero; without these an object slides for hundreds of metres.
-  world.addContactMaterial(
-    new CANNON.ContactMaterial(DEBRIS_MATERIAL, GROUND_MATERIAL, { friction: 0.6, restitution: 0.2 })
-  );
-  world.addContactMaterial(
-    new CANNON.ContactMaterial(DEBRIS_MATERIAL, BUILDING_MATERIAL, { friction: 0.4, restitution: 0.3 })
-  );
   const sets = kinds.map((kind) => {
     const h = kind.halfExtents;
     return {
@@ -148,17 +127,9 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   }
 
   function addTrigger(item, x, y, z) {
-    const body = new CANNON.Body({
-      mass: 0,
-      type: CANNON.Body.STATIC,
-      collisionResponse: false, // wheel rays skip it too
-      collisionFilterGroup: ROADSIDE_GROUP,
-      collisionFilterMask: LOCAL_CHASSIS_GROUP,
-    });
-    body.addShape(item.set.triggerShape);
+    const body = createTrigger(item.set.triggerShape, (by) => pendingHits.push({ item, by }));
     body.position.set(x, y + item.set.kind.halfExtents.y, z);
     setTriggerRotation(body, item);
-    body.addEventListener('collide', (event) => pendingHits.push({ item, by: event.body }));
     world.addBody(body);
     triggers.set(item, body);
   }
@@ -188,7 +159,6 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
 
   /** Swaps a standing object for a tumbling body thrown along the car's velocity. */
   function knock(item, trigger, by) {
-    const { x, y, z } = trigger.position;
     removeTrigger(item);
     const { kind, debrisGeometry, itemMeshes } = item.set;
     let debrisMesh;
@@ -204,39 +174,11 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     }
     scene.add(debrisMesh);
 
-    const body = new CANNON.Body({
-      mass: kind.mass,
-      material: DEBRIS_MATERIAL,
-      linearDamping: 0.1,
-      angularDamping: 0.3,
-      collisionFilterGroup: ROADSIDE_GROUP,
-      collisionFilterMask: GROUND_COLLISION_GROUP | BUILDING_COLLISION_GROUP,
-    });
-    // Spheres, since boxes snag on the heightfield.
-    for (const [sx, sy, sz] of kind.debrisSpheres) {
-      body.addShape(new CANNON.Sphere(kind.debrisRadius), new CANNON.Vec3(sx, sy, sz));
-    }
-    body.position.set(x, y, z);
-    body.quaternion.copy(trigger.quaternion);
-    const v = by.velocity;
-    let sx = x - by.position.x;
-    let sz = z - by.position.z;
-    const side = Math.hypot(sx, sz) || 1;
-    sx /= side;
-    sz /= side;
-    body.velocity.set(
-      v.x * DEBRIS_SPEED_FACTOR + sx * DEBRIS_SIDE_SPEED,
-      Math.max(0, v.y) + DEBRIS_UP_SPEED,
-      v.z * DEBRIS_SPEED_FACTOR + sz * DEBRIS_SIDE_SPEED
-    );
-    // Topple about the horizontal axis across the car's travel.
-    const speed = Math.hypot(v.x, v.z) || 1;
-    body.angularVelocity.set((v.z / speed) * DEBRIS_SPIN, (Math.random() - 0.5) * DEBRIS_SPIN, (-v.x / speed) * DEBRIS_SPIN);
-    world.addBody(body);
+    const body = launchDebris(world, kind, trigger.position, trigger.quaternion, by);
     debrisMesh.position.copy(body.position); // updateDebris's draw-distance check reads it this frame
     debrisMesh.quaternion.copy(body.quaternion);
     knocked.set(item, { mesh: debrisMesh, body, age: 0, restAge: 0 });
-    onHit(Math.hypot(v.x, v.y, v.z), kind);
+    onHit(by.velocity.length(), kind);
   }
 
   function flushHits() {
@@ -253,25 +195,14 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
   function updateDebris(dt, x, z) {
     const maxDistSq = drawDistance * drawDistance;
     for (const [item, debris] of knocked) {
-      const { mesh: debrisMesh, body } = debris;
+      const { mesh: debrisMesh } = debris;
       const dx = debrisMesh.position.x - x;
       const dz = debrisMesh.position.z - z;
       if (dx * dx + dz * dz > maxDistSq || !item.set.enabled) {
         dropKnocked(item);
         continue;
       }
-      if (!body) continue;
-      debrisMesh.position.copy(body.position);
-      debrisMesh.quaternion.copy(body.quaternion);
-      debris.age += dt;
-      const resting =
-        body.velocity.lengthSquared() < DEBRIS_REST_SPEED ** 2 && body.angularVelocity.lengthSquared() < 1;
-      debris.restAge = resting ? debris.restAge + dt : 0;
-      if (debris.restAge >= DEBRIS_REST_S || debris.age >= DEBRIS_MAX_S) {
-        if (!resting) debrisMesh.visible = false;
-        world.removeBody(body);
-        debris.body = null;
-      }
+      settleDebris(world, debris, dt);
     }
   }
 

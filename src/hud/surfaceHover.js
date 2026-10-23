@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 
-const REFRESH_MS = 200; // also re-checks a still mouse while the camera moves
+// The raycast tests every visible tile's triangles (~15 ms): never per pointer event.
+const REFRESH_MS = 100; // also re-checks a still mouse while the camera moves
 const OFFSET_PX = 14;
 
 /**
@@ -34,15 +35,20 @@ export function createSurfaceHover({ el, canvas, camera, terrain, layers }) {
     if (!hit) return hide();
     const landcover = layers.landcoverAreas.labelsAt(hit.x, hit.z);
     el.textContent = [`surface: ${classifySurfaceAt(hit.x, hit.z, layers)}`, ...landcover].join('\n');
+    place();
+    el.style.display = 'block';
+  }
+
+  function place() {
     el.style.left = `${mouse.x + OFFSET_PX}px`;
     el.style.top = `${mouse.y + OFFSET_PX}px`;
-    el.style.display = 'block';
   }
 
   // On window: HUD layers above the canvas are click-through, so the target tells if it's really over the scene.
   window.addEventListener('pointermove', (e) => {
     mouse = e.pointerType === 'mouse' && e.target === canvas ? { x: e.clientX, y: e.clientY } : null;
-    refresh();
+    if (mouse) place();
+    else hide();
   });
   document.addEventListener('pointerleave', () => {
     mouse = null;

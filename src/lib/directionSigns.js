@@ -378,14 +378,14 @@ function boardTexture(board, w) {
 function buildSignMesh(item) {
   const group = new THREE.Group();
   const w = signWidth(item.boards);
-  const back = new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.6 });
+  const back = new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.6, flatShading: true });
   const n = item.boards.length;
   const top = BOARD_BOTTOM + n * BOARD_H + (n - 1) * BOARD_GAP;
   item.boards.forEach((board, k) => {
     const y = top - (k + 1) * BOARD_H - k * BOARD_GAP;
     const front = new THREE.Mesh(
       boardGeometry(board.dir, w).translate(0, y, BOARD_DEPTH / 2),
-      new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.4 })
+      new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.4, flatShading: true })
     );
     // Mirrored outline turned round = the same outline seen from behind.
     const mirrored = board.dir === 'left' ? 'right' : board.dir === 'right' ? 'left' : 'straight';

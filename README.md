@@ -206,9 +206,9 @@ buildings with holes/complex shapes are skipped), every roof is flat, and a
 single region query is capped at `MAX_ELEMENTS_PROCESSED` elements so an
 extremely dense city center doesn't stall the main thread.
 
-## Debug visuals (press M to toggle)
+## Debug visuals (press K to toggle)
 
-Pressing `M` toggles a set of debug-only overlays together: the terrain
+Pressing `K` toggles a set of debug-only overlays together: the terrain
 tile-stats HUD (top-right), the 3D tile perimeter borders, and a
 **suspension HUD** (bottom-left) showing each wheel's live spring travel as
 a vertical bar - 0% at full droop (fully extended), 100% at full compression

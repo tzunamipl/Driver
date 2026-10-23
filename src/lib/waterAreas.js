@@ -1,5 +1,5 @@
 // OSM water polygons (lakes, sea, wide rivers) - complements rivers.js's
-// centerlines. The fill is a debug overlay (M key); classifyAt() always
+// centerlines. The fill is a debug overlay (K key); classifyAt() always
 // streams and drives splash.js. Plumbing is in vectorPolygonLayer.js.
 
 import { createVectorPolygonLayer } from './vectorPolygonLayer.js';

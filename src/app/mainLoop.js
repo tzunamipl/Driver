@@ -5,6 +5,7 @@ import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
+import { getVehicleOdometerKm, setVehicleOdometerKm } from '../lib/vehicleOdometers.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
 import { setCarListener } from '../lib/audio/audioContext.js';
@@ -27,6 +28,7 @@ function updateCarListener(camera, carPosition) {
 }
 
 const CAR_STATE_SAVE_INTERVAL_MS = 1000; // localStorage save throttle
+const ODOMETER_SAVE_INTERVAL_MS = 10000;
 
 /** Trailer orientation for the pose message ([x, y, z, w]), if the rig tows one. */
 function trailerQuatOf(vehicle) {
@@ -40,9 +42,9 @@ function trailerQuatOf(vehicle) {
 
 export function createMainLoop({
   world,
-  scene,
   camera,
   renderer,
+  renderView,
   daylight,
   terrain,
   buildings,
@@ -73,6 +75,7 @@ export function createMainLoop({
   splash,
   waterImmersion,
   tireSmoke,
+  exhaustFlames,
   terrainDust,
   bodyDust,
   dissolve,
@@ -84,6 +87,7 @@ export function createMainLoop({
   cameraFollow,
   gaugesHud,
   gearstickHud,
+  cursorHide,
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
@@ -108,8 +112,15 @@ export function createMainLoop({
   let nextCarStateSave = 0;
   // Latest save payload, flushed on pagehide between throttled saves.
   let pendingCarState = null;
+  // Vehicle whose reading the dash odometer shows; saved on switch, pagehide and a slow throttle.
+  let odometerVehicleId = null;
+  let nextOdometerSave = 0;
+  const saveOdometer = () => {
+    if (odometerVehicleId) setVehicleOdometerKm(odometerVehicleId, gaugesHud.getOdometerKm());
+  };
   window.addEventListener('pagehide', () => {
     if (pendingCarState) saveCarState(pendingCarState);
+    saveOdometer();
   });
   const poseForward = new THREE.Vector3();
   const terrainHeading = new THREE.Vector3();
@@ -157,6 +168,7 @@ export function createMainLoop({
     carManager.getUpdateReset()?.(frameDelta);
     // Rally: R rocks the car instead of resetting it.
     input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
+    if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
@@ -173,6 +185,10 @@ export function createMainLoop({
 
     // Remote cars are kinematic obstacles; place them before the step.
     if (isJoined()) remoteCollisions.sync(remotePoses);
+    // Building colliders follow the car; before the step, so a fresh spawn already has them.
+    if (vehicle && !addressSearch.isTeleporting()) {
+      buildings.setPhysicsCenter(vehicle.chassisBody.position.x, vehicle.chassisBody.position.z);
+    }
 
     // Fixed-size steps (accumulator) + interpolated rendering: a varying
     // substep count per frame would show as jitter.
@@ -266,13 +282,18 @@ export function createMainLoop({
         qy: currentChassisMesh.quaternion.y,
         qz: currentChassisMesh.quaternion.z,
         qw: currentChassisMesh.quaternion.w,
-        odoKm: gaugesHud.getOdometerKm(),
+        odoKm: gaugesHud.getTripKm(),
         score: carManager.getScore(),
         handbrakeLatched: input.getHandbrake().latched,
+        fuel: carManager.getFuelState(),
       };
       if (now >= nextCarStateSave) {
         nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;
         saveCarState(pendingCarState);
+      }
+      if (now >= nextOdometerSave) {
+        nextOdometerSave = now + ODOMETER_SAVE_INTERVAL_MS;
+        saveOdometer();
       }
     }
 
@@ -286,8 +307,15 @@ export function createMainLoop({
       resetting: carManager.isResetting(),
     });
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
+    if (currentVehicle && carManager.getVehicleId() !== odometerVehicleId) {
+      saveOdometer();
+      odometerVehicleId = carManager.getVehicleId();
+      gaugesHud.setOdometerKm(getVehicleOdometerKm(odometerVehicleId));
+    }
     gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission());
+    gaugesHud.updateHubLight(camera, daylight.getLight());
     gearstickHud.update(frameDelta, { vehicle: currentVehicle, keys: input.keys, typing: input.isTyping() });
+    cursorHide.update(currentVehicle ? currentVehicle.chassisBody.velocity.length() : null);
     headlights.update(frameDelta, {
       chassisMesh: currentChassisMesh,
       wheeled: currentVehicle?.vehicleType !== 'hover',
@@ -344,6 +372,7 @@ export function createMainLoop({
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
+    exhaustFlames.update(frameDelta, currentVehicle, currentChassisMesh, getVehicleDescriptor(carManager.getVehicleId()));
     tireSqueal.update(currentVehicle);
     gravelSpinSound.update(currentVehicle);
     bodyScrapeSound.update(frameDelta);
@@ -406,7 +435,7 @@ export function createMainLoop({
     rallySession?.update(frameDelta);
     profiler.mark('misc');
 
-    renderer.render(scene, camera);
+    renderView();
     profiler.mark('render');
     profiler.end();
   }

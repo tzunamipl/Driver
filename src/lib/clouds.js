@@ -23,7 +23,8 @@ const MAX_SPAWN_ATTEMPTS = 10;
 
 const CLOUD_COLOR = 0xC5D8F0;
 const CLOUD_SHAPE_VARIANTS = 6;
-const PUFF_GEOMETRY = new THREE.SphereGeometry(1, 10, 8);
+// Few segments + flat shading: chiselled facets like the trees.
+const PUFF_GEOMETRY = new THREE.SphereGeometry(1, 7, 5);
 
 function randomRange(min, max) {
   return min + Math.random() * (max - min);
@@ -81,6 +82,7 @@ export function createClouds(scene) {
       depthWrite: true,
       roughness: 1,
       metalness: 0,
+      flatShading: true,
       // Beyond scene.fog's range; hazed like the terrain instead.
       fog: false,
     });

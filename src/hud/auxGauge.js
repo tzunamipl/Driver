@@ -1,0 +1,85 @@
+import { buildDialScale, valueToDeg } from './dialScale.js';
+import { lampIconSvg } from './warningLamps.js';
+
+// Combo gauge between the lamp panel and the tach: oil temp (upper left), coolant
+// temp (upper right), both hot at the top, and fuel along the bottom. Each needle
+// pivots on its own hub, set out from the dial centre into its sector, so it
+// sweeps slightly off the centred scale (a deliberate, real-gauge quirk). Oil and
+// coolant aren't modelled yet, so missing fields read as healthy placeholders.
+
+const PLACEHOLDER = { oilTempC: 100, coolantTempC: 90, fuelFraction: 1 };
+
+const SECTORS = [
+  {
+    key: 'oil', field: 'oilTempC', icon: 'oil', title: 'Oil temperature',
+    min: 50, max: 150, startDeg: -100, endDeg: -20, redFrom: 130,
+    label: (v, s) => (v === s.min ? 'C' : 'H'),
+  },
+  {
+    key: 'coolant', field: 'coolantTempC', icon: 'coolant', title: 'Coolant temperature',
+    min: 50, max: 130, startDeg: 100, endDeg: 20, redFrom: 115,
+    label: (v, s) => (v === s.min ? 'C' : 'H'),
+  },
+  {
+    key: 'fuel', field: 'fuelFraction', icon: 'fuel', title: 'Fuel',
+    min: 0, max: 1, startDeg: 220, endDeg: 140, redBelow: 0.125,
+    label: (v, s) => (v === s.min ? 'E' : 'F'),
+  },
+];
+const ICON_RADIUS_PCT = 30;
+const PIVOT_RADIUS_PCT = 13;
+
+/** @param {HTMLElement | null} root - #aux-gauge */
+export function createAuxGauge(root) {
+  if (!root) return { update() {} };
+  const needles = SECTORS.map((sector) => {
+    const ticks = document.createElement('div');
+    ticks.className = 'dial-ticks';
+    root.appendChild(ticks);
+    buildDialScale(ticks, {
+      ...sector,
+      step: sector.max - sector.min,
+      minorStep: (sector.max - sector.min) / 4,
+      label: (v) => sector.label(v, sector),
+      labelRadiusPct: 31,
+    });
+
+    const rad = (((sector.startDeg + sector.endDeg) / 2) * Math.PI) / 180;
+    const pivotLeft = `${50 + PIVOT_RADIUS_PCT * Math.sin(rad)}%`;
+    const pivotTop = `${50 - PIVOT_RADIUS_PCT * Math.cos(rad)}%`;
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 32 24');
+    icon.setAttribute('class', 'aux-icon');
+    icon.innerHTML = `<title>${sector.title}</title>${lampIconSvg(sector.icon)}`;
+    icon.style.left = `${50 + ICON_RADIUS_PCT * Math.sin(rad)}%`;
+    icon.style.top = `${50 - ICON_RADIUS_PCT * Math.cos(rad)}%`;
+    root.appendChild(icon);
+
+    const needle = document.createElement('div');
+    needle.className = 'gauge-needle aux-needle';
+    const hub = document.createElement('div');
+    hub.className = 'gauge-hub aux-hub';
+    for (const el of [needle, hub]) {
+      el.style.left = pivotLeft;
+      el.style.top = pivotTop;
+    }
+    root.append(needle, hub);
+    return { sector, needle, shown: null };
+  });
+
+  /** Hidden without an engine, like the tach. */
+  function update(engine) {
+    root.classList.toggle('visible', !!engine);
+    if (!engine) return;
+    for (const item of needles) {
+      const { sector } = item;
+      const value = Math.min(sector.max, Math.max(sector.min, engine[sector.field] ?? PLACEHOLDER[sector.field]));
+      if (value === item.shown) continue;
+      item.shown = value;
+      const deg = valueToDeg(value, sector.max, sector);
+      item.needle.style.transform = `translate(-50%, -100%) rotate(${deg}deg)`;
+    }
+  }
+
+  return { update };
+}

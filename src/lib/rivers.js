@@ -1,4 +1,4 @@
-// River/waterway centerlines as flat blue stripes (debug overlay, M key).
+// River/waterway centerlines as flat blue stripes (debug overlay, K key).
 // Data always streams: containsPoint() feeds splash.js for waterways too
 // narrow to exist as water polygons. Plumbing is in vectorLineLayer.js.
 

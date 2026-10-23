@@ -6,12 +6,15 @@ import { BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicMaterial, Double
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY } from './geo.js';
+import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY, tileSizeMeters } from './geo.js';
 import { VectorTileLayer, tileKey } from './tiles/vectorTileLayer.js';
 import { DETAIL_ZOOM } from './terrain.js';
 
 const SEGMENT_MAX_METERS = 4;
 const METERS_PER_DEGREE = 111_320;
+// Point queries look into a neighbouring bucket tile only this close to its edge:
+// half the widest stripe (motorway 23 m) plus half a segment, with slack.
+const NEIGHBOUR_REACH_M = 20;
 
 /**
  * Builds a manager class (call `new Cls(scene, world, originLat, originLon, terrain)`).
@@ -163,9 +166,8 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     /** Styles of the fetched segments whose stripe covers world (x, z) (may repeat). Flat layers only. */
     *stylesAt(x, z) {
       if (!flat) return;
-      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
-      for (const seg of this._itemsNear(lat, lon)) {
-        if (this._segmentMargin(seg, x, z) >= 0) yield seg.style;
+      for (const list of this._listsNear(x, z)) {
+        for (const seg of list) if (this._segmentMargin(seg, x, z) >= 0) yield seg.style;
       }
     }
 
@@ -177,27 +179,50 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     /** Largest (half width - distance to centreline) over nearby segments; -Infinity if none. */
     _insideMargin(x, z, firstHit) {
       if (!flat) return -Infinity;
-      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
       let best = -Infinity;
-      for (const seg of this._itemsNear(lat, lon)) {
-        const margin = this._segmentMargin(seg, x, z);
-        if (margin > best) {
-          best = margin;
-          if (firstHit && best >= 0) return best;
+      for (const list of this._listsNear(x, z)) {
+        for (const seg of list) {
+          const margin = this._segmentMargin(seg, x, z);
+          if (margin > best) {
+            best = margin;
+            if (firstHit && best >= 0) return best;
+          }
         }
       }
       return best;
     }
 
+    /** Bucket lists that can hold a stripe covering world (x, z): its detail tile, plus neighbours it is near the edge of. */
+    _listsNear(x, z) {
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      const fx = lon2tileX(lon, DETAIL_ZOOM);
+      const fy = lat2tileY(lat, DETAIL_ZOOM);
+      const tx = Math.floor(fx);
+      const ty = Math.floor(fy);
+      const reach = NEIGHBOUR_REACH_M / tileSizeMeters(DETAIL_ZOOM, lat);
+      const lists = [];
+      for (let dx = fx - tx < reach ? -1 : 0; dx <= (tx + 1 - fx < reach ? 1 : 0); dx++) {
+        for (let dy = fy - ty < reach ? -1 : 0; dy <= (ty + 1 - fy < reach ? 1 : 0); dy++) {
+          const list = this._itemsByTile.get(tileKey(tx + dx, ty + dy));
+          if (list) lists.push(list);
+        }
+      }
+      return lists;
+    }
+
     /** Half width minus distance from world (x, z) to the segment's centreline. */
     _segmentMargin(seg, x, z) {
-      const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
-      const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
-      const abx = b.x - a.x;
-      const abz = b.z - a.z;
+      // End points in the current local frame, converted once per origin move.
+      let local = seg.local;
+      if (local?.frame !== this._frame) {
+        const a = latLonToLocal(seg.a.lat, seg.a.lon, this.originLat, this.originLon, this.scaleLat);
+        const b = latLonToLocal(seg.b.lat, seg.b.lon, this.originLat, this.originLon, this.scaleLat);
+        local = seg.local = { frame: this._frame, ax: a.x, az: a.z, abx: b.x - a.x, abz: b.z - a.z };
+      }
+      const { ax, az, abx, abz } = local;
       const lenSq = abx * abx + abz * abz;
-      const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (z - a.z) * abz) / lenSq)) : 0;
-      return seg.style.linewidth / 2 - Math.hypot(x - (a.x + abx * t), z - (a.z + abz * t));
+      const t = lenSq > 1e-9 ? Math.max(0, Math.min(1, ((x - ax) * abx + (z - az) * abz) / lenSq)) : 0;
+      return seg.style.linewidth / 2 - Math.hypot(x - (ax + abx * t), z - (az + abz * t));
     }
   };
 }

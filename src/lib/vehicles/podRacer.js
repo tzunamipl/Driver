@@ -24,10 +24,10 @@ const DRAG_PROFILE = { front: 0.7, side: 2.6, rear: 0.85 };
 
 const DEFAULT_BODY_COLOR = 0xff6a1a; // flame orange
 
-const engineBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a8d93, metalness: 0.8, roughness: 0.35 });
-const engineGlowMat = new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xff6a00, emissiveIntensity: 1.4, roughness: 0.3 });
-const couplingMat = new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x1e6f99, emissiveIntensity: 0.9, roughness: 0.25 });
-const tetherMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.3, roughness: 0.7 });
+const engineBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a8d93, metalness: 0.8, roughness: 0.35, flatShading: true });
+const engineGlowMat = new THREE.MeshStandardMaterial({ color: 0xffb347, emissive: 0xff6a00, emissiveIntensity: 1.4, roughness: 0.3, flatShading: true });
+const couplingMat = new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x1e6f99, emissiveIntensity: 0.9, roughness: 0.25, flatShading: true });
+const tetherMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.3, roughness: 0.7, flatShading: true });
 const podGlassMat = createGlossyMaterial({ color: 0x141a20, metalness: 0.6, roughness: 0.15 });
 
 /** Jet engine along local Z (nose +Z) with a glowing rear nozzle. */

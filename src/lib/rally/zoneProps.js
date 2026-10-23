@@ -238,7 +238,7 @@ export function makeTimekeeperTent() {
 export function makeTimingHut() {
   const group = new Group();
   group.add(box(1.6, 2.2, 1.8, mat.white, 1.0, 1.1, 0), box(1.9, 0.12, 2.1, mat.steel, 1.0, 2.26, 0));
-  group.add(box(0.03, 0.6, 1.1, mat.glass, 0.19, 1.45, 0), box(0.03, 1.8, 0.7, mat.steel, 0.19, 0.9, 0.62)); // window, door
+  group.add(box(0.03, 0.6, 0.7, mat.glass, 0.19, 1.45, -0.4), box(0.03, 1.8, 0.7, mat.steel, 0.19, 0.9, 0.5)); // window, door
   group.add(at(new Mesh(new CylinderGeometry(0.015, 0.015, 1.2, 4), mat.black), 1.5, 2.9, -0.6)); // antenna
   return group;
 }

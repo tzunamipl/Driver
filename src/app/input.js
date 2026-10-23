@@ -1,4 +1,4 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, BRAKE_RAMP_S, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
 import { GEAR_MODES } from '../lib/engine.js';
 
 // Keyboard -> vehicle controls, applied each frame.
@@ -35,6 +35,14 @@ function isTypingInField() {
   return el.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color';
 }
 
+const SPACE_ACTIVATED_INPUTS = ['button', 'submit', 'reset', 'checkbox', 'radio'];
+
+function isSpaceActivated(el) {
+  if (!el) return false;
+  if (el.tagName === 'BUTTON' || el.tagName === 'SELECT' || el.tagName === 'SUMMARY') return true;
+  return el.tagName === 'INPUT' && SPACE_ACTIVATED_INPUTS.includes(el.type);
+}
+
 /**
  * @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean,
  *   holdLatchesHandbrake?: () => boolean, onGearEvent?: (type: string, engine: object) => void }} [options]
@@ -47,8 +55,15 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   let steerValue = 0;
   // Throttle pedal 0..1, read by the engine sound.
   let throttle = 0;
+  // Brake pedal 0..1: ramps up while braking, releases at once.
+  let brakePedal = 0;
 
   window.addEventListener('keydown', (e) => {
+    // Space is the handbrake: drop focus from a clicked button/checkbox so the key can't re-press it.
+    if (e.code === 'Space' && isSpaceActivated(document.activeElement)) {
+      e.preventDefault();
+      document.activeElement.blur();
+    }
     if (isTypingInField()) return;
     keys.add(e.code);
   });
@@ -210,11 +225,12 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
 
     // Per-vehicle brake strength; BRAKE_FORCE fallback.
     const brakeForce = (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale;
-    const pedalBrake = pedalBraking ? brakeForce : 0;
+    brakePedal = pedalBraking ? Math.min(1, brakePedal + dt / BRAKE_RAMP_S) : 0;
+    const pedalBrake = brakePedal * brakeForce;
     // Handbrake locks only the rear (handbrake-axle) wheels, so the rear breaks traction.
     const handbrakeForce = handbrake ? brakeForce : 0;
     // ABS only on the pedal brake; the handbrake must be able to lock.
-    const abs = vehicle.abs ?? false;
+    const abs = !!vehicle.abs && !vehicle.absOff;
     if (vehicle.applyBrakes) {
       vehicle.applyBrakes(pedalBrake, handbrakeForce, abs);
     } else {

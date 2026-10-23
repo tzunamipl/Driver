@@ -18,7 +18,7 @@ export const ORIGIN_LON = 17.0385;
 
 // Day-night cycle speed: 1 = real time. Faster cycles wrap within today's
 // real date, so the sun's seasonal path always matches the actual date.
-export const TIME_SCALE = 480;
+export const TIME_SCALE = 48;
 // Sun / moon disc colour by the body's own elevation above the horizon (deg),
 // blended linearly between keys and held past the ends. Keys sorted by `el`.
 export const SUN_DISC_COLORS = [
@@ -43,6 +43,8 @@ export const STEER_SPEED = 0.01
 export const MAX_STEER = 0.5;
 // Flat per-wheel handbrake force, independent of vehicle power.
 export const BRAKE_FORCE = 3000;
+// Pedal brake builds from 0 to full over this, so a tap can't lock the wheels without ABS.
+export const BRAKE_RAMP_S = 0.3;
 // Holding the handbrake this long leaves it pulled until the next press.
 export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;
@@ -69,6 +71,9 @@ export const BUILDING_SWEEP_BACKOFF_M = 0.1; // pull-back distance after a caugh
 // ---------- Building-embed guard ----------
 export const BUILDING_EMBED_RAY_HEIGHT = 500;
 export const BUILDING_EMBED_EPSILON_M = 0.2; // tolerance so parking on a roof isn't "embedded"
+
+// ---------- Building colliders ----------
+export const BUILDING_PHYSICS_DISTANCE_M = 300; // buildings within this of the car get a collider
 
 // ---------- Score ----------
 export const SCORE_PER_KM = 1;
@@ -105,6 +110,13 @@ export const CAMERA_CLOSE_SCALE_AT_MAX_SPEED = 1;
 // Leads the smoothing target by velocity * settling time to cancel the
 // steady-state lag at high speed (1 = full, 0 = none).
 export const CAMERA_POSITION_LEAD_FACTOR = 0.7;
+// Camera drops back while gaining speed and moves in while braking: metres per m/s² of
+// (filtered) forward acceleration, easing towards LAG_MAX back / LEAD_MAX in (kept small so
+// it can't reach the car); RATE (1/s) filters it and sets how fast it settles once speed evens out. 0 = off.
+export const CAMERA_ACCEL_LAG = 0;
+export const CAMERA_ACCEL_LAG_MAX = 6;
+export const CAMERA_ACCEL_LEAD_MAX = 2.5;
+export const CAMERA_ACCEL_LAG_RATE = 1.5;
 // Cosmetic pitch following sustained climbs/falls (velocity angle).
 export const CAMERA_PITCH_SPEED = 5;
 export const CAMERA_PITCH_MAX_ANGLE = (30 * Math.PI) / 180;
@@ -139,12 +151,19 @@ export const ROADSIDE_DRAW_DISTANCE_M = 200; // posts and curve signs, from the 
 // ---------- Forests (landcoverAreas.js, trees.js, terrain/forestFloor.js) ----------
 export const TREE_DRAW_DISTANCE_M = 800; // from the car
 export const TREE_TRUNK_DISTANCE_M = 300; // past this only crowns are drawn
+export const TREE_PHYSICS_DISTANCE_M = 150; // trunks within this of the car get a collider
 // Tree kind: pines start mixing in at PINE_MIX_START_ASL_M and are the only kind from
 // PINE_ONLY_ASL_M (both at PINE_REFERENCE_LAT); both drop PINE_ASL_PER_DEG_M per degree poleward.
 export const PINE_MIX_START_ASL_M = 500;
 export const PINE_ONLY_ASL_M = 1300;
 export const PINE_REFERENCE_LAT = 50;
 export const PINE_ASL_PER_DEG_M = 80;
+// Forest trees shrink linearly from TREE_SHRINK_START_ASL_M to TREE_SHRINK_END_ASL_M (same latitude
+// drop as the pine line), where the biggest are TREE_MIN_TOP_M tall; width shrinks TREE_SHRINK_WIDTH_SHARE as much.
+export const TREE_SHRINK_START_ASL_M = 500;
+export const TREE_SHRINK_END_ASL_M = 2000;
+export const TREE_MIN_TOP_M = 3;
+export const TREE_SHRINK_WIDTH_SHARE = 0.5;
 export const TREE_GROW_M = 400; // grow-in: zero size at the draw distance, full size this much closer
 export const TREE_AREA_PER_TREE_M2 = 300; // density: one tree per this much forest (jittered grid)
 export const TREE_GAP_M = 8; // trees keep this clear of every street line's and water's edge; floor noise starts at twice it from roads
@@ -175,7 +194,7 @@ export const DIRECTION_SIGN_JUNCTIONS = {
 export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
 
 // ---------- Gauges HUD ----------
-export const MAX_GAUGE_SPEED = 180; // km/h at full needle deflection
+export const MAX_GAUGE_SPEED = 180; // km/h speedo scale for rigs without an engine (wheeled cars use their gearing top speed)
 
 // ---------- Terrain stats HUD ----------
 // Columns = tile x (east, left->right), rows = tile y (south, top->bottom),
@@ -204,6 +223,10 @@ export const PLAYERS_UPDATE_INTERVAL = 1; // seconds
 // "Active" if a pose arrived within this window (poses stream ~10/s).
 export const PLAYERS_ACTIVE_THRESHOLD_MS = 60_000;
 
+
+// ---------- Rendering ----------
+// Reversed float depth instead of logarithmic (cheaper per pixel); falls back to log depth without EXT_clip_control.
+export const REVERSED_DEPTH = true;
 
 // ---------- Main loop ----------
 export const FIXED_STEP = 1 / 60;
@@ -259,12 +282,13 @@ export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1'; // legacy, migrated i
 export const SAVES_STORAGE_KEY = 'driver.saves.v1'; // per-game-mode save slots (lib/saves.js)
 export const LAUNCH_STORAGE_KEY = 'driver.launch'; // sessionStorage: mode to start after a menu reload
 export const VEHICLE_COLORS_STORAGE_KEY = 'driver.vehicleColors.v1'; // per-vehicle paint
+export const VEHICLE_ODOMETERS_STORAGE_KEY = 'driver.vehicleOdometers.v1'; // per-vehicle km, shared by all modes
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
 export const GRAPHICS_DETAIL_STORAGE_KEY = 'driver.graphicsDetail';
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
-export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // M-key debug view on/off
+export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox

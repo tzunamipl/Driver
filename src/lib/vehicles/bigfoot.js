@@ -24,9 +24,9 @@ const SUSPENSION = {
   rollingResistance: 0.03,
   frictionSlip: 1.3,
   dampingRelaxation: 2.71,
-  dampingCompression: 0.48,
+  dampingCompression: 1.48,
   rollInfluence: 0.13,
-  pitchInfluence: 0.6,
+  pitchInfluence: 0.5,
 };
 
 const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
@@ -75,7 +75,10 @@ export default {
   reverseRatio: REVERSE_RATIO,
   shiftDurationS: 1.8,
   brakeForce: BRAKE_FORCE,
+  abs: false,
   mass: MASS,
+  fuelTankL: 120,
+  exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.55, -0.3, -1.95] })),
   steerSpeedD: STEER_SPEED_D,
   maxSteerAt0: MAX_STEER_AT_0,
   maxSteerAt100: MAX_STEER_AT_100,

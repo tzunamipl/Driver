@@ -6,7 +6,7 @@ import { PLAYERS_UPDATE_INTERVAL, PLAYERS_ACTIVE_THRESHOLD_MS } from '../config.
 // capped to the top 50 - sorted by activeness (most recently active
 // first), then by score. The count badge, though, only tallies currently
 // -active players (see render() below), not idle ones still shown in the
-// list. Always visible (not gated by the M debug-visuals toggle),
+// list. Always visible (not gated by the K debug-visuals toggle),
 // independent of the other HUD widgets.
 
 const ROSTER_LIMIT = 50;

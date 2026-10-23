@@ -15,7 +15,7 @@
 #rally-hud [hidden] { display: none; }
 .rally-title { font-size: 13px; font-weight: bold; color: #f6c900; }
 .rally-clock {
-  font: bold 40px/1.1 monospace;
+  font: bold 28px/1.1 monospace;
   letter-spacing: 1px;
   font-variant-numeric: tabular-nums;
 }
@@ -39,9 +39,10 @@
 .rally-buttons button { color: #000; }
 
 /* Pacenote strip under the rally clock, the coming note first. */
-#pacenote-hud { display: flex; gap: 6px; pointer-events: none; }
+#pacenote-hud { position: relative; display: flex; gap: 6px; pointer-events: none; }
 #pacenote-hud[hidden] { display: none; }
 .pacenote-tile {
+  --pacenote-tint: #fff;
   width: 64px;
   padding: 4px 2px 5px;
   box-sizing: border-box;
@@ -50,14 +51,19 @@
   color: #fff;
   font-family: var(--w95-font);
   text-align: center;
+  opacity: 0.75;
+  transition: opacity 0.3s, border-color 0.3s;
 }
-.pacenote-tile:first-child { border-color: #f6c900; }
-.pacenote-tile:not(:first-child) { opacity: 0.75; }
+.pacenote-tile.leaving { position: absolute; margin: 0; }
+.pacenote-tile.current { --pacenote-tint: #f6c900; border-color: #f6c900; opacity: 1; }
+/* Slow corners by grade: 1 red, 2-3 orange; 4-6 keep the default look. */
+.pacenote-tile.grade-1 { --pacenote-tint: #ff3030; border-color: #ff3030; }
+.pacenote-tile.grade-2-3 { --pacenote-tint: #ff9a1a; border-color: #ff9a1a; }
+.pacenote-tile.grade-1 .pacenote-call,
+.pacenote-tile.grade-2-3 .pacenote-call { color: var(--pacenote-tint); }
 .pacenote-arrow { display: block; width: 40px; height: 40px; margin: 0 auto; }
-.pacenote-arrow-line { fill: none; stroke: #fff; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
-.pacenote-arrow-head { fill: #fff; }
-.pacenote-tile:first-child .pacenote-arrow-line { stroke: #f6c900; }
-.pacenote-tile:first-child .pacenote-arrow-head { fill: #f6c900; }
+.pacenote-arrow-line { fill: none; stroke: var(--pacenote-tint); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
+.pacenote-arrow-head { fill: var(--pacenote-tint); transition: fill 0.3s; }
 .pacenote-call { font: bold 18px/1.1 monospace; }
 .pacenote-gap { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; color: #ddd; white-space: nowrap; }
 .pacenote-fork { width: 10px; height: 12px; }

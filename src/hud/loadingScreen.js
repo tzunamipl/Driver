@@ -6,6 +6,8 @@ const SLOW_AFTER_MS = 15000;
 
 export function createLoadingScreen(terrain, { lat, lon }) {
   const root = document.getElementById('loading-screen');
+  delete root.dataset.booting;
+  root.querySelector('h1').textContent = 'Loading real-world terrain';
   const coords = root.querySelector('.loading-coords');
   const baselineStep = root.querySelector('[data-step="baseline"]');
   const groundStep = root.querySelector('[data-step="ground"]');

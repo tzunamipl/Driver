@@ -21,6 +21,9 @@
   padding: 6px 8px;
   pointer-events: none;
   z-index: 10;
+  /* Fixed width + one-line labels: changing values must not resize the panel. */
+  width: 180px;
+  font-variant-numeric: tabular-nums;
 }
 #suspension-hud .susp-title {
   margin-bottom: 6px;
@@ -28,7 +31,7 @@
 }
 #suspension-hud .susp-grid {
   display: grid;
-  grid-template-columns: repeat(2, 34px);
+  grid-template-columns: repeat(2, 48px);
   gap: 6px 16px;
 }
 #suspension-hud .susp-wheel {
@@ -73,14 +76,16 @@
 }
 #suspension-hud .susp-label {
   text-align: center;
+  white-space: nowrap;
 }
 #suspension-hud .susp-landed {
   margin-top: 8px;
   padding-top: 6px;
   border-top: 1px solid var(--w95-shadow);
   box-shadow: inset 0 1px #fff;
+  white-space: nowrap;
 }
-/* Instant vehicle picker in the debug view (toggled with M, same as
+/* Instant vehicle picker in the debug view (toggled with K, same as
    #suspension-hud/#terrain-stats) - a compact version of the lobby's
    tabs + list widget (see .vehicle-tab/.vehicle-item below) that
    swaps the local car's vehicle kind in place instead of just

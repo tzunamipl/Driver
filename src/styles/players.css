@@ -1,4 +1,5 @@
 #gauges {
+  --tach-size: 150px;
   position: fixed;
   bottom: 20px;
   right: 20px;
@@ -20,6 +21,29 @@
   align-items: flex-end;
   gap: 8px;
   pointer-events: none;
+}
+/* Debug FPS graph (hud/fpsGraph.js) to the left of the players panel. */
+#top-right-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+#fps-graph-panel {
+  color: #000;
+  font-size: 11px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  padding: 4px;
+  pointer-events: none;
+}
+#fps-graph {
+  display: block;
+  background: #fff;
+  box-shadow: var(--w95-sunken);
+}
+#fps-graph-label {
+  white-space: pre;
+  margin-top: 2px;
 }
 #players-panel {
   color: #000;

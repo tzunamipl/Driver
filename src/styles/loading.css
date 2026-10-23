@@ -30,6 +30,23 @@
   margin-left: 12px;
   margin-right: 12px;
 }
+/* Before the bundle runs and the menu shows: a plain busy dialog, no terrain steps yet. */
+#loading-screen[data-booting] .loading-coords,
+#loading-screen[data-booting] .loading-steps,
+#loading-screen[data-booting] .loading-footer {
+  display: none;
+}
+#loading-screen[data-booting] .loading-bar-fill {
+  width: 30%;
+  animation: loading-sweep 1.2s linear infinite;
+}
+@keyframes loading-sweep {
+  from { margin-left: -30%; }
+  to { margin-left: 100%; }
+}
+#loading-screen[data-booting] .loading-bar {
+  overflow: hidden;
+}
 #loading-screen .loading-coords {
   margin: 0 0 10px;
   color: #444;

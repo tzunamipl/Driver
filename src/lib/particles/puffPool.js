@@ -18,13 +18,15 @@ const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 /**
  * @param {THREE.Scene} scene
- * @param {{size: number, lifetime: number, startScale: number, drag: number, colors: [number, number]}} opts
- *   drag multiplies velocity each second; colors are picked 50/50 per puff.
+ * @param {{size: number, lifetime: number, startScale: number, drag: number, colors: [number, number], glow?: boolean}} opts
+ *   drag multiplies velocity each second; colors are picked 50/50 per puff;
+ *   glow = additive and untinted (self-lit, e.g. flames).
  */
-export function createPuffPool(scene, { size, lifetime, startScale, drag, colors }) {
+export function createPuffPool(scene, { size, lifetime, startScale, drag, colors, glow = false }) {
   const pool = [];
+  const blending = glow ? THREE.AdditiveBlending : THREE.NormalBlending;
   for (let i = 0; i < size; i++) {
-    const material = new THREE.MeshBasicMaterial({ color: colors[0], transparent: true, opacity: 0, depthWrite: false });
+    const material = new THREE.MeshBasicMaterial({ color: colors[0], transparent: true, opacity: 0, depthWrite: false, blending });
     const mesh = new THREE.Mesh(PUFF_GEO, material);
     mesh.visible = false;
     scene.add(mesh);
@@ -53,7 +55,8 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
     p.mesh.visible = true;
     p.mesh.scale.setScalar(startScale);
     p.mesh.position.set(x, y, z);
-    p.material.color.setHex(puffColors[Math.random() < 0.5 ? 0 : 1]).multiply(tint);
+    p.material.color.setHex(puffColors[Math.random() < 0.5 ? 0 : 1]);
+    if (!glow) p.material.color.multiply(tint);
     p.material.opacity = opacity;
     const angle = Math.random() * Math.PI * 2;
     const h = randIn(out);

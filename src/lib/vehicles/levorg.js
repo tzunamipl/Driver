@@ -36,7 +36,9 @@ export default {
   automaticGearbox: true, // CVT with stepped ratios
   shiftDurationS: 0.5,
   brakeForce: 170,
+  tractionControl: true,
   mass: 1500,
+  fuelTankL: 60,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

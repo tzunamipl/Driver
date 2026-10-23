@@ -9,4 +9,7 @@ export default {
   label: 'Close Chase',
   offset: [0, 6, -11],
   lookAtOffset: [0, 4, 8],
+  closeScaleAtMaxSpeed: 0.6, // same distance as when slow
+  positionLeadFactor: 0.9, // no lag at steady speed
+  accelLag: 0.5, // m per m/s²: drops back while accelerating, catches up once speed evens out
 };

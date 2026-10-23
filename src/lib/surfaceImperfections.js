@@ -1,13 +1,16 @@
 // Deterministic small-scale ground bumps under the tyres (see a compound's
-// imperfectionCm). Value noise keyed by network-frame metres, so the same
-// spot always has the same bump, for every player and after origin shifts.
+// imperfectionCm). 1 m squares of random height with rounded edges, keyed by
+// network-frame metres, so the same spot always has the same bump, for every
+// player and after origin shifts.
 
-// Bump wavelengths (m) and weights: a long swell plus short chatter. Shorter
-// than ~0.2 m would be bridged by the contact patch anyway.
+// Step layers (cell size m) and weights: a coarse layer plus the 1 m one.
+const STEP_M = 1;
 const OCTAVES = [
-  { cell: 0.9, weight: 0.65 },
-  { cell: 0.3, weight: 0.35 },
+  { cell: STEP_M * 3, weight: 0.65 },
+  { cell: STEP_M, weight: 0.35 },
 ];
+// Half-width of the rounded edge, as a fraction of the cell; the rest stays flat.
+const EDGE = 0.2;
 const SEED = 0x5f3759df;
 
 function hash2(ix, iz, salt) {
@@ -17,41 +20,30 @@ function hash2(ix, iz, salt) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-const smooth = (t) => t * t * (3 - 2 * t);
-const smoothDeriv = (t) => 6 * t * (1 - t);
+// 0..1 between two cell centres: flat near each centre, smoothstep across the edge.
+function edgeBlend(f) {
+  const t = Math.min(1, Math.max(0, (f - 0.5 + EDGE) / (2 * EDGE)));
+  return t * t * (3 - 2 * t);
+}
 
-/**
- * Bump height (m, centred on 0, peak-to-peak <= amplitudeM) and its slope at
- * network-frame (x, z), written into out { height, dhdx, dhdz }.
- */
-export function sampleImperfection(x, z, amplitudeM, out) {
+/** Bump height (m, centred on 0, peak-to-peak <= amplitudeM) at network-frame (x, z). */
+export function sampleImperfection(x, z, amplitudeM) {
   let height = 0;
-  let dhdx = 0;
-  let dhdz = 0;
   for (let o = 0; o < OCTAVES.length; o++) {
     const { cell, weight } = OCTAVES[o];
-    const gx = x / cell;
-    const gz = z / cell;
+    // Grid of cell centres: (ix, iz) is the centre at or before the point.
+    const gx = x / cell - 0.5;
+    const gz = z / cell - 0.5;
     const ix = Math.floor(gx);
     const iz = Math.floor(gz);
-    const fx = gx - ix;
-    const fz = gz - iz;
+    const sx = edgeBlend(gx - ix);
+    const sz = edgeBlend(gz - iz);
     const salt = SEED + o * 0x9e3779b9;
     const a = hash2(ix, iz, salt);
     const b = hash2(ix + 1, iz, salt);
     const c = hash2(ix, iz + 1, salt);
     const d = hash2(ix + 1, iz + 1, salt);
-    const sx = smooth(fx);
-    const sz = smooth(fz);
-    const k1 = b - a;
-    const k2 = c - a;
-    const k3 = a - b - c + d;
-    height += weight * (a + k1 * sx + k2 * sz + k3 * sx * sz);
-    dhdx += (weight * (k1 + k3 * sz) * smoothDeriv(fx)) / cell;
-    dhdz += (weight * (k2 + k3 * sx) * smoothDeriv(fz)) / cell;
+    height += weight * (a + (b - a) * sx + (c - a + (a - b - c + d) * sx) * sz);
   }
-  out.height = (height - 0.5) * amplitudeM;
-  out.dhdx = dhdx * amplitudeM;
-  out.dhdz = dhdz * amplitudeM;
-  return out;
+  return (height - 0.5) * amplitudeM;
 }

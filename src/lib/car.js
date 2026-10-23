@@ -18,6 +18,7 @@ import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
 import { applyWaterDrag } from './waterDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { createEngineState } from './engine.js';
+import { createFuelTank } from './fuel.js';
 import { MAX_STEER } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
 import {
@@ -42,6 +43,9 @@ const DEFAULT_CHASSIS_MASS = 1500; // kg
 const DEFAULT_TRAILER_MASS = 5000; // kg
 const DEFAULT_BRAKE_FORCE = 100;
 const DEFAULT_ABS = true;
+// Front axles' share of the pedal brake: the rear unloads under braking, so an
+// even split locks it first and swaps the car's ends.
+const DEFAULT_BRAKE_BIAS = 0.70;
 const DEFAULT_STEER_SPEED_D = 0.1;
 // Rear (unsteered) tyres keep this share of their dynamic grip once sliding,
 // so a broken-loose rear holds the slide while the fronts still catch it.
@@ -53,7 +57,7 @@ const DEFAULT_SUSPENSION_FORCE_G = 8;
 const REFERENCE_WHEEL_COUNT = 4;
 // Legacy flat engine force (N/hp); only used by rigs without engine.js.
 const FORCE_PER_HP = 0;
-const ANGULAR_DAMPING = 0.6; // bleeds residual spin so bumps don't build into tumbles
+const ANGULAR_DAMPING = 0.15; // bleeds residual spin so bumps don't build into tumbles
 const WHEEL_HITBOX_PED_GROUP = 16; // pedestrians' collision group (pedestrians.js)
 const WHEEL_HITBOX_SHAPE_GROUP = 32; // shape group knocked pedestrians ignore (pedestrians.js)
 
@@ -167,6 +171,20 @@ function applyWheelFootprintInertia(body, wheels, extraZ = []) {
   body.angularDamping = ANGULAR_DAMPING;
 }
 
+/**
+ * Per-wheel pedal-brake scale putting `bias` of it on the axles ahead of the
+ * wheelbase midpoint; total pedal force is unchanged.
+ */
+function pedalBiasScales(wheels, bias) {
+  const zs = wheels.map((w) => w.z);
+  const midZ = (Math.max(...zs) + Math.min(...zs)) / 2;
+  const front = wheels.filter((w) => w.z > midZ + 1e-3).length;
+  const rear = wheels.filter((w) => w.z < midZ - 1e-3).length;
+  if (!front || !rear) return wheels.map(() => 1);
+  const n = front + rear;
+  return wheels.map((w) => (w.z > midZ + 1e-3 ? (bias * n) / front : w.z < midZ - 1e-3 ? ((1 - bias) * n) / rear : 1));
+}
+
 /** Trailer spec: tyre/suspension/brake fields fall back to the tractor's. */
 function trailerSpecOf(descriptor) {
   const { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce } = descriptor;
@@ -248,9 +266,14 @@ export function createCar(
   vehicle.wheelLabels = allWheels.map((w) => w.label);
   vehicle.engineForce = descriptor.enginePowerHp * FORCE_PER_HP;
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
+  vehicle.fuel = createFuelTank(descriptor, chassisBody); // burnt by mainLoop, adds its mass to the chassis
+  Object.defineProperty(vehicle.engine, 'fuelFraction', { get: () => vehicle.fuel.fraction });
   vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
-  vehicle.abs = descriptor.abs ?? DEFAULT_ABS; // pedal brake backs off before locking
+  vehicle.hasTrailer = !!trailer;
+  vehicle.abs = descriptor.abs ?? DEFAULT_ABS; // ABS fitted: pedal brake backs off before locking
+  vehicle.absOff = false; // fitted ABS switched off from the dash lamp
+  vehicle.tractionControl = descriptor.tractionControl ?? false; // dash lamp only, not simulated
   // Speed-sensitive steering lock; input.js lerps between these by speed.
   vehicle.steerSpeedD = descriptor.steerSpeedD ?? DEFAULT_STEER_SPEED_D;
   vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
@@ -265,12 +288,14 @@ export function createCar(
     steering.angles(value, speedKmh, tractorWheels, steerAngles);
     for (let i = 0; i < steerAngles.length; i++) vehicle.wheelInfos[i].steering = steerAngles[i];
   };
+  const pedalBias = pedalBiasScales(tractorWheels, descriptor.brakeBias ?? DEFAULT_BRAKE_BIAS);
   // Pedal brake on every wheel, handbrake only on handbrake axles (they must be able to lock).
   vehicle.applyBrakes = (pedalForce, handbrakeForce, abs) => {
     allWheels.forEach((w, i) => {
       const share = w.brakeForce / vehicle.brakeForce;
       const handbrake = w.axle.handbrake ? handbrakeForce : 0;
-      vehicle.setBrake(Math.max(pedalForce, handbrake) * share, i, abs && !handbrake, handbrake > 0);
+      const pedal = pedalForce * (pedalBias[i] ?? 1);
+      vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0);
     });
   };
 

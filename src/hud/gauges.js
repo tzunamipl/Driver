@@ -1,39 +1,55 @@
+import * as THREE from 'three';
 import { MAX_GAUGE_SPEED } from '../config.js';
+import { createWarningLamps } from './warningLamps.js';
+import { createAuxGauge } from './auxGauge.js';
+import { buildDialScale, valueToDeg } from './dialScale.js';
 
 // Speedometer HUD, driven straight off the vehicle's physics state each
-// frame. Self-contained (owns its own DOM refs + smoothing state) so it can
+// frame. The speedo reads driven-wheel speed like a real one (wheelspin shows);
+// true speed over ground goes to the readout beside the minimap. Self-contained (owns its own DOM refs + smoothing state) so it can
 // be wired in/out of the main loop independently of the other HUD widgets.
 
-// Six whole kilometres plus a tenths drum. Index 0 is the tenths place.
+// Whole kilometres plus a tenths drum (index 0 is the tenths place).
 const ODO_PLACES = 7;
-const ODO_DIGIT_H = 24;
+const TRIP_PLACES = 5;
+// Speedo label steps (km/h), smallest that keeps the dial under SPEEDO_MAX_LABELS intervals.
+const SPEEDO_STEPS = [20, 40, 50, 100];
+const SPEEDO_MAX_LABELS = 8;
+// Sun intensity giving the needle hubs their full highlight (noon in app/daylight.js).
+const HUB_FULL_LIGHT = 3.2;
+const toLight = new THREE.Vector3();
+const camAxis = new THREE.Vector3();
 // A single frame of real driving stays well under this. Resets and map
 // recenters jump farther and must not wind the odometer.
 const ODO_TELEPORT_M = 20;
 
 /**
  * @param {object} [options]
- * @param {number} [options.initialKm] - odometer reading to resume from
- *   (e.g. restored from a previous session - see src/lib/carState.js),
- *   instead of always starting back at zero.
+ * @param {number} [options.initialTripKm] - km driven in this save so far
+ *   (see src/lib/carState.js); the odometer itself is set per car via setOdometerKm.
  * @param {() => void} [options.onLightsClick] - dash headlight lamp clicked
+ * @param {() => void} [options.onHandbrakeClick] - dash handbrake lamp clicked
  * @param {() => void} [options.onGearModeClick] - tach gearbox-mode badge clicked
  * @param {() => void} [options.onTransmissionClick] - tach AUTO/MAN badge clicked
  */
-export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick, onTransmissionClick } = {}) {
+export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeClick, onGearModeClick, onTransmissionClick } = {}) {
   const speedoNeedle = document.getElementById('speedo-needle');
-  const speedoValue = document.getElementById('speedo-value');
-  const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), initialKm);
+  const groundSpeedEl = document.getElementById('ground-speed');
+  const groundSpeedValue = document.getElementById('ground-speed-value');
+  let groundSpeedShown = null;
+  const speedoTicks = document.getElementById('speedo-ticks');
+  let speedoScale = null;
+  let speedoScaleTop = -1; // topSpeedKmh the scale was last built for
+  const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), document.getElementById('odo-trip-wheels'), initialTripKm);
   const tachEl = document.getElementById('tach');
   const tachNeedle = document.getElementById('tach-needle');
-  const tachGear = document.getElementById('tach-gear');
-  const tachRpm = document.getElementById('tach-rpm');
   const tachTicks = document.getElementById('tach-ticks');
   let tachTicksRedline = -1; // redlineRpm the ticks were last built for
-  const handbrakeIcon = document.getElementById('handbrake-icon');
-  const lightsIcon = document.getElementById('lights-icon');
-  if (onLightsClick) lightsIcon?.addEventListener('click', onLightsClick);
+  const auxGauge = createAuxGauge(document.getElementById('aux-gauge'));
+  const lamps = createWarningLamps(document.getElementById('warning-lamps'), { onLightsClick, onHandbrakeClick });
   let lightsShown = null;
+  const gaugesEl = document.getElementById('gauges');
+  let hubShown = '';
   const gearModeEl = document.getElementById('gear-mode');
   // Blur so Space (handbrake) doesn't re-click the focused button.
   gearModeEl?.addEventListener('click', () => {
@@ -52,45 +68,61 @@ export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick,
     const lights = !!vehicle && lightsOn;
     if (lights !== lightsShown) {
       lightsShown = lights;
-      lightsIcon?.classList.toggle('on', lights);
-      lightsIcon?.setAttribute('aria-pressed', String(lights));
+      gaugesEl?.classList.toggle('dash-lit', lights);
     }
-    handbrakeIcon?.classList.toggle('on', !!vehicle && !!handbrake?.on);
-    handbrakeIcon?.classList.toggle('latched', !!vehicle && !!handbrake?.latched);
+    lamps.update(vehicle ?? null, { handbrake, lightsOn: lights });
     if (!chassisMesh || !vehicle) {
       odometer.disarm();
+      if (groundSpeedEl) groundSpeedEl.hidden = true;
+      groundSpeedShown = null;
       tachEl?.classList.remove('visible');
+      auxGauge.update(null);
       return;
     }
     odometer.addTravel(chassisMesh);
 
-    // Speed: physics velocity magnitude (m/s) -> km/h.
+    // Ground speed: physics velocity magnitude (m/s) -> km/h.
     const v = vehicle.chassisBody.velocity;
-    const speedKmh = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6;
-    const clamped = Math.min(speedKmh, MAX_GAUGE_SPEED);
-    // Needle sweeps -90deg (0 km/h) to +90deg (MAX_GAUGE_SPEED).
-    const needleDeg = -90 + (clamped / MAX_GAUGE_SPEED) * 180;
+    const groundKmh = Math.round(Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6);
+    if (groundSpeedEl && groundKmh !== groundSpeedShown) {
+      groundSpeedShown = groundKmh;
+      groundSpeedEl.hidden = false;
+      groundSpeedValue.textContent = groundKmh;
+    }
+    // Hover rigs have no wheels: their speedo reads ground speed.
+    const wheelSpeed = vehicle.getDriveWheelSpeed?.();
+    const speedKmh = wheelSpeed === undefined ? groundKmh : Math.abs(wheelSpeed) * 3.6;
+    const topSpeedKmh = vehicle.engine?.topSpeedKmh ?? MAX_GAUGE_SPEED;
+    if (topSpeedKmh !== speedoScaleTop) {
+      speedoScaleTop = topSpeedKmh;
+      speedoScale = speedoScaleFor(topSpeedKmh);
+      buildDialScale(speedoTicks, { ...speedoScale, labelRadiusPct: 35 });
+    }
+    const needleDeg = valueToDeg(Math.min(speedKmh, speedoScale.max), speedoScale.max);
     speedoNeedle.style.transform = `translate(-50%, -100%) rotate(${needleDeg}deg)`;
-    speedoValue.textContent = Math.round(speedKmh);
 
     // Tachometer + gear indicator (lib/engine.js's rpm/gearbox simulation)
     // - only present on wheeled combustion cars, so this whole gauge is
     // hidden for rigs without one (e.g. the hover chariot).
     const engine = vehicle.engine;
+    auxGauge.update(engine ?? null);
     if (!engine) {
       tachEl?.classList.remove('visible');
       return;
     }
     tachEl?.classList.add('visible');
     if (engine.redlineRpm !== tachTicksRedline) {
-      buildTachTicks(tachTicks, engine.redlineRpm);
+      buildDialScale(tachTicks, {
+        max: engine.redlineRpm,
+        step: 1000,
+        redFrom: engine.redlineRpm * RED_ZONE_FRACTION,
+        label: (rpm) => String(rpm / 1000),
+        labelRadiusPct: 33,
+      });
       tachTicksRedline = engine.redlineRpm;
     }
-    const rpmClamped = Math.min(engine.rpm, engine.redlineRpm);
-    const tachDeg = rpmToDeg(rpmClamped, engine.redlineRpm);
+    const tachDeg = valueToDeg(Math.min(engine.rpm, engine.redlineRpm), engine.redlineRpm);
     tachNeedle.style.transform = `translate(-50%, -100%) rotate(${tachDeg}deg)`;
-    tachGear.textContent = engine.gearLabel;
-    tachGear.classList.toggle('manual', engine.manualHoldTimer > 0);
     if (gearMode !== gearModeShown && gearModeEl) {
       gearModeShown = gearMode;
       gearModeEl.textContent = gearMode.toUpperCase();
@@ -107,79 +139,59 @@ export function createGaugesHud({ initialKm = 0, onLightsClick, onGearModeClick,
         : 'Gearbox: automatic / manual (click to switch)';
       gearModeEl?.classList.toggle('inactive', engine.manual);
     }
-    tachRpm.textContent = `${Math.round(engine.rpm)} RPM`;
   }
 
-  return { updateGauges, shiftOrigin: odometer.shiftOrigin, getOdometerKm: () => odometer.getKm() };
+  /** Moves the needle hubs' specular highlight to where `light` (the sun/moon) would put it from this camera. */
+  function updateHubLight(camera, light) {
+    if (!gaugesEl) return;
+    toLight.subVectors(light.position, light.target.position).normalize();
+    // Blinn half vector in camera space, viewer along +z.
+    const x = toLight.dot(camAxis.set(1, 0, 0).applyQuaternion(camera.quaternion));
+    const y = toLight.dot(camAxis.set(0, 1, 0).applyQuaternion(camera.quaternion));
+    const z = toLight.dot(camAxis.set(0, 0, 1).applyQuaternion(camera.quaternion)) + 1;
+    const len = Math.hypot(x, y, z) || 1;
+    const strength = Math.min(1, light.intensity / HUB_FULL_LIGHT) * (0.4 + 0.6 * (z / len));
+    const c = light.color;
+    const rgb = [c.r, c.g, c.b].map((v) => Math.round(255 * (0.4 + 0.6 * Math.min(1, v)))).join(', ');
+    const hx = Math.round(50 + 38 * (x / len));
+    const hy = Math.round(50 - 38 * (y / len));
+    const spec = strength.toFixed(2);
+    const hub = `${hx}|${hy}|${spec}|${rgb}`;
+    if (hub === hubShown) return;
+    hubShown = hub;
+    gaugesEl.style.setProperty('--hub-x', `${hx}%`);
+    gaugesEl.style.setProperty('--hub-y', `${hy}%`);
+    gaugesEl.style.setProperty('--hub-spec', spec);
+    gaugesEl.style.setProperty('--hub-rgb', rgb);
+  }
+
+  return {
+    updateGauges,
+    updateHubLight,
+    shiftOrigin: odometer.shiftOrigin,
+    getOdometerKm: odometer.getKm,
+    setOdometerKm: odometer.setKm,
+    getTripKm: odometer.getTripKm,
+  };
 }
 
-// Needle/tick angle for a given rpm: sweeps -90deg (0 rpm) to +90deg
-// (redlineRpm), matching the tach's visual red zone (see index.html's
-// conic-gradient, which starts its red wedge at the same 0.8444 fraction).
-function rpmToDeg(rpm, redlineRpm) {
-  return -90 + (rpm / redlineRpm) * 180;
-}
-
-// Builds one tick + krpm label per 1000rpm, from 1000 up to the vehicle's
-// own redlineRpm. Rebuilt only when switching to a vehicle with a different
-// redlineRpm (see updateGauges), not every frame.
+// The tach's red wedge (conic-gradient in gauges.css) starts at the same fraction.
 const RED_ZONE_FRACTION = 152 / 180;
-function buildTachTicks(container, redlineRpm) {
-  if (!container) return;
-  container.innerHTML = '';
-  for (let rpm = 1000; rpm <= redlineRpm; rpm += 1000) {
-    const deg = rpmToDeg(rpm, redlineRpm);
-    const isRedline = rpm / redlineRpm >= RED_ZONE_FRACTION;
 
-    const wrap = document.createElement('div');
-    wrap.className = 'tach-tick-wrap';
-    wrap.style.transform = `rotate(${deg}deg)`;
-
-    const tick = document.createElement('div');
-    tick.className = isRedline ? 'tach-tick redline' : 'tach-tick';
-    wrap.appendChild(tick);
-    container.appendChild(wrap);
-
-    // Label: placed by direct left/top percentages from sin/cos (not
-    // nested in a rotated wrapper - see the CSS comment above `.tach-tick`
-    // for why that doesn't work) so the number stays upright.
-    const rad = (deg * Math.PI) / 180;
-    const labelRadiusPct = 33; // distance from dial center, in % of #tach's size
-    const label = document.createElement('div');
-    label.className = isRedline ? 'tach-tick-label redline' : 'tach-tick-label';
-    label.textContent = String(rpm / 1000);
-    label.style.left = `${50 + labelRadiusPct * Math.sin(rad)}%`;
-    label.style.top = `${50 - labelRadiusPct * Math.cos(rad)}%`;
-    container.appendChild(label);
-  }
+/** Speedo scale reaching the car's gearing top speed, rounded up to a whole label step. */
+function speedoScaleFor(topSpeedKmh) {
+  const step = SPEEDO_STEPS.find((s) => Math.ceil(topSpeedKmh / s) <= SPEEDO_MAX_LABELS) ?? SPEEDO_STEPS.at(-1);
+  return { max: Math.max(step, Math.ceil(topSpeedKmh / step) * step), step, minorStep: step / 2 };
 }
 
-function createOdometer(root, wheelsEl, initialKm = 0) {
-  const strips = [];
-  if (root && wheelsEl) {
-    for (let place = ODO_PLACES - 1; place >= 0; place--) {
-      if (place === 0) {
-        const dot = document.createElement('div');
-        dot.className = 'odo-dot';
-        wheelsEl.appendChild(dot);
-      }
-      const digit = document.createElement('div');
-      digit.className = place === 0 ? 'odo-digit odo-tenth' : 'odo-digit';
-      const strip = document.createElement('div');
-      strip.className = 'odo-strip';
-      for (let n = 0; n <= 10; n++) {
-        const cell = document.createElement('div');
-        cell.textContent = String(n % 10);
-        strip.appendChild(cell);
-      }
-      digit.appendChild(strip);
-      wheelsEl.appendChild(digit);
-      strips[place] = strip;
-    }
-  }
+// Car odometer (km, set per car) over the save's trip meter (tripKm); both wind with the same travel.
+function createOdometer(root, wheelsEl, tripWheelsEl, initialTripKm = 0) {
+  const paintOdo = createDrums(wheelsEl, ODO_PLACES);
+  const paintTrip = createDrums(tripWheelsEl, TRIP_PLACES);
 
-  let km = initialKm;
-  let shownTenths = -1;
+  let km = 0;
+  let tripKm = initialTripKm;
+  let shownLabel = '';
   let prevMesh = null;
   let prevX = 0;
   let prevZ = 0;
@@ -202,19 +214,17 @@ function createOdometer(root, wheelsEl, initialKm = 0) {
     prevZ = z;
     if (dist === 0 || dist >= ODO_TELEPORT_M) return;
     km += dist / 1000;
+    tripKm += dist / 1000;
     paint();
   }
 
   function paint() {
-    for (let place = 0; place < strips.length; place++) {
-      const strip = strips[place];
-      if (!strip) continue;
-      strip.style.transform = `translateY(${-wheelPosition(km, place) * ODO_DIGIT_H}px)`;
-    }
-    const tenths = Math.floor(km * 10);
-    if (root && tenths !== shownTenths) {
-      shownTenths = tenths;
-      root.setAttribute('aria-label', `Licznik ${km.toFixed(1)} kilometrów`);
+    paintOdo(km);
+    paintTrip(tripKm);
+    const label = `Licznik ${km.toFixed(1)} kilometrów, trip ${tripKm.toFixed(1)} kilometrów`;
+    if (root && label !== shownLabel) {
+      shownLabel = label;
+      root.setAttribute('aria-label', label);
     }
   }
 
@@ -225,7 +235,43 @@ function createOdometer(root, wheelsEl, initialKm = 0) {
     prevZ -= dz;
   }
 
-  return { addTravel, disarm, shiftOrigin, getKm: () => km };
+  function setKm(value) {
+    km = value;
+    paint();
+  }
+
+  return { addTravel, disarm, shiftOrigin, setKm, getKm: () => km, getTripKm: () => tripKm };
+}
+
+/** Builds a row of number drums in `wheelsEl`; returns paint(km). */
+function createDrums(wheelsEl, places) {
+  const strips = [];
+  if (!wheelsEl) return () => {};
+  for (let place = places - 1; place >= 0; place--) {
+    if (place === 0) {
+      const dot = document.createElement('div');
+      dot.className = 'odo-dot';
+      wheelsEl.appendChild(dot);
+    }
+    const digit = document.createElement('div');
+    digit.className = place === 0 ? 'odo-digit odo-tenth' : 'odo-digit';
+    const strip = document.createElement('div');
+    strip.className = 'odo-strip';
+    for (let n = 0; n <= 10; n++) {
+      const cell = document.createElement('div');
+      cell.textContent = String(n % 10);
+      strip.appendChild(cell);
+    }
+    digit.appendChild(strip);
+    wheelsEl.appendChild(digit);
+    strips[place] = strip;
+  }
+  return (km) => {
+    // Percent of the strip's own height (11 cells), so each row sizes its drums in CSS.
+    for (let place = 0; place < places; place++) {
+      strips[place].style.transform = `translateY(${(-wheelPosition(km, place) * 100) / 11}%)`;
+    }
+  };
 }
 
 // Position of one drum in digit-heights, 0..10. The tenths drum rolls

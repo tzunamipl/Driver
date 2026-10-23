@@ -1,17 +1,79 @@
 import * as THREE from 'three';
 import { SKY_COLOR } from '../lib/terrain.js';
 import { createStars } from '../lib/stars.js';
+import { REVERSED_DEPTH } from '../config.js';
 
 // Renderer, scene, camera and lights.
 
 const FOG_COLOR = new THREE.Color(0.22, 0.38, 0.42).getHex();
+const MSAA_SAMPLES = 4; // the scene target's antialiasing (the canvas's own is off then)
 
-/** Builds renderer/scene/camera, mounts the canvas in #app; returns them plus resize(). */
+/** True if WebGL2 here has EXT_clip_control, which a reversed depth buffer needs. */
+function supportsReversedDepth() {
+  const gl = document.createElement('canvas').getContext('webgl2');
+  const supported = !!gl?.getExtension('EXT_clip_control');
+  gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  return supported;
+}
+
+/**
+ * three's shadow lookup only rejects z > 1; reversed, ground past the shadow camera's far plane
+ * lands at z < 0 and reads as shadowed (a dark box down-sun of the car).
+ */
+function patchShadowFarPlane() {
+  const chunk = THREE.ShaderChunk.shadowmap_pars_fragment;
+  const test = 'inFrustum && shadowCoord.z <= 1.0';
+  if (!chunk.includes(test)) return console.warn('shadowmap_pars_fragment changed: far-plane patch not applied');
+  THREE.ShaderChunk.shadowmap_pars_fragment = chunk.replaceAll(test, 'inFrustum && shadowCoord.z >= 0.0 && shadowCoord.z <= 1.0');
+}
+
+/**
+ * Scene -> multisampled target with a reversed float depth buffer -> canvas.
+ * The canvas's own depth buffer is 24-bit fixed point, too coarse for the view's range even reversed.
+ */
+function createReversedDepthView(renderer) {
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+    samples: MSAA_SAMPLES,
+    colorSpace: THREE.SRGBColorSpace, // 8-bit sRGB storage: no banding in the darks
+    depthTexture: new THREE.DepthTexture(size.x, size.y, THREE.FloatType),
+  });
+  target.resolveDepthBuffer = false; // depth is only needed while drawing
+  const blitScene = new THREE.Scene();
+  blitScene.add(
+    new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.MeshBasicMaterial({ map: target.texture, depthTest: false, depthWrite: false, toneMapped: false })
+    )
+  );
+  const blitCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  return {
+    resize() {
+      renderer.getDrawingBufferSize(size);
+      target.setSize(size.x, size.y);
+    },
+    render(scene, camera) {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      renderer.setRenderTarget(null);
+      renderer.render(blitScene, blitCamera);
+    },
+  };
+}
+
+/** Builds renderer/scene/camera, mounts the canvas in #app; returns them plus renderView() for the frame. */
 export function createSceneEnvironment() {
   const app = document.getElementById('app');
 
-  // Logarithmic depth: the view spans ~0.1 m to over 100 km.
-  const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+  // The view spans ~0.1 m to over 100 km. Reversed float depth covers that like log depth does,
+  // but log depth writes gl_FragDepth in every shader, so the GPU can't skip hidden fragments early.
+  const reversedDepth = REVERSED_DEPTH && supportsReversedDepth();
+  if (reversedDepth) patchShadowFarPlane();
+  const renderer = new THREE.WebGLRenderer(
+    reversedDepth
+      ? { antialias: false, depth: false, reversedDepthBuffer: true }
+      : { antialias: true, logarithmicDepthBuffer: true }
+  );
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -34,13 +96,16 @@ export function createSceneEnvironment() {
   );
   camera.position.set(0, 5, -8);
 
+  const view = reversedDepth ? createReversedDepthView(renderer) : null;
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    view?.resize();
   });
 
-  return { renderer, scene, camera };
+  const renderView = view ? () => view.render(scene, camera) : () => renderer.render(scene, camera);
+  return { renderer, scene, camera, renderView };
 }
 
 /** Ambient + one directional light (sun by day, moon by night); daylight.js drives them each frame. */

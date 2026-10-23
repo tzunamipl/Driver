@@ -53,7 +53,26 @@ function withGloss(build, gloss) {
     return built;
   };
 }
+// Chiselled look like the scenery: every body material is flat-shaded.
+
+/** Wraps a body builder so every material in the group it returns is flat-shaded. */
+function withFlatShading(build) {
+  return (...args) => {
+    const built = build(...args);
+    built.group.traverse((obj) => {
+      if (!obj.material) return;
+      for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+        if (m.flatShading) continue;
+        m.flatShading = true;
+        m.needsUpdate = true;
+      }
+    });
+    return built;
+  };
+}
 for (const v of VEHICLES) {
+  v.buildBody = withFlatShading(v.buildBody);
+  if (v.trailer) v.trailer.buildBody = withFlatShading(v.trailer.buildBody);
   if (v.gloss !== undefined) v.buildBody = withGloss(v.buildBody, v.gloss);
   const trailerGloss = v.trailer?.gloss ?? v.gloss;
   if (v.trailer && trailerGloss !== undefined) v.trailer.buildBody = withGloss(v.trailer.buildBody, trailerGloss);

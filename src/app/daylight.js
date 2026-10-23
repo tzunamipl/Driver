@@ -103,6 +103,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
   let preset = null;
   let presetMs = null;
   let sunElevationDeg = 90;
+  let timeMs = simulatedTimeMs(Date.now());
 
   function applyPalette(elevationDeg) {
     let i = 0;
@@ -133,7 +134,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
   /** Call once per frame with the car's world position and lat/lon. */
   function update(position, lat, lon) {
     if (preset && presetMs === null) presetMs = presetTimeMs(preset, lat, lon);
-    const timeMs = preset ? presetMs : simulatedTimeMs(Date.now());
+    timeMs = preset ? presetMs : simulatedTimeMs(Date.now());
     const { east, north, up } = sunDirection(timeMs, lat, lon);
     // World axes: x = east, y = up, z = south.
     sunDir.set(east, up, -north);
@@ -161,5 +162,5 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     presetMs = null; // resolved on the next update, where lat/lon are known
   }
 
-  return { update, setTimePreset, getTimePreset: () => preset, getSunElevation: () => sunElevationDeg };
+  return { update, setTimePreset, getTimePreset: () => preset, getSunElevation: () => sunElevationDeg, getTimeMs: () => timeMs, getLight: () => sun };
 }

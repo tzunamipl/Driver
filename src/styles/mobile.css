@@ -28,7 +28,7 @@
   #net-status { bottom: 104px; }
   #streaming-status { bottom: 134px; }
   #version-badge { bottom: 88px; }
-  #odometer { top: 78%; }
+  #odometer { --odo-scale: 0.48; }
   #minimap {
     top: 10px;
     bottom: auto;
@@ -51,20 +51,23 @@
     top: 10px;
     bottom: auto;
     right: 10px;
+    gap: 6px;
   }
   #speedo {
     width: 132px;
     height: 132px;
   }
-  #speedo .gauge-value { font-size: 24px; }
   #speedo .gauge-needle { height: 50px; }
-  #tach {
+  #gauges { --tach-size: 106px; }
+  #aux-gauge {
     width: 86px;
     height: 86px;
   }
-  #tach .gauge-value { font-size: 18px; }
-  #tach .gauge-needle { height: 34px; }
-  #tach .tach-tick-label { font-size: 7px; }
+  #aux-gauge .dial-tick-label { font-size: 7px; }
+  #tach .gauge-needle { height: 40px; }
+  #gear-mode,
+  #transmission-mode { font-size: 7px; padding: 0 4px; }
+  .dial-tick-label { font-size: 8px; }
   /* Gauges sit at the top edge here, so the stick hangs below the speedo. */
   #gearstick {
     top: calc(100% + 10px);

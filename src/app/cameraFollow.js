@@ -12,6 +12,10 @@ import {
   CAMERA_CLOSE_SCALE_AT_MIN_SPEED,
   CAMERA_CLOSE_SCALE_AT_MAX_SPEED,
   CAMERA_POSITION_LEAD_FACTOR,
+  CAMERA_ACCEL_LAG,
+  CAMERA_ACCEL_LAG_MAX,
+  CAMERA_ACCEL_LEAD_MAX,
+  CAMERA_ACCEL_LAG_RATE,
   CAMERA_PITCH_SPEED,
   CAMERA_PITCH_MAX_ANGLE,
   CAMERA_PITCH_MIN_SPEED,
@@ -31,7 +35,8 @@ import {
   TELEPORT_CAMERA_MIN_S,
   TELEPORT_CAMERA_SETTLE_S,
 } from '../config.js';
-import { CAMERA_VIEWS, getCameraView, nextCameraView, DEFAULT_CAMERA_VIEW_ID } from './cameraViews/index.js';
+import { CAMERA_VIEWS, getCameraView, nextCameraView, viewMatchesVehicle, DEFAULT_CAMERA_VIEW_ID } from './cameraViews/index.js';
+import { createCameraListHud } from '../hud/cameraListHud.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
@@ -51,37 +56,6 @@ function isTypingInField() {
 function loadSavedViewId() {
   const id = readSaveField('cameraView');
   return CAMERA_VIEWS.some((v) => v.id === id) ? id : null;
-}
-
-let labelEl = null;
-let labelTimer = null;
-/** Briefly shows the selected view's name. */
-function flashViewLabel(label) {
-  if (!labelEl) {
-    labelEl = document.createElement('div');
-    Object.assign(labelEl.style, {
-      position: 'fixed',
-      top: '12px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      padding: '4px 12px',
-      background: 'rgba(0,0,0,0.55)',
-      color: '#fff',
-      font: '600 13px system-ui, sans-serif',
-      borderRadius: '6px',
-      zIndex: '20',
-      pointerEvents: 'none',
-      transition: 'opacity 0.3s',
-      opacity: '0',
-    });
-    document.body.appendChild(labelEl);
-  }
-  labelEl.textContent = `Camera: ${label}`;
-  labelEl.style.opacity = '1';
-  clearTimeout(labelTimer);
-  labelTimer = setTimeout(() => {
-    labelEl.style.opacity = '0';
-  }, 1200);
 }
 
 /**
@@ -111,9 +85,12 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   let smoothedPitch = 0;
   let smoothedPitchInit = false;
   let smoothedCloseScale = 1;
+  let laggedSpeed = null; // trails the horizontal speed; the gap drives the accel lag
+  const tmpAccelLag = new THREE.Vector3();
   let droneSweep = null; // side-to-side sweep phase; null = just switched to the drone
 
   let viewId = loadSavedViewId() ?? DEFAULT_CAMERA_VIEW_ID;
+  const cameraList = createCameraListHud();
   // Current vehicle's vehicleType, refreshed each frame, used to filter
   // vehicle-specific views. null = not known yet (matches any view).
   let currentVehicleType = null;
@@ -127,6 +104,12 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
       lookAtOffset: view.lookAtOffset ?? CAMERA_LOOKAT_OFFSET,
       positionSpeed: view.positionSpeed ?? CAMERA_POSITION_SPEED,
       lookAtSpeed: view.lookAtSpeed ?? CAMERA_LOOKAT_SPEED,
+      closeScaleAtMaxSpeed: view.closeScaleAtMaxSpeed ?? CAMERA_CLOSE_SCALE_AT_MAX_SPEED,
+      positionLeadFactor: view.positionLeadFactor ?? CAMERA_POSITION_LEAD_FACTOR,
+      accelLag: view.accelLag ?? CAMERA_ACCEL_LAG,
+      accelLagMax: view.accelLagMax ?? CAMERA_ACCEL_LAG_MAX,
+      accelLeadMax: view.accelLeadMax ?? CAMERA_ACCEL_LEAD_MAX,
+      accelLagRate: view.accelLagRate ?? CAMERA_ACCEL_LAG_RATE,
     };
   }
 
@@ -136,6 +119,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     smoothedYawInit = false;
     smoothedPitchInit = false;
     smoothedCloseScale = 1;
+    laggedSpeed = null;
     droneSweep = null;
   }
 
@@ -144,7 +128,10 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     viewId = view.id;
     resetSmoothing();
     writeSaveField('cameraView', viewId);
-    flashViewLabel(view.label);
+    cameraList.show(
+      CAMERA_VIEWS.filter((v) => viewMatchesVehicle(v, currentVehicleType)),
+      viewId
+    );
   }
 
   // View to go back to after holdView(); null when not held.
@@ -307,7 +294,10 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
 
   function updateView(delta, chassisMesh, podMesh, vehicle, descriptor) {
     currentVehicleType = descriptor?.vehicleType; // vehicle can change mid-drive
-    const { view, offset, lookAtOffset, positionSpeed, lookAtSpeed } = activeParams();
+    const {
+      view, offset, lookAtOffset, positionSpeed, lookAtSpeed, closeScaleAtMaxSpeed, positionLeadFactor,
+      accelLag, accelLagMax, accelLeadMax, accelLagRate,
+    } = activeParams();
 
     if (view.rigid) {
       // mountPoint 'pod': ride the chariot's pod; lookAtTarget 'chassis':
@@ -396,7 +386,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     );
     const targetCloseScale = THREE.MathUtils.lerp(
       CAMERA_CLOSE_SCALE_AT_MIN_SPEED,
-      CAMERA_CLOSE_SCALE_AT_MAX_SPEED,
+      closeScaleAtMaxSpeed,
       speedT
     );
     smoothedCloseScale += (targetCloseScale - smoothedCloseScale) * posFactor;
@@ -405,17 +395,27 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     // smoothing's steady-state lag.
     tmpLeadPos
       .set(vel.x, vel.y, vel.z)
-      .multiplyScalar((CAMERA_POSITION_LEAD_FACTOR / positionSpeed));
+      .multiplyScalar((positionLeadFactor / positionSpeed));
     tmpLeadLook
       .set(vel.x, vel.y, vel.z)
-      .multiplyScalar((CAMERA_POSITION_LEAD_FACTOR / lookAtSpeed));
+      .multiplyScalar((positionLeadFactor / lookAtSpeed));
+
+    // (speed - laggedSpeed) * rate is the low-passed acceleration: back while speeding up, in while braking.
+    // tanh eases into the max instead of clipping, so harder (de)celeration always moves it more.
+    if (laggedSpeed == null) laggedSpeed = horizSpeed;
+    laggedSpeed += (horizSpeed - laggedSpeed) * (1 - Math.exp(-accelLagRate * delta));
+    const rawLagM = (horizSpeed - laggedSpeed) * accelLagRate * accelLag;
+    const lagMaxM = rawLagM >= 0 ? accelLagMax : accelLeadMax;
+    const lagM = lagMaxM * Math.tanh(rawLagM / lagMaxM);
+    tmpAccelLag.set(0, 0, -lagM).applyQuaternion(yawQuat);
 
     tmpVec
       .copy(cameraOffset)
       .multiplyScalar(smoothedCloseScale)
       .applyQuaternion(rotQuat)
       .add(carPos)
-      .add(tmpLeadPos);
+      .add(tmpLeadPos)
+      .add(tmpAccelLag);
     camera.position.lerp(tmpVec, posFactor);
 
     const lookAt = cameraLookOffset

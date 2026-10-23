@@ -11,15 +11,6 @@
   position: absolute;
   inset: 0;
 }
-.gauge-value {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 20px;
-  font-weight: bold;
-  text-shadow: 0 0 4px #000;
-}
 .gauge-label {
   position: absolute;
   top: 66%;
@@ -36,14 +27,14 @@
    (the last bit of any car's sweep is "near redline" regardless of
    its actual rpm numbers, so this needs no per-vehicle JS). */
 #tach {
-  width: 120px;
-  height: 120px;
+  width: var(--tach-size);
+  height: var(--tach-size);
   display: none;
 }
 #tach.visible { display: block; }
 #tach .gauge-face {
   background: conic-gradient(
-    from 225deg,
+    from 270deg,
     transparent 0deg,
     transparent 152deg,
     rgba(255, 59, 59, 0.55) 152deg,
@@ -52,32 +43,21 @@
   );
   border-radius: 50%;
 }
-#tach .gauge-value {
-  top: 42%;
-  font-size: 26px;
-}
-#tach .gauge-label {
-  top: 58%;
-  font-size: 9px;
-}
 #tach .gauge-needle {
-  height: 46px;
-  background: #4fc3ff;
+  height: 58px;
 }
-/* Gear shown amber while a manual (E/Q) shift holds off the automatic. */
-#tach-gear.manual { color: #ffb84d; }
 /* Gearbox-mode badge: clickable, unlike the rest of the dash. */
 #gear-mode,
 #transmission-mode {
   position: absolute;
   left: 50%;
-  top: 75%;
+  top: 73%;
   transform: translate(-50%, -50%);
-  padding: 1px 5px;
+  padding: 2px 8px;
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: 5px;
   background: rgba(0, 0, 0, 0.4);
-  font: bold 8px monospace;
+  font: bold 11px monospace;
   letter-spacing: 0.5px;
   color: #ff6b4d;
   pointer-events: auto;
@@ -87,7 +67,7 @@
 /* Manual box: sport/comfort doesn't apply. */
 #gear-mode.inactive { opacity: 0.35; pointer-events: none; }
 #transmission-mode {
-  top: 88%;
+  top: 85%;
   color: #ddd;
 }
 #transmission-mode[data-mode="manual"] { color: #ffb84d; }
@@ -116,21 +96,18 @@
 #gearstick-canvas:active { cursor: grabbing; }
 /* Ranged boxes add the range lever's plate on the right. */
 #gearstick.ranged { width: 285px; }
-/* krpm tick marks + numbers, built in hud/gauges.js (one set per
-   1000rpm up to the vehicle's own redlineRpm). The tick wrapper is
-   inset over the whole dial so its own center is the dial's center,
-   then a plain CSS rotate to its rpm's needle angle (see gauges.js'
-   rpmToDeg) swings the tick line to the right spot on the rim - that
-   works because a tick has no text to keep upright. Labels can't use
-   the same rotate-then-counter-rotate trick (both rotations would
-   share the dial center as their origin and so cancel position along
-   with orientation), so their left/top are instead computed directly
-   in JS from sin/cos and placed upright, un-rotated. */
-.tach-tick-wrap {
+/* Dial scale (hud/gauges.js buildDialScale): each tick's wrapper covers the
+   whole dial so rotating it swings the tick around the dial centre; labels
+   are placed upright from JS. */
+.dial-ticks {
   position: absolute;
   inset: 0;
 }
-.tach-tick {
+.dial-tick-wrap {
+  position: absolute;
+  inset: 0;
+}
+.dial-tick {
   position: absolute;
   top: 4%;
   left: 50%;
@@ -140,17 +117,22 @@
   border-radius: 1px;
   transform: translateX(-50%);
 }
-.tach-tick.redline {
+.dial-tick.minor {
+  width: 1px;
+  height: 5%;
+  background: rgba(255, 255, 255, 0.4);
+}
+.dial-tick.redline {
   background: #ff5c5c;
 }
-.tach-tick-label {
+.dial-tick-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.75);
   text-shadow: 0 0 3px #000;
 }
-.tach-tick-label.redline {
+.dial-tick-label.redline {
   color: #ff8080;
 }
 /* Speedometer is the "main" gauge, sized up from the base .gauge and
@@ -160,40 +142,33 @@
   width: 190px;
   height: 190px;
 }
-#speedo .gauge-value {
-  top: 38%;
-  font-size: 34px;
-}
 #speedo .gauge-label {
-  top: 54%;
+  top: 40%;
   font-size: 11px;
 }
 #speedo .gauge-needle {
   height: 74px;
 }
-/* Mechanical odometer: ivory number drums in a dark dash pod. Now
-   built into the speedo dial's lower face (like a real instrument
-   cluster) instead of sitting beside it as its own gauge. */
+/* Mechanical odometer in the speedo's lower face: odometer over trip meter,
+   same drum size, right-aligned so both decimal points line up. */
 #odometer {
   position: absolute;
   left: 50%;
-  top: 74%;
-  transform: translate(-50%, -50%) scale(0.72);
+  top: 73%;
+  transform: translate(-50%, -50%) scale(var(--odo-scale, 0.72));
   pointer-events: none;
 }
 .odo-bezel {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%),
-    linear-gradient(180deg, #3a3e44, #16181b);
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 6px 14px rgba(0, 0, 0, 0.45);
+  gap: 4px 6px;
+}
+.odo-row {
+  display: contents;
+}
+.odo-row .odo-wheels {
+  justify-self: end;
 }
 .odo-wheels {
   position: relative;
@@ -253,6 +228,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 0 3px #000;
   text-transform: lowercase;
 }
 /* Speedometer needle: pivots from the gauge center, pointing up at 0. */
@@ -268,43 +244,86 @@
   transform: translate(-50%, -100%) rotate(-90deg);
   transition: transform 0.08s linear;
 }
-/* Handbrake warning lamp: dim when off, red while pulled, glowing once latched. */
-#handbrake-icon {
+/* Oil / coolant / fuel combo gauge (hud/auxGauge.js); engine cars only, like the tach. */
+#aux-gauge {
+  display: none;
+}
+#aux-gauge.visible { display: block; }
+#aux-gauge .dial-tick-label { font-size: 9px; font-weight: bold; }
+.aux-needle { height: 26%; width: 2px; }
+#aux-gauge .aux-hub { width: 10px; height: 10px; }
+.aux-icon {
   position: absolute;
-  left: 21%;
-  top: 54%;
-  width: 30px;
-  height: 22px;
+  width: 15%;
   transform: translate(-50%, -50%);
   fill: none;
-  stroke: currentColor;
+  stroke: rgba(255, 255, 255, 0.55);
   stroke-width: 2;
-  color: rgba(255, 255, 255, 0.18);
-  pointer-events: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-#handbrake-icon text {
-  fill: currentColor;
-  stroke: none;
-  font: bold 11px system-ui, sans-serif;
+/* Warning-lamp panel (hud/warningLamps.js): 4 rows as tall as the tach, one
+   column per 4 lamps; rtl so the first column sits next to the tach. */
+#warning-lamps {
+  display: grid;
+  grid-template-rows: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: calc(var(--tach-size) * 0.24);
+  direction: rtl;
+  gap: 2px 4px;
+  height: var(--tach-size);
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.25);
 }
-#handbrake-icon.on { color: #ff3b3b; }
-#handbrake-icon.latched { filter: drop-shadow(0 0 4px #ff3b3b); }
-/* Low-beam lamp: dim when off, green while on; clickable (touch) unlike the rest of the dash. */
-#lights-icon {
-  position: absolute;
-  left: 79%;
-  top: 54%;
-  width: 30px;
-  height: 22px;
-  transform: translate(-50%, -50%);
+#warning-lamps[hidden] { display: none; }
+.warning-lamp {
+  width: 100%;
+  height: 100%;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.16);
+}
+.warning-lamp text {
+  fill: currentColor;
+  stroke: none;
+  font-family: system-ui, sans-serif;
+  font-weight: bold;
+  text-anchor: middle;
+}
+.warning-lamp .lamp { fill: currentColor; fill-opacity: 0.25; }
+.warning-lamp.on.red { color: #ff3b3b; }
+.warning-lamp.on.amber { color: #ffb21f; }
+.warning-lamp.on.green { color: #3ee36b; }
+.warning-lamp.glow { filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 8px currentColor); }
+.warning-lamp.glow circle { fill: currentColor; fill-opacity: 0.25; }
+.warning-lamp.clickable {
   pointer-events: auto;
   cursor: pointer;
 }
-#lights-icon .lamp { fill: currentColor; fill-opacity: 0.25; }
-#lights-icon.on { color: #3ee36b; filter: drop-shadow(0 0 4px #3ee36b); }
+/* Black ball over the needle pivot. --hub-* come from gauges.js updateHubLight
+   (sun/moon sheen); .dash-lit warms it while the lights are on. */
+.gauge-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background:
+    radial-gradient(circle at var(--hub-x, 38%) var(--hub-y, 32%), rgba(var(--hub-rgb, 255, 255, 255), calc(var(--hub-spec, 0.6) * 0.45)) 0, rgba(var(--hub-rgb, 255, 255, 255), 0) 70%),
+    #0b0b0b;
+}
+#speedo .gauge-hub {
+  width: 20px;
+  height: 20px;
+}
+#gauges.dash-lit .gauge-hub {
+  background-color: #2a1a0e;
+}

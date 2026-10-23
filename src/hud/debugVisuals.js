@@ -1,4 +1,4 @@
-// M key: toggles the debug view (stats HUDs + 3D overlays). The layers panel
+// K key: toggles the debug view (stats HUDs + 3D overlays). The layers panel
 // picks which 3D overlays show while it's on; both persist.
 
 import { DEBUG_LAYERS_STORAGE_KEY, DEBUG_VISUALS_STORAGE_KEY } from '../config.js';
@@ -85,6 +85,7 @@ function saveEnabled(enabled) {
  * @param {ReturnType<import('../lib/trees.js').createRocks>} [deps.rocks]
  * @param {ReturnType<import('../lib/dissolve.js').createDissolve>} [deps.dissolve]
  * @param {HTMLElement} deps.terrainStatsEl
+ * @param {HTMLElement} [deps.fpsGraphEl]
  * @param {HTMLElement} deps.suspensionHudEl
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
@@ -106,6 +107,7 @@ export function createDebugVisualsToggle(
     rocks,
     dissolve,
     terrainStatsEl,
+    fpsGraphEl,
     suspensionHudEl,
     vehicleDebugHudEl,
     layersHudEl,
@@ -126,6 +128,7 @@ export function createDebugVisualsToggle(
   function apply() {
     const display = debugVisualsEnabled ? '' : 'none';
     terrainStatsEl.style.display = display;
+    if (fpsGraphEl) fpsGraphEl.style.display = display;
     suspensionHudEl.style.display = display;
     if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = display;
     if (layersHudEl) layersHudEl.style.display = display;
@@ -222,7 +225,7 @@ export function createDebugVisualsToggle(
   window.addEventListener('keydown', (e) => {
     const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
     if (typing) return;
-    if (e.code === 'KeyM' && !e.repeat) setEnabled(!debugVisualsEnabled);
+    if (e.code === 'KeyK' && !e.repeat) setEnabled(!debugVisualsEnabled);
   });
 
   if (layersHudEl) buildLayersPanel();

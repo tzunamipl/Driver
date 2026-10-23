@@ -35,7 +35,10 @@ export default {
   automaticGearbox: true, // arcade rig: automatic only
   shiftDurationS: 0.2,
   brakeForce: 220,
+  abs: false,
   mass: 1500,
+  fuelTankL: 80,
+  exhaustTips: [{ pos: [0.5, -0.22, -2.02] }],
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

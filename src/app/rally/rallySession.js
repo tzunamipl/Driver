@@ -105,11 +105,13 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {string} deps.playerId - for the online leaderboard.
  * @param {() => string | null} deps.getPlayerName
  * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
+ * @param {(speed: number, spec: object) => void} [deps.onPropHit] - sound when the car knocks a flag / board / light over.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
+ * @param {() => number} [deps.getTimeOfDayMs] - simulated clock (epoch ms) for the control clocks.
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
  */
-export function createRallySession({ scene, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onStartBeep, onMapPoints }) {
-  const scenery = createControlScenery({ scene, streets, terrain, viewFrame, onSparkle });
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints }) {
+  const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
   let itemIndex = 0;

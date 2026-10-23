@@ -10,9 +10,10 @@ import rearSide from './rearSide.js';
 import side from './side.js';
 import pod from './pod.js';
 import drone from './drone.js';
+import { IS_DEV_MODE } from '../../config.js';
 
 // Cycle order.
-export const CAMERA_VIEWS = [chase, close, far, hood, rearSide, side, pod, drone];
+export const CAMERA_VIEWS = [chase, close, far, hood, ...(IS_DEV_MODE ? [rearSide] : []), side, pod, drone];
 
 export const DEFAULT_CAMERA_VIEW_ID = chase.id;
 

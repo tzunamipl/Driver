@@ -77,25 +77,27 @@
      the zoom buttons or the map canvas underneath it. */
   pointer-events: none;
 }
+/* Buttons sit centred on the dial's rim at the top-right, following the circle. */
 #minimap-zoom {
-  /* Tucked right at the dial's own top-right corner ("on the
-     brink") - `var(--mm-arrow)` compensates for the arrow-overflow
-     canvas overhang above the dial so this still sits the original
-     few px down from the dial's *own* edge, not the bigger canvas'. */
   position: absolute;
-  top: calc(var(--mm-arrow) + 4px);
-  right: -4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  inset: 0;
+  pointer-events: none;
 }
 #minimap-zoom button {
+  --mm-r: calc(var(--mm-dial) / 2);
+  position: absolute;
+  left: calc(var(--mm-r) + var(--mm-r) * sin(var(--mm-at)));
+  top: calc(var(--mm-r) - var(--mm-r) * cos(var(--mm-at)));
+  transform: translate(-50%, -50%);
   width: 23px;
   height: 23px;
-  font-weight: bold;
-  line-height: 1;
   padding: 0;
+  font-size: 11px;
+  font-weight: bold;
+  pointer-events: auto;
 }
+#minimap-zoom-in { --mm-at: 30deg; }
+#minimap-zoom-out { --mm-at: 64deg; }
 #minimap-scale {
   position: absolute;
   left: 50%;
@@ -158,3 +160,23 @@
   box-shadow: var(--w95-field);
 }
 #minimap-route-summary:empty { display: none; }
+/* True speed over ground (the speedo shows wheel speed), at the dial's bottom-right. */
+#ground-speed {
+  position: absolute;
+  right: -6px;
+  bottom: 18px;
+  padding: 3px 6px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  font: 11px var(--w95-font);
+  color: #000;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Fixed width so the box doesn't jitter as digits change (the pixel font is proportional). */
+#ground-speed-value {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: right;
+  font-weight: bold;
+}

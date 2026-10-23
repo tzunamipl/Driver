@@ -23,7 +23,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     fetch/decode + mesh building in `terrain/`; detail tiles carve OSM roads in as a raised bed, `terrain/roadBed.js`, with Heightfield physics), `buildings.js`
     (+ `buildingsCache.js` IndexedDB). Debug/gameplay overlays extend `tiles/vectorTileLayer.js`
     (fetch, bucketing, time-sliced builds, unload): `vectorLineLayer.js` → `streets.js`,
-    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`, `builtUpAreas.js` (OSM landuse → built-up zone, `isBuiltUpAt`). `roadside.js` = knockable objects placed from the streets layer's segments, one kind per file: `roadPosts.js` (edge posts), `streetLamps.js` (replace posts in built-up areas; night lighting in `streetLights.js`), `roadSigns.js` (chevron boards on curves/hairpins), `directionSigns.js` (arrow boards at junctions, rules in `config.js`, destinations from `places.js`; per-item meshes, HUD copy in `hud/directionSignHud.js`). `tiles/openFreeMap.js` = vector tile
+    `rivers.js`; `vectorPolygonLayer.js` → `waterAreas.js`, `builtUpAreas.js` (OSM landuse → built-up zone, `isBuiltUpAt`). `roadside.js` = knockable objects (trigger + tumbling debris in `knockable.js`, also used by the rally control scenery) placed from the streets layer's segments, one kind per file: `roadPosts.js` (edge posts), `streetLamps.js` (replace posts in built-up areas; night lighting in `streetLights.js`), `roadSigns.js` (chevron boards on curves/hairpins), `directionSigns.js` (arrow boards at junctions, rules in `config.js`, destinations from `places.js`; per-item meshes, HUD copy in `hud/directionSignHud.js`). `tiles/openFreeMap.js` = vector tile
     fetch. `geo.js` = lat/lon ↔ tile ↔ local metres.
   - Vehicles: `car.js` = entry (`createCar`/`createRemoteCar`) + wheeled rig, helpers in `car/`
     (chassis body/inertia/hitboxes, wheel mesh, remote car, `axles.js` = descriptor `axles` layout
@@ -32,20 +32,21 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
-    with neutral; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `airDrag.js`,
+    with neutral; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `airDrag.js`,
     `surfaceCompounds.js`, `terrainSurface.js`.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
-  - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js` (all on
+  - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`
+    (backfire pops for >290 hp petrol engines, tips from descriptor `exhaustTips`) (all on
     `particles/puffPool.js`), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
     `headlights.js` = cosmetic lamps (on/off in `app/headlightSwitch.js`); geometry builders tag lamp
     materials with `userData: { lamp: 'head' | 'tail' | 'fog' }`.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
-    `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
+    `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
   `lib/scenarios/` = `source.js` (fetch by commit), `paths.js` (files at `<mode>/<country>/<region>/<kind>/<id>.json`; the `country/region/id` key is what index + refs use), `publish.js` (editor save via the worker to the player-name branch + PR), one format
   per mode registered in `formats.js` (`rally.js`), `roadSnap.js` + `gateMarkers.js`. A mode's Editor button starts an

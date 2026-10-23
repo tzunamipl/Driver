@@ -23,12 +23,11 @@ import { FarBuildingsManager } from './buildings/farBuildings.js';
 import {
   DETAIL_ZOOM,
   DETAIL_BOX,
-  DETAIL_RADIUS,
   UNLOAD_MARGIN,
   UNLOAD_DELAY_TICKS,
-  inCircle,
   GROUND_COLLISION_GROUP,
 } from './terrain.js';
+import { BUILDING_PHYSICS_DISTANCE_M } from '../config.js';
 
 // Separate from GROUND_COLLISION_GROUP so ground raycasts ignore roofs.
 export const BUILDING_COLLISION_GROUP = 4;
@@ -43,6 +42,10 @@ const BUILDING_SKIRT_DEPTH_M = 4;
 const BUILDING_COLOR = 0xb8b0a4;
 const DEFAULT_BUILDING_COLOR = new THREE.Color(BUILDING_COLOR);
 const _vertexColorScratch = new THREE.Color();
+
+// Car travel between collider range checks; colliders leave only this far past the range, against churn.
+const PHYSICS_RESYNC_M = 25;
+const PHYSICS_HYSTERESIS_M = 50;
 
 const BUILD_TIME_CHECK_INTERVAL = 4; // buildings between clock checks
 
@@ -201,7 +204,7 @@ export class BuildingsManager {
     this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
     // Tiles wait for their terrain tile: ground height comes from its heightfield.
     this.terrain = terrain;
-    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxLines[], tx, ty, bytes, physics }
+    this.chunks = new Map(); // key -> { mesh, bodies[], hitboxLines[], tx, ty, bytes }
     this.pendingRemoval = new Map();
     this.dissolve = null; // optional createDissolve(): unloaded chunks burst into particles
     this.stats = { created: 0, removed: 0, buildings: 0 };
@@ -227,6 +230,8 @@ export class BuildingsManager {
       depthWrite: false,
     });
     this._hitboxesVisible = false;
+    this._physicsCenter = null; // {x, z} of the car: buildings near it are in the physics world
+    this._physicsSyncedAt = null; // _physicsCenter at the last full range check
 
     this._region = null; // { minTx, maxTx, minTy, maxTy } of the fetched area
     this._buildingsByTile = new Map(); // tileKey -> [{ ring: [{lat,lon}], height, color }]
@@ -376,7 +381,7 @@ export class BuildingsManager {
     return result.hasHit ? result.hitPointWorld.y : null;
   }
 
-  /** Roof height at (x, z) from the building hitboxes (physics circle only); null if no building there. */
+  /** Roof height at (x, z) from the building hitboxes (within BUILDING_PHYSICS_DISTANCE_M of the car only); null if no building there. */
   roofHeightAt(x, z) {
     _roofRayFrom.set(x, 2000, z);
     _roofRayTo.set(x, -2000, z);
@@ -486,7 +491,7 @@ export class BuildingsManager {
     if (skipped) console.warn(`Buildings tile ${tx},${ty}: ${skipped} malformed footprints skipped`);
 
     const bytes = estimateTileBytes(mesh?.geometry, bodies.length);
-    const chunk = { mesh, bodies, hitboxLines: [], tx, ty, bytes, physics: false };
+    const chunk = { mesh, bodies, hitboxLines: [], tx, ty, bytes };
     this.chunks.set(key, chunk);
     this._syncChunkPhysics(chunk);
     this.stats.created++;
@@ -520,50 +525,67 @@ export class BuildingsManager {
       this.scene.remove(chunk.mesh);
       chunk.mesh.geometry.dispose();
     }
-    if (chunk.physics) for (const body of chunk.bodies) this.world.removeBody(body);
-    this._syncChunkHitboxes(chunk, false);
+    for (const body of chunk.bodies) if (body.world) this.world.removeBody(body);
+    this._syncChunkHitboxes(chunk);
     this.stats.buildings -= chunk.bodies.length;
     this.chunks.delete(key);
     this.pendingRemoval.delete(key);
     this.stats.removed++;
   }
 
-  /** M-key debug toggle for hitbox wireframes. */
+  /** K-key debug toggle for hitbox wireframes. */
   setHitboxesVisible(visible) {
     this._hitboxesVisible = visible;
-    for (const chunk of this.chunks.values()) this._syncChunkHitboxes(chunk, visible && chunk.physics);
+    for (const chunk of this.chunks.values()) this._syncChunkHitboxes(chunk);
   }
 
-  /** Creates or drops a chunk's hitbox wireframe pair. */
-  _syncChunkHitboxes(chunk, want) {
-    if (want === chunk.hitboxLines.length > 0) return;
-    if (want) {
-      if (!chunk.bodies.length) return;
-      // Bodies are in world space; the lines sit at the origin and follow floating-origin shifts as scene children.
-      const geometry = buildHitboxGeometry(chunk.bodies);
-      for (const material of [this._hitboxMaterial, this._hitboxMaterialOccluded]) {
-        const lines = new THREE.LineSegments(geometry, material);
-        lines.renderOrder = 999;
-        this.scene.add(lines);
-        chunk.hitboxLines.push(lines);
-      }
-    } else {
+  /** Rebuilds a chunk's hitbox wireframe pair over its bodies in the physics world (none while hidden). */
+  _syncChunkHitboxes(chunk) {
+    if (chunk.hitboxLines.length) {
       for (const lines of chunk.hitboxLines) this.scene.remove(lines);
       chunk.hitboxLines[0].geometry.dispose(); // the pair shares one geometry
       chunk.hitboxLines = [];
     }
+    const active = this._hitboxesVisible ? chunk.bodies.filter((body) => body.world) : [];
+    if (!active.length) return;
+    // Bodies are in world space; the lines sit at the origin and follow floating-origin shifts as scene children.
+    const geometry = buildHitboxGeometry(active);
+    for (const material of [this._hitboxMaterial, this._hitboxMaterialOccluded]) {
+      const lines = new THREE.LineSegments(geometry, material);
+      lines.renderOrder = 999;
+      this.scene.add(lines);
+      chunk.hitboxLines.push(lines);
+    }
   }
 
-  /** Collision only on the terrain's physics circle; LOW tiles are visual only. */
+  /**
+   * World (x, z) of the car: buildings within BUILDING_PHYSICS_DISTANCE_M of it
+   * get their colliders; the rest are visual only. Cheap per frame (re-checks every PHYSICS_RESYNC_M).
+   */
+  setPhysicsCenter(x, z) {
+    this._physicsCenter = { x, z };
+    const synced = this._physicsSyncedAt;
+    if (synced && Math.hypot(x - synced.x, z - synced.z) < PHYSICS_RESYNC_M) return;
+    this._physicsSyncedAt = { x, z };
+    for (const chunk of this.chunks.values()) this._syncChunkPhysics(chunk);
+  }
+
+  /** Adds/removes the chunk's colliders by their footprint's distance from the physics center. */
   _syncChunkPhysics(chunk) {
-    const want = inCircle(chunk.tx - this._centerTx, chunk.ty - this._centerTy, DETAIL_RADIUS);
-    if (want === chunk.physics) return;
-    chunk.physics = want;
+    const center = this._physicsCenter;
+    if (!center) return;
+    let changed = false;
     for (const body of chunk.bodies) {
-      if (want) this.world.addBody(body);
-      else this.world.removeBody(body);
+      const gap = Math.hypot(body.position.x - center.x, body.position.z - center.z) - body.boundingRadius;
+      if (!body.world && gap < BUILDING_PHYSICS_DISTANCE_M) {
+        this.world.addBody(body);
+        changed = true;
+      } else if (body.world && gap > BUILDING_PHYSICS_DISTANCE_M + PHYSICS_HYSTERESIS_M) {
+        this.world.removeBody(body);
+        changed = true;
+      }
     }
-    this._syncChunkHitboxes(chunk, this._hitboxesVisible && want);
+    if (changed && this._hitboxesVisible) this._syncChunkHitboxes(chunk);
   }
 
   /** Drops everything (incl. in-progress builds and region) for a new origin. */
@@ -584,6 +606,7 @@ export class BuildingsManager {
     this.originLat = lat;
     this.originLon = lon;
     this.scaleLat = lat;
+    this._physicsSyncedAt = null;
     this._far.recenter(lat, lon);
   }
 
@@ -602,7 +625,12 @@ export class BuildingsManager {
     }
     // Detached bodies aren't in world.bodies, so the caller didn't move them.
     for (const chunk of this.chunks.values()) {
-      if (!chunk.physics) for (const body of chunk.bodies) shiftBody(body, dx, dz);
+      for (const body of chunk.bodies) if (!body.world) shiftBody(body, dx, dz);
+    }
+    for (const p of [this._physicsCenter, this._physicsSyncedAt]) {
+      if (!p) continue;
+      p.x -= dx;
+      p.z -= dz;
     }
   }
 
@@ -661,7 +689,6 @@ export class BuildingsManager {
     }
 
     for (const [k, chunk] of this.chunks) {
-      this._syncChunkPhysics(chunk);
       const farAway = !inSquare(chunk.tx - centerTx, chunk.ty - centerTy, keepRadius);
       if (farAway) {
         if (!this.pendingRemoval.has(k)) this.pendingRemoval.set(k, UNLOAD_DELAY_TICKS);

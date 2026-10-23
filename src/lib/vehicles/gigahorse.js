@@ -47,7 +47,10 @@ export default {
   shiftDurationS: 0.6,
   engineInertia: 1.2,
   brakeForce: 220,
+  abs: false,
   mass: 4000,
+  fuelTankL: 400,
+  exhaustTips: [-1, 1].flatMap((sx) => [0, 1, 2].map((i) => ({ pos: [sx * (0.86 + i * 0.07), 1.88, 1.22 - i * 0.18], dir: [sx * 0.12, 0.97, -0.2] }))), // stack tops
   steerSpeedD: 0.006,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.15,

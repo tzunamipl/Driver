@@ -42,7 +42,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
-    imperfectionCm: 10,
+    imperfectionCm: 20,
   },
   // Built-up area off the road (yards, verges, lots): packed and smoother
   // than open ground, between normal and road.
@@ -64,7 +64,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.6,
-    imperfectionCm: 15,
+    imperfectionCm: 30,
   },
   // Rock (bare rock and scree): grippy where solid, but loose scree and big
   // steps make it the roughest surface.
@@ -75,7 +75,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.3,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.4,
-    imperfectionCm: 25,
+    imperfectionCm: 45,
   },
   // Glacier ice: almost no grip, width barely matters.
   ice: {
@@ -95,7 +95,7 @@ export const SURFACE_COMPOUNDS = {
     widthGripExponent: 0.45,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.8,
-    imperfectionCm: 18,
+    imperfectionCm: 22,
   },
   // Sand (beach, dunes): low grip and heavy drag; wide tyres float on it.
   sand: {

@@ -1,8 +1,9 @@
-// Forest trees, scrub bushes and rocks: super-low-poly instances (3-sided trunk + smooth-shaded blob crown, or two
+// Forest trees, scrub bushes and rocks: super-low-poly instances (3-sided trunk + lumpy flat-shaded blob crown, or two
 // stacked cones for pines - by height and latitude; trunks only within `trunkDistance`) on a jittered
 // grid inside landcoverAreas.js polygons of the kind's area (forest / scrub / rock), kept `gap` clear of every street
-// line's edge (tunnels aside), river strips and water areas. Bushes are one blob, no trunk. Visual only - no bodies (but rocks: static spheres
-// within `physicsDistance`, in the building group so they share its impact responses); no
+// line's edge (tunnels aside), river strips and water areas. Bushes are one blob, no trunk. Visual only but for static
+// colliders within `physicsDistance` (rocks: spheres, tree trunks: boxes; needs deps.world), in the building group so
+// they share its impact responses; no
 // shadows unless setShadows() turns them on (debug).
 // Trees are placed per DETAIL_ZOOM tile, as fractions of the tile (survive
 // origin shifts), once every layer they're checked against has its data there.
@@ -34,6 +35,11 @@ import {
   ROCK_GAP_M,
   ROCK_GROW_M,
   ROCK_PHYSICS_DISTANCE_M,
+  TREE_PHYSICS_DISTANCE_M,
+  TREE_MIN_TOP_M,
+  TREE_SHRINK_END_ASL_M,
+  TREE_SHRINK_START_ASL_M,
+  TREE_SHRINK_WIDTH_SHARE,
 } from '../config.js';
 
 const REBUILD_MOVE_M = 20;
@@ -49,9 +55,11 @@ const WIDTH_MAX = 1.35;
 const SEGMENT_SLACK_M = 4; // street / river segments are bucketed by midpoint and up to this long
 const TRUNK_HEIGHT_M = 7;
 const TRUNK_SINK_M = 0.4; // below the ground, so slopes don't show the trunk's foot
+const TRUNK_COLLIDER_HALF_M = 0.25; // box half-width, between the trunk's foot and top radius
 const CROWN_RADIUS_M = 3.2;
 const CROWN_HALF_HEIGHT_M = 4.5;
 const CROWN_CENTER_M = 9.5;
+const CROWN_JITTER = 0.22; // of the radius, per vertex
 const DISSOLVE_NEAR_M = 120; // trees this close to the car burst into particles when dropped
 const CROWN_COLORS = [0x2f5d24, 0x3d7a2a, 0x24491c, 0x4a7f30].map((c) => new THREE.Color(c));
 // Pine: two stacked closed cones [base y, radius, height] (5 sides each, 20 triangles in all).
@@ -59,11 +67,15 @@ const PINE_TIERS = [
   [3, 3, 7],
   [7, 2.2, 6],
 ];
+const PINE_JITTER = 0.12; // of the radius, per vertex; lumpy also makes it flat-shaded like the crowns
 const PINE_COLORS = [0x1f3d2a, 0x24452c, 0x2b4f33, 0x1a3524].map((c) => new THREE.Color(c));
 const BUSH_RADIUS_M = 1.8;
 const BUSH_HALF_HEIGHT_M = 1.2;
-const BUSH_CENTER_M = 0.7; // partly sunk, so slopes don't show its underside
-const BUSH_COLORS = [0x4b5e2a, 0x5a6b30, 0x3f5124, 0x6b7a3a].map((c) => new THREE.Color(c));
+const BUSH_CENTER_M = 1.0; // partly sunk, so slopes don't show its underside
+const BUSH_JITTER = 0.25;
+const BUSH_PHOTO_MIX = 0.5; // scrub photos are grey-brown, so keep more of the base green
+const BUSH_TAPER = 0.6; // bottom pole's width loss, so the outline reads as foliage, not a stone
+const BUSH_COLORS = [0x3f7a24, 0x4c8a2c, 0x346a1e, 0x5a9634].map((c) => new THREE.Color(c));
 // Rock: a jittered unit icosahedron scaled to its radius, centre sunk so only a cap shows.
 const ROCK_RADIUS_MIN_M = 0.15;
 const ROCK_RADIUS_MAX_M = 1.25;
@@ -95,40 +107,58 @@ function buildTrunkGeometry() {
   return g;
 }
 
+/** Non-indexed copy of `g` with each vertex pushed out by up to ±`jitter` of the radius; flat normals. */
+function lumpy(g, jitter, seed) {
+  const out = g.toNonIndexed();
+  const pos = out.getAttribute('position');
+  // Same displacement for coincident vertices (keyed by rounded position), so faces stay closed.
+  const offsets = new Map();
+  for (let i = 0; i < pos.count; i++) {
+    // Math.round, not toFixed: sphere seams/poles hold -0 vs 0, which toFixed keys apart.
+    const key = `${Math.round(pos.getX(i) * 1000)},${Math.round(pos.getY(i) * 1000)},${Math.round(pos.getZ(i) * 1000)}`;
+    if (!offsets.has(key)) offsets.set(key, 1 + (hash(offsets.size, seed, 13) - 0.5) * 2 * jitter);
+    const f = offsets.get(key);
+    pos.setXYZ(i, pos.getX(i) * f, pos.getY(i) * f, pos.getZ(i) * f);
+  }
+  out.computeVertexNormals();
+  return out;
+}
+
 function buildCrownGeometry() {
-  // 5 x 3 segments = 20 triangles; smooth normals do the rounding.
-  const g = new THREE.SphereGeometry(1, 5, 3);
+  // 7 x 4 segments = 42 triangles, jittered so the crown reads as a clump of foliage, not a ball.
+  const g = lumpy(new THREE.SphereGeometry(1, 7, 4), CROWN_JITTER, 3);
   g.scale(CROWN_RADIUS_M, CROWN_HALF_HEIGHT_M, CROWN_RADIUS_M);
   g.translate(0, CROWN_CENTER_M, 0);
   return g;
 }
 
 function buildBushGeometry() {
-  const g = new THREE.SphereGeometry(1, 5, 3);
+  const g = lumpy(new THREE.SphereGeometry(1, 6, 4), BUSH_JITTER, 5);
+  // Narrow the lower half towards the bottom pole: a wide top on a thin base.
+  const pos = g.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const f = 1 - BUSH_TAPER * Math.max(0, -pos.getY(i));
+    pos.setX(i, pos.getX(i) * f);
+    pos.setZ(i, pos.getZ(i) * f);
+  }
+  g.computeVertexNormals();
   g.scale(BUSH_RADIUS_M, BUSH_HALF_HEIGHT_M, BUSH_RADIUS_M);
   g.translate(0, BUSH_CENTER_M, 0);
   return g;
 }
 
 function buildRockGeometry() {
-  const g = new THREE.IcosahedronGeometry(1, 0).toNonIndexed();
-  const pos = g.getAttribute('position');
-  // Same displacement for coincident vertices (keyed by rounded position), so faces stay closed.
-  const offsets = new Map();
-  for (let i = 0; i < pos.count; i++) {
-    const key = `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
-    if (!offsets.has(key)) offsets.set(key, 1 + (hash(offsets.size, 7, 13) - 0.5) * 2 * ROCK_JITTER);
-    const f = offsets.get(key);
-    pos.setXYZ(i, pos.getX(i) * f, pos.getY(i) * f, pos.getZ(i) * f);
-  }
+  const g = lumpy(new THREE.IcosahedronGeometry(1, 0), ROCK_JITTER, 7);
   g.translate(0, -ROCK_SINK, 0);
-  g.computeVertexNormals();
   return g;
 }
 
 function buildPineGeometry() {
   return mergeGeometries(
-    PINE_TIERS.map(([baseY, radius, height]) => new THREE.ConeGeometry(radius, height, 5, 1).translate(0, baseY + height / 2, 0))
+    // Jittered about each cone's own centre (lumpy scales from the origin), then lifted into place.
+    PINE_TIERS.map(([baseY, radius, height], i) =>
+      lumpy(new THREE.ConeGeometry(radius, height, 5, 1), PINE_JITTER, 11 + i).translate(0, baseY + height / 2, 0)
+    )
   );
 }
 
@@ -138,6 +168,15 @@ function pineShare(asl, lat) {
   const start = PINE_MIX_START_ASL_M - drop;
   const only = PINE_ONLY_ASL_M - drop;
   return Math.min(1, Math.max(0, (asl - start) / (only - start)));
+}
+
+/** Height factor (0..1] for a forest tree at `asl` metres and latitude `lat` (see config.js TREE_SHRINK_*). */
+function treeShrink(asl, lat) {
+  const drop = (Math.abs(lat) - PINE_REFERENCE_LAT) * PINE_ASL_PER_DEG_M;
+  const start = TREE_SHRINK_START_ASL_M - drop;
+  const t = Math.min(1, Math.max(0, (asl - start) / (TREE_SHRINK_END_ASL_M - drop - start)));
+  const min = TREE_MIN_TOP_M / ((CROWN_CENTER_M + CROWN_HALF_HEIGHT_M) * SCALE_MAX);
+  return 1 - t * (1 - min);
 }
 
 /** Distance grow-in on an instanced material; `grow` = { value: Vector2(fullDist, goneDist) }. */
@@ -158,7 +197,7 @@ function applyDistanceGrow(material, grow) {
 }
 
 // Per kind: landcover key it grows on, crown geometry + base colours, trunks and pines;
-// scale(k) / width [min, max] = size from a 0..1 hash; solid = rock bodies near the car.
+// scale(k) / width [min, max] = size from a 0..1 hash; solid = rock bodies near the car (trunks are always solid).
 const treeScale = (k) => SCALE_MIN + (SCALE_MAX - SCALE_MIN) * k;
 const TREE_KIND = {
   areaKey: 'forest',
@@ -169,22 +208,34 @@ const TREE_KIND = {
   scale: treeScale,
   width: [WIDTH_MIN, WIDTH_MAX],
   tilt: TREE_TILT_MAX_RAD,
+  altitudeShrink: true,
 };
-const BUSH_KIND = { ...TREE_KIND, areaKey: 'scrub', buildCrown: buildBushGeometry, colors: BUSH_COLORS, trunks: false, pines: false, tilt: 0 };
+const BUSH_KIND = {
+  ...TREE_KIND,
+  areaKey: 'scrub',
+  buildCrown: buildBushGeometry,
+  colors: BUSH_COLORS,
+  trunks: false,
+  pines: false,
+  altitudeShrink: false,
+  tilt: 0,
+  photoMix: BUSH_PHOTO_MIX,
+};
 const ROCK_KIND = {
   ...BUSH_KIND,
   areaKey: 'rock',
   buildCrown: buildRockGeometry,
   colors: ROCK_COLORS,
+  photoMix: PHOTO_MIX,
   scale: (k) => ROCK_RADIUS_MIN_M + (ROCK_RADIUS_MAX_M - ROCK_RADIUS_MIN_M) * k ** ROCK_SIZE_SKEW,
   width: [0.85, 1.2],
   flatShading: true,
   solid: true,
 };
 
-/** Forest trees; deps as createVegetation. */
+/** Forest trees, trunks solid near the car (needs deps.world); deps as createVegetation. */
 export function createTrees(deps) {
-  return createVegetation({ ...deps, kind: TREE_KIND });
+  return createVegetation({ physicsDistance: TREE_PHYSICS_DISTANCE_M, ...deps, kind: TREE_KIND });
 }
 
 /** Scrub bushes: sparser and nearer than trees; deps as createVegetation. */
@@ -214,7 +265,7 @@ export function createRocks(deps) {
 /**
  * @param {object} deps
  * @param {THREE.Scene} deps.scene
- * @param {import('cannon-es').World} [deps.world] - for solid kinds (rocks)
+ * @param {import('cannon-es').World} [deps.world] - for colliders (rocks, trunks)
  * @param {import('./terrain.js').TerrainManager} deps.terrain
  * @param {import('./landcoverAreas.js').LandcoverAreasManager} deps.landcoverAreas
  * @param {import('./streets.js').StreetsManager} deps.streets
@@ -269,20 +320,25 @@ function createVegetation({
   let sinceRebuild = Infinity;
   let dirty = true;
   let unfilledTiles = 0; // in range, skipped for lack of time (not ones waiting for data)
-  const bodies = new Map(); // "tx_ty:i" -> static sphere body (solid kinds, within physicsDistance)
+  const bodies = new Map(); // "tx_ty:i" -> static body (rock sphere / trunk box, within physicsDistance)
   let nearTrees = new Map(); // "tx_ty:i" -> [x, y, z, scale] drawn within DISSOLVE_NEAR_M at the last rebuild
 
-  /** Static spheres for the solid instances in `wanted` ("tx_ty:i" -> [x, y, z, radius]); drops the rest. */
+  /**
+   * Static colliders for `wanted` ("tx_ty:i" -> [x, y, z, radius, halfHeight, yaw]): a sphere when halfHeight is 0,
+   * else a radius-wide upright box; drops the rest.
+   */
   function syncBodies(wanted) {
     for (const [key, body] of bodies) {
       if (wanted.has(key)) continue;
       world.removeBody(body);
       bodies.delete(key);
     }
-    for (const [key, [bx, by, bz, radius]] of wanted) {
+    for (const [key, [bx, by, bz, radius, halfHeight, yaw]] of wanted) {
       let body = bodies.get(key);
       if (!body) {
-        body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL, shape: new CANNON.Sphere(radius) });
+        const shape = halfHeight ? new CANNON.Box(new CANNON.Vec3(radius, halfHeight, radius)) : new CANNON.Sphere(radius);
+        body = new CANNON.Body({ mass: 0, material: BUILDING_MATERIAL, shape });
+        if (halfHeight) body.quaternion.setFromAxisAngle(CANNON.Vec3.UNIT_Y, yaw);
         body.collisionFilterGroup = BUILDING_COLLISION_GROUP;
         world.addBody(body);
         bodies.set(key, body);
@@ -452,7 +508,7 @@ function createVegetation({
     let count = 0;
     let trunkCount = 0;
     let pineCount = 0;
-    const instances = []; // [x, y, z, scale, yaw, colour, trunk, width, pine, tilt, ...]
+    const instances = []; // [x, y, z, height scale, yaw, colour, trunk, width scale, pine, tilt, ...]
     for (const { tx, ty, key } of inRange) {
       const trees = tiles.get(key);
       if (!trees?.length) continue;
@@ -469,18 +525,25 @@ function createVegetation({
         // Fixed per tree (its own seed, apart from the placement hashes), compared to the local share.
         const pine = kind.pines && hash(tx, ty ^ 0x5bd1e995, i) < pineShare(py + terrain.heightOffset, lat);
         const tilt = kind.tilt ? kind.tilt * hash(tx, ty ^ 0x2c1b3c6d, i) : 0;
-        instances.push(px, py, pz, trees[i + 2], trees[i + 3], trees[i + 4], trunk ? 1 : 0, trees[i + 5], pine ? 1 : 0, tilt);
+        const shrink = kind.altitudeShrink ? treeShrink(py + terrain.heightOffset, lat) : 1;
+        const s = trees[i + 2] * shrink;
+        const w = trees[i + 2] * trees[i + 5] * (1 - (1 - shrink) * TREE_SHRINK_WIDTH_SHARE);
+        instances.push(px, py, pz, s, trees[i + 3], trees[i + 4], trunk ? 1 : 0, w, pine ? 1 : 0, tilt);
         count++;
-        if (dissolve && distSq <= nearDistSq) near.set(`${key}:${i}`, [px, py, pz, trees[i + 2]]);
+        if (dissolve && distSq <= nearDistSq) near.set(`${key}:${i}`, [px, py, pz, s]);
         if (trunk) trunkCount++;
         if (pine) pineCount++;
-        if (kind.solid && world && distSq <= physicsDistSq) {
-          const radius = trees[i + 2];
-          solids.set(`${key}:${i}`, [px, py - ROCK_SINK * radius, pz, radius * Math.min(1, trees[i + 5]) * ROCK_COLLIDER_SCALE]);
+        if (world && distSq <= physicsDistSq) {
+          if (trunk) {
+            const halfHeight = (TRUNK_HEIGHT_M / 2) * s;
+            solids.set(`${key}:${i}`, [px, py + halfHeight - TRUNK_SINK_M * s, pz, TRUNK_COLLIDER_HALF_M * w, halfHeight, trees[i + 3]]);
+          } else if (kind.solid) {
+            solids.set(`${key}:${i}`, [px, py - ROCK_SINK * s, pz, s * Math.min(1, trees[i + 5]) * ROCK_COLLIDER_SCALE, 0, 0]);
+          }
         }
       }
     }
-    if (kind.solid && world) syncBodies(solids);
+    if (world) syncBodies(solids);
     if (dissolve) dissolveDropped(x, z, near);
     ensureCapacity(trunkSet, trunkCount);
     ensureCapacity(crownSet, count - pineCount);
@@ -502,7 +565,7 @@ function createVegetation({
       position.set(instances[j], instances[j + 1], instances[j + 2]);
       // Lean about the tree's own x axis; the random yaw makes the direction random.
       quaternion.setFromAxisAngle(UP, instances[j + 4]).multiply(tiltQuaternion.setFromAxisAngle(SIDE, instances[j + 9]));
-      const w = s * instances[j + 7];
+      const w = instances[j + 7];
       scale.set(w, s, w);
       matrix.compose(position, quaternion, scale);
       crowns.mesh.setMatrixAt(index, matrix);
@@ -510,7 +573,7 @@ function createVegetation({
       if (terrain.groundColorAt(instances[j], instances[j + 2], photoBytes)) {
         const k = PHOTO_GAIN / 255;
         photo.setRGB(Math.min(1, photoBytes[0] * k), Math.min(1, photoBytes[1] * k), Math.min(1, photoBytes[2] * k), THREE.SRGBColorSpace);
-        crownColor.lerp(photo, PHOTO_MIX);
+        crownColor.lerp(photo, kind.photoMix ?? PHOTO_MIX);
       }
       crowns.mesh.setColorAt(index, crownColor);
       if (instances[j + 6]) trunkSet.mesh.setMatrixAt(trunkIndex++, matrix);
@@ -563,7 +626,7 @@ function createVegetation({
 
     setVisible(value) {
       visible = value;
-      if (!value && world) syncBodies(new Map()); // hidden rocks don't collide; the next rebuild restores them
+      if (!value && world) syncBodies(new Map()); // hidden rocks/trunks don't collide; the next rebuild restores them
       for (const set of sets) if (set.mesh) set.mesh.visible = value;
       sinceRebuild = Infinity;
     },

@@ -11,6 +11,7 @@ import { createJump } from './lib/jump.js';
 import { createSplash } from './lib/splash.js';
 import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
+import { createExhaustFlames } from './lib/exhaustFlames.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createDissolve } from './lib/dissolve.js';
@@ -32,6 +33,7 @@ import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
 import { createSparklePop } from './lib/audio/sparklePop.js';
+import { createBackfireSound } from './lib/audio/backfire.js';
 import { createStartBeep } from './lib/audio/startBeep.js';
 import { createHeadlights } from './lib/headlights.js';
 import { createHeadlightSwitch } from './app/headlightSwitch.js';
@@ -72,6 +74,7 @@ import { createStreamingStatus } from './hud/streamingStatus.js';
 import { createAirtimeHud } from './hud/airtimeHud.js';
 import { createGaugesHud } from './hud/gauges.js';
 import { createGearstickHud } from './hud/gearstick.js';
+import { createCursorHide } from './app/cursorHide.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
 import { createMinimapHud } from './hud/minimap.js';
@@ -86,6 +89,7 @@ import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPi
 import { defaultVehicleColor } from './lib/vehicleColors.js';
 import { createVersionBadge } from './hud/versionBadge.js';
 import { createFpsCounter } from './hud/fpsCounter.js';
+import { createFpsGraph } from './hud/fpsGraph.js';
 import { createAddressSearch } from './ui/addressSearch.js';
 import { createNavigationPanel } from './ui/navigationPanel.js';
 import { createRouteGuidance } from './app/routeGuidance.js';
@@ -179,7 +183,7 @@ if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
 const rallyStart = planStart(rallyInitialPick?.plan);
 
 // ---------- Rendering environment ----------
-const { renderer, scene, camera } = createSceneEnvironment();
+const { renderer, scene, camera, renderView } = createSceneEnvironment();
 const daylight = createDaylight({ scene, ...createLighting(scene) });
 
 // ---------- View frame ----------
@@ -234,7 +238,7 @@ const waterAreas = new WaterAreasManager(scene, world, initialViewOrigin.lat, in
 const builtUpAreas = new BuiltUpAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 pedestrians.setBuiltUpAreas(builtUpAreas);
 const landcoverAreas = new LandcoverAreasManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
-const trees = createTrees({ scene, terrain, landcoverAreas, streets, waterAreas, rivers, dissolve });
+const trees = createTrees({ scene, world, terrain, landcoverAreas, streets, waterAreas, rivers, dissolve });
 const bushes = createBushes({ scene, terrain, landcoverAreas, streets, waterAreas, rivers });
 const rocks = createRocks({ scene, world, terrain, landcoverAreas, streets, waterAreas, rivers });
 
@@ -314,6 +318,7 @@ const debugVisuals = createDebugVisualsToggle(
     rocks,
     dissolve,
     terrainStatsEl: document.getElementById('terrain-stats'),
+    fpsGraphEl: document.getElementById('fps-graph-panel'),
     suspensionHudEl: document.getElementById('suspension-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
@@ -335,7 +340,7 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat });
+const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat, initialFuel: savedCarState?.fuel ?? null });
 carManager.addScore(savedCarState?.score ?? 0);
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
@@ -376,7 +381,8 @@ const cameraFollow = createCameraFollow(camera, {
 });
 
 // ---------- HUD ----------
-const gaugesHud = createGaugesHud({ initialKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle,
+const gaugesHud = createGaugesHud({ initialTripKm: savedCarState?.odoKm ?? 0, onLightsClick: headlightSwitch.toggle,
+  onHandbrakeClick: input.latchHandbrake,
   onGearModeClick: input.toggleGearMode,
   onTransmissionClick: input.toggleTransmission,
 });
@@ -393,6 +399,7 @@ const routeGuidance = createRouteGuidance({ getCarLatLon });
 const minimapHud = createMinimapHud({ getRouteState: routeGuidance.getState });
 createVersionBadge();
 createFpsCounter();
+createFpsGraph();
 
 // ---------- Address search / personal teleport ----------
 const addressSearch = createAddressSearch({
@@ -432,6 +439,7 @@ const jump = createJump({ world });
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
+const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play });
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
 createMusic();
@@ -501,6 +509,7 @@ const rallySession =
   getActiveModeId() === 'rally' && !isEditorSession()
     ? createRallySession({
         scene,
+        world,
         streets,
         terrain,
         viewFrame,
@@ -516,7 +525,9 @@ const rallySession =
         playerId,
         getPlayerName: loadProfileName,
         onSparkle: createSparklePop().play,
+        onPropHit: postHitSound.play,
         onStartBeep: createStartBeep().play,
+        getTimeOfDayMs: daylight.getTimeMs,
         onMapPoints: (points) => {
           minimapHud.setScenarioPoints(points);
           navigationPanel.setScenarioPoints(points);
@@ -559,9 +570,9 @@ const floatingOrigin = createFloatingOrigin({
 let loopStarted = false;
 const mainLoop = createMainLoop({
   world,
-  scene,
   camera,
   renderer,
+  renderView,
   daylight,
   terrain,
   buildings,
@@ -592,6 +603,7 @@ const mainLoop = createMainLoop({
   splash,
   waterImmersion,
   tireSmoke,
+  exhaustFlames,
   terrainDust,
   bodyDust,
   dissolve,
@@ -603,6 +615,7 @@ const mainLoop = createMainLoop({
   cameraFollow,
   gaugesHud,
   gearstickHud,
+  cursorHide: createCursorHide(),
   terrainStatsHud,
   streamingStatus,
   suspensionHud,

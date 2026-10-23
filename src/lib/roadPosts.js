@@ -118,7 +118,7 @@ export function createRoadPostKind(streets, builtUpAreas, terrain, spacing = ROA
   return {
     group: 'roadPosts',
     geometry: createPostGeometry(),
-    material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }),
+    material: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, flatShading: true }),
     halfExtents: { x: POST_WIDTH_M / 2, y: POST_HEIGHT_M / 2, z: POST_WIDTH_M / 2 },
     debrisSpheres: DEBRIS_SPHERE_YS.map((y) => [0, y, 0]),
     debrisRadius: DEBRIS_SPHERE_RADIUS,

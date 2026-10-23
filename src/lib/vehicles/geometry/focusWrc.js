@@ -120,8 +120,8 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
     const wing = box(1.4, 0.04, 0.32, bodyMat, 0, 0.88, -1.62);
     wing.rotation.x = -0.12;
     for (const side of [-1, 1]) box(0.03, 0.12, 0.34, bodyMat, side * 0.7, 0.84, -1.62);
-    box(1.0, 0.45, 0.02, trimMat, 0, 0.07, -1.99); // hatch shut-line / rear panel
-    box(0.52, 0.11, 0.012, plateMat, 0, 0.0, -2.0);
+    box(1.0, 0.3, 0.02, trimMat, 0, 0.03, -2.0); // rear panel, kept below the tail top (y 0.2)
+    box(0.52, 0.11, 0.012, plateMat, 0, 0.0, -2.016);
 
     return { group, bodyMat };
 }

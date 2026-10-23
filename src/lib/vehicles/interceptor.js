@@ -40,7 +40,10 @@ export default {
   reverseRatio: 2.78,
   shiftDurationS: 0.45,
   brakeForce: 190,
+  abs: false,
   mass: 1550,
+  fuelTankL: 180, // twin boot tanks
+  exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.32,

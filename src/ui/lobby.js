@@ -45,7 +45,6 @@ const toHex = (n) => `#${n.toString(16).padStart(6, '0')}`;
  */
 export function createLobby({ net, getCarManager, onJoined, onReset, originChain }) {
   const lobbyEl = document.getElementById('lobby');
-  lobbyEl.style.display = 'none';
   const lobbyForm = document.getElementById('lobby-form');
   const lobbyName = document.getElementById('lobby-name');
   const lobbyJoin = document.getElementById('lobby-join');

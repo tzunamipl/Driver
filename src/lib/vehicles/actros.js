@@ -46,7 +46,10 @@ export default {
   shiftDurationS: 0.5,
   engineInertia: 2.4,
   brakeForce: 240,
+  tractionControl: true,
   mass: 13000, // empty
+  fuelTankL: 400,
+  fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.6,
   maxSteerAt100: 0.12,

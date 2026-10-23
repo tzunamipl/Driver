@@ -66,6 +66,7 @@ export function createGlossyMaterial(params) {
     clearcoatRoughness: 0.05,
     envMap: envTexture,
     envMapIntensity: reflection,
+    flatShading: true,
     ...params,
   });
   glossyMaterials.add(material);

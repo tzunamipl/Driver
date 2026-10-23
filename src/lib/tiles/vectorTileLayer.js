@@ -96,6 +96,7 @@ export class VectorTileLayer {
     this._regionPending = null;
     this._regionFailedAt = 0;
     this._generation = 0;
+    this._frame = 0; // bumped whenever local coordinates move (items cache theirs per frame)
   }
 
   _key(tx, ty) {
@@ -104,18 +105,6 @@ export class VectorTileLayer {
 
   _keepRadius() {
     return this.radius + UNLOAD_MARGIN;
-  }
-
-  /** Items whose bucket tile is within one tile of the detail tile containing (lat, lon). */
-  *_itemsNear(lat, lon) {
-    const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
-    const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const list = this._itemsByTile.get(tileKey(tx + dx, ty + dy));
-        if (list) yield* list;
-      }
-    }
   }
 
   /**
@@ -360,7 +349,7 @@ export class VectorTileLayer {
     return this._visible;
   }
 
-  /** M-key debug toggle. */
+  /** K-key debug toggle. */
   /** Meshes exist only while shown; hiding drops them (the data keeps streaming if alwaysStream). */
   setVisible(visible) {
     this._visible = visible;
@@ -388,6 +377,7 @@ export class VectorTileLayer {
     this.originLat = lat;
     this.originLon = lon;
     this.scaleLat = lat;
+    this._frame++;
   }
 
   /**
@@ -397,6 +387,7 @@ export class VectorTileLayer {
   shiftOrigin(lat, lon, dx, dz) {
     this.originLat = lat;
     this.originLon = lon;
+    this._frame++;
     for (const build of this._inProgressBuilds.values()) {
       for (const bucket of build.byStyleKey.values()) this._shiftBucket(bucket, dx, dz);
     }

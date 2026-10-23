@@ -1,5 +1,5 @@
 // OSM roads as flat stripes coloured/sized by class (roadClasses.js),
-// debug overlay on the M key. Always streams: surfaceAt() drives the
+// debug overlay on the K key. Always streams: surfaceAt() drives the
 // road/unpaved tyre-grip surface (terrainSurface.js). Plumbing: vectorLineLayer.js.
 
 import { createVectorLineLayer } from './vectorLineLayer.js';

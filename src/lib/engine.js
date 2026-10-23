@@ -47,12 +47,16 @@ const NEUTRAL_REV_UP_PER_S = 5;
 const NEUTRAL_REV_DOWN_PER_S = 2.5;
 // Rev limiter bounce in neutral: drops back to this fraction of redline.
 const NEUTRAL_LIMITER_DROP = 0.94;
+// Free revving in neutral only spins the engine up: this share of full-load power (fuel).
+const NEUTRAL_LOAD_FRACTION = 0.15;
 export const NEUTRAL = -1;
 // Manual box: most H-gate slots; longer boxes split over parallel ranges.
 const MAX_GATE_SLOTS = 6;
 const RANGE_LETTERS = { 2: ['L', 'H'], 3: ['L', 'M', 'H'] };
 
 const RAD_S_TO_RPM = 60 / (2 * Math.PI);
+// Torque-curve samples when finding its peak power (for loadFraction).
+const POWER_CURVE_SAMPLES = 64;
 
 // Defaults for any descriptor field left unset (baseline rally car).
 export const DEFAULT_ENGINE_PROFILE = {
@@ -109,6 +113,11 @@ export function createEngineState(descriptor, wheelRadius) {
     launchRpm: descriptor.launchRpm ?? descriptor.peakTorqueRpm ?? DEFAULT_ENGINE_PROFILE.peakTorqueRpm,
     engineInertia: descriptor.engineInertia ?? DEFAULT_ENGINE_INERTIA,
   };
+  let peakCurvePower = 0; // max torque x rpm up to redline (Nm rpm)
+  for (let i = 0; i <= POWER_CURVE_SAMPLES; i++) {
+    const rpm = profile.idleRpm + ((profile.redlineRpm - profile.idleRpm) * i) / POWER_CURVE_SAMPLES;
+    peakCurvePower = Math.max(peakCurvePower, torqueAtRpm(rpm, profile) * rpm);
+  }
 
   const engine = {
     // Read by the tachometer/gear HUD.
@@ -117,6 +126,8 @@ export function createEngineState(descriptor, wheelRadius) {
     gearCount: profile.gearRatios.length,
     idleRpm: profile.idleRpm,
     redlineRpm: profile.redlineRpm,
+    // Redline in the tallest gear (km/h) - sizes the speedo scale.
+    topSpeedKmh: ((profile.redlineRpm / RAD_S_TO_RPM) / (Math.min(...profile.gearRatios.map(Math.abs)) * profile.finalDriveRatio)) * wheelRadius * 3.6,
     shiftTimer: 0,
     manualHoldTimer: 0, // >0 while a manual shift suspends the automatic
     automatic: descriptor.automaticGearbox === true, // no fully manual mode
@@ -130,6 +141,8 @@ export function createEngineState(descriptor, wheelRadius) {
     reflectedMass: 0, // engine inertia seen at the tread (kg)
     limitWheelSpeed: Infinity, // tread speed at redline in this gear (m/s)
     engineBrakeForce: 0, // closed-throttle drag at the tread (N)
+    loadFraction: 0, // brake power now / peak power (0..1), refreshed by update(); fuel.js burns by it
+    throttle: 0, // throttle actually applied (0..1, 0 while braking/coasting), refreshed by update()
     get gearLabel() {
       if (engine.gear === 0) return 'R';
       if (engine.gear === NEUTRAL) return 'N';
@@ -343,12 +356,14 @@ export function createEngineState(descriptor, wheelRadius) {
     const totalRatio = Math.abs(ratioForGear(engine.gear)) * profile.finalDriveRatio;
     const inTorqueCut = engine.shiftTimer > profile.shiftDurationS * (1 - SHIFT_TORQUE_CUT_FRACTION);
     const clampedThrottle = direction === 0 ? 0 : Math.max(0, throttle);
+    engine.throttle = clampedThrottle;
     // Torque from the unsmoothed wheel rpm, so the limiter bites immediately;
     // while the clutch slips at pull-away, from the revving engine instead.
     const torqueRpm = launching ? Math.max(wheelRpm, engine.rpm) : wheelRpm;
     const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle;
     const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY * DRIVETRAIN_EFFICIENCY_MODIFIER) / wheelRadius;
     const totalDrivetrainForce = engineTorqueNm * torqueToForce;
+    engine.loadFraction = Math.min(1, (engineTorqueNm * torqueRpm) / peakCurvePower);
 
     const rpmFraction = Math.max(0, (wheelRpm - profile.idleRpm) / (profile.redlineRpm - profile.idleRpm));
     const brakeTorqueNm = clampedThrottle > 0 ? 0 : profile.peakTorqueNm * ENGINE_BRAKE_FRACTION * Math.min(1, rpmFraction);
@@ -371,6 +386,8 @@ export function createEngineState(descriptor, wheelRadius) {
     engine.reflectedMass = 0;
     engine.limitWheelSpeed = Infinity;
     engine.engineBrakeForce = 0;
+    engine.throttle = Math.max(0, throttle);
+    engine.loadFraction = (engine.throttle * NEUTRAL_LOAD_FRACTION * torqueAtRpm(engine.rpm, profile) * engine.rpm) / peakCurvePower;
     return 0;
   }
 

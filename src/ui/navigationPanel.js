@@ -86,6 +86,12 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   }
 
   toggle.addEventListener('click', () => setOpen(!isOpen()));
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyM' || e.repeat) return;
+    const el = document.activeElement;
+    if (el?.tagName === 'TEXTAREA' || (el?.tagName === 'INPUT' && el.type !== 'range' && el.type !== 'color')) return;
+    setOpen(!isOpen());
+  });
 
   function centreOn(lat, lon, z = zoom) {
     zoom = clamp(Math.round(z), MIN_ZOOM, MAX_ZOOM);

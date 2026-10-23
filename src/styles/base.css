@@ -173,3 +173,4 @@ canvas { display: block; }
   background: var(--w95-face);
   box-shadow: var(--w95-raised);
 }
+.cursor-hidden, .cursor-hidden * { cursor: none !important; }

@@ -54,12 +54,12 @@ export function createStreetLampKind(streets, builtUpAreas, spacing = STREET_LAM
   }
 
   const cy = POLE_HEIGHT_M / 2;
-  const bulbMaterial = new THREE.MeshStandardMaterial({ color: 0x404040, emissive: 0xffd9a0, emissiveIntensity: 0 });
+  const bulbMaterial = new THREE.MeshStandardMaterial({ color: 0x404040, emissive: 0xffd9a0, emissiveIntensity: 0, flatShading: true });
   return {
     group: 'streetLamps',
     hitSound: 'metal',
     geometry: createLampGeometry(),
-    material: [new THREE.MeshStandardMaterial({ color: 0x6e7378, roughness: 0.5, metalness: 0.4 }), bulbMaterial],
+    material: [new THREE.MeshStandardMaterial({ color: 0x6e7378, roughness: 0.5, metalness: 0.4, flatShading: true }), bulbMaterial],
     bulbMaterial, // streetLights.js drives its glow
     halfExtents: { x: POLE_WIDTH_M / 2, y: cy, z: POLE_WIDTH_M / 2 },
     debrisSpheres: [

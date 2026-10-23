@@ -244,3 +244,21 @@
 #airtime-hud.visible {
   opacity: 1;
 }
+#camera-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #000;
+  font: 11px var(--w95-font);
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+#camera-list.visible { opacity: 1; }
+#camera-list li { padding: 2px 6px; white-space: nowrap; }
+#camera-list li.active { background: var(--w95-select); color: #fff; font-weight: bold; }

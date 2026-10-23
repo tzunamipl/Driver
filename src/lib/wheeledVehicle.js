@@ -65,7 +65,7 @@ const AIR_SPIN_DRAG_PER_S = 0.4;
 // Surface bumps only on ground this flat (hit normal's y); walls/kerbs stay exact.
 const IMPERFECTION_MIN_NORMAL_Y = 0.7;
 // Share of the sidewall height that flattens bumps (subtracted from their peak-to-peak).
-const SIDEWALL_BUMP_ABSORPTION = 0.1;
+const SIDEWALL_BUMP_ABSORPTION = 0.2;
 
 function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);
@@ -142,6 +142,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       engineForce: 0,
       brake: 0,
       abs: false,
+      absActive: false, // ABS trimmed this wheel's brake in the last step (dash lamp)
       handbrake: false,
       rotation: 0,
       // Tread speed (m/s) along forwardWorld; equals the patch speed when
@@ -218,9 +219,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   // Local -> network frame for the surface bumps: net = (ox + sx * x, oz + z).
   // Set each frame by mainLoop (the view frame moves with floating origin).
   vehicle.imperfectionFrame = { ox: 0, oz: 0, sx: 1 };
-  const bump = { height: 0, dhdx: 0, dhdz: 0 };
 
-  /** Raises the hit by the surface's pseudo-random bump and tilts its normal by the bump slope. */
+  /** Raises the hit by the surface's pseudo-random bump (flat steps, so the normal stays). */
   function applySurfaceImperfection(wheel) {
     const surfaceM = (getSurfaceCompound(wheel.surface).imperfectionCm ?? 0) / 100;
     const amplitudeM = surfaceM - wheel.sidewallHeight * SIDEWALL_BUMP_ABSORPTION;
@@ -229,19 +229,15 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     if (amplitudeM <= 0 || normal.y < IMPERFECTION_MIN_NORMAL_Y || hit.body?.mass > 0) return;
     const { ox, oz, sx } = vehicle.imperfectionFrame;
     const point = hit.hitPointWorld;
-    sampleImperfection(ox + sx * point.x, oz + point.z, amplitudeM, bump);
+    const bumpHeight = sampleImperfection(ox + sx * point.x, oz + point.z, amplitudeM);
 
     // A vertical rise h moves the plane h * n.y along n, i.e. that / (-n.d) along the ray.
     const along = Math.max(0.3, -normal.dot(wheel.directionWorld));
-    const shorten = (bump.height * normal.y) / along;
+    const shorten = (bumpHeight * normal.y) / along;
     hit.distance -= shorten;
     point.x -= wheel.directionWorld.x * shorten;
     point.y -= wheel.directionWorld.y * shorten;
     point.z -= wheel.directionWorld.z * shorten;
-
-    normal.x -= bump.dhdx * sx;
-    normal.z -= bump.dhdz;
-    normal.normalize();
   }
 
   function castRay(wheel) {
@@ -390,6 +386,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const wDrive = wheel.spinSpeed + drive / spinMass;
 
     let w;
+    wheel.absActive = false;
     if (!wheel.isInContact) {
       w = approachZero(wDrive * (1 - Math.min(1, AIR_SPIN_DRAG_PER_S * dt)), brakeLimit / spinMass);
       wheel.spinSlipSpeed = 0;
@@ -467,6 +464,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       brakeImpulse = Math.sign(trimmed) === Math.sign(brakeImpulse) ? trimmed : 0;
       longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
       brakeLimit = Math.abs(brakeImpulse);
+      wheel.absActive = true;
     }
     const u = (momentum + brakeImpulse) / totalMass;
     const needed = Math.hypot(longRoll, sideRoll);

@@ -236,7 +236,7 @@ export function createRoadSignKinds(streets) {
   const kinds = [];
   for (const [tierName, tier] of Object.entries(TIERS)) {
     const geometry = createBoardGeometry(tier);
-    const back = new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.6 });
+    const back = new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.6, flatShading: true });
     const width = CELL_WIDTH_M * tier.arrows;
     const top = BOARD_BOTTOM_M + BOARD_HEIGHT_M;
     const cy = top / 2;
@@ -249,7 +249,7 @@ export function createRoadSignKinds(streets) {
       ]),
     ];
     for (const arrow of [1, -1]) {
-      const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.4 });
+      const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.4, flatShading: true });
       kinds.push({
         group: 'curveSigns',
         hitSound: 'metal',

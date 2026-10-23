@@ -8,7 +8,7 @@
 // deliberate three-quarter-rear angle instead of a flat side-on view.
 export default {
   id: 'side',
-  label: 'Rear Quarter',
+  label: 'Suspension debug',
   rigid: true,
   offset: [3, 0.0, -0.0],
   lookAtOffset: [-0.0, 0.0, 0.0],

@@ -68,6 +68,10 @@ function terrainColor(kind) {
 export function createSuspensionHud() {
   const grid = document.getElementById('susp-grid');
   const landedVal = document.getElementById('susp-landed-val');
+  const fuelRow = document.getElementById('susp-fuel');
+  const fuelPer100 = document.getElementById('susp-fuel-per100');
+  const fuelPerHour = document.getElementById('susp-fuel-perhour');
+  const fuelTank = document.getElementById('susp-fuel-tank');
   // Rebuilt when the wheel count/labels signature changes.
   let bars = [];
   let lastSignature = '';
@@ -123,6 +127,13 @@ export function createSuspensionHud() {
     });
 
     if (landedVal) landedVal.textContent = hasLanded ? 'true' : 'false';
+    if (fuelRow) fuelRow.hidden = !vehicle.fuel;
+    if (fuelRow && vehicle.fuel) {
+      const { litresPerHour, litresPer100Km } = vehicle.fuel.getAverage();
+      fuelPer100.textContent = litresPer100Km === null ? '—' : litresPer100Km.toFixed(1);
+      fuelPerHour.textContent = litresPerHour.toFixed(1);
+      fuelTank.textContent = `${vehicle.fuel.litres.toFixed(1)}/${vehicle.fuel.capacityL}`;
+    }
   }
 
   return { updateSuspensionHud, el: document.getElementById('suspension-hud') };
