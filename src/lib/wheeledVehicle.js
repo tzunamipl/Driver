@@ -29,7 +29,7 @@ const DEFAULT_WHEEL_OPTIONS = {
   sidewallHeight: 0.1, // tyre width * profile (m), soaks up surface bumps
   rollingResistance: 0.015, // Crr at low speed (asphalt)
   // Crr(v) = rollingResistance * (1 + factor * |v|), v in m/s.
-  rollingResistanceSpeedFactor: 0.08,
+  rollingResistanceSpeedFactor: 0.02,
   // Long-slip weight under power wheelspin (see LONG_SLIP_WEIGHT): higher =
   // spinning driven tyres give up more cornering grip (power oversteer).
   spinSlipWeight: 0.7,

@@ -19,8 +19,9 @@ import {
 // Tuning (read by chariot.js).
 const ENGINE_THRUST_FORCE = 64000; // N per engine at full throttle
 const MASS = 2100; // kg total, split across engines
-// Broadside (whole row + pod + struts) is by far the draggiest direction.
-const DRAG_PROFILE = { front: 0.7, side: 2.6, rear: 0.85 };
+// CdA (m^2) per body; small because chariot.js's linearDamping does most of the
+// slowing. Broadside (whole row + pod + struts) is by far the draggiest direction.
+const DRAG_PROFILE = { front: 0.04, side: 0.149, rear: 0.049 };
 
 const DEFAULT_BODY_COLOR = 0xff6a1a; // flame orange
 

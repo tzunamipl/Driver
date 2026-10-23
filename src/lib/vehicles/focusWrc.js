@@ -33,7 +33,7 @@ export default {
   idleRpm: 1100,
   redlineRpm: 7500,
   gearRatios: [2.92, 2.12, 1.64, 1.3, 1.06],
-  finalDriveRatio: 4.85,
+  finalDriveRatio: 3.95, // fast tarmac stage gearing, ~215 km/h at the limiter
   reverseRatio: 3.2,
   shiftDurationS: 0.15,
   brakeForce: 210,

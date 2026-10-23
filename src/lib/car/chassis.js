@@ -91,7 +91,8 @@ export function fitChassisHitbox(mesh, groundSpheres) {
  * rollovers slide smoothly.
  */
 export function createChassisBody(mass, position, quaternion, hitbox) {
-  const body = new CANNON.Body({ mass, material: CHASSIS_MATERIAL });
+  // linearDamping 0: cannon's default 0.01 is a hidden speed-proportional drag on top of airDrag.js.
+  const body = new CANNON.Body({ mass, material: CHASSIS_MATERIAL, linearDamping: 0 });
   for (const { halfExtents, offset } of hitbox.boxes) {
     const box = new CANNON.Box(halfExtents);
     box.collisionFilterMask = ~GROUND_COLLISION_GROUP;

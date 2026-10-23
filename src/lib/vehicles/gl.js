@@ -30,8 +30,8 @@ export default {
   peakTorqueRpm: 4000,
   idleRpm: 900,
   redlineRpm: 6000,
-  gearRatios: [3.454, 2.062, 1.481, 1.166, 0.916],
-  finalDriveRatio: 4.3,
+  gearRatios: [3.545, 2.111, 1.448, 1.088, 0.825], // EJ20 NA 5MT
+  finalDriveRatio: 3.9,
   reverseRatio: 3.636,
   shiftDurationS: 0.9,
   brakeForce: 110,
@@ -41,6 +41,6 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.82, side: 3.4, rear: 1.2 },
+  dragProfile: { front: 0.70, side: 3.4, rear: 1.2 },
   axles: carAxles('awd'),
 };
