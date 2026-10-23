@@ -419,7 +419,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     // Surface compound sets static mu, its dynamic share and how tyre width
     // pays off; maxForceN caps grip regardless of load.
     const compound = getSurfaceCompound(wheel.surface);
-    const staticMu = Math.max(0, wheel.frictionSlip * compound.frictionMultiplier + compound.frictionSlipOffset);
+    const staticMu = wheel.frictionSlip * compound.frictionMultiplier;
     const widthGrip = Math.pow(wheel.width / REFERENCE_TYRE_WIDTH_M, compound.widthGripExponent ?? 0);
     const staticGrip = Math.min(wheel.suspensionForce * staticMu * widthGrip, compound.maxForceN) * dt;
     const dynamicGrip = staticGrip * (compound.dynamicFrictionRatio ?? 1);

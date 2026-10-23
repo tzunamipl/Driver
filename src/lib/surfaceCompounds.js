@@ -1,6 +1,6 @@
 // Tyre grip per ground surface (classified in terrainSurface.js), applied
 // in wheeledVehicle.js's applyFriction on top of each vehicle's own tuning:
-//   staticMu  = frictionSlip * frictionMultiplier + frictionSlipOffset
+//   staticMu  = frictionSlip * frictionMultiplier
 //   widthGrip = (tyreWidth / REFERENCE_TYRE_WIDTH_M) ^ widthGripExponent
 //   staticGrip  = min(suspensionForce * staticMu * widthGrip, maxForceN) * dt
 //   dynamicGrip = staticGrip * dynamicFrictionRatio   (once the patch slides)
@@ -15,8 +15,7 @@ export const SURFACE_COMPOUNDS = {
   // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
   // drops off noticeably once it breaks loose.
   road: {
-    frictionMultiplier: 2.5,
-    frictionSlipOffset: 1.0,
+    frictionMultiplier: 1.1,
     dynamicFrictionRatio: 0.7,
     widthGripExponent: 0.3,
     maxForceN: Infinity,
@@ -26,9 +25,8 @@ export const SURFACE_COMPOUNDS = {
   // Unpaved roads (OSM surface=unpaved, untagged tracks/paths): packed gravel
   // or dirt - between road and open ground, slides more evenly than asphalt.
   unpaved: {
-    frictionMultiplier: 1.6,
-    frictionSlipOffset: 0.6,
-    dynamicFrictionRatio: 0.85,
+    frictionMultiplier: 0.9,
+    dynamicFrictionRatio: 0.75,
     widthGripExponent: 0.4,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.3,
@@ -36,8 +34,7 @@ export const SURFACE_COMPOUNDS = {
   },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
-    frictionMultiplier: 1.2,
-    frictionSlipOffset: 0.5,
+    frictionMultiplier: 0.7,
     dynamicFrictionRatio: 0.85,
     widthGripExponent: 0.45,
     maxForceN: Infinity,
@@ -47,8 +44,7 @@ export const SURFACE_COMPOUNDS = {
   // Built-up area off the road (yards, verges, lots): packed and smoother
   // than open ground, between normal and road.
   builtUp: {
-    frictionMultiplier: 2.0,
-    frictionSlipOffset: 0.75,
+    frictionMultiplier: 1.0,
     dynamicFrictionRatio: 0.78,
     widthGripExponent: 0.35,
     maxForceN: Infinity,
@@ -58,8 +54,7 @@ export const SURFACE_COMPOUNDS = {
   // Forest floor (leaf litter, soft soil, roots): a bit less grip and more
   // drag than open ground, and rougher.
   forest: {
-    frictionMultiplier: 1.0,
-    frictionSlipOffset: 0.5,
+    frictionMultiplier: 0.6,
     dynamicFrictionRatio: 0.85,
     widthGripExponent: 0.45,
     maxForceN: Infinity,
@@ -69,8 +64,7 @@ export const SURFACE_COMPOUNDS = {
   // Rock (bare rock and scree): grippy where solid, but loose scree and big
   // steps make it the roughest surface.
   rock: {
-    frictionMultiplier: 1.8,
-    frictionSlipOffset: 0.6,
+    frictionMultiplier: 0.85,
     dynamicFrictionRatio: 0.75,
     widthGripExponent: 0.3,
     maxForceN: Infinity,
@@ -80,8 +74,7 @@ export const SURFACE_COMPOUNDS = {
   // Glacier ice: almost no grip, width barely matters.
   ice: {
     frictionMultiplier: 0.25,
-    frictionSlipOffset: 0.1,
-    dynamicFrictionRatio: 0.8,
+    dynamicFrictionRatio: 0.9,
     widthGripExponent: 0.1,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 0.6,
@@ -89,8 +82,7 @@ export const SURFACE_COMPOUNDS = {
   },
   // Scrub (bushes, brush): like open ground but draggier and rougher.
   scrub: {
-    frictionMultiplier: 1.1,
-    frictionSlipOffset: 0.45,
+    frictionMultiplier: 0.8,
     dynamicFrictionRatio: 0.85,
     widthGripExponent: 0.45,
     maxForceN: Infinity,
@@ -99,9 +91,8 @@ export const SURFACE_COMPOUNDS = {
   },
   // Sand (beach, dunes): low grip and heavy drag; wide tyres float on it.
   sand: {
-    frictionMultiplier: 0.9,
-    frictionSlipOffset: 0.3,
-    dynamicFrictionRatio: 0.9,
+    frictionMultiplier: 0.4,
+    dynamicFrictionRatio: 0.95,
     widthGripExponent: 0.8,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 4.0,
@@ -110,8 +101,7 @@ export const SURFACE_COMPOUNDS = {
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.
   water: {
-    frictionMultiplier: 1.0,
-    frictionSlipOffset: 0.0,
+    frictionMultiplier: 0.5,
     dynamicFrictionRatio: 0.9,
     widthGripExponent: -0.5,
     maxForceN: Infinity,

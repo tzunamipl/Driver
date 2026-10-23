@@ -49,7 +49,7 @@ const DEFAULT_BRAKE_BIAS = 0.70;
 const DEFAULT_STEER_SPEED_D = 0.1;
 // Rear (unsteered) tyres keep this share of their dynamic grip once sliding,
 // so a broken-loose rear holds the slide while the fronts still catch it.
-const DEFAULT_REAR_SLIDE_GRIP = 0.8;
+const DEFAULT_REAR_SLIDE_GRIP = 0.99;
 // Suspension force cap as a multiple of static per-wheel load. Caps grip on
 // hard landings so the car slides instead of snapping straight in one step.
 const DEFAULT_SUSPENSION_FORCE_G = 8;

@@ -22,7 +22,7 @@ const SUSPENSION = {
   suspensionRestLength: 0.85,
   maxSuspensionTravel: 0.6,
   rollingResistance: 0.03,
-  frictionSlip: 1.3,
+  frictionSlip: 1.0,
   dampingRelaxation: 2.71,
   dampingCompression: 1.48,
   rollInfluence: 0.13,
