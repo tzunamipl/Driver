@@ -15,8 +15,8 @@ export const SURFACE_COMPOUNDS = {
   // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
   // drops off noticeably once it breaks loose.
   road: {
-    frictionMultiplier: 1.1,
-    dynamicFrictionRatio: 0.7,
+    frictionMultiplier: 1.3,
+    dynamicFrictionRatio: 0.8,
     widthGripExponent: 0.3,
     maxForceN: Infinity,
     rollingResistanceMultiplier: 0.55,

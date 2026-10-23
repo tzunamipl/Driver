@@ -22,8 +22,8 @@ export default {
     frictionSlip: 1.1,
     dampingRelaxation: 5.5,
     dampingCompression: 3.5,
-    rollInfluence: 0.18,
-    pitchInfluence: 0.6,
+    rollInfluence: 0.3,
+    pitchInfluence: 1.0,
   },
   suspensionForceG: 8,
   engine: 'v4',
@@ -43,5 +43,5 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.85, side: 2.4, rear: 1.25 },
+  dragProfile: { front: 0.74, side: 2.4, rear: 1.25 },
 };

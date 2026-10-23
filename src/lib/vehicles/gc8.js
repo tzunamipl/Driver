@@ -30,7 +30,7 @@ export default {
   peakTorqueRpm: 4000,
   idleRpm: 900,
   redlineRpm: 7000,
-  gearRatios: [3.454, 2.062, 1.481, 1.166, 0.916],
+  gearRatios: [3.454, 2.062, 1.448, 1.088, 0.825], // TY75 5MT
   finalDriveRatio: 4.111,
   reverseRatio: 3.636,
   shiftDurationS: 0.6,
@@ -41,6 +41,6 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.80, side: 2.4, rear: 1.2 },
+  dragProfile: { front: 0.68, side: 2.4, rear: 1.2 },
   axles: carAxles('awd'),
 };

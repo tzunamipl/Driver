@@ -5,7 +5,6 @@
 
 // Drivetrain loss (typical manual gearbox + diff: 8-12%).
 const DRIVETRAIN_EFFICIENCY = 0.9;
-const DRIVETRAIN_EFFICIENCY_MODIFIER = 0.88;
 // Display/sound smoothing of rpm toward the wheel-speed rpm, 1/s (the real
 // flywheel inertia lives on the driven wheels via reflectedMass).
 const RPM_RESPONSE_PER_S = 25;
@@ -361,7 +360,7 @@ export function createEngineState(descriptor, wheelRadius) {
     // while the clutch slips at pull-away, from the revving engine instead.
     const torqueRpm = launching ? Math.max(wheelRpm, engine.rpm) : wheelRpm;
     const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle;
-    const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY * DRIVETRAIN_EFFICIENCY_MODIFIER) / wheelRadius;
+    const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY) / wheelRadius;
     const totalDrivetrainForce = engineTorqueNm * torqueToForce;
     engine.loadFraction = Math.min(1, (engineTorqueNm * torqueRpm) / peakCurvePower);
 

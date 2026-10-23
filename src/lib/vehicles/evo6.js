@@ -43,6 +43,6 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.8, side: 2.2, rear: 1.2 },
+  dragProfile: { front: 0.66, side: 2.2, rear: 1.2 },
   axles: carAxles('awd'),
 };

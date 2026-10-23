@@ -46,5 +46,5 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.55,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.72, side: 2.6, rear: 1.0 },
+  dragProfile: { front: 0.60, side: 2.6, rear: 1.0 },
 };

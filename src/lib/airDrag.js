@@ -3,13 +3,11 @@ import * as CANNON from 'cannon-es';
 // Quadratic air drag shared by all rigs, split relative to `forward`
 // (passed in: hover rigs use the formation heading, not a body quaternion):
 // along-forward uses `front` or `rear`, everything else uses `side`.
-// Each descriptor's dragProfile multiplies AIR_DRAG_BASE_COEFFICIENT.
-export const AIR_DRAG_BASE_COEFFICIENT = 0.035; // N per (m/s)^2, before a vehicle's own front/side/rear multiplier
-// Balanced against the 10x mass/force rescale so cars top out at
-// believable speeds (quadratic drag).
+// F = 0.5 * rho * CdA * v^2: each descriptor's dragProfile is CdA (m^2) per direction.
+export const AIR_DRAG_BASE_COEFFICIENT = 0.5 * 1.225; // 0.5 * sea-level air density (kg/m^3)
 
 // For descriptors without a dragProfile.
-export const DEFAULT_DRAG_PROFILE = { front: 1, side: 2, rear: 1.15 };
+export const DEFAULT_DRAG_PROFILE = { front: 0.7, side: 1.4, rear: 0.8 };
 
 const _forwardComp = new CANNON.Vec3();
 const _lateral = new CANNON.Vec3();

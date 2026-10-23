@@ -30,8 +30,9 @@ export default {
   peakTorqueRpm: 3500,
   idleRpm: 900,
   redlineRpm: 6000,
-  gearRatios: [3.56, 2.25, 1.66, 1.12, 0.89, 0.7, 0.62],
-  finalDriveRatio: 5.111,
+  // TR580 range 3.58-0.57; upper steps spread evenly to the tallest ratio.
+  gearRatios: [3.56, 2.255, 1.655, 1.201, 0.92, 0.71, 0.57],
+  finalDriveRatio: 3.9,
   reverseRatio: 3.636,
   automaticGearbox: true, // CVT with stepped ratios
   shiftDurationS: 0.5,
@@ -42,6 +43,6 @@ export default {
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,
-  dragProfile: { front: 0.81, side: 3.4, rear: 1.2 },
+  dragProfile: { front: 0.70, side: 3.4, rear: 1.2 },
   axles: carAxles('awd'),
 };
