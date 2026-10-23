@@ -19,11 +19,10 @@ const note = (text) => el('p', { className: 'scenario-tree-note', textContent: t
  * @param {{id: string, label: string, folder: string, indexKey: string}[]} opts.kinds - file kinds listed per source.
  * @param {(pick: {source: object, opened: object, kindId: string, key: string, json: object}) => void} opts.onPick
  * @param {(pick: object) => void} [opts.onActivate] - double-click, same argument as onPick.
- * @param {() => string | null} [opts.getToken]
  * @param {() => string | null} [opts.ownBranch] - player's branch: opened instead of Official when listed.
  * @returns {{el: HTMLElement, reload: () => void}}
  */
-export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken = () => null, ownBranch = () => null }) {
+export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranch = () => null }) {
   const root = el('div', { className: 'scenario-tree' });
   let selectedButton = null;
 
@@ -85,7 +84,7 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken
   async function fillSource(body, listed) {
     body.replaceChildren(note('Loading…'));
     try {
-      const opened = await openListed(listed, getToken());
+      const opened = await openListed(listed);
       const index = (await opened.readJson(indexPath(folder))) ?? {};
       const sections = kinds.map((kind) => {
         const list = kindSection(listed, opened, kind, index[kind.indexKey] ?? []);
@@ -117,7 +116,7 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, getToken
   async function reload() {
     root.replaceChildren(note('Loading…'));
     try {
-      const sources = await listSources(getToken());
+      const sources = await listSources();
       const branch = ownBranch();
       const own = sources.find((s) => !s.official && s.source.ref === branch);
       const official = sources.filter((s) => s.official).map((s) => sourceNode(s, !own));

@@ -26,5 +26,7 @@ jobs:
           # Uploaded as worker secrets from the env below.
           secrets: |
             DATA_TOKEN
+            SCENARIOS_TOKEN
         env:
           DATA_TOKEN: ${{ secrets.LEADERBOARD_DATA_TOKEN }}
+          SCENARIOS_TOKEN: ${{ secrets.SCENARIOS_WRITE_TOKEN }}

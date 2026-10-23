@@ -134,13 +134,6 @@
   cursor: pointer;
 }
 #hud-gameplay input { margin: 0; cursor: pointer; }
-#hud-github {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  pointer-events: auto;
-}
-#hud-github .hud-note { margin: 0; }
 /* Win95 horizontal separator: grey line over a white one. */
 #hud-discord {
   margin-top: 8px;

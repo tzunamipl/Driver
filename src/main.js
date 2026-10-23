@@ -18,7 +18,6 @@ import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
-import { createGithubSettings } from './ui/githubSettings.js';
 import { createGameplaySettings } from './ui/gameplaySettings.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
@@ -55,7 +54,7 @@ import { createTrees, createBushes, createRocks } from './lib/trees.js';
 import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -134,12 +133,18 @@ const lobby = createLobby({
   },
 });
 
+// Editor saves go through the worker now: don't keep a personal token around.
+try {
+  localStorage.removeItem(LEGACY_GITHUB_TOKEN_STORAGE_KEY);
+} catch {
+  // Storage unavailable: nothing stored either.
+}
+
 // ---------- Main menu ----------
 // Settings controls first: the menu's Settings screen shows them before the world loads.
 createVolumeSliders();
 const graphicsDetailPicker = createGraphicsDetailPicker();
 const gameplaySettings = createGameplaySettings();
-createGithubSettings();
 // Picks the game mode, and so the save slot everything below resumes from.
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();

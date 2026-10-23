@@ -3,19 +3,17 @@
 // unticked per point (then exactly where placed / turned by hand). Stages get generated,
 // hand-corrected pacenotes (lib/rally/pacenotes.js). Mode-specific parts come
 // from its format (lib/scenarios/formats.js); the panel is ui/editorPanel.js. The draft
-// lives in the editor's save slot; Save commits it to the player's branch on GitHub.
+// lives in the editor's save slot; Save commits it to the player's branch (lib/scenarios/publish.js).
 
 import {
-  SCENARIOS_REPO,
   OFFICIAL_SCENARIO_SOURCE,
-  SCENARIO_FORMAT,
   EDITOR_SOURCE_STORAGE_KEY,
   EDITOR_PACENOTE_BOARDS_STORAGE_KEY,
   EDITOR_SNAP_RADIUS_M,
 } from '../config.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 import { parseSource, formatSource, openSource } from '../lib/scenarios/source.js';
-import { commitFiles, branchNameFor, readToken } from '../lib/scenarios/github.js';
+import { publishScenario, publishEnabled, branchNameFor } from '../lib/scenarios/publish.js';
 import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
@@ -73,7 +71,6 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   const frames = new WeakMap();
 
   const kind = () => kindById.get(state.doc.kind);
-  const token = readToken;
 
   function changed({ save = true } = {}) {
     if (save) writeSaveField('editorDraft', state.doc);
@@ -163,7 +160,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   async function loadIndex() {
     const source = parseSource(state.source);
     if (!source) throw new Error('Source must look like owner/repo@branch');
-    const opened = await openSource(source, token());
+    const opened = await openSource(source);
     const index = (await opened.readJson(indexPath(format.folder))) ?? {};
     return { opened, index };
   }
@@ -180,8 +177,6 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       listeners.add(listener);
       listener(state);
     },
-    hasToken: () => !!token(),
-    getToken: token,
 
     newDoc(kindId) {
       if (state.doc.items.length && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
@@ -396,32 +391,19 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     save: guard(async () => {
       const problems = kind().validate(state.doc);
       if (problems.length) throw new Error(problems.join('; '));
-      if (!token()) throw new Error('Saving needs a GitHub token: add it in Settings → GitHub');
+      if (!publishEnabled()) throw new Error('Saving is off in this build: use Export');
       const branch = branchNameFor(getPlayerName());
-      const { indexKey } = kind();
-      const key = fileKey(state.doc);
-      const path = filePath(format.folder, kind(), key);
-      const index = indexPath(format.folder);
       setStatus(`Saving to branch ${branch}…`);
-      const result = await commitFiles({
-        token: token(),
-        upstream: SCENARIOS_REPO,
+      const result = await publishScenario({
         branch,
-        message: `${kind().label} ${key}: ${state.doc.name}`,
-        async buildFiles(readJson) {
-          const current = (await readJson(index)) ?? {};
-          const keys = new Set(current[indexKey] ?? []);
-          keys.add(key);
-          const nextIndex = { ...current, format: SCENARIO_FORMAT, [indexKey]: [...keys].sort() };
-          return [
-            { path, content: toFileJson() },
-            { path: index, content: `${JSON.stringify(nextIndex, null, 2)}\n` },
-          ];
-        },
+        folder: format.folder,
+        kindFolder: kind().folder,
+        key: fileKey(state.doc),
+        content: toFileJson(),
       });
       editor.setSource(formatSource({ owner: result.owner, repo: result.repo, ref: result.branch }));
       ({ index: state.index } = await loadIndex());
-      setStatus(result.unchanged ? 'No changes to save' : `Saved. Play it from source ${state.source}`);
+      setStatus(result.unchanged ? 'No changes to save' : `Saved, sent for review. Play it from source ${state.source}`);
     }),
 
     /** The file's placed points for the minimap, numbered like their 3D markers. */

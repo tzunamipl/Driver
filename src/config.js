@@ -269,7 +269,7 @@ export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
-export const GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // scenario editor commits, set in Settings (ui/githubSettings.js)
+export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old editor saves; wiped on start
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
 export const EDITOR_SOURCE_STORAGE_KEY = 'driver.editorSource.v1'; // scenario source the editor opens from
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
@@ -280,5 +280,5 @@ export const SCENARIOS_REPO = { owner: 'tzunamipl', repo: 'Driver-scenarios' };
 export const OFFICIAL_SCENARIO_SOURCE = `${SCENARIOS_REPO.owner}/${SCENARIOS_REPO.repo}@main`;
 export const SCENARIO_FORMAT = 2; // files with a newer format are rejected
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
-export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times
+export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times or editor saves
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }

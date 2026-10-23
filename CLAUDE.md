@@ -47,12 +47,12 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` (localStorage).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
-  `lib/scenarios/` = `source.js` (fetch by commit), `paths.js` (files at `<mode>/<country>/<region>/<kind>/<id>.json`; the `country/region/id` key is what index + refs use), `github.js` (token commit to the player's fork/branch), one format
+  `lib/scenarios/` = `source.js` (fetch by commit), `paths.js` (files at `<mode>/<country>/<region>/<kind>/<id>.json`; the `country/region/id` key is what index + refs use), `publish.js` (editor save via the worker to the player-name branch + PR), one format
   per mode registered in `formats.js` (`rally.js`), `roadSnap.js` + `gateMarkers.js`. A mode's Editor button starts an
   editor session (own save slot): `app/scenarioEditor.js` (logic, per-frame markers) + `ui/editorPanel.js`.
-- Online leaderboards: `worker/` = Cloudflare Worker (own `package.json`, `wrangler.toml`, deployed by `.github/workflows/worker.yml`) that validates stage times
-  against the official stage file and keeps each player's best in the GitHub data repo; the token is a worker secret,
-  never in the bundle. Client: `lib/leaderboard.js`, URL from `VITE_LEADERBOARD_URL` (`.env.local` locally, repo variable in CI).
+- Online leaderboards + editor saves: `worker/` = Cloudflare Worker (own `package.json`, `wrangler.toml`, deployed by `.github/workflows/worker.yml`) that validates stage times
+  against the official stage file and keeps each player's best in the GitHub data repo, and commits editor saves to a player-name branch of the
+  scenarios repo with a PR; the tokens are worker secrets, never in the bundle. Client: `lib/leaderboard.js`, URL from `VITE_LEADERBOARD_URL` (`.env.local` locally, repo variable in CI).
 - Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js` + plan map `ui/rallyPlanMap.js`, itinerary, spawn, progress save, blocks
   teleport/navigation via their `setBlocked` while a stage is live) + `stageRun.js` (per-physics-step timing state
   machine); `hud/rallyPlanHud.js` = itinerary side panel, plan icons go to the minimap / Navigation map via `setScenarioPoints`; `lib/rally/` = FIA boards, arches, split flags, fireworks (`controlScenery.js`), per-point-type props (`zoneProps.js`); `hud/rallyHud.js`;

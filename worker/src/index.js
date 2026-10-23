@@ -1,8 +1,10 @@
-// Driver leaderboard API: checks stage times against the official stage files and keeps each
-// player's best per vehicle in a GitHub data repo, one JSON file per stage. The token stays here.
+// Driver API: checks stage times against the official stage files and keeps each player's best
+// per vehicle in a GitHub data repo, one JSON file per stage; commits editor saves to a player's
+// branch of the scenarios repo, with a PR into the official branch. The tokens stay here.
 //   GET  /board?stage=<country/region/id>  -> { board }
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
 //        -> { board, rank, improved }
+//   POST /scenarios { branch, folder, kindFolder, key, content } -> { owner, repo, branch, sha, unchanged, pr }
 
 const SLUG = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const STAGE_KEY_RE = new RegExp(`^(?:${SLUG}/${SLUG}/)?${SLUG}$`); // bare `id` = flat layout from before countries
@@ -17,6 +19,14 @@ const NAME_MAX = 24;
 const MAX_ENTRIES = 1000;
 const PUT_RETRIES = 3;
 const STAGE_CACHE_S = 300;
+const BRANCH_RE = new RegExp(`^${SLUG}$`);
+const BRANCH_MAX = 40;
+const SCENARIO_MAX_BYTES = 256 * 1024;
+// `<mode folder>/<kind folder>` the editor may save -> its index.json list and commit label.
+const SCENARIO_KINDS = {
+  'rally/stages': { indexKey: 'stages', label: 'Stage' },
+  'rally/rallies': { indexKey: 'rallies', label: 'Rally' },
+};
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -109,18 +119,19 @@ const toBase64 = (text) => {
 };
 const fromBase64 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
 
-async function gh(env, method, path, body) {
-  return fetch(`https://api.github.com/repos/${env.DATA_REPO}${path}`, {
+const github = (token, method, path, body) =>
+  fetch(`https://api.github.com${path}`, {
     method,
     headers: {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${env.DATA_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'User-Agent': 'driver-leaderboard',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-}
+
+const gh = (env, method, path, body) => github(env.DATA_TOKEN, method, `/repos/${env.DATA_REPO}${path}`, body);
 
 /** Board file + its blob sha (null when the file doesn't exist yet). */
 async function readBoard(env, key) {
@@ -184,6 +195,108 @@ async function getBoard(env, key) {
   return currentBoard(board, key, await fingerprint(head));
 }
 
+// ---------- Scenario saves ----------
+
+/** Scenarios repo call that throws on failure; GET 404 -> null. */
+async function scenariosApi(env, method, path, body) {
+  const res = await github(env.SCENARIOS_TOKEN, method, `/repos/${env.SCENARIOS_REPO}${path}`, body);
+  if (method === 'GET' && res.status === 404) return null;
+  if (!res.ok) {
+    const message = (await res.json().catch(() => null))?.message ?? res.statusText;
+    throw new HttpError(res.status === 422 || res.status === 409 ? 409 : 502, `Scenarios repo: ${message}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+/** Branch commit, or null when it doesn't exist (matching-refs: no 404 for a missing branch). */
+async function branchHead(env, branch) {
+  const refs = await scenariosApi(env, 'GET', `/git/matching-refs/heads/${branch}`);
+  return refs?.find((ref) => ref.ref === `refs/heads/${branch}`)?.object.sha ?? null;
+}
+
+function readScenarioSave(body, env) {
+  const { branch, folder, kindFolder, key, content } = body ?? {};
+  if (!BRANCH_RE.test(branch ?? '') || branch.length > BRANCH_MAX) throw new HttpError(400, 'Bad branch');
+  if (branch === env.SCENARIOS_BRANCH) throw new HttpError(400, 'This player name is reserved, pick another one');
+  const kind = SCENARIO_KINDS[`${folder}/${kindFolder}`];
+  if (!kind) throw new HttpError(400, 'Bad kind');
+  if (!STAGE_KEY_RE.test(key ?? '')) throw new HttpError(400, 'Bad key');
+  if (typeof content !== 'string' || new TextEncoder().encode(content).length > SCENARIO_MAX_BYTES) throw new HttpError(400, 'Bad content');
+  let json;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    throw new HttpError(400, 'Content is not JSON');
+  }
+  const parts = key.split('/');
+  const id = parts.at(-1);
+  if (json?.id !== id || !Number.isInteger(json.format)) throw new HttpError(400, 'Content does not match the key');
+  if (parts.length === 3 && (json.country !== parts[0] || json.region !== parts[1])) throw new HttpError(400, 'Content does not match the key');
+  // Mirrors src/lib/scenarios/paths.js filePath.
+  const path = parts.length === 1 ? `${folder}/${kindFolder}/${id}.json` : `${folder}/${parts[0]}/${parts[1]}/${kindFolder}/${id}.json`;
+  return { branch, folder, kind, key, path, content, format: json.format, name: String(json.name ?? '').replace(/[\p{C}]/gu, '').slice(0, 80) };
+}
+
+/** One commit with the file + its index entry on the player's branch (made from the official one if missing). */
+async function commitScenario(env, save) {
+  const indexPath = `${save.folder}/index.json`;
+  for (let attempt = 0; ; attempt++) {
+    const branchSha = await branchHead(env, save.branch);
+    const head = branchSha ?? (await branchHead(env, env.SCENARIOS_BRANCH));
+    const indexFile = await scenariosApi(env, 'GET', `/contents/${indexPath}?ref=${head}`);
+    const index = indexFile ? JSON.parse(fromBase64(indexFile.content)) : {};
+    const keys = new Set(index[save.kind.indexKey] ?? []).add(save.key);
+    const nextIndex = { ...index, format: Math.max(index.format ?? 0, save.format), [save.kind.indexKey]: [...keys].sort() };
+    const baseTree = (await scenariosApi(env, 'GET', `/git/commits/${head}`)).tree.sha;
+    const tree = await scenariosApi(env, 'POST', '/git/trees', {
+      base_tree: baseTree,
+      tree: [
+        { path: save.path, mode: '100644', type: 'blob', content: save.content },
+        { path: indexPath, mode: '100644', type: 'blob', content: `${JSON.stringify(nextIndex, null, 2)}\n` },
+      ],
+    });
+    // Nothing new (e.g. an official file saved as is): no commit, and no empty branch.
+    if (tree.sha === baseTree) return { sha: head, unchanged: true, exists: !!branchSha };
+    const commit = await scenariosApi(env, 'POST', '/git/commits', {
+      message: `${save.kind.label} ${save.key}: ${save.name} (${save.branch})`,
+      tree: tree.sha,
+      parents: [head],
+    });
+    try {
+      // Not forced: a save that landed in between makes this fail, then it's redone on top.
+      if (branchSha) await scenariosApi(env, 'PATCH', `/git/refs/heads/${save.branch}`, { sha: commit.sha });
+      else await scenariosApi(env, 'POST', '/git/refs', { ref: `refs/heads/${save.branch}`, sha: commit.sha });
+      return { sha: commit.sha, unchanged: false, exists: true };
+    } catch (err) {
+      if (err.status !== 409 || attempt >= PUT_RETRIES) throw err;
+    }
+  }
+}
+
+/** The branch's open PR into the official branch, opened on first save. */
+async function ensurePullRequest(env, branch) {
+  const owner = env.SCENARIOS_REPO.split('/')[0];
+  const open = await scenariosApi(env, 'GET', `/pulls?state=open&head=${owner}:${branch}&base=${env.SCENARIOS_BRANCH}`);
+  if (open?.length) return open[0].html_url;
+  const pr = await scenariosApi(env, 'POST', '/pulls', {
+    title: `Scenarios from ${branch}`,
+    head: branch,
+    base: env.SCENARIOS_BRANCH,
+    body: `Saved from the in-game editor by player "${branch}".`,
+  }).catch((err) => {
+    // 422 "no commits between": the branch matches the official one (already merged).
+    if (err.status === 409) return null;
+    throw err;
+  });
+  return pr?.html_url ?? null;
+}
+
+async function saveScenario(env, save) {
+  const { sha, unchanged, exists } = await commitScenario(env, save);
+  const [owner, repo] = env.SCENARIOS_REPO.split('/');
+  return { owner, repo, branch: exists ? save.branch : env.SCENARIOS_BRANCH, sha, unchanged, pr: exists ? await ensurePullRequest(env, save.branch) : null };
+}
+
 // ---------- HTTP ----------
 
 function corsHeaders(env, request) {
@@ -215,6 +328,12 @@ export default {
         const player = await playerHash(sub.playerId);
         const rank = board.entries.findIndex((e) => e.player === player && e.vehicle === sub.vehicle) + 1 || null;
         return json({ board, rank, improved }, 200, cors);
+      }
+      if (request.method === 'POST' && url.pathname === '/scenarios') {
+        const save = readScenarioSave(await request.json().catch(() => null), env);
+        const ip = request.headers.get('CF-Connecting-IP') ?? '';
+        if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: ip })).success) throw new HttpError(429, 'Too many saves, wait a minute');
+        return json(await saveScenario(env, save), 200, cors);
       }
       return json({ error: 'Not found' }, 404, cors);
     } catch (err) {

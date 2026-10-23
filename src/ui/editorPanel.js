@@ -3,7 +3,7 @@
 // road orientation and a heading dial for gates), save/export, and an Open window with the scenario tree.
 // Built once and patched on change, so typing in a field keeps its focus.
 
-import { TOKEN_HELP_URL, branchNameFor } from '../lib/scenarios/github.js';
+import { branchNameFor } from '../lib/scenarios/publish.js';
 import { createScenarioTree } from './scenarioTree.js';
 
 const hex = (color) => `#${color.toString(16).padStart(6, '0')}`;
@@ -137,9 +137,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       button('Close', () => (exportEl.hidden = true)),
     ]),
   ]);
-  const saveButton = button('Save to GitHub', async () => {
-    tokenHelpEl.hidden = editor.hasToken();
-    if (!tokenHelpEl.hidden) return;
+  const saveButton = button('Save', async () => {
     await editor.save();
     tree.reload();
   });
@@ -155,7 +153,6 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   const tree = createScenarioTree({
     folder: format.folder,
     kinds: format.kinds,
-    getToken: editor.getToken,
     ownBranch: () => branchNameFor(getPlayerName()),
     onPick: (pick) => {
       openDialog.hidden = true;
@@ -179,22 +176,6 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   const openButton = button('Open…', () => (openDialog.hidden = false), { title: 'Open a file from a scenario source' });
 
   const branchEl = el('p', { className: 'editor-note' });
-  const tokenHelpEl = el('div', { className: 'editor-token-help', hidden: true }, [
-    el('p', { textContent: 'Saving commits this file to a branch of your fork of the scenarios repo, so it needs a GitHub token:' }),
-    el('ol', {}, [
-      el('li', {}, [
-        el('a', { href: TOKEN_HELP_URL, target: '_blank', rel: 'noopener noreferrer', textContent: 'Create a token' }),
-        ' (classic, public_repo scope) on GitHub.',
-      ]),
-      el('li', { textContent: 'Paste it in Settings → GitHub (Esc → Settings).' }),
-      el('li', { textContent: 'Press Save to GitHub again.' }),
-    ]),
-    el('div', { className: 'editor-buttons' }, [
-      button('Open Settings', openSettings),
-      button('Close', () => (tokenHelpEl.hidden = true)),
-    ]),
-  ]);
-
   const statusEl = el('p', { className: 'editor-status' });
   const toggle = el('button', { type: 'button', className: 'editor-toggle', textContent: title });
   // Two columns: the file and what to place on the left, the item list and its editing on the right.
@@ -213,7 +194,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       placeEl,
       refRow,
     ]),
-    el('div', { className: 'editor-column' }, [itemsEl, selectedEl, actionsEl, exportEl, tokenHelpEl, branchEl, statusEl]),
+    el('div', { className: 'editor-column' }, [itemsEl, selectedEl, actionsEl, exportEl, branchEl, statusEl]),
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);
@@ -364,7 +345,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
 
     // The list was rebuilt: the hovered row is gone.
     if (tipTarget && !tipTarget.isConnected) hideTip();
-    branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" of your fork.`;
+    branchEl.textContent = `Saves go to branch "${branchNameFor(getPlayerName())}" (shared by everyone with your name) and are sent for review.`;
     for (const btn of root.querySelectorAll('button')) btn.disabled = state.busy && btn !== toggle;
     statusEl.textContent = state.status.text;
     statusEl.classList.toggle('is-error', state.status.error);

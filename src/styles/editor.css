@@ -105,13 +105,6 @@
 .editor-export[hidden],
 .editor-ref[hidden] { display: none; }
 .editor-note { margin: 0; color: #444; }
-.editor-token-help {
-  padding: 4px 6px;
-  background: #ffffe1;
-  border: 1px solid #000;
-}
-.editor-token-help p, .editor-token-help ol { margin: 0 0 4px; }
-.editor-token-help ol { padding-left: 2.5ch; }
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
 .editor-status.is-error { color: #a00000; }
 

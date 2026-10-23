@@ -15,10 +15,10 @@ export function parseSource(text) {
 
 export const formatSource = ({ owner, repo, ref }) => `${owner}/${repo}@${ref}`;
 
-async function resolveSha(source, token) {
+async function resolveSha(source) {
   const { owner, repo, ref } = source;
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, {
-    headers: { Accept: 'application/vnd.github.sha', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { Accept: 'application/vnd.github.sha' },
   });
   if (res.status === 404 || res.status === 422) throw new Error(`${formatSource(source)} not found`);
   if (!res.ok) throw new Error(`GitHub: ${res.status}`);
@@ -28,12 +28,11 @@ async function resolveSha(source, token) {
 /**
  * Pins `source` to its current commit. Returns { source, sha, readJson(path) }, where
  * readJson resolves null for a missing file and throws on a newer scenario format.
- * @param {string} [token] - GitHub token, for its higher API rate limit.
  * @param {string} [knownSha] - the branch's commit when already known (skips the lookup).
  */
-export async function openSource(source, token, knownSha) {
+export async function openSource(source, knownSha) {
   const { owner, repo, ref } = source;
-  const sha = knownSha ?? (await resolveSha(source, token));
+  const sha = knownSha ?? (await resolveSha(source));
   return {
     source,
     sha,

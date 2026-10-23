@@ -1,5 +1,6 @@
-# Leaderboard API (src/index.js). Deployed by .github/workflows/worker.yml. Secret DATA_TOKEN: a fine-grained
-# GitHub token with Contents: Read and write on DATA_REPO only. Local: put it in worker/.dev.vars.
+# Leaderboard + scenario save API (src/index.js). Deployed by .github/workflows/worker.yml. Secrets (local: worker/.dev.vars):
+#   DATA_TOKEN: fine-grained GitHub token, Contents: Read and write on DATA_REPO only.
+#   SCENARIOS_TOKEN: fine-grained GitHub token, Contents + Pull requests: Read and write on SCENARIOS_REPO only.
 name = "driver-leaderboard"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
@@ -15,4 +16,10 @@ ALLOWED_ORIGINS = "https://tzunamipl.github.io,http://localhost:5173"
 [[ratelimits]]
 name = "SUBMIT_LIMIT"
 namespace_id = "1001"
+simple = { limit = 6, period = 60 }
+
+# Editor saves, per IP.
+[[ratelimits]]
+name = "SAVE_LIMIT"
+namespace_id = "1002"
 simple = { limit = 6, period = 60 }
