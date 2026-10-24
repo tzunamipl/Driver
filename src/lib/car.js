@@ -32,12 +32,14 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet, setTyreDirt } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
 import { applyTyreSetup } from './tyres/setup.js';
 import { getTyreCompound } from './tyres/compounds.js';
+import { repairTyre } from './tyres.js';
+import { SPARE_TYRE_KG, clampSpareTyres } from './spareTyres.js';
 
 export { CHASSIS_MATERIAL, createNameTag };
 
@@ -282,12 +284,26 @@ export function createCar(
   Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
   Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => vehicle.heat.powerFactor });
+  vehicle.spareTyres = 0; // rally only (lib/spareTyres.js); their mass rides with the fuel
+  vehicle.setSpareTyres = (n) => {
+    vehicle.spareTyres = clampSpareTyres(n);
+    vehicle.fuel.setCargoKg(vehicle.spareTyres * SPARE_TYRE_KG);
+  };
+  /** Swaps a spare (fresh, same tyre) in for wheel i's flat; false without one. */
+  vehicle.fitSpareTyre = (i) => {
+    const wheel = vehicle.wheelInfos[i];
+    if (!wheel?.punctured || vehicle.spareTyres < 1) return false;
+    repairTyre(wheel);
+    vehicle.setSpareTyres(vehicle.spareTyres - 1);
+    return true;
+  };
   vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
-  /** Fixed radiator (topped up), fresh shocks, working lamps. */
+  /** Fixed radiator (topped up), fresh shocks, working lamps, mended gearbox. */
   vehicle.repairDamage = () => {
     vehicle.heat.repair();
     vehicle.repairShocks();
     vehicle.lamps.repair();
+    vehicle.engine.gearbox.repair();
   };
   /** Brand new for an event start: warm fresh tyres, no damage, full tank, engine at working temperature. */
   vehicle.makeNew = () => {
@@ -318,12 +334,12 @@ export function createCar(
   };
   const pedalBias = pedalBiasScales(tractorWheels, descriptor.brakeBias ?? DEFAULT_BRAKE_BIAS);
   // Pedal brake on every wheel, handbrake only on handbrake axles (they must be able to lock).
-  vehicle.applyBrakes = (pedalForce, handbrakeForce, abs) => {
+  vehicle.applyBrakes = (pedalForce, handbrakeForce, abs, gripCap = Infinity) => {
     allWheels.forEach((w, i) => {
       const share = w.brakeForce / vehicle.brakeForce;
       const handbrake = w.axle.handbrake ? handbrakeForce : 0;
       const pedal = pedalForce * (pedalBias[i] ?? 1);
-      vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0);
+      vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0, handbrake ? Infinity : gripCap);
     });
   };
 
@@ -484,11 +500,12 @@ export function createCar(
       mesh.position.y -= sinks[i];
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
       setTyreDirt(mesh, Math.round(vehicle.wheelInfos[i].dirt * 100) / 100); // rounded: recolour only on visible change
+      setTyreWetness(mesh, Math.round(vehicle.wheelInfos[i].wetness * 50) / 50);
     });
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres and shocks, fixes the radiator and lamps.
+  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres and shocks, fixes the radiator, lamps and gearbox.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;

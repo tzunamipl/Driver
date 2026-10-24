@@ -54,3 +54,26 @@ export function fetchStageBoard(stage) {
   cacheBoard(stage, api(`/board?stage=${encodeURIComponent(stage)}`).then((res) => res.board));
   return boardCache.get(stage).board;
 }
+
+/** Per stage item's board -> { player, name, vehicle, totalMs } per car that drove every one. */
+export function rallyTotals(boards) {
+  const sums = new Map();
+  for (const board of boards) {
+    for (const e of board.entries) {
+      const key = `${e.player}|${e.vehicle}`;
+      const sum = sums.get(key) ?? { player: e.player, name: e.name, vehicle: e.vehicle, totalMs: 0, stages: 0 };
+      sum.totalMs += e.totalMs;
+      sum.stages++;
+      sums.set(key, sum);
+    }
+  }
+  return [...sums.values()].filter((s) => s.stages === boards.length);
+}
+
+/** Fastest first, each player once. */
+export function bestPerPlayer(rows) {
+  const seen = new Set();
+  return [...rows]
+    .sort((a, b) => a.totalMs - b.totalMs)
+    .filter((row) => !seen.has(row.player) && seen.add(row.player));
+}

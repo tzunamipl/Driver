@@ -1,4 +1,4 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, BRAKE_RAMP_S, TURBO_MULT, IS_DEV_MODE, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, BRAKE_GRIP_START, BRAKE_LOCK_S, TURBO_MULT, IS_DEV_MODE, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
 import { GEAR_MODES } from '../lib/engine.js';
 
 // Keyboard -> vehicle controls, applied each frame.
@@ -58,8 +58,8 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   let steerValue = 0;
   // Throttle pedal 0..1, read by the engine sound.
   let throttle = 0;
-  // Brake pedal 0..1: ramps up while braking, releases at once.
-  let brakePedal = 0;
+  // Seconds the pedal brake has been held; drives its grip cap.
+  let brakeHeldS = 0;
 
   window.addEventListener('keydown', (e) => {
     // Space is the handbrake: drop focus from a clicked button/checkbox so the key can't re-press it.
@@ -100,7 +100,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     // Driven wheels; default RWD (hover rigs ignore the index).
     const driveWheels = vehicle.driveWheels ?? [2, 3];
     if (isTypingInField()) {
-      brakePedal = 0;
+      brakeHeldS = 0;
       for (const i of driveWheels) vehicle.applyEngineForce(0, i);
       steer(vehicle, 0, 0);
       vehicle.airControlYaw = 0;
@@ -230,16 +230,18 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
 
     // Per-vehicle brake strength; BRAKE_FORCE fallback.
     const brakeForce = (vehicle.brakeForce ?? BRAKE_FORCE) * forceScale;
-    brakePedal = pedalBraking ? Math.min(1, brakePedal + dt / BRAKE_RAMP_S) : 0;
-    const pedalBrake = brakePedal * brakeForce;
+    brakeHeldS = pedalBraking ? brakeHeldS + dt : 0;
+    const pedalBrake = pedalBraking ? brakeForce : 0;
+    // Share of static grip the pedal brake may use; Infinity = uncapped (can lock).
+    const gripCap = brakeHeldS < BRAKE_LOCK_S ? BRAKE_GRIP_START + (1 - BRAKE_GRIP_START) * (brakeHeldS / BRAKE_LOCK_S) : Infinity;
     // Handbrake locks only the rear (handbrake-axle) wheels, so the rear breaks traction.
     const handbrakeForce = handbrake ? brakeForce : 0;
     // ABS only on the pedal brake; the handbrake must be able to lock.
     const abs = !!vehicle.abs && !vehicle.absOff;
     if (vehicle.applyBrakes) {
-      vehicle.applyBrakes(pedalBrake, handbrakeForce, abs);
+      vehicle.applyBrakes(pedalBrake, handbrakeForce, abs, gripCap);
     } else {
-      setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs);
+      setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs, gripCap);
     }
 
     const resetPressed = held.has('KeyR');
@@ -248,11 +250,12 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   }
 
   /** Brakes for rigs without applyBrakes (hover): front pair pedal only, rear pair + handbrake. */
-  function setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs) {
-    vehicle.setBrake(pedalBrake, 0, abs);
-    vehicle.setBrake(pedalBrake, 1, abs);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2, abs && !handbrake, handbrake);
-    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3, abs && !handbrake, handbrake);
+  function setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs, gripCap) {
+    const rearCap = handbrake ? Infinity : gripCap;
+    vehicle.setBrake(pedalBrake, 0, abs, false, gripCap);
+    vehicle.setBrake(pedalBrake, 1, abs, false, gripCap);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 2, abs && !handbrake, handbrake, rearCap);
+    vehicle.setBrake(Math.max(pedalBrake, handbrakeForce), 3, abs && !handbrake, handbrake, rearCap);
   }
 
   function isTyping() {
@@ -265,7 +268,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     isTyping,
     getThrottle: () => throttle,
     getHandbrake: () => ({ on: handbrakeOn, latched: handbrakeLatched }),
-    isBraking: () => brakePedal > 0,
+    isBraking: () => brakeHeldS > 0,
     /** Pulls the handbrake as if held to latch; the next Space press releases it. */
     latchHandbrake() {
       if (handbrakeLatched) return;

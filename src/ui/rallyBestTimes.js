@@ -3,7 +3,7 @@
 // finished every stage), the player's own row highlighted, and their local best below.
 
 import { OFFICIAL_SCENARIO_SOURCE } from '../config.js';
-import { leaderboardEnabled, fetchStageBoard, playerHash } from '../lib/leaderboard.js';
+import { leaderboardEnabled, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../lib/leaderboard.js';
 import { readLocalBests, localBestKey } from '../lib/rally/localBest.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 import { formatTime } from '../hud/rallyHud.js';
@@ -13,29 +13,6 @@ const TOP_N = 10;
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 
 const stageIds = (plan) => plan.items.filter((item) => item.type === 'stage').map((item) => item.stage.id);
-
-/** Per stage item's board -> { player, name, vehicle, totalMs } per car that drove every one. */
-function rallyTotals(boards) {
-  const sums = new Map();
-  for (const board of boards) {
-    for (const e of board.entries) {
-      const key = `${e.player}|${e.vehicle}`;
-      const sum = sums.get(key) ?? { player: e.player, name: e.name, vehicle: e.vehicle, totalMs: 0, stages: 0 };
-      sum.totalMs += e.totalMs;
-      sum.stages++;
-      sums.set(key, sum);
-    }
-  }
-  return [...sums.values()].filter((s) => s.stages === boards.length);
-}
-
-/** Fastest first, each player once. */
-function bestPerPlayer(rows) {
-  const seen = new Set();
-  return [...rows]
-    .sort((a, b) => a.totalMs - b.totalMs)
-    .filter((row) => !seen.has(row.player) && seen.add(row.player));
-}
 
 /** @param {{playerId: string}} opts */
 export function createRallyBestTimes({ playerId }) {

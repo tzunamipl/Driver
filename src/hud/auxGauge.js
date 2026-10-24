@@ -3,9 +3,9 @@ import { lampIconSvg } from './warningLamps.js';
 
 // Combo gauge between the lamp panel and the tach: oil temp (upper left), coolant
 // temp (upper right), both hot at the top, and fuel along the bottom. Each needle
-// pivots on its own hub, set out from the dial centre into its sector, so it
-// sweeps slightly off the centred scale (a deliberate, real-gauge quirk). Missing
-// fields (no engine heat model) read as healthy placeholders.
+// pivots on its own hub, set out from the dial centre into its sector, and is aimed
+// at its value's tick on the centred scale. Missing fields (no engine heat model)
+// read as healthy placeholders.
 
 const PLACEHOLDER = { oilTempC: 100, coolantTempC: 90, fuelFraction: 1 };
 
@@ -28,6 +28,18 @@ const SECTORS = [
 ];
 const ICON_RADIUS_PCT = 30;
 const PIVOT_RADIUS_PCT = 13;
+// Radius (% of the dial) the needles aim at: the middle of the tick ring (gauges.css .dial-tick).
+const AIM_RADIUS_PCT = 41;
+
+/** Clockwise-from-12 angle a needle pivoting at `pivotRad` (off the dial centre) points at the scale's `deg`. */
+function aimDeg(deg, pivotRad) {
+  const rad = (deg * Math.PI) / 180;
+  const dx = AIM_RADIUS_PCT * Math.sin(rad) - PIVOT_RADIUS_PCT * Math.sin(pivotRad);
+  const up = AIM_RADIUS_PCT * Math.cos(rad) - PIVOT_RADIUS_PCT * Math.cos(pivotRad);
+  // Unwrapped next to the scale angle, so the needle never spins the long way round.
+  const a = (Math.atan2(dx, up) * 180) / Math.PI;
+  return a + 360 * Math.round((deg - a) / 360);
+}
 
 /** @param {HTMLElement | null} root - #aux-gauge */
 export function createAuxGauge(root) {
@@ -64,7 +76,7 @@ export function createAuxGauge(root) {
       el.style.top = pivotTop;
     }
     root.append(needle, hub);
-    return { sector, needle, shown: null };
+    return { sector, needle, pivotRad: rad, shown: null };
   });
 
   /** Hidden without an engine, like the tach. */
@@ -76,7 +88,7 @@ export function createAuxGauge(root) {
       const value = Math.min(sector.max, Math.max(sector.min, engine[sector.field] ?? PLACEHOLDER[sector.field]));
       if (value === item.shown) continue;
       item.shown = value;
-      const deg = valueToDeg(value, sector.max, sector);
+      const deg = aimDeg(valueToDeg(value, sector.max, sector), item.pivotRad);
       item.needle.style.transform = `translate(-50%, -100%) rotate(${deg}deg)`;
     }
   }

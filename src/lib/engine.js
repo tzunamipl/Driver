@@ -2,6 +2,9 @@
 // gear ratios and final drive, with automatic shifting (sport/comfort) and
 // manual override (requestShift), or a fully manual box with neutral
 // (setManual/selectGear), optional turbo (boost lag scales torque). Pure math (no physics imports); input.js calls update() each frame.
+// Gearbox wear (gearboxWear.js) stretches the shift and synchro times.
+
+import { createGearboxWear } from './gearboxWear.js';
 
 // Drivetrain loss (typical manual gearbox + diff: 8-12%).
 const DRIVETRAIN_EFFICIENCY = 0.9;
@@ -163,6 +166,7 @@ export function createEngineState(descriptor, wheelRadius) {
     loadFraction: 0, // brake power now / peak power (0..1), refreshed by update(); fuel.js burns by it
     throttle: 0, // throttle actually applied (0..1, 0 while braking/coasting), refreshed by update()
     powerFactor: 1, // torque multiplier from outside (car.js: overheating limp mode)
+    gearbox: createGearboxWear(), // health: over-rev downshifts and hits slow the shifts
     turbo, // null for naturally aspirated engines; boost gauge reads turbo.maxBoostBar
     boostBar: 0, // manifold pressure over atmospheric (bar), negative = vacuum
     get boostFraction() {
@@ -203,9 +207,13 @@ export function createEngineState(descriptor, wheelRadius) {
     return angularSpeed * Math.abs(gearRatio) * profile.finalDriveRatio * RAD_S_TO_RPM;
   }
 
+  function shiftDuration() {
+    return profile.shiftDurationS * engine.gearbox.shiftFactor;
+  }
+
   function shiftTo(gear) {
     engine.gear = gear;
-    engine.shiftTimer = profile.shiftDurationS;
+    engine.shiftTimer = shiftDuration();
     if (gear >= 1) engine.range = rangeOf(gear);
   }
 
@@ -223,6 +231,7 @@ export function createEngineState(descriptor, wheelRadius) {
   // Net requested manual gear steps since the last update.
   let pendingShift = 0;
   let forwardSpeed = 0; // signed chassis speed at the last update (m/s)
+  let driveSpeed = 0; // faster of driven-wheel tread and ground speed at the last update (m/s)
 
   /** Requests a manual up (+1) or down (-1) shift; presses accumulate. */
   function requestShift(step) {
@@ -252,7 +261,7 @@ export function createEngineState(descriptor, wheelRadius) {
   }
 
   function synchronised() {
-    return engine.neutralTimer >= profile.shiftDurationS * MANUAL_SYNC_FRACTION;
+    return engine.neutralTimer >= shiftDuration() * MANUAL_SYNC_FRACTION;
   }
 
   function rightWay(gear) {
@@ -283,7 +292,10 @@ export function createEngineState(descriptor, wheelRadius) {
       return true;
     }
     engine.gear = gear;
-    if (gear >= 1) engine.range = rangeOf(gear);
+    if (gear >= 1) {
+      engine.range = rangeOf(gear);
+      engine.gearbox.overRev(toRpm(driveSpeed / wheelRadius, ratioForGear(gear)) / profile.redlineRpm);
+    }
     emit('attach');
     return true;
   }
@@ -336,6 +348,8 @@ export function createEngineState(descriptor, wheelRadius) {
    */
   function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, forwardSpeed: signedSpeed = 0, grounded = true, slipping = false, mode = 'sport' }) {
     forwardSpeed = signedSpeed;
+    driveSpeed = Math.max(0, wheelSpeedAbs, groundSpeedAbs);
+    engine.gearbox.tick(dt);
     if (engine.shiftTimer > 0) engine.shiftTimer = Math.max(0, engine.shiftTimer - dt);
     if (engine.manualHoldTimer > 0) engine.manualHoldTimer = Math.max(0, engine.manualHoldTimer - dt);
 
@@ -391,7 +405,7 @@ export function createEngineState(descriptor, wheelRadius) {
 
     // Gear may have changed above.
     const totalRatio = Math.abs(ratioForGear(engine.gear)) * profile.finalDriveRatio;
-    const inTorqueCut = engine.shiftTimer > profile.shiftDurationS * (1 - SHIFT_TORQUE_CUT_FRACTION);
+    const inTorqueCut = engine.shiftTimer > shiftDuration() * (1 - SHIFT_TORQUE_CUT_FRACTION);
     const throttleCap = engine.manual ? 1 : MODE_THROTTLE_CAP[mode] ?? 1;
     const clampedThrottle = direction === 0 ? 0 : Math.min(throttleCap, Math.max(0, throttle));
     engine.throttle = clampedThrottle;

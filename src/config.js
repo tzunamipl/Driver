@@ -43,8 +43,10 @@ export const STEER_SPEED = 0.01
 export const MAX_STEER = 0.5;
 // Flat per-wheel handbrake force, independent of vehicle power.
 export const BRAKE_FORCE = 3000;
-// Pedal brake builds from 0 to full over this, so a tap can't lock the wheels without ABS.
-export const BRAKE_RAMP_S = 0.3;
+// Pedal brake starts capped at this share of the tyres' static grip (just short of locking)...
+export const BRAKE_GRIP_START = 0.8;
+// ...the cap rises to the grip limit over this hold time, then lifts so the wheels can lock.
+export const BRAKE_LOCK_S = 0.4;
 // Holding the handbrake this long leaves it pulled until the next press.
 export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;

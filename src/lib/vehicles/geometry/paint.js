@@ -58,9 +58,18 @@ function createPanoramaEnv() {
   return texture;
 }
 
+/** The shared reflection panorama (for materials that scale their own envMapIntensity). */
+export function panoramaEnv() {
+  envTexture ??= createPanoramaEnv();
+  return envTexture;
+}
+
+/** Current day/night reflection strength, as set on glossy materials. */
+export const paintReflection = () => reflection;
+
 /** MeshPhysicalMaterial with clearcoat + panorama reflections; params as for MeshStandardMaterial. */
 export function createGlossyMaterial(params) {
-  envTexture ??= createPanoramaEnv();
+  panoramaEnv();
   const material = new THREE.MeshPhysicalMaterial({
     clearcoat: 1,
     clearcoatRoughness: 0.05,

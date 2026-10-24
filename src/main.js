@@ -16,6 +16,7 @@ import { createCoolantSteam } from './lib/coolantSteam.js';
 import { createRimSparks } from './lib/rimSparks.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
+import { createWheelDebris } from './lib/wheelDebris.js';
 import { createDissolve } from './lib/dissolve.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
@@ -321,6 +322,10 @@ function playerSpawnQuat() {
   return new CANNON.Quaternion(savedCarState.qx, savedCarState.qy, savedCarState.qz, savedCarState.qw);
 }
 
+// Wheel effects the layers panel can switch off.
+const terrainDust = createTerrainDust(scene);
+const wheelDebris = createWheelDebris(scene);
+
 // ---------- Debug visuals (tile HUD, hitboxes) ----------
 const debugVisuals = createDebugVisualsToggle(
   {
@@ -335,6 +340,8 @@ const debugVisuals = createDebugVisualsToggle(
     bushes,
     rocks,
     dissolve,
+    terrainDust,
+    wheelDebris,
     terrainStatsEl: document.getElementById('terrain-stats'),
     fpsGraphEl: document.getElementById('fps-graph-panel'),
     suspensionHudEl: document.getElementById('suspension-hud'),
@@ -491,7 +498,6 @@ const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play });
 const coolantSteam = createCoolantSteam(scene, { onLeak: createCoolantHissSound().update });
-const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
 createMusic();
 setupGameplayProps({
@@ -579,7 +585,7 @@ menuPark = {
 };
 
 // ---------- Rally game mode ----------
-// Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size.
+// Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size and the spares.
 // A click on the tyre props (fitted: false) opens it without the free set: Fit puts one on.
 const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 async function onTyreService({ fitted = true } = {}) {
@@ -587,8 +593,11 @@ async function onTyreService({ fitted = true } = {}) {
   const removed = vehicle?.getTyreState ? { setup: vehicle.tyreSetup, labels: vehicle.wheelLabels, wheels: vehicle.getTyreState() } : null;
   if (fitted) vehicle?.repairTyres?.();
   if (!vehicle?.tyreSetup) return;
-  const setup = await tyreService.open(carManager.getVehicleId(), removed, { fitted });
-  if (setup && carManager.getVehicle() === vehicle) carManager.setTyreSetup(setup);
+  const { setup, spares } = await tyreService.open(carManager.getVehicleId(), removed, { fitted });
+  if (carManager.getVehicle() !== vehicle) return;
+  if (setup) carManager.setTyreSetup(setup);
+  // The service restocks the spares (setTyreSetup may have rebuilt the car).
+  if (spares != null) carManager.getVehicle()?.setSpareTyres?.(spares);
 }
 // Refuel points / a click on the bowser: litres to add.
 const refuelDialog = isRallyGame ? createRefuelDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
@@ -662,7 +671,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, ...(rallySession ? [rallySession] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, ...(rallySession ? [rallySession] : [])],
 });
 
 // ---------- Main loop ----------
@@ -707,6 +716,7 @@ const mainLoop = createMainLoop({
   coolantSteam,
   rimSparks,
   terrainDust,
+  wheelDebris,
   bodyDust,
   dissolve,
   clouds,

@@ -16,7 +16,7 @@ import {
   conditionState,
   setConditionState,
 } from './tyres.js';
-import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } from './shocks.js';
+import { initShock, strikeShock, noteShockLoad, endShockStrike, repairShock, setShockHealth } from './shocks.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -162,6 +162,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       engineForce: 0,
       brake: 0,
       abs: false,
+      brakeGripCap: Infinity, // share of static grip the brake may use (pedal ramp); Infinity = can lock
       absActive: false, // ABS trimmed this wheel's brake in the last step (dash lamp)
       handbrake: false,
       rotation: 0,
@@ -218,9 +219,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     vehicle.wheelInfos[i].engineForce = value;
   }
   /** `abs`: the brake backs off rather than lock the wheel (pedal brake; not the handbrake). */
-  function setBrake(value, i, abs = false, handbrake = false) {
+  function setBrake(value, i, abs = false, handbrake = false, gripCap = Infinity) {
     vehicle.wheelInfos[i].brake = value;
     vehicle.wheelInfos[i].abs = abs;
+    vehicle.wheelInfos[i].brakeGripCap = gripCap;
     vehicle.wheelInfos[i].handbrake = handbrake;
   }
   /** Engine coupling of a driven wheel: reflected inertia (kg at the tread), rev-limit tread speed, engine braking (N). */
@@ -425,7 +427,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     wheel.raycastResult.hitNormalWorld.scale(force * dt, suspensionImpulse);
     wheel.raycastResult.hitPointWorld.vsub(body.position, suspensionRelPos);
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
-    if (wheel.nearBumpStop && body.type === CANNON.Body.DYNAMIC) checkRimStrike(wheel, closingSpeed, dt);
+    if (body.type !== CANNON.Body.DYNAMIC) return;
+    const strike = strikeSpeed(wheel, closingSpeed, dt);
+    noteShockLoad(wheel, strike);
+    if (wheel.nearBumpStop) checkRimStrike(wheel, strike);
     else endShockStrike(wheel);
   }
 
@@ -433,13 +438,16 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
    * Strike speed: the chassis closing on the ground, or the ground rising
    * under the wheel (kerb, rock) - a step of height h met at speed v rises
    * over about one tyre radius, so ~v * h / r (and never faster than one step).
-   * Wears the shock and may pop the tyre.
    */
-  function checkRimStrike(wheel, closingSpeed, dt) {
+  function strikeSpeed(wheel, closingSpeed, dt) {
     const rise = Math.max(0, wheel.groundRise);
     const speed = wheel.body.velocity.length();
     const kerbSpeed = Math.min(rise / dt, (speed * rise) / wheel.inflatedRadius);
-    const strike = Math.max(closingSpeed, kerbSpeed);
+    return Math.max(closingSpeed, kerbSpeed);
+  }
+
+  /** Bump-stop strike: wears the shock and may pop the tyre. */
+  function checkRimStrike(wheel, strike) {
     strikeShock(wheel, strike);
     if (strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
@@ -569,16 +577,17 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     let brakeImpulse = Math.max(-brakeLimit, Math.min(brakeLimit, -momentum));
     let longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
     const sideRoll = solveBilateralImpulse(body, groundBody, hitPoint, frictionAxle, Infinity);
-    // ABS: trim the brake so the patch stays within static grip.
-    const longAvail = Math.sqrt(Math.max(0, staticGrip * staticGrip - sideRoll * sideRoll));
-    if (wheel.abs && brakeImpulse !== 0 && Math.abs(longRoll) > longAvail) {
+    // ABS / pedal grip cap: trim the brake so the patch stays within that share of static grip.
+    const gripCap = wheel.abs ? Math.min(1, wheel.brakeGripCap) : wheel.brakeGripCap;
+    const longAvail = Math.sqrt(Math.max(0, staticGrip * staticGrip - sideRoll * sideRoll)) * gripCap;
+    if (gripCap !== Infinity && brakeImpulse !== 0 && Math.abs(longRoll) > longAvail) {
       const brakeShare = chassisMass / totalMass; // d(longRoll)/d(brakeImpulse)
       const target = Math.sign(longRoll) * longAvail;
       const trimmed = brakeImpulse + (target - longRoll) / brakeShare;
       brakeImpulse = Math.sign(trimmed) === Math.sign(brakeImpulse) ? trimmed : 0;
       longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
       brakeLimit = Math.abs(brakeImpulse);
-      wheel.absActive = true;
+      wheel.absActive = wheel.abs && gripCap >= 1; // lamp only for ABS proper, not the pedal ramp
     }
     const u = (momentum + brakeImpulse) / totalMass;
     const needed = Math.hypot(longRoll, sideRoll);

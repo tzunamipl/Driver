@@ -47,10 +47,11 @@ export function createStageRun({ points, getGate, best, onEvent }) {
     countdownStart: null,
     countdownFrom: null,
     jumpStart: false,
+    addedPenaltyMs: 0, // e.g. a spare wheel fitted on the stage
     splits: [], // ms after the start, per split passed (passage controls aren't timed)
   };
 
-  const penaltyMs = () => (state.jumpStart ? JUMP_START_PENALTY_MS : 0);
+  const penaltyMs = () => (state.jumpStart ? JUMP_START_PENALTY_MS : 0) + (state.addedPenaltyMs ?? 0);
   const elapsedMs = () =>
     state.startTime == null ? 0 : Math.round(((state.finishTime ?? state.time) - state.startTime) * 1000);
 
@@ -168,6 +169,11 @@ export function createStageRun({ points, getGate, best, onEvent }) {
       Object.assign(state, structuredClone(saved));
       // A countdown cut off starts over: stop at the line again.
       if (state.phase === 'countdown') Object.assign(state, { phase: 'approach', countdownStart: null, countdownFrom: null, jumpStart: false });
+    },
+
+    /** Time added to the stage result. */
+    addPenalty(ms) {
+      state.addedPenaltyMs = (state.addedPenaltyMs ?? 0) + ms;
     },
 
     retire() {

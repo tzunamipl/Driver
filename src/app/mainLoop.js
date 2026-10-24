@@ -81,6 +81,7 @@ export function createMainLoop({
   coolantSteam,
   rimSparks,
   terrainDust,
+  wheelDebris,
   bodyDust,
   dissolve,
   clouds,
@@ -399,6 +400,7 @@ export function createMainLoop({
     suspensionThud.update(frameDelta, currentVehicle);
     engineSound.update(currentVehicle, getVehicleDescriptor(carManager.getVehicleId()), input.getThrottle());
     terrainDust.update(frameDelta, currentVehicle, world);
+    wheelDebris.update(frameDelta, currentVehicle, world);
     // Body dust is spawned by collide events; this only ages puffs.
     bodyDust.update(frameDelta);
     dissolve.update(frameDelta);
