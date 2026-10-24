@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS, AMBIENT_TEMP_C } from '../config.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
@@ -169,6 +169,7 @@ export function createMainLoop({
     // Rally: R rocks the car instead of resetting it.
     input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
     if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
+    if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), AMBIENT_TEMP_C);
     jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
@@ -287,6 +288,7 @@ export function createMainLoop({
         handbrakeLatched: input.getHandbrake().latched,
         fuel: carManager.getFuelState(),
         tyres: carManager.getTyreState(),
+        heat: carManager.getHeatState(),
       };
       if (now >= nextCarStateSave) {
         nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;

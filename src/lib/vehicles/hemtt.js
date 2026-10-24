@@ -54,6 +54,8 @@ export default {
   brakeForce: 220,
   mass: 17000,
   fuelTankL: 590,
+  radiator: 1.3, // military spec, sized for desert heat
+  coolantL: 50,
   fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.6,

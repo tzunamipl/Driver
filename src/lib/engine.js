@@ -162,6 +162,7 @@ export function createEngineState(descriptor, wheelRadius) {
     engineBrakeForce: 0, // closed-throttle drag at the tread (N)
     loadFraction: 0, // brake power now / peak power (0..1), refreshed by update(); fuel.js burns by it
     throttle: 0, // throttle actually applied (0..1, 0 while braking/coasting), refreshed by update()
+    powerFactor: 1, // torque multiplier from outside (car.js: overheating limp mode)
     turbo, // null for naturally aspirated engines; boost gauge reads turbo.maxBoostBar
     boostBar: 0, // manifold pressure over atmospheric (bar), negative = vacuum
     get boostFraction() {
@@ -399,7 +400,7 @@ export function createEngineState(descriptor, wheelRadius) {
     // Torque from the unsmoothed wheel rpm, so the limiter bites immediately;
     // while the clutch slips at pull-away, from the revving engine instead.
     const torqueRpm = launching ? Math.max(wheelRpm, engine.rpm) : wheelRpm;
-    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle * boostMultiplier;
+    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle * boostMultiplier * engine.powerFactor;
     const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY) / wheelRadius;
     const totalDrivetrainForce = engineTorqueNm * torqueToForce;
     engine.loadFraction = Math.min(1, (engineTorqueNm * torqueRpm) / peakCurvePower);
@@ -427,7 +428,7 @@ export function createEngineState(descriptor, wheelRadius) {
     engine.limitWheelSpeed = Infinity;
     engine.engineBrakeForce = 0;
     engine.throttle = Math.max(0, throttle);
-    engine.loadFraction = (engine.throttle * NEUTRAL_LOAD_FRACTION * boostMultiplier * torqueAtRpm(engine.rpm, profile) * engine.rpm) / peakCurvePower;
+    engine.loadFraction = (engine.throttle * NEUTRAL_LOAD_FRACTION * boostMultiplier * engine.powerFactor * torqueAtRpm(engine.rpm, profile) * engine.rpm) / peakCurvePower;
     return 0;
   }
 

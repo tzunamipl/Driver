@@ -597,6 +597,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
           if (pointType?.tyres) carManager.getVehicle()?.repairTyres?.(); // service: fresh tyres
+          if (pointType?.repairs) carManager.getVehicle()?.heat?.repair();
           itemDone(null);
         }
       }

@@ -193,6 +193,9 @@ export const DIRECTION_SIGN_JUNCTIONS = {
 // Junctions of one class only: these classes point to cities, the rest to villages/towns.
 export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
 
+// ---------- Weather ----------
+export const AMBIENT_TEMP_C = 15; // outside air (°C); placeholder until weather drives it
+
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h speedo scale for rigs without an engine (wheeled cars use their gearing top speed)
 

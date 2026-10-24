@@ -41,6 +41,8 @@ export default {
   abs: false,
   mass: 1230,
   fuelTankL: 60,
+  radiator: 1.15,
+  coolantL: 7,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [{ pos: [-0.5, -0.27, -2.24] }],
   steerSpeedD: 0.005,

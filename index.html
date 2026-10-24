@@ -203,6 +203,19 @@
             <div>Fuel 1 min: <span id="susp-fuel-perhour">&mdash;</span> L/h</div>
             <div>Tank: <span id="susp-fuel-tank">&mdash;</span> L</div>
           </div>
+          <div class="susp-landed" id="susp-heat" title="Engine heat model (lib/engineHeat.js); outside air is a placeholder">
+            <div>Eng/Clt/Oil: <span id="susp-heat-block">&mdash;</span>/<span id="susp-heat-coolant">&mdash;</span>/<span id="susp-heat-oil">&mdash;</span> &deg;C</div>
+            <div>Outside: <span id="susp-heat-ambient">&mdash;</span> &deg;C</div>
+            <div>Thermostat: <span id="susp-heat-thermostat">&mdash;</span>%<span id="susp-heat-fan"></span></div>
+            <div>Heat/rad: <span id="susp-heat-in">&mdash;</span>/<span id="susp-heat-rad">&mdash;</span> kW</div>
+            <div>Power: <span id="susp-heat-power">&mdash;</span>%</div>
+            <div>Coolant: <span id="susp-heat-level">&mdash;</span> L</div>
+            <div>Loss: <span id="susp-heat-loss">&mdash;</span> L/min</div>
+            <div class="susp-heat-actions">
+              <button type="button" id="susp-heat-leak" title="Debug: start a coolant leak">Leak</button>
+              <button type="button" id="susp-heat-fix" title="Debug: fix the radiator and top up">Fix</button>
+            </div>
+          </div>
           <div class="susp-landed" id="susp-tyres" title="Hardest rim strike near the bump stop vs the strike speed that pops that tyre">
             <div>Tyre hit: <span id="susp-tyre-hit">&mdash;</span> m/s</div>
           </div>

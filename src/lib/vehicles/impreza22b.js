@@ -42,6 +42,8 @@ export default {
   abs: false,
   mass: 1270,
   fuelTankL: 60,
+  radiator: 1.15,
+  coolantL: 7.5,
   backfire: 0.3,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,

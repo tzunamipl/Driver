@@ -93,6 +93,17 @@
   box-shadow: inset 0 1px #fff;
   white-space: nowrap;
 }
+/* The panel is click-through (#top-left-stack); the heat debug buttons opt back in. */
+#suspension-hud .susp-heat-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  pointer-events: auto;
+}
+#suspension-hud .susp-heat-actions button {
+  min-width: 0;
+  padding: 1px 8px;
+}
 /* Instant vehicle picker in the debug view (toggled with K, same as
    #suspension-hud/#terrain-stats) - a compact version of the lobby's
    tabs + list widget (see .vehicle-tab/.vehicle-item below) that

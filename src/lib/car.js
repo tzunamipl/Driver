@@ -19,7 +19,8 @@ import { applyWaterDrag } from './waterDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { createEngineState } from './engine.js';
 import { createFuelTank } from './fuel.js';
-import { MAX_STEER } from '../config.js';
+import { createEngineHeat } from './engineHeat.js';
+import { MAX_STEER, AMBIENT_TEMP_C } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
 import {
   CHASSIS_WIDTH,
@@ -269,6 +270,10 @@ export function createCar(
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
   vehicle.fuel = createFuelTank(descriptor, chassisBody); // burnt by mainLoop, adds its mass to the chassis
   Object.defineProperty(vehicle.engine, 'fuelFraction', { get: () => vehicle.fuel.fraction });
+  vehicle.heat = createEngineHeat(descriptor, AMBIENT_TEMP_C); // warmed by mainLoop, read by the aux gauge
+  Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
+  Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
+  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => vehicle.heat.powerFactor });
   vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
   vehicle.hasTrailer = !!trailer;
@@ -463,7 +468,7 @@ export function createCar(
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres.
+  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres, fixes the radiator.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -490,6 +495,7 @@ export function createCar(
     setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
     vehicle.repairTyres();
+    vehicle.heat.repair();
     resetInterpolation();
   }
 

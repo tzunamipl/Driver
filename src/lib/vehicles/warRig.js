@@ -50,6 +50,8 @@ export default {
   abs: false,
   mass: 11000,
   fuelTankL: 1200,
+  radiator: 0.9,
+  coolantL: 60,
   fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.55,

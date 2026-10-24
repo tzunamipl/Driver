@@ -4,8 +4,8 @@ import { lampIconSvg } from './warningLamps.js';
 // Combo gauge between the lamp panel and the tach: oil temp (upper left), coolant
 // temp (upper right), both hot at the top, and fuel along the bottom. Each needle
 // pivots on its own hub, set out from the dial centre into its sector, so it
-// sweeps slightly off the centred scale (a deliberate, real-gauge quirk). Oil and
-// coolant aren't modelled yet, so missing fields read as healthy placeholders.
+// sweeps slightly off the centred scale (a deliberate, real-gauge quirk). Missing
+// fields (no engine heat model) read as healthy placeholders.
 
 const PLACEHOLDER = { oilTempC: 100, coolantTempC: 90, fuelFraction: 1 };
 

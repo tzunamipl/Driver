@@ -43,6 +43,8 @@ export default {
   abs: false,
   mass: 1230,
   fuelTankL: 80,
+  radiator: 1.4, // rally-spec radiator
+  coolantL: 8,
   backfire: 0.5,
   exhaustTips: [{ pos: [0.45, -0.2, -2.02] }],
   steerSpeedD: 0.005,

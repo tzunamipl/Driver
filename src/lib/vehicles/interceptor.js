@@ -45,6 +45,8 @@ export default {
   abs: false,
   mass: 1550,
   fuelTankL: 180, // twin boot tanks
+  radiator: 0.85, // supercharged V8 behind a small grille: runs hot
+  coolantL: 16,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
   steerSpeedD: 0.005,

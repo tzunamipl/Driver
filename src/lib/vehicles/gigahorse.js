@@ -52,6 +52,8 @@ export default {
   abs: false,
   mass: 4000,
   fuelTankL: 400,
+  radiator: 0.8, // twin V8s, makeshift cooling
+  coolantL: 50,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].flatMap((sx) => [0, 1, 2].map((i) => ({ pos: [sx * (0.86 + i * 0.07), 1.88, 1.22 - i * 0.18], dir: [sx * 0.12, 0.97, -0.2] }))), // stack tops
   steerSpeedD: 0.006,

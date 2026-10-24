@@ -361,6 +361,7 @@ const carManager = createCarManager({
   playerSpawnQuat,
   initialFuel: savedCarState?.fuel ?? null,
   initialTyres: savedCarState?.tyres ?? null,
+  initialHeat: savedCarState?.heat ?? savedCarState?.coolant ?? null,
 });
 carManager.addScore(savedCarState?.score ?? 0);
 

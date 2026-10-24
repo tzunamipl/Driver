@@ -42,6 +42,8 @@ export default {
   tractionControl: true,
   mass: 1500,
   fuelTankL: 60,
+  radiator: 1.0,
+  coolantL: 7,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

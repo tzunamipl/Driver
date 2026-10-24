@@ -27,6 +27,23 @@ const _impactNormal = new CANNON.Vec3();
 const _impactImpulse = new CANNON.Vec3();
 const _impactTorque = new CANNON.Vec3();
 const _impactAngularDelta = new CANNON.Vec3();
+const _localNormal = new CANNON.Vec3();
+const _localPoint = new CANNON.Vec3();
+const _inverseQuat = new CANNON.Quaternion();
+// A push this much along the car's -z (from ahead) on the front half counts as a nose hit.
+const FRONT_HIT_MIN_ALIGN = 0.5;
+
+/** Impact speed (m/s) of a contact on the chassis nose, pushing it backwards; 0 for any other hit. */
+export function frontImpactSpeed(chassisBody, contact) {
+  const isBi = contact.bi === chassisBody;
+  if (isBi) contact.ni.negate(_impactNormal);
+  else _impactNormal.copy(contact.ni);
+  chassisBody.quaternion.conjugate(_inverseQuat);
+  _inverseQuat.vmult(_impactNormal, _localNormal);
+  _inverseQuat.vmult(isBi ? contact.ri : contact.rj, _localPoint);
+  if (_localPoint.z <= 0 || _localNormal.z > -FRONT_HIT_MIN_ALIGN) return 0;
+  return Math.abs(contact.getImpactVelocityAlongNormal());
+}
 
 /**
  * Adds an angular-velocity kick from an impact (lever arm x impact speed)
