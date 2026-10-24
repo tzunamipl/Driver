@@ -23,8 +23,8 @@ export default {
     maxSuspensionTravel: 0.4,
     rollingResistance: 0.015,
     frictionSlip: 1.0,
-    dampingRelaxation: 8.5,
-    dampingCompression: 6.0,
+    dampingRelaxation: 3.2,
+    dampingCompression: 2.1,
     rollInfluence: 0.3,
     pitchInfluence: 1.0,
   },
@@ -49,9 +49,9 @@ export default {
   coolantL: 16,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.5,
-  maxSteerAt100: 0.32,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.9,
+  maxSteerAt100: 0.4,
   dragProfile: { front: 0.9, side: 2.6, rear: 1.3 },
   proxyBox: [1.9, 1.3, 4.7, 0],
 };

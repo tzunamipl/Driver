@@ -58,8 +58,8 @@ export default {
   radiator: 1.3, // military spec, sized for desert heat
   coolantL: 50,
   fuelType: 'diesel',
-  steerSpeedD: 0.006,
-  maxSteerAt0: 0.6,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 1.00,
   maxSteerAt100: 0.12,
   dragProfile: { front: 5.7, side: 22, rear: 8 },
   resetLift: 2,

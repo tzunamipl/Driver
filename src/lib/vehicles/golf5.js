@@ -41,8 +41,8 @@ export default {
   fuelTankL: 55,
   radiator: 1.0,
   coolantL: 5.5,
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.5,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.71, side: 3.2, rear: 1.15 },
 };

@@ -54,8 +54,8 @@ export default {
   radiator: 0.9,
   coolantL: 60,
   fuelType: 'diesel',
-  steerSpeedD: 0.006,
-  maxSteerAt0: 0.55,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 1.0,
   maxSteerAt100: 0.1,
   dragProfile: { front: 6.5, side: 18, rear: 7 },
   trailer: {

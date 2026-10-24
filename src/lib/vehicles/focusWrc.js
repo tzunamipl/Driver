@@ -46,10 +46,10 @@ export default {
   fuelTankL: 80,
   radiator: 1.4, // rally-spec radiator
   coolantL: 8,
-  backfire: 0.5,
+  backfire: 0.35,
   exhaustTips: [{ pos: [0.45, -0.2, -2.02] }],
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.52,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.85, side: 2.4, rear: 1.3 },
 };

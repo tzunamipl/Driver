@@ -44,10 +44,10 @@ export default {
   fuelTankL: 60,
   radiator: 1.15,
   coolantL: 7,
-  backfire: 1, // 0 no exhaust flame pops .. 1 full
+  backfire: 0.3, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [{ pos: [-0.5, -0.27, -2.24] }],
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.5,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.66, side: 2.2, rear: 1.2 },
   axles: carAxles('awd'),

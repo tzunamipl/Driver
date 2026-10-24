@@ -12,6 +12,7 @@ export default {
   rimSize: 17,
   tyre: 225,
   profile: 35,
+  axles: carAxles('awd'),
   suspension: {
     suspensionStiffness: 45,
     suspensionRestLength: 0.1,
@@ -41,9 +42,8 @@ export default {
   fuelTankL: 50,
   radiator: 1.05,
   coolantL: 7,
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.5,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.68, side: 2.4, rear: 1.2 },
-  axles: carAxles('awd'),
 };

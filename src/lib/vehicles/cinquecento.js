@@ -45,8 +45,8 @@ export default {
   fuelTankL: 35,
   radiator: 0.9, // cooling capacity, 1 = typical for the engine power (engineHeat.js); small radiator
   coolantL: 4.5,
-  steerSpeedD: 0.005,
-  maxSteerAt0: 0.55,
+  steerSpeedD: 0.007,
+  maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,
   dragProfile: { front: 0.60, side: 2.6, rear: 1.0 },
 };
