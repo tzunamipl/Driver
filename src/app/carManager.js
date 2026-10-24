@@ -17,6 +17,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
   let podMesh = null;
   let wheelMeshes = [];
+  let bodyMeshes = [];
   let syncMeshes = null;
   let snapshotPhysics = null;
   let reset = null;
@@ -133,7 +134,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   }
 
   function buildCar(position, quaternion) {
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
+    ({ vehicle, chassisMesh, podMesh, bodyMeshes, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
       world,
       scene,
       position,
@@ -142,6 +143,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       currentVehicleId,
       currentTyreSetup ?? getTyreSetup(currentVehicleId)
     ));
+    bodyMeshes ??= [chassisMesh];
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
   }
@@ -234,6 +236,13 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     return list;
   }
 
+  /** Local body meshes + remote cars, for the contact shadows. */
+  function getShadowCasters() {
+    const list = vehicle ? [...bodyMeshes] : [];
+    for (const remote of remotes.values()) list.push(remote.mesh);
+    return list;
+  }
+
   function addScore(delta) {
     score += delta;
   }
@@ -250,6 +259,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     setTyreSetup,
     updateRemotes,
     getRemoteLights,
+    getShadowCasters,
     shiftOrigin,
     addScore,
     setLocalName,

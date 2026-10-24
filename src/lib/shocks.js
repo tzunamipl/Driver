@@ -5,7 +5,7 @@
 //   spring sags (that corner sits lower and leans more).
 
 // Strike speed (m/s) a shock shrugs off, and the one that takes all its health in one hit.
-export const HIT_MIN_MS = 1.5;
+export const HIT_MIN_MS = 0.8;
 const HIT_FULL_MS = 11;
 // Share of the stock damping / spring rate left at 0 health.
 const DAMPING_FLOOR = 0.25;

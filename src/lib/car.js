@@ -572,6 +572,7 @@ export function createCar(
     vehicle,
     chassisBody,
     chassisMesh,
+    bodyMeshes: tracked.map((t) => t.mesh), // chassis + trailer, for the contact shadows
     wheelMeshes,
     syncMeshes,
     snapshotPhysics,

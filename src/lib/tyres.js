@@ -17,7 +17,7 @@ export { updateCondition, conditionState, setConditionState } from './tyres/cond
 
 const GRAVITY = 9.82;
 // Metres of slip at a friction force equal to the static load that wear a tyre bald.
-const SLIDE_LIFE_M = 18000;
+const SLIDE_LIFE_M = 84000;
 // Metres of rolling that wear a tyre bald: base share + gripFraction^2.
 const ROLL_LIFE_M = 1000000;
 const ROLL_WEAR_BASE = 0.25;

@@ -16,6 +16,7 @@ import { createCoolantSteam } from './lib/coolantSteam.js';
 import { createRimSparks } from './lib/rimSparks.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
+import { createCarShadows } from './lib/carShadow.js';
 import { createWheelDebris } from './lib/wheelDebris.js';
 import { createDissolve } from './lib/dissolve.js';
 import { createClouds } from './lib/clouds.js';
@@ -371,6 +372,7 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
+const carShadows = createCarShadows(world, scene);
 const rimSparks = createRimSparks(scene, { onGrind: createRimGrindSound().update });
 const carManager = createCarManager({
   world,
@@ -718,6 +720,7 @@ const mainLoop = createMainLoop({
   terrainDust,
   wheelDebris,
   bodyDust,
+  carShadows,
   dissolve,
   clouds,
   remoteCollisions,

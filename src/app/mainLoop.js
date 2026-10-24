@@ -83,6 +83,7 @@ export function createMainLoop({
   terrainDust,
   wheelDebris,
   bodyDust,
+  carShadows,
   dissolve,
   clouds,
   remoteCollisions,
@@ -338,6 +339,7 @@ export function createMainLoop({
       damage: currentVehicle?.lamps?.broken,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
+    carShadows.update(carManager.getShadowCasters());
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, {
       terrain,
