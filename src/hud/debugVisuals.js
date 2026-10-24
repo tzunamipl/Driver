@@ -87,6 +87,8 @@ function saveEnabled(enabled) {
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} [deps.fpsGraphEl]
  * @param {HTMLElement} deps.suspensionHudEl
+ * @param {HTMLElement} [deps.engineHudEl]
+ * @param {HTMLElement} [deps.tyreHudEl]
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
  * @param {ReturnType<import('../lib/roadside.js').createRoadside>} [deps.roadside]
@@ -109,6 +111,8 @@ export function createDebugVisualsToggle(
     terrainStatsEl,
     fpsGraphEl,
     suspensionHudEl,
+    engineHudEl,
+    tyreHudEl,
     vehicleDebugHudEl,
     layersHudEl,
     roadside,
@@ -130,6 +134,8 @@ export function createDebugVisualsToggle(
     terrainStatsEl.style.display = display;
     if (fpsGraphEl) fpsGraphEl.style.display = display;
     suspensionHudEl.style.display = display;
+    if (engineHudEl) engineHudEl.style.display = display;
+    if (tyreHudEl) tyreHudEl.style.display = display;
     if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = display;
     if (layersHudEl) layersHudEl.style.display = display;
     terrain.setBordersVisible(shown('tileBorders'));

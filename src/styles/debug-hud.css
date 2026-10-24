@@ -8,7 +8,15 @@
   align-items: flex-start;
   gap: 8px;
 }
-#suspension-hud {
+.debug-hud-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+#suspension-hud,
+#tyre-hud,
+#engine-hud {
   /* Stacked below the help/controls HUD inside #top-left-stack
      (same flex-column approach #terrain-stats uses under
      #players-panel in #top-right-stack), so it automatically moves
@@ -25,29 +33,29 @@
   width: 180px;
   font-variant-numeric: tabular-nums;
 }
-#suspension-hud .susp-title {
+.susp-panel .susp-title {
   margin-bottom: 6px;
   font-weight: bold;
 }
-#suspension-hud .susp-grid {
+.susp-panel .susp-grid {
   display: grid;
   grid-template-columns: repeat(2, 48px);
   gap: 6px 16px;
 }
-#suspension-hud .susp-wheel {
+.susp-panel .susp-wheel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
 }
-#suspension-hud .susp-terrain {
+.susp-panel .susp-terrain {
   width: 10px;
   height: 10px;
   border: 1px solid #000;
   background: #4caf50;
   flex: none;
 }
-#suspension-hud .susp-bar {
+.susp-panel .susp-bar {
   width: 14px;
   height: 60px;
   box-sizing: border-box;
@@ -57,7 +65,7 @@
   position: relative;
   overflow: hidden;
 }
-#suspension-hud .susp-fill {
+.susp-panel .susp-fill {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -65,7 +73,7 @@
   height: 50%;
   background: var(--w95-select);
 }
-#suspension-hud .susp-rest-line {
+.susp-panel .susp-rest-line {
   position: absolute;
   left: -1px;
   right: -1px;
@@ -74,33 +82,52 @@
   background: #000;
   z-index: 1;
 }
-#suspension-hud .susp-label {
+.susp-panel .susp-label {
   text-align: center;
   white-space: nowrap;
 }
-#suspension-hud .susp-tyre {
-  text-align: center;
+#tyre-hud[hidden] {
+  display: none;
+}
+#tyre-hud .tyre-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 32px 28px;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+#tyre-hud .tyre-tread {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+#tyre-hud .tyre-val {
+  text-align: right;
   white-space: nowrap;
 }
-#suspension-hud .susp-tyre.flat {
+#tyre-hud .tyre-val.flat {
   color: #c00;
   font-weight: bold;
 }
-#suspension-hud .susp-landed {
+#tyre-hud .tyre-toggle {
+  min-width: 0;
+  padding: 1px 2px;
+}
+.susp-panel .susp-landed {
   margin-top: 8px;
   padding-top: 6px;
   border-top: 1px solid var(--w95-shadow);
   box-shadow: inset 0 1px #fff;
   white-space: nowrap;
 }
-/* The panel is click-through (#top-left-stack); the heat debug buttons opt back in. */
-#suspension-hud .susp-heat-actions {
+/* The panels are click-through (#top-left-stack); the debug buttons opt back in. */
+.susp-panel .susp-heat-actions {
   display: flex;
   gap: 4px;
   margin-top: 4px;
   pointer-events: auto;
 }
-#suspension-hud .susp-heat-actions button {
+.susp-panel .susp-heat-actions button {
   min-width: 0;
   padding: 1px 8px;
 }

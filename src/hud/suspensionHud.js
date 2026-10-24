@@ -3,7 +3,6 @@
 import { isWheelGrounded } from '../lib/wheelContact.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { DEFAULT_SURFACE_KEY } from '../lib/surfaceCompounds.js';
-import { tyreGrip } from '../lib/tyres.js';
 
 // Fill colour: blue when airborne (own ground raycast, wheelContact.js),
 // else green -> amber -> red by wheel.gripFraction (red = sliding).
@@ -69,26 +68,6 @@ function terrainColor(kind) {
 export function createSuspensionHud() {
   const grid = document.getElementById('susp-grid');
   const landedVal = document.getElementById('susp-landed-val');
-  const fuelRow = document.getElementById('susp-fuel');
-  const fuelPer100 = document.getElementById('susp-fuel-per100');
-  const fuelPerHour = document.getElementById('susp-fuel-perhour');
-  const fuelTank = document.getElementById('susp-fuel-tank');
-  const tyreRow = document.getElementById('susp-tyres');
-  const heatRow = document.getElementById('susp-heat');
-  const heatEls = Object.fromEntries(
-    ['block', 'coolant', 'oil', 'ambient', 'thermostat', 'fan', 'in', 'rad', 'power', 'level', 'loss', 'leak', 'fix'].map((k) => [k, document.getElementById(`susp-heat-${k}`)])
-  );
-  const tyreHit = document.getElementById('susp-tyre-hit');
-  let heatVehicle = null; // for the debug Leak / Fix buttons
-  // Blur so Space (handbrake) doesn't re-click the focused button.
-  heatEls.leak?.addEventListener('click', () => {
-    heatVehicle?.heat?.startLeak();
-    heatEls.leak.blur();
-  });
-  heatEls.fix?.addEventListener('click', () => {
-    heatVehicle?.heat?.repair();
-    heatEls.fix.blur();
-  });
   // Rebuilt when the wheel count/labels signature changes.
   let bars = [];
   let lastSignature = '';
@@ -102,22 +81,19 @@ export function createSuspensionHud() {
       wheelEl.innerHTML =
         '<div class="susp-terrain"></div>' +
         '<div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill"></div></div>' +
-        `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>` +
-        '<div class="susp-tyre">&mdash;</div>';
+        `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>`;
       grid.appendChild(wheelEl);
       return {
         terrain: wheelEl.querySelector('.susp-terrain'),
         fill: wheelEl.querySelector('.susp-fill'),
         val: wheelEl.querySelector('.susp-val'),
-        tyre: wheelEl.querySelector('.susp-tyre'),
       };
     });
   }
 
   /**
    * Fill: 0% full droop .. 100% bottomed out, rest marker at 50%; colour
-   * as above. Square above each bar: terrain type under that wheel. Below:
-   * tread left (title: grip multiplier), or FLAT.
+   * as above. Square above each bar: terrain type under that wheel.
    */
   function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world, terrainLayers) {
     if (!debugVisualsEnabled || !vehicle) return;
@@ -128,9 +104,8 @@ export function createSuspensionHud() {
       lastSignature = signature;
     }
 
-    let hardestHit = null;
     vehicle.wheelInfos.forEach((wheel, i) => {
-      const { terrain, fill, val, tyre } = bars[i];
+      const { terrain, fill, val } = bars[i];
       const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;
       const maxLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel;
       const span = maxLength - minLength || 1;
@@ -145,46 +120,9 @@ export function createSuspensionHud() {
 
       const pos = wheel.worldTransform.position;
       terrain.style.background = terrainColor(classifyTerrainAt(pos.x, pos.z, terrainLayers));
-
-      if (wheel.tread !== undefined) {
-        tyre.textContent = wheel.punctured ? 'FLAT' : `T ${Math.round(wheel.tread * 100)}%`;
-        tyre.classList.toggle('flat', wheel.punctured);
-        tyre.title = `Grip x${tyreGrip(wheel).toFixed(2)}`;
-        const ratio = wheel.lastStrikeLimit > 0 ? wheel.lastStrikeSpeed / wheel.lastStrikeLimit : 0;
-        if (ratio > 0 && (!hardestHit || ratio > hardestHit.ratio)) hardestHit = { ratio, wheel };
-      }
     });
-    if (tyreRow) tyreRow.hidden = vehicle.wheelInfos[0]?.tread === undefined;
-    if (tyreHit) {
-      tyreHit.textContent = hardestHit
-        ? `${hardestHit.wheel.lastStrikeSpeed.toFixed(1)} / ${hardestHit.wheel.lastStrikeLimit.toFixed(1)}`
-        : '—';
-    }
 
     if (landedVal) landedVal.textContent = hasLanded ? 'true' : 'false';
-    if (fuelRow) fuelRow.hidden = !vehicle.fuel;
-    if (fuelRow && vehicle.fuel) {
-      const { litresPerHour, litresPer100Km } = vehicle.fuel.getAverage();
-      fuelPer100.textContent = litresPer100Km === null ? '—' : litresPer100Km.toFixed(1);
-      fuelPerHour.textContent = litresPerHour.toFixed(1);
-      fuelTank.textContent = `${vehicle.fuel.litres.toFixed(1)}/${vehicle.fuel.capacityL}`;
-    }
-    if (heatRow) heatRow.hidden = !vehicle.heat;
-    if (heatRow && vehicle.heat) {
-      const heat = vehicle.heat;
-      heatEls.block.textContent = heat.blockTempC.toFixed(0);
-      heatEls.coolant.textContent = heat.coolantTempC.toFixed(0);
-      heatEls.oil.textContent = heat.oilTempC.toFixed(0);
-      heatEls.ambient.textContent = heat.ambientC.toFixed(0);
-      heatEls.thermostat.textContent = Math.round(heat.thermostat * 100);
-      heatEls.fan.textContent = heat.fanOn ? ', fan' : '';
-      heatEls.in.textContent = (heat.heatInW / 1000).toFixed(1);
-      heatEls.rad.textContent = (heat.radiatorW / 1000).toFixed(1);
-      heatEls.power.textContent = Math.round(heat.powerFactor * 100);
-      heatEls.level.textContent = `${heat.coolantL.toFixed(1)}/${heat.capacityL.toFixed(1)}`;
-      heatEls.loss.textContent = (heat.lossLps * 60).toFixed(2);
-      heatVehicle = vehicle;
-    }
   }
 
   return { updateSuspensionHud, el: document.getElementById('suspension-hud') };

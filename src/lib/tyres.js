@@ -91,12 +91,17 @@ export function punctureTyre(wheel) {
   wheel.rimToe = Math.sign(x || 1) * Math.sign(z || 1) * RIM_TOE_RAD; // signs: towards the flat's side, front or rear
 }
 
-export function repairTyre(wheel) {
-  wheel.tread = 1;
+/** Back on its tyre, tread unchanged. */
+export function inflateTyre(wheel) {
   wheel.punctured = false;
   wheel.radius = wheel.inflatedRadius;
   wheel.sidewallHeight = wheel.inflatedSidewall;
   wheel.rimToe = 0;
+}
+
+export function repairTyre(wheel) {
+  inflateTyre(wheel);
+  wheel.tread = 1;
   wheel.lastStrikeSpeed = 0;
   wheel.lastStrikeLimit = 0;
 }

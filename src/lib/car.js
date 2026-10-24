@@ -31,7 +31,7 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet, setWheelSetFlat } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
@@ -377,7 +377,6 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
   const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual));
-  const wheelMeshFlat = allWheels.map(() => false);
 
   // --- Render interpolation ---
   // Physics runs at a fixed step; render lerps between the last two steps
@@ -459,8 +458,6 @@ export function createCar(
       group.quaternion.setFromEuler(sinkEuler.set(Math.asin(clampUnit(c)), 0, -Math.asin(clampUnit(b))));
     });
     wheelMeshes.forEach((mesh, i) => {
-      const flat = vehicle.wheelInfos[i].punctured;
-      if (flat !== wheelMeshFlat[i]) setWheelSetFlat(mesh, (wheelMeshFlat[i] = flat));
       mesh.position.lerpVectors(prevWheelPos[i], currWheelPos[i], alpha);
       mesh.position.y -= sinks[i];
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);

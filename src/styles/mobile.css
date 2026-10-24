@@ -15,13 +15,7 @@
     padding: 0;
     text-align: right;
   }
-  #hud.collapsed #hud-discord,
   #hud-discord {
-    margin: 0;
-    padding: 0;
-    border: none;
-  }
-  #hud-discord a {
     line-height: 21px;
     padding: 0 7px;
   }

@@ -9,6 +9,7 @@ import {
   strikeTyre,
   punctureTyre,
   repairTyre,
+  inflateTyre,
   rimLump,
 } from './tyres.js';
 
@@ -249,6 +250,15 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     punctureTyre(wheel);
     vehicle.onTyrePop?.(vehicle.wheelInfos.indexOf(wheel));
   }
+  // Debug HUD: pop / reinflate one tyre by index.
+  vehicle.popTyre = (i) => {
+    const wheel = vehicle.wheelInfos[i];
+    if (wheel && !wheel.punctured) popTyre(wheel);
+  };
+  vehicle.inflateTyre = (i) => {
+    const wheel = vehicle.wheelInfos[i];
+    if (wheel) inflateTyre(wheel);
+  };
 
   const rayFrom = new CANNON.Vec3();
   const rayTo = new CANNON.Vec3();

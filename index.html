@@ -114,55 +114,111 @@
     </div>
     <div id="top-left-stack">
       <div id="top-left-row">
-        <div id="hud">
-          <div id="hud-header">
-            <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Settings</button>
+        <div id="top-left-col">
+          <div id="hud">
+            <div id="hud-header">
+              <button type="button" id="hud-toggle" aria-expanded="true" aria-controls="hud-body">Settings</button>
+              <a id="hud-discord" href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+            </div>
+            <div id="hud-body">
+              <div class="hud-line">W / &uarr; &mdash; throttle</div>
+              <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
+              <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
+              <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
+              <div class="hud-line">Shift &mdash; turbo</div>
+              <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT/ECO on the rev counter)</div>
+              <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
+              <div class="hud-line">H &mdash; horn</div>
+              <div class="hud-line">L &mdash; headlights (automatic at night)</div>
+              <div class="hud-line">R &mdash; reset car</div>
+              <div class="hud-line">C &mdash; switch camera view</div>
+              <div class="hud-section" id="hud-audio">
+                <div>Audio</div>
+                <label>
+                  Volume
+                  <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+                </label>
+                <label>
+                  Music
+                  <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
+                </label>
+              </div>
+              <div class="hud-section" id="hud-graphics">
+                <div>Graphics</div>
+                <label>
+                  Detail level
+                  <select id="graphics-detail-select" aria-label="Graphics detail level"></select>
+                </label>
+              </div>
+              <div class="hud-section" id="hud-gameplay">
+                <div>Gameplay</div>
+                <div class="hud-subsection-title">Rally</div>
+                <label>
+                  <input id="rally-handbrake-hold-input" type="checkbox" />
+                  Hold handbrake to lock it
+                </label>
+              </div>
+              <div id="hud-reset">
+                <button type="button" id="hud-change-choices">Change name/vehicle</button>
+                <button type="button" id="hud-main-menu">Main menu (Esc)</button>
+              </div>
+            </div>
           </div>
-          <div id="hud-body">
-            <div class="hud-line">W / &uarr; &mdash; throttle</div>
-            <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
-            <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
-            <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
-            <div class="hud-line">Shift &mdash; turbo</div>
-            <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT/ECO on the rev counter)</div>
-            <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
-            <div class="hud-line">H &mdash; horn</div>
-            <div class="hud-line">L &mdash; headlights (automatic at night)</div>
-            <div class="hud-line">R &mdash; reset car</div>
-            <div class="hud-line">C &mdash; switch camera view</div>
-            <div class="hud-section" id="hud-audio">
-              <div>Audio</div>
-              <label>
-                Volume
-                <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
-              </label>
-              <label>
-                Music
-                <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
-              </label>
+          <div id="pacenote-panel" hidden></div>
+          <div id="debug-hud-row">
+            <div class="debug-hud-col">
+              <div id="suspension-hud" class="susp-panel">
+                <div class="susp-title debug-fold-title">SUSPENSION</div>
+                <div class="susp-grid" id="susp-grid"></div>
+                <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+              </div>
+              <div id="tyre-hud" class="susp-panel">
+                <div class="susp-title debug-fold-title">TYRES</div>
+                <div id="tyre-hud-list"></div>
+                <div class="susp-landed" title="Hardest rim strike near the bump stop vs the strike speed that pops that tyre">
+                  <div>Tyre hit: <span id="susp-tyre-hit">&mdash;</span> m/s</div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="tyre-hud-pop-all" title="Debug: pop every tyre">Pop all</button>
+                    <button type="button" id="tyre-hud-new" title="Debug: fresh tyres all round">New</button>
+                  </div>
+                </div>
+              </div>
+              <div id="engine-hud" class="susp-panel">
+                <div class="susp-title debug-fold-title">ENGINE</div>
+                <div id="susp-fuel" title="Average fuel consumption over the last minute">
+                  <div>Fuel 1 min: <span id="susp-fuel-per100">&mdash;</span> L/100km</div>
+                  <div>Fuel 1 min: <span id="susp-fuel-perhour">&mdash;</span> L/h</div>
+                  <div>Tank: <span id="susp-fuel-tank">&mdash;</span> L</div>
+                </div>
+                <div class="susp-landed" id="susp-heat" title="Engine heat model (lib/engineHeat.js); outside air is a placeholder">
+                  <div>Eng/Clt/Oil: <span id="susp-heat-block">&mdash;</span>/<span id="susp-heat-coolant">&mdash;</span>/<span id="susp-heat-oil">&mdash;</span> &deg;C</div>
+                  <div>Outside: <span id="susp-heat-ambient">&mdash;</span> &deg;C</div>
+                  <div>Thermostat: <span id="susp-heat-thermostat">&mdash;</span>%<span id="susp-heat-fan"></span></div>
+                  <div>Heat/rad: <span id="susp-heat-in">&mdash;</span>/<span id="susp-heat-rad">&mdash;</span> kW</div>
+                  <div>Power: <span id="susp-heat-power">&mdash;</span>%</div>
+                  <div>Coolant: <span id="susp-heat-level">&mdash;</span> L</div>
+                  <div>Loss: <span id="susp-heat-loss">&mdash;</span> L/min</div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="susp-heat-leak" title="Debug: start a coolant leak">Leak</button>
+                    <button type="button" id="susp-heat-fix" title="Debug: fix the radiator and top up">Fix</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="hud-section" id="hud-graphics">
-              <div>Graphics</div>
-              <label>
-                Detail level
-                <select id="graphics-detail-select" aria-label="Graphics detail level"></select>
-              </label>
+            <div class="debug-hud-col">
+              <div id="vehicle-debug-hud">
+                <div class="susp-title debug-fold-title">VEHICLE</div>
+                <div id="vehicle-debug-tabs"></div>
+                <div id="vehicle-debug-list"></div>
+                <div id="vehicle-debug-color"></div>
+              </div>
+              <div id="debug-layers-hud">
+                <div class="susp-title debug-fold-title">LAYERS</div>
+                <div class="debug-layers-list"></div>
+                <div class="susp-title debug-time-title">TIME</div>
+                <div class="debug-time-list"></div>
+              </div>
             </div>
-            <div class="hud-section" id="hud-gameplay">
-              <div>Gameplay</div>
-              <div class="hud-subsection-title">Rally</div>
-              <label>
-                <input id="rally-handbrake-hold-input" type="checkbox" />
-                Hold handbrake to lock it
-              </label>
-            </div>
-            <div id="hud-reset">
-              <button type="button" id="hud-change-choices">Change name/vehicle</button>
-              <button type="button" id="hud-main-menu">Main menu (Esc)</button>
-            </div>
-          </div>
-          <div id="hud-discord">
-            <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
           </div>
         </div>
         <div id="nav-panel" class="collapsed">
@@ -190,47 +246,6 @@
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      <div id="pacenote-panel" hidden></div>
-      <div id="debug-hud-row">
-        <div id="suspension-hud">
-          <div class="susp-title debug-fold-title">SUSPENSION</div>
-          <div class="susp-grid" id="susp-grid"></div>
-          <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
-          <div class="susp-landed" id="susp-fuel" title="Average fuel consumption over the last minute">
-            <div>Fuel 1 min: <span id="susp-fuel-per100">&mdash;</span> L/100km</div>
-            <div>Fuel 1 min: <span id="susp-fuel-perhour">&mdash;</span> L/h</div>
-            <div>Tank: <span id="susp-fuel-tank">&mdash;</span> L</div>
-          </div>
-          <div class="susp-landed" id="susp-heat" title="Engine heat model (lib/engineHeat.js); outside air is a placeholder">
-            <div>Eng/Clt/Oil: <span id="susp-heat-block">&mdash;</span>/<span id="susp-heat-coolant">&mdash;</span>/<span id="susp-heat-oil">&mdash;</span> &deg;C</div>
-            <div>Outside: <span id="susp-heat-ambient">&mdash;</span> &deg;C</div>
-            <div>Thermostat: <span id="susp-heat-thermostat">&mdash;</span>%<span id="susp-heat-fan"></span></div>
-            <div>Heat/rad: <span id="susp-heat-in">&mdash;</span>/<span id="susp-heat-rad">&mdash;</span> kW</div>
-            <div>Power: <span id="susp-heat-power">&mdash;</span>%</div>
-            <div>Coolant: <span id="susp-heat-level">&mdash;</span> L</div>
-            <div>Loss: <span id="susp-heat-loss">&mdash;</span> L/min</div>
-            <div class="susp-heat-actions">
-              <button type="button" id="susp-heat-leak" title="Debug: start a coolant leak">Leak</button>
-              <button type="button" id="susp-heat-fix" title="Debug: fix the radiator and top up">Fix</button>
-            </div>
-          </div>
-          <div class="susp-landed" id="susp-tyres" title="Hardest rim strike near the bump stop vs the strike speed that pops that tyre">
-            <div>Tyre hit: <span id="susp-tyre-hit">&mdash;</span> m/s</div>
-          </div>
-        </div>
-        <div id="vehicle-debug-hud">
-          <div class="susp-title debug-fold-title">VEHICLE</div>
-          <div id="vehicle-debug-tabs"></div>
-          <div id="vehicle-debug-list"></div>
-          <div id="vehicle-debug-color"></div>
-        </div>
-        <div id="debug-layers-hud">
-          <div class="susp-title debug-fold-title">LAYERS</div>
-          <div class="debug-layers-list"></div>
-          <div class="susp-title debug-time-title">TIME</div>
-          <div class="debug-time-list"></div>
         </div>
       </div>
     </div>

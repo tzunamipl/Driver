@@ -81,6 +81,8 @@ import { createGearstickHud } from './hud/gearstick.js';
 import { createCursorHide } from './app/cursorHide.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
+import { createEngineHud } from './hud/engineHud.js';
+import { createTyreHud } from './hud/tyreHud.js';
 import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
@@ -330,6 +332,8 @@ const debugVisuals = createDebugVisualsToggle(
     terrainStatsEl: document.getElementById('terrain-stats'),
     fpsGraphEl: document.getElementById('fps-graph-panel'),
     suspensionHudEl: document.getElementById('suspension-hud'),
+    engineHudEl: document.getElementById('engine-hud'),
+    tyreHudEl: document.getElementById('tyre-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
     roadside,
@@ -339,7 +343,7 @@ const debugVisuals = createDebugVisualsToggle(
 );
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
 setupDebugFolds(
-  ['suspension-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+  ['suspension-hud', 'tyre-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
 );
 createSurfaceHover({
   el: document.getElementById('surface-hover'),
@@ -420,6 +424,8 @@ const gearstickHud = createGearstickHud();
 const terrainStatsHud = createTerrainStatsHud();
 const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
+const engineHud = createEngineHud();
+const tyreHud = createTyreHud();
 const playersPanel = createPlayersPanel();
 function getCarLatLon() {
   const pos = carManager.getVehicle()?.chassisBody.position;
@@ -658,6 +664,8 @@ const mainLoop = createMainLoop({
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
+  engineHud,
+  tyreHud,
   playersPanel,
   minimapHud,
   routeGuidance,

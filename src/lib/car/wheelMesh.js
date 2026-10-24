@@ -5,9 +5,6 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tyreOffsets } from './axles.js';
 
 const DEFAULT_WHEEL_RADIUS = 0.4;
-// Flat tyre look: rubber squashed to this share of the sidewall around the rim, bulging wider.
-const FLAT_SIDEWALL_SHARE = 0.25;
-const FLAT_BULGE = 1.15;
 
 /** Tyre outer radius (m) from rim size (in) + tyre width/profile, else descriptor.wheelRadius. */
 export function wheelRadiusOf(d) {
@@ -38,21 +35,16 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
   const treadGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
   treadGeo.rotateZ(Math.PI / 2);
 
-  // Radial scale that shrinks the tyre onto the rim when flat (setWheelSetFlat).
-  group.userData.flatScale = (rimDiameter / 2 + tyreHeight * FLAT_SIDEWALL_SHARE) / wheelSize;
   const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
-  for (const geo of [tyreGeo1, tyreGeo2, treadGeo]) {
-    const mesh = new THREE.Mesh(geo, tireMat);
-    mesh.userData.tyre = true;
-    group.add(mesh);
-  }
+  group.add(new THREE.Mesh(tyreGeo1, tireMat));
+  group.add(new THREE.Mesh(tyreGeo2, tireMat));
+  group.add(new THREE.Mesh(treadGeo, tireMat));
 
   const tire = new THREE.Mesh(
     mergeGeometries([tyreGeo1, tyreGeo2, treadGeo]),
     new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true })
   );
   tire.castShadow = true;
-  tire.userData.tyre = true;
   group.add(tire);
 
   const rimGeo = new THREE.CylinderGeometry(rimDiameter / 2, rimDiameter / 2, rimWidth, segments);
@@ -74,15 +66,4 @@ export function buildWheelSet(descriptor, parent, dual = false) {
   for (const x of offsets) buildWheelMesh(descriptor, set).position.x = x;
   parent.add(set);
   return set;
-}
-
-/** Shows a wheel set's tyres deflated onto the rim (or inflated again). */
-export function setWheelSetFlat(set, flat) {
-  set.traverse((group) => {
-    const s = group.userData.flatScale;
-    if (!s) return;
-    for (const mesh of group.children) {
-      if (mesh.userData.tyre) mesh.scale.set(flat ? FLAT_BULGE : 1, flat ? s : 1, flat ? s : 1);
-    }
-  });
 }

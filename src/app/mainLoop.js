@@ -93,6 +93,8 @@ export function createMainLoop({
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
+  engineHud,
+  tyreHud,
   playersPanel,
   minimapHud,
   routeGuidance,
@@ -375,6 +377,8 @@ export function createMainLoop({
       landcoverAreas,
       builtUpAreas,
     });
+    engineHud.updateEngineHud(currentVehicle, debugVisualsEnabled);
+    tyreHud.updateTyreHud(currentVehicle, debugVisualsEnabled);
     // Effects run regardless of debug state. Splash also takes streets
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
