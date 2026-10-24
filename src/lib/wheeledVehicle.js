@@ -162,6 +162,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       engineForce: 0,
       brake: 0,
       abs: false,
+      brakeGripCap: Infinity, // share of static grip the brake may use (pedal ramp); Infinity = can lock
       absActive: false, // ABS trimmed this wheel's brake in the last step (dash lamp)
       handbrake: false,
       rotation: 0,
@@ -218,9 +219,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     vehicle.wheelInfos[i].engineForce = value;
   }
   /** `abs`: the brake backs off rather than lock the wheel (pedal brake; not the handbrake). */
-  function setBrake(value, i, abs = false, handbrake = false) {
+  function setBrake(value, i, abs = false, handbrake = false, gripCap = Infinity) {
     vehicle.wheelInfos[i].brake = value;
     vehicle.wheelInfos[i].abs = abs;
+    vehicle.wheelInfos[i].brakeGripCap = gripCap;
     vehicle.wheelInfos[i].handbrake = handbrake;
   }
   /** Engine coupling of a driven wheel: reflected inertia (kg at the tread), rev-limit tread speed, engine braking (N). */
@@ -569,16 +571,17 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     let brakeImpulse = Math.max(-brakeLimit, Math.min(brakeLimit, -momentum));
     let longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
     const sideRoll = solveBilateralImpulse(body, groundBody, hitPoint, frictionAxle, Infinity);
-    // ABS: trim the brake so the patch stays within static grip.
-    const longAvail = Math.sqrt(Math.max(0, staticGrip * staticGrip - sideRoll * sideRoll));
-    if (wheel.abs && brakeImpulse !== 0 && Math.abs(longRoll) > longAvail) {
+    // ABS / pedal grip cap: trim the brake so the patch stays within that share of static grip.
+    const gripCap = wheel.abs ? Math.min(1, wheel.brakeGripCap) : wheel.brakeGripCap;
+    const longAvail = Math.sqrt(Math.max(0, staticGrip * staticGrip - sideRoll * sideRoll)) * gripCap;
+    if (gripCap !== Infinity && brakeImpulse !== 0 && Math.abs(longRoll) > longAvail) {
       const brakeShare = chassisMass / totalMass; // d(longRoll)/d(brakeImpulse)
       const target = Math.sign(longRoll) * longAvail;
       const trimmed = brakeImpulse + (target - longRoll) / brakeShare;
       brakeImpulse = Math.sign(trimmed) === Math.sign(brakeImpulse) ? trimmed : 0;
       longRoll = chassisMass * ((momentum + brakeImpulse) / totalMass - vLong);
       brakeLimit = Math.abs(brakeImpulse);
-      wheel.absActive = true;
+      wheel.absActive = wheel.abs && gripCap >= 1; // lamp only for ABS proper, not the pedal ramp
     }
     const u = (momentum + brakeImpulse) / totalMass;
     const needed = Math.hypot(longRoll, sideRoll);

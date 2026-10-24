@@ -318,12 +318,12 @@ export function createCar(
   };
   const pedalBias = pedalBiasScales(tractorWheels, descriptor.brakeBias ?? DEFAULT_BRAKE_BIAS);
   // Pedal brake on every wheel, handbrake only on handbrake axles (they must be able to lock).
-  vehicle.applyBrakes = (pedalForce, handbrakeForce, abs) => {
+  vehicle.applyBrakes = (pedalForce, handbrakeForce, abs, gripCap = Infinity) => {
     allWheels.forEach((w, i) => {
       const share = w.brakeForce / vehicle.brakeForce;
       const handbrake = w.axle.handbrake ? handbrakeForce : 0;
       const pedal = pedalForce * (pedalBias[i] ?? 1);
-      vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0);
+      vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0, handbrake ? Infinity : gripCap);
     });
   };
 
