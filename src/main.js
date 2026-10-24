@@ -458,6 +458,10 @@ const shots = createShots({
 });
 const horn = createHorn();
 const jump = createJump({ world });
+const fireAndJump = !isEditorSession() && getGameMode(getActiveModeId())?.fireAndJump === true;
+if (!fireAndJump) {
+  for (const code of ['KeyJ', 'KeyF']) document.querySelector(`#touch-controls button[data-code="${code}"]`)?.remove();
+}
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
@@ -616,6 +620,7 @@ const mainLoop = createMainLoop({
   balls,
   pedestrians,
   shots,
+  fireAndJump,
   horn,
   headlights,
   headlightSwitch,

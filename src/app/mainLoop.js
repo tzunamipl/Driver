@@ -63,6 +63,7 @@ export function createMainLoop({
   balls,
   pedestrians,
   shots,
+  fireAndJump,
   horn,
   headlights,
   headlightSwitch,
@@ -170,7 +171,7 @@ export function createMainLoop({
     input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
     if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
     if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), AMBIENT_TEMP_C);
-    jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
+    jump.update(frameDelta, fireAndJump && !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
     // player's view frame (viewFrame.js), and ours back before publishing.
@@ -234,7 +235,7 @@ export function createMainLoop({
       daylight.getSunElevation()
     );
     if (isJoined() && currentChassisMesh && currentVehicle) {
-      if (!input.isTyping()) {
+      if (fireAndJump && !input.isTyping()) {
         const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
         if (shot) net.publishProps({ type: 'shot', ...toNetworkFrame(shot) });
       }
