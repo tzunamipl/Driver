@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MAX_GAUGE_SPEED } from '../config.js';
 import { createWarningLamps } from './warningLamps.js';
 import { createAuxGauge } from './auxGauge.js';
+import { createBoostGauge } from './boostGauge.js';
 import { buildDialScale, valueToDeg } from './dialScale.js';
 
 // Speedometer HUD, driven straight off the vehicle's physics state each
@@ -46,6 +47,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
   const tachTicks = document.getElementById('tach-ticks');
   let tachTicksRedline = -1; // redlineRpm the ticks were last built for
   const auxGauge = createAuxGauge(document.getElementById('aux-gauge'));
+  const boostGauge = createBoostGauge(document.getElementById('boost-gauge'));
   const lamps = createWarningLamps(document.getElementById('warning-lamps'), { onLightsClick, onHandbrakeClick });
   let lightsShown = null;
   const gaugesEl = document.getElementById('gauges');
@@ -106,6 +108,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     // hidden for rigs without one (e.g. the hover chariot).
     const engine = vehicle.engine;
     auxGauge.update(engine ?? null);
+    boostGauge.update(engine ?? null);
     if (!engine) {
       tachEl?.classList.remove('visible');
       return;

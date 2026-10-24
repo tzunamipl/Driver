@@ -41,6 +41,8 @@ export default {
   peakTorqueRpm: 3500,
   idleRpm: 800,
   redlineRpm: 6000,
+  // Belt-driven blowers: boost follows rpm, no lag.
+  turbo: { boostBar: 0.8, spoolRpm: 2000, lagS: 0.05 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [3.0, 2.0, 1.45, 1.1],
   finalDriveRatio: 7.0,
   reverseRatio: 3.0,

@@ -32,7 +32,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
-    with neutral; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `airDrag.js`,
+    with neutral; optional turbo from descriptor `turbo` - boost lag scales torque, gauge in `hud/boostGauge.js`; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `airDrag.js`,
     `surfaceCompounds.js` (also per-surface tyre wear / puncture multipliers), `terrainSurface.js`. `tyres.js` = tread wear
     (grip), rim-strike punctures and running on the rim (smaller radius, drag, toe pull, no sidewall), per-wheel
     fields used by `wheeledVehicle.js`; reset and rally service points (`tyres: true` point types) fit fresh tyres.

@@ -45,6 +45,7 @@ export default {
   peakTorqueRpm: 1400,
   idleRpm: 650,
   redlineRpm: 2300,
+  turbo: { boostBar: 1.5, spoolRpm: 1200, lagS: 1.0 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [6, 4.7, 2.21, 1.53, 1.0, 0.76, 0.67],
   finalDriveRatio: 7.3,
   reverseRatio: 4.8,

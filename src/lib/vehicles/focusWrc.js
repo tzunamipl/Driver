@@ -32,6 +32,9 @@ export default {
   peakTorqueRpm: 4000,
   idleRpm: 1100,
   redlineRpm: 7500,
+  // Anti-lag keeps it nearly lag-free.
+  turbo: { boostBar: 1.5, spoolRpm: 3000, lagS: 0.2 }, // bar, full-boost rpm, spool lag (s)
+  launchRpm: 4500, // launches on boost
   gearRatios: [2.92, 2.12, 1.64, 1.3, 1.06],
   finalDriveRatio: 3.95, // fast tarmac stage gearing, ~215 km/h at the limiter
   reverseRatio: 3.2,

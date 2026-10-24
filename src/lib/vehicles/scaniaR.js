@@ -38,6 +38,8 @@ export default {
   peakTorqueRpm: 1100,
   idleRpm: 600,
   redlineRpm: 2100,
+  // Big diesel turbo: strong but slow to build.
+  turbo: { boostBar: 2.3, spoolRpm: 1000, lagS: 1.1 }, // bar, full-boost rpm, spool lag (s)
   // 3-speed main box (like the GRS905 base box) x LO/MID/HI range stage, overdrive top.
   ...rangeGearbox([1.84, 1.36, 1.0], [5.0, 2.0, 0.8]),
   finalDriveRatio: 3.9,
