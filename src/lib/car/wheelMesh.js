@@ -3,12 +3,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tyreOffsets } from './axles.js';
+import { panoramaEnv, paintReflection } from '../vehicles/geometry/paint.js';
 
 const DEFAULT_WHEEL_RADIUS = 0.4;
 const TYRE_COLOR = new THREE.Color(0x1a1a1a);
 const MUD_COLOR = new THREE.Color(0x6b4a2b);
 // Dirt (0..1) at which the tread is fully brown; the sidewalls brown from there to fully caked.
 const TREAD_BROWN_AT = 0.5;
+// Wet rubber: a water film (clearcoat) reflecting the sky, smoother underneath.
+const DRY_ROUGHNESS = 0.9;
+const WET_ROUGHNESS = 0.5;
+const WET_FILM_ROUGHNESS = 0.15;
 
 /** Tyre outer radius (m) from rim size (in) + tyre width/profile, else descriptor.wheelRadius. */
 export function wheelRadiusOf(d) {
@@ -41,7 +46,17 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent, seg
   treadGeo.rotateZ(Math.PI / 2);
 
   // Tread and sidewalls apart, so dirt can brown them separately (setTyreDirt).
-  const sideMat = new THREE.MeshStandardMaterial({ color: TYRE_COLOR, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+  // Physical with a zero-strength env map while dry, so wetness can add the gloss (setTyreWetness).
+  const sideMat = new THREE.MeshPhysicalMaterial({
+    color: TYRE_COLOR,
+    roughness: DRY_ROUGHNESS,
+    flatShading: true,
+    side: THREE.DoubleSide,
+    envMap: panoramaEnv(),
+    envMapIntensity: 0,
+    clearcoat: 0,
+    clearcoatRoughness: WET_FILM_ROUGHNESS,
+  });
   const treadMat = sideMat.clone();
   group.add(new THREE.Mesh(tyreGeo1, sideMat));
   group.add(new THREE.Mesh(tyreGeo2, sideMat));
@@ -71,6 +86,23 @@ export function setTyreDirt(wheelSet, dirt) {
   const side = Math.max(0, (dirt - TREAD_BROWN_AT) / (1 - TREAD_BROWN_AT));
   for (const m of mats.tread) m.color.lerpColors(TYRE_COLOR, MUD_COLOR, tread);
   for (const m of mats.side) m.color.lerpColors(TYRE_COLOR, MUD_COLOR, side);
+}
+
+/** Glosses a wheel set's tyres with wetness 0 dry .. 1 soaked; reflections follow the day/night strength. */
+export function setTyreWetness(wheelSet, wetness) {
+  const mats = wheelSet.userData.tyreMats;
+  const reflection = wetness * paintReflection();
+  if (!mats || (mats.wetness === wetness && mats.reflection === reflection)) return;
+  mats.wetness = wetness;
+  mats.reflection = reflection;
+  const roughness = DRY_ROUGHNESS + (WET_ROUGHNESS - DRY_ROUGHNESS) * wetness;
+  for (const list of [mats.tread, mats.side]) {
+    for (const m of list) {
+      m.clearcoat = wetness;
+      m.roughness = roughness;
+      m.envMapIntensity = reflection;
+    }
+  }
 }
 
 /** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set. */

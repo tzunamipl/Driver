@@ -34,7 +34,9 @@
 .rally-penalty { font-size: 12px; color: #ff7070; }
 .rally-results { margin-top: 6px; font: 13px/1.5 monospace; text-align: left; }
 .rally-result-row { display: flex; justify-content: space-between; gap: 24px; }
-.rally-result-row:last-child { font-weight: bold; border-top: 1px solid #888; }
+.rally-result-row.total { font-weight: bold; border-top: 1px solid #888; }
+.rally-result-row.head { margin-top: 6px; font-weight: bold; color: #ddd; }
+.rally-result-row.mine { color: #ffd84a; }
 .rally-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; pointer-events: auto; }
 .rally-buttons button { color: #000; }
 
@@ -261,6 +263,9 @@
 .rally-car-showcase { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .rally-car-showcase { gap: 6px; }
 .rally-car-pick .vehicle-color { margin-top: 6px; }
+/* Spare wheels pick (ui/spareTyresPicker.js), in the rally picker and the tyre service. */
+.spare-tyres-field { margin-top: 6px; }
+.spare-tyres-field[hidden] { display: none; }
 .rally-vehicle-preview {
   width: 100%;
   height: 160px;
@@ -314,3 +319,47 @@
 .menu-aside #refuel-dialog::after {
   flex-grow: 2.4;
 }
+
+/* Flat tyre: floating "fit spare" card with a leader line to the wheel (hud/spareTyreHud.js). */
+#spare-tyre-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+#spare-tyre-hud[hidden],
+#spare-tyre-hud [hidden] { display: none; }
+#spare-tyre-hud svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+#spare-tyre-hud line {
+  stroke: #f6c900;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 2px #000);
+}
+#spare-tyre-hud circle {
+  fill: none;
+  stroke: #f6c900;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 2px #000);
+}
+.spare-tyre-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 220px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 2px solid #f6c900;
+  color: #fff;
+  font-family: var(--w95-font);
+  text-align: center;
+  pointer-events: auto;
+}
+.spare-tyre-fit { color: #000; font-weight: bold; }
+.spare-tyre-note { margin-top: 4px; font-size: 11px; color: #ffd7a0; }

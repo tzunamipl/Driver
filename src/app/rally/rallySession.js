@@ -2,12 +2,13 @@
 // order. A stage item is a stageRun.js; a point item (service park, regroup, ...) is a
 // liaison checkpoint to drive through, routed by the Navigation tab. Teleport and
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
+// A flat tyre can be swapped for a carried spare once stopped (spareTyreFix.js).
 // Progress (item, results, the live stage's clock and controls) lives in the game's save slot,
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
 import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
-import { leaderboardEnabled, submitStageTime } from '../../lib/leaderboard.js';
+import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat } from '../../lib/scenarios/rally.js';
@@ -22,9 +23,10 @@ import { createPacenoteRun } from './pacenoteRun.js';
 import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { createZonePicking } from './zonePicking.js';
+import { createSpareTyreFix } from './spareTyreFix.js';
 import { getVehicle } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
-import { getTyreSetup } from '../../lib/garage.js';
+import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
 import { sameTyreSetup } from '../../lib/tyres/setup.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
@@ -37,6 +39,7 @@ const REFUEL_WAIT_M = 60; // ...unless it drives on further than this first
 const ROUTE_MIN_M = 250; // closer targets aren't worth a navigation route
 const JUMP_GUARD_M = 50; // a step moving the car further (teleport, reset) checks nothing
 const SPLIT_SHOW_S = 5;
+const WORLD_TOP_N = 10; // world times on the finished plan's results card
 const STAGE_DONE_SHOW_S = 10; // rally: a finished stage's time + world rank over the next item
 const GO_SHOW_S = 1.5;
 const NEAR_ZONE_M = 80;
@@ -144,6 +147,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   let shownProgress = null; // plan panel + map icons are rebuilt when this key changes
   let nextProgressSave = 0;
   const online = new WeakMap(); // result -> { rank, vehicle, count, leader } | { error } | null while sending
+  const sending = new WeakMap(); // result -> its submit, settled once the board has it (or it failed)
+  let worldTop = null; // finished plan's world times: { rows, myHash } | { error } | { loading: true }; null when off
+  let worldSeq = 0;
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
@@ -167,6 +173,19 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         getVehicle: () => carManager.getVehicle(),
         isEnabled: () => !!plan && !busy && !isLive(),
         onAction: (action) => (action === 'tyres' ? onTyreService?.({ fitted: false }) : onRefuel?.()),
+      })
+    : null;
+  const spareFix = canvas
+    ? createSpareTyreFix({
+        canvas,
+        camera,
+        getVehicle: () => carManager.getVehicle(),
+        isEnabled: () => !!plan && !busy && !finished,
+        getRun: () => run,
+        onFitted(penaltyMs) {
+          flash = { text: `Spare wheel fitted${penaltyMs ? `  +${formatTime(penaltyMs)}` : ''}`, until: simTime + SPLIT_SHOW_S };
+          saveProgress();
+        },
       })
     : null;
 
@@ -268,7 +287,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (!leaderboardEnabled() || plan.source !== OFFICIAL_SCENARIO_SOURCE || !plan.sha) return;
     online.set(result, null);
     const vehicle = getVehicleId();
-    submitStageTime({
+    const submit = submitStageTime({
       stage: stage.id,
       sha: plan.sha,
       playerId,
@@ -287,6 +306,28 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         resultRows = null;
         if (flash?.result === result) showStageDone(result);
       });
+    sending.set(result, submit);
+  }
+
+  /** The finished plan's world times (a rally: stage times summed per car), once this game's own submits are in. */
+  function loadWorldTop() {
+    const seq = ++worldSeq;
+    worldTop = null;
+    if (!leaderboardEnabled() || plan.source !== OFFICIAL_SCENARIO_SOURCE) return;
+    worldTop = { loading: true };
+    const ids = plan.items.filter((i) => i.type === 'stage').map((i) => i.stage.id);
+    const kind = plan.kind;
+    Promise.all(results.map((r) => sending.get(r)))
+      .then(() => Promise.all([Promise.all(ids.map(fetchStageBoard)), playerHash(playerId)]))
+      .then(
+        ([boards, myHash]) => ({ rows: bestPerPlayer(kind === 'stage' ? boards[0].entries : rallyTotals(boards)), myHash }),
+        (err) => ({ error: err.message })
+      )
+      .then((top) => {
+        if (seq !== worldSeq) return;
+        worldTop = top;
+        resultRows = null;
+      });
   }
 
   /** Rally: the stage just driven, and its world rank once that's back, over the next item's status. */
@@ -301,6 +342,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (itemIndex >= plan.items.length) {
       finished = true;
       resultRows = null;
+      loadWorldTop();
       saveProgress();
       return;
     }
@@ -345,16 +387,20 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
-    if (finished) return;
+    worldSeq++;
+    worldTop = null;
+    if (finished) return loadWorldTop();
     showItem(savedRun);
     saveProgress();
     if (spawn) await spawnAt(itemIndex, spawn === 'teleport');
     routeToItem();
   }
 
-  /** A new event (picked, or a single stage restarted) starts in a brand new car. */
+  /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares on board. */
   function newCar() {
-    carManager.getVehicle()?.makeNew?.();
+    const vehicle = carManager.getVehicle();
+    vehicle?.makeNew?.();
+    vehicle?.setSpareTyres?.(getSpareTyres(getVehicleId()));
   }
 
   async function choose() {
@@ -425,25 +471,22 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   function resultsView() {
     if (!resultRows) {
       const rows = [];
+      const leader = worldTop?.rows?.[0];
       if (plan.kind === 'stage') {
         const r = results[results.length - 1];
         r?.splits.forEach((ms, i) => {
-          const best = r.best?.splits?.[i];
-          rows.push([`Split ${i + 1}`, `${formatTime(ms)}${best != null ? `  ${formatDelta(ms - best)}` : ''}`]);
+          const first = leader?.splits?.[i];
+          rows.push([`Split ${i + 1}`, `${formatTime(ms)}${first != null ? `  ${formatDelta(ms - first)}` : ''}`]);
         });
         if (r?.penaltyMs) rows.push(['Penalty', `+${formatTime(r.penaltyMs)}`]);
-        rows.push(['Stage time', r?.ms == null ? 'DNF' : formatTime(r.ms)]);
-        if (r?.best) rows.push(['Best', formatTime(r.best.totalMs)]);
-        else if (r?.ms != null) rows.push(['Best', 'New best!']);
-        if (r && online.has(r)) rows.push(...onlineRows(online.get(r)));
+        rows.push(['Stage time', r?.ms == null ? 'DNF' : formatTime(r.ms), 'total']);
+        if (r?.best) rows.push(['Your best', formatTime(r.best.totalMs)]);
+        else if (r?.ms != null) rows.push(['Your best', 'New best!']);
       } else {
-        for (const r of results) {
-          rows.push([r.name, r.ms == null ? 'DNF' : formatTime(r.ms)]);
-          if (online.has(r)) rows.push(...onlineRows(online.get(r)));
-        }
         const dnf = results.some((r) => r.ms == null);
-        rows.push(['Total', dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))]);
+        rows.push(['Rally time', dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0)), 'total']);
       }
+      rows.push(...worldRows());
       resultRows = rows;
     }
     return {
@@ -459,11 +502,20 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     return entry.rank ? `${entry.rank} / ${entry.count} · ${getVehicle(entry.vehicle).name}` : '-';
   }
 
-  function onlineRows(entry) {
-    const rows = [['World rank', onlineRank(entry)]];
-    if (!entry || entry.error) return rows;
-    if (entry.leader) rows.push(['World best', `${formatTime(entry.leader.totalMs)} · ${entry.leader.name} · ${getVehicle(entry.leader.vehicle).name}`]);
-    return rows;
+  /** The world top times, the player's own row marked (and added below when outside them). */
+  function worldRows() {
+    if (!worldTop) return [];
+    const failed = results.map((r) => online.get(r)?.error).find(Boolean);
+    if (failed) return [['World times', failed]];
+    if (worldTop.loading) return [['World times', 'Loading…']];
+    if (worldTop.error) return [['World times', worldTop.error]];
+    const { rows, myHash } = worldTop;
+    if (!rows.length) return [['World times', 'none yet']];
+    const line = (row, i) => [`${i + 1}. ${row.name} · ${getVehicle(row.vehicle).name}`, formatTime(row.totalMs), row.player === myHash ? 'mine' : ''];
+    const out = [[`World top ${WORLD_TOP_N}`, '', 'head'], ...rows.slice(0, WORLD_TOP_N).map(line)];
+    const mine = rows.findIndex((row) => row.player === myHash);
+    if (mine >= WORLD_TOP_N) out.push(['…', ''], line(rows[mine], mine));
+    return out;
   }
 
   /** Where an item stands: 'done', 'current' or ''. */
@@ -648,6 +700,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     update(dt) {
       scenery.update(dt, carPosition());
       picking?.update();
+      spareFix?.update();
       // A liaison item is its one point: index 0.
       const next = run ? (run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1) : plan && !finished && currentItem() ? 0 : -1;
       scenery.setNext(next);

@@ -25,6 +25,8 @@ const LAYERS = [
   { id: 'trees', label: 'Trees', group: 'graphics' },
   { id: 'bushes', label: 'Bushes', group: 'graphics' },
   { id: 'rocks', label: 'Rocks', group: 'graphics' },
+  { id: 'wheelDust', label: 'Wheel dust', group: 'graphics' },
+  { id: 'wheelDebris', label: 'Wheel debris (leaves, stones)', group: 'graphics' },
   { id: 'treeShadows', label: 'Tree, bush & rock shadows', group: 'graphics', on: false }, // debug view only: costly with thousands of trees
 ];
 const LAYER_GROUPS = [
@@ -84,6 +86,8 @@ function saveEnabled(enabled) {
  * @param {ReturnType<import('../lib/trees.js').createBushes>} [deps.bushes]
  * @param {ReturnType<import('../lib/trees.js').createRocks>} [deps.rocks]
  * @param {ReturnType<import('../lib/dissolve.js').createDissolve>} [deps.dissolve]
+ * @param {ReturnType<import('../lib/terrainDust.js').createTerrainDust>} [deps.terrainDust]
+ * @param {ReturnType<import('../lib/wheelDebris.js').createWheelDebris>} [deps.wheelDebris]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} [deps.fpsGraphEl]
  * @param {HTMLElement} deps.suspensionHudEl
@@ -109,6 +113,8 @@ export function createDebugVisualsToggle(
     bushes,
     rocks,
     dissolve,
+    terrainDust,
+    wheelDebris,
     terrainStatsEl,
     fpsGraphEl,
     suspensionHudEl,
@@ -167,6 +173,8 @@ export function createDebugVisualsToggle(
       rocks.setShadows(shown('treeShadows'));
     }
     if (dissolve) dissolve.setEnabled(shown('dissolve'));
+    if (terrainDust) terrainDust.setEnabled(kept('wheelDust'));
+    if (wheelDebris) wheelDebris.setEnabled(kept('wheelDebris'));
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 

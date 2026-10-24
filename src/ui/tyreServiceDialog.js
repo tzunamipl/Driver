@@ -1,9 +1,11 @@
 // Rally tyre service (points with `tyres: true`: fresh tyres are on; or a click on the tyre props:
 // nothing fitted yet). Shows the set taken off (or still on) corner by corner, and offers another
-// type or size (ui/tyreSetupPicker.js) with a turning 3D wheel of the pick (ui/tyrePreview.js).
+// type or size (ui/tyreSetupPicker.js) with a turning 3D wheel of the pick (ui/tyrePreview.js), and
+// the spare wheels to carry on (ui/spareTyresPicker.js).
 
 import { createTyreSetupPicker } from './tyreSetupPicker.js';
 import { createTyrePreview } from './tyrePreview.js';
+import { createSpareTyresPicker } from './spareTyresPicker.js';
 import { getTyreCompound } from '../lib/tyres/compounds.js';
 import { tyreSizeLabel } from '../lib/tyres/setup.js';
 
@@ -78,10 +80,12 @@ export function createTyreServiceDialog({ onOpen, onClose } = {}) {
   const used = { canvas: usedCanvas, preview: createTyrePreview(usedCanvas) };
   let shownVehicleId = null;
   const tyres = createTyreSetupPicker({ title: false, onChange: (setup) => shownVehicleId && preview.show(shownVehicleId, setup) });
+  const spares = createSpareTyresPicker();
   let pending = null;
 
   /**
-   * Resolves with the setup to fit (stored in the mode's garage), or null to keep the current one.
+   * Resolves with { setup, spares }: the setup to fit (stored in the mode's garage) or null to keep the
+   * current one, and the spare wheels to carry (null on Cancel).
    * @param {string} vehicleId
    * @param {{ setup: object, labels: string[], wheels: object[] } | null} [removed] - the set taken off, or on (getTyreState()).
    * @param {{ fitted?: boolean }} [opts] - fitted false: nothing fitted yet, Fit puts on a fresh set.
@@ -89,24 +93,28 @@ export function createTyreServiceDialog({ onOpen, onClose } = {}) {
   function open(vehicleId, removed = null, { fitted = true } = {}) {
     if (pending) return pending;
     pending = new Promise((resolve) => {
-      const finish = (setup) => {
+      const finish = (setup, keepSpares = true) => {
         if (setup) tyres.commit();
         else tyres.discard();
+        const spareCount = keepSpares ? spares.getCount() : null;
+        if (keepSpares) spares.commit();
+        else spares.discard();
         preview.stop();
         used.preview.stop();
         root.hidden = true;
         pending = null;
         onClose?.();
-        resolve(setup);
+        resolve({ setup, spares: spareCount });
       };
       shownVehicleId = vehicleId;
       tyres.show(vehicleId);
+      spares.show(vehicleId);
       const fit = Object.assign(el('button', '', 'Fit'), { type: 'button', onclick: () => finish(tyres.getSetup()) });
-      const keep = Object.assign(el('button', '', fitted ? 'Keep' : 'Cancel'), { type: 'button', onclick: () => finish(null) });
+      const keep = Object.assign(el('button', '', fitted ? 'Keep' : 'Cancel'), { type: 'button', onclick: () => finish(null, fitted) });
       const footer = el('div', 'menu-footer');
       footer.append(fit, keep);
       const choice = el('div', 'tyre-service-choice');
-      choice.append(el('div', 'tyre-setup-title', 'Fit'), canvas, tyres.el);
+      choice.append(el('div', 'tyre-setup-title', 'Fit'), canvas, tyres.el, spares.el);
       const body = el('div', 'tyre-service-body-grid');
       if (removed?.wheels?.length) body.append(removedPanel(vehicleId, removed, fitted ? 'Removed tyres' : 'Current tyres', used));
       body.append(choice);

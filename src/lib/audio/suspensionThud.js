@@ -19,7 +19,8 @@ export function createSuspensionThud() {
   const strokeStart = [];
   const strokePeak = [];
   const strokeFired = [];
-  let output = null;
+  // One output per side (-1, 0 = both, 1), so a ringing thud keeps its pan when the next one fires.
+  const outputs = new Map();
 
   /** @param {object|null} vehicle - wheeledVehicle.js vehicle, or null. */
   function update(dt, vehicle) {
@@ -59,8 +60,13 @@ export function createSuspensionThud() {
     }
     // Wheels hitting together (a flat landing) make one bigger thud, not a stack.
     if (loudest > 0) {
-      output ??= createWheelOutput();
-      output?.setSide(sideSum / fired, true);
+      const side = Math.sign(sideSum);
+      if (!outputs.has(side)) {
+        const created = createWheelOutput();
+        created?.setSide(side, true);
+        outputs.set(side, created);
+      }
+      const output = outputs.get(side);
       const level = Math.min(1, (loudest - MIN_CLOSING_SPEED) / (CLOSING_SPEED_FOR_MAX - MIN_CLOSING_SPEED));
       playThud(level, {
         gain: MIN_GAIN + (MAX_GAIN - MIN_GAIN) * level,

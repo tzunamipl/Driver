@@ -1,9 +1,10 @@
 import { getActiveModeId, readSaveField, writeSaveField } from './saves.js';
 import { getVehicle } from './vehicles/index.js';
 import { sanitizeTyreSetup } from './tyres/setup.js';
+import { clampSpareTyres } from './spareTyres.js';
 
 // Per game mode, per vehicle: the paint and tyre setup last picked, in the mode-wide save
-// field `garage` ({ [vehicleId]: { color?, tyres? } }). Before a mode is picked there is none.
+// field `garage` ({ [vehicleId]: { color?, tyres?, spares? } }). Before a mode is picked there is none.
 
 const entry = (vehicleId) => readSaveField('garage')?.[getVehicle(vehicleId).id] ?? null;
 
@@ -29,3 +30,8 @@ export const setGarageColor = (vehicleId, color) => update(vehicleId, { color })
 export const getTyreSetup = (vehicleId) => sanitizeTyreSetup(getVehicle(vehicleId), entry(vehicleId)?.tyres);
 
 export const setTyreSetup = (vehicleId, setup) => update(vehicleId, { tyres: sanitizeTyreSetup(getVehicle(vehicleId), setup) });
+
+/** Spare wheels to carry (rally, lib/spareTyres.js); the default when never picked here. */
+export const getSpareTyres = (vehicleId) => clampSpareTyres(entry(vehicleId)?.spares);
+
+export const setSpareTyres = (vehicleId, spares) => update(vehicleId, { spares: clampSpareTyres(spares) });

@@ -222,6 +222,13 @@
                     <button type="button" id="susp-heat-fix" title="Debug: fix the radiator and top up">Fix</button>
                   </div>
                 </div>
+                <div class="susp-landed" id="susp-gearbox" title="Gearbox wear (lib/gearboxWear.js): over-rev downshifts and hits slow the shifts">
+                  <div>Gearbox: <span id="susp-gearbox-health">&mdash;</span>%, shift x<span id="susp-gearbox-shift">&mdash;</span></div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="susp-gearbox-wear" title="Debug: wear the gearbox">Wear</button>
+                    <button type="button" id="susp-gearbox-fix" title="Debug: mend the gearbox">Fix</button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="debug-hud-col">
@@ -285,6 +292,7 @@
         <div id="minimap-route-summary"></div>
       </div>
     </div>
+    <div id="spare-tyre-hud" hidden></div>
     <div id="rally-picker" hidden></div>
     <div id="tyre-service" hidden></div>
     <div id="refuel-dialog" hidden></div>

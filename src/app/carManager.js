@@ -34,10 +34,10 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
   // Fuel of the last car removed (or the save), so a recolour/respawn doesn't refill it.
   let carriedFuel = initialFuel;
-  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }] }
+  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }], spares? }
   let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
-  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState() }
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health }
   let carVehicleId = null; // vehicle id the current car was built as
 
   function getFuelState() {
@@ -49,11 +49,11 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   }
 
   function getDamageState() {
-    return vehicle?.lamps ? { vehicleId: carVehicleId, shocks: vehicle.getShockState(), lamps: vehicle.lamps.getState() } : null;
+    return vehicle?.lamps ? { vehicleId: carVehicleId, shocks: vehicle.getShockState(), lamps: vehicle.lamps.getState(), gearbox: vehicle.engine.gearbox.getState() } : null;
   }
 
   function getTyreState() {
-    return vehicle?.getTyreState ? { vehicleId: carVehicleId, setup: vehicle.tyreSetup, savedAt: Date.now(), wheels: vehicle.getTyreState() } : null;
+    return vehicle?.getTyreState ? { vehicleId: carVehicleId, setup: vehicle.tyreSetup, savedAt: Date.now(), wheels: vehicle.getTyreState(), spares: vehicle.spareTyres } : null;
   }
 
   function hookCar(nextVehicle, mesh) {
@@ -66,6 +66,10 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       const parkedS = Number.isFinite(carriedTyres.savedAt) ? (Date.now() - carriedTyres.savedAt) / 1000 : 0;
       nextVehicle.setTyreState(carriedTyres.wheels, parkedS);
     }
+    // Spares stay in the boot whatever is fitted.
+    if (nextVehicle.setSpareTyres && carriedTyres?.vehicleId === carVehicleId && Number.isInteger(carriedTyres.spares)) {
+      nextVehicle.setSpareTyres(carriedTyres.spares);
+    }
     if (nextVehicle.heat && carriedHeat?.vehicleId === carVehicleId) {
       const parkedS = Number.isFinite(carriedHeat.savedAt) ? (Date.now() - carriedHeat.savedAt) / 1000 : 0;
       nextVehicle.heat.setState(carriedHeat, parkedS);
@@ -73,6 +77,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     if (nextVehicle.lamps && carriedDamage?.vehicleId === carVehicleId) {
       nextVehicle.setShockState(carriedDamage.shocks);
       nextVehicle.lamps.setState(carriedDamage.lamps);
+      nextVehicle.engine.gearbox.setState(carriedDamage.gearbox);
     }
     nextVehicle.onTyrePop = (i) => {
       tyrePopSound?.play(wheelSide(nextVehicle.wheelInfos[i]));
@@ -84,6 +89,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
         const hit = endImpact(body, event.contact);
         if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
         nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
+        nextVehicle.engine.gearbox.hit(hit.speed);
       }
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);

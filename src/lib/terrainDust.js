@@ -54,6 +54,7 @@ export function createTerrainDust(scene) {
   });
   let slideTimers = []; // per-wheel, resized when wheel count changes
   let speedTimer = 0;
+  let enabled = true;
 
   /**
    * @param {number} dt - frame delta in seconds.
@@ -63,7 +64,7 @@ export function createTerrainDust(scene) {
   function update(dt, vehicle, world) {
     puffs.update(dt);
 
-    if (!vehicle || !world) return;
+    if (!enabled || !vehicle || !world) return;
     if (slideTimers.length !== vehicle.wheelInfos.length) {
       slideTimers = vehicle.wheelInfos.map(() => 0);
     }
@@ -125,5 +126,10 @@ export function createTerrainDust(scene) {
     }
   }
 
-  return { update };
+  /** Off: no new dust (puffs in the air finish). */
+  function setEnabled(on) {
+    enabled = on;
+  }
+
+  return { update, setEnabled };
 }

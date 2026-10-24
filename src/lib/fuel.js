@@ -2,7 +2,8 @@
 // (rated hp x engine.loadFraction) through a specific fuel consumption, plus a
 // running loss that grows with rpm, both scaled by engine.throttle. Off throttle
 // the injectors cut to the idle flow. The fuel's mass rides on the chassis body
-// on top of the descriptor's dry mass. Empty refills to full for now.
+// on top of the descriptor's dry mass, with any cargo (spare wheels). Empty refills
+// to full for now.
 
 const W_PER_HP = 745.7;
 const FUELS = {
@@ -31,6 +32,7 @@ export function createFuelTank(descriptor, chassisBody) {
   const dryMass = chassisBody.mass;
   const dryInertia = chassisBody.inertia.clone();
   let appliedFuelKg = -Infinity;
+  let cargoKg = 0;
 
   const buckets = []; // { litres, metres, seconds }, oldest first
   let current = { litres: 0, metres: 0, seconds: 0 };
@@ -43,6 +45,7 @@ export function createFuelTank(descriptor, chassisBody) {
     },
     update,
     setLitres,
+    setCargoKg,
     getAverage,
   };
 
@@ -50,7 +53,7 @@ export function createFuelTank(descriptor, chassisBody) {
     const fuelKg = tank.litres * fuel.density;
     if (Math.abs(fuelKg - appliedFuelKg) < MASS_UPDATE_KG) return;
     appliedFuelKg = fuelKg;
-    const mass = dryMass + fuelKg;
+    const mass = dryMass + fuelKg + cargoKg;
     const scale = mass / dryMass;
     chassisBody.mass = mass;
     chassisBody.invMass = 1 / mass;
@@ -65,6 +68,13 @@ export function createFuelTank(descriptor, chassisBody) {
 
   function setLitres(litres) {
     tank.litres = Math.min(capacityL, Math.max(0, litres));
+    applyMass();
+  }
+
+  /** Extra load carried with the fuel (kg). */
+  function setCargoKg(kg) {
+    cargoKg = Math.max(0, kg);
+    appliedFuelKg = -Infinity;
     applyMass();
   }
 

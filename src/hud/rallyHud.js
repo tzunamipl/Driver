@@ -45,7 +45,7 @@ export function createRallyHud(actions) {
   return {
     /**
      * @param {object | null} view - { title, clockMs, lights: {red, green} | null, status, next,
-     *   penaltyMs, results: [label, value][] | null, buttons: string[] }; null hides the HUD.
+     *   penaltyMs, results: [label, value, className?][] | null, buttons: string[] }; null hides the HUD.
      */
     render(view) {
       root.hidden = !view;
@@ -65,8 +65,8 @@ export function createRallyHud(actions) {
       if (view.results !== shownResults) {
         shownResults = view.results;
         results.replaceChildren(
-          ...(view.results ?? []).map(([label, value]) => {
-            const row = el('div', 'rally-result-row');
+          ...(view.results ?? []).map(([label, value, className]) => {
+            const row = el('div', `rally-result-row${className ? ` ${className}` : ''}`);
             row.append(Object.assign(el('span'), { textContent: label }), Object.assign(el('span'), { textContent: value }));
             return row;
           })

@@ -1,4 +1,4 @@
-// Engine debug panel: fuel consumption + engine heat, with Leak / Fix buttons.
+// Engine debug panel: fuel consumption, engine heat and gearbox wear, with Leak / Wear / Fix buttons.
 
 export function createEngineHud() {
   const fuelRow = document.getElementById('susp-fuel');
@@ -19,6 +19,17 @@ export function createEngineHud() {
     heatVehicle?.heat?.repair();
     heatEls.fix.blur();
   });
+
+  const gearboxRow = document.getElementById('susp-gearbox');
+  const gearboxHealth = document.getElementById('susp-gearbox-health');
+  const gearboxShift = document.getElementById('susp-gearbox-shift');
+  for (const [id, action] of [['susp-gearbox-wear', (g) => g.wear()], ['susp-gearbox-fix', (g) => g.repair()]]) {
+    const button = document.getElementById(id);
+    button?.addEventListener('click', () => {
+      if (heatVehicle?.engine?.gearbox) action(heatVehicle.engine.gearbox);
+      button.blur();
+    });
+  }
 
   function updateEngineHud(vehicle, debugVisualsEnabled) {
     if (!debugVisualsEnabled || !vehicle) return;
@@ -43,6 +54,13 @@ export function createEngineHud() {
       heatEls.power.textContent = Math.round(heat.powerFactor * 100);
       heatEls.level.textContent = `${heat.coolantL.toFixed(1)}/${heat.capacityL.toFixed(1)}`;
       heatEls.loss.textContent = (heat.lossLps * 60).toFixed(2);
+      heatVehicle = vehicle;
+    }
+    const gearbox = vehicle.engine?.gearbox;
+    if (gearboxRow) gearboxRow.hidden = !gearbox;
+    if (gearboxRow && gearbox) {
+      gearboxHealth.textContent = Math.round(gearbox.health * 100);
+      gearboxShift.textContent = gearbox.shiftFactor.toFixed(1);
       heatVehicle = vehicle;
     }
   }
