@@ -1,8 +1,10 @@
 import { DEFAULT_BODY_COLOR, VEHICLE_COLORS_STORAGE_KEY, DEFAULT_PAINT_STORAGE_KEY } from '../config.js';
 import { getVehicle } from './vehicles/index.js';
+import { getGarageColor, setGarageColor } from './garage.js';
 
-// Player's paint per vehicle id (0xRRGGBB); unset vehicles, or every vehicle while the
-// default-paint toggle is on, use the descriptor's defaultColor.
+// Player's paint per vehicle id (0xRRGGBB): the active game mode's (lib/garage.js), else the one
+// picked outside any mode; unset vehicles, or every vehicle while the default-paint toggle is on,
+// use the descriptor's defaultColor.
 
 function load() {
   try {
@@ -26,12 +28,12 @@ export function defaultVehicleColor(vehicleId) {
 }
 
 export function hasCustomVehicleColor(vehicleId) {
-  return Number.isInteger(load()[getVehicle(vehicleId).id]);
+  return getGarageColor(vehicleId) !== null || Number.isInteger(load()[getVehicle(vehicleId).id]);
 }
 
 /** The vehicle's own paint, ignoring the default-paint toggle. */
 export function getCustomVehicleColor(vehicleId) {
-  const color = load()[getVehicle(vehicleId).id];
+  const color = getGarageColor(vehicleId) ?? load()[getVehicle(vehicleId).id];
   return Number.isInteger(color) ? color : defaultVehicleColor(vehicleId);
 }
 
@@ -57,8 +59,9 @@ export function setUseDefaultPaint(on) {
   }
 }
 
-/** Stores a custom colour; picking the default colour clears the override. */
+/** Stores a custom colour (in the active mode's garage when there is one); picking the default colour clears the override. */
 export function setVehicleColor(vehicleId, color) {
+  if (setGarageColor(vehicleId, color)) return;
   const id = getVehicle(vehicleId).id;
   const colors = load();
   if (color === defaultVehicleColor(id)) delete colors[id];

@@ -91,15 +91,59 @@
 }
 #tyre-hud .tyre-row {
   display: grid;
-  grid-template-columns: 22px 1fr 32px 28px;
+  grid-template-columns: 22px 80px 32px 28px;
   align-items: center;
-  gap: 4px;
+  gap: 1px 4px;
   pointer-events: auto;
 }
-#tyre-hud .tyre-tread {
+#tyre-hud .tyre-sub {
+  font-size: 11px;
+  text-align: right;
+}
+/* Temp / dirt rows: value spans the Pop column too. */
+#tyre-hud .tyre-wide { grid-column: 3 / -1; }
+#tyre-hud .tyre-tread,
+#tyre-hud .tyre-temp,
+#tyre-hud .tyre-dirt {
   width: 100%;
   min-width: 0;
-  margin: 0;
+  height: 4px;
+  margin: 3px 0;
+}
+/* Win95 slider like base.css's #hud one (this panel is outside #hud, so it would render natively):
+   4px track, small 3x10 thumb centred on it; the margin leaves the thumb room. */
+#tyre-hud input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+#tyre-hud input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+#tyre-hud input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+#tyre-hud input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px;
+  height: 10px;
+  margin-top: -3px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}
+#tyre-hud input[type="range"]::-moz-range-thumb {
+  width: 3px;
+  height: 10px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
 }
 #tyre-hud .tyre-val {
   text-align: right;
@@ -112,6 +156,16 @@
 #tyre-hud .tyre-toggle {
   min-width: 0;
   padding: 1px 2px;
+}
+#tyre-hud .tyre-cond {
+  grid-column: 2 / -1;
+  white-space: nowrap;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+#tyre-hud-setup {
+  margin-bottom: 4px;
+  white-space: nowrap;
 }
 .susp-panel .susp-landed {
   margin-top: 8px;
@@ -197,6 +251,8 @@
 #vehicle-debug-color {
   margin-top: 6px;
 }
+/* Compact: no traits table in the narrow panel. */
+#vehicle-debug-tyres .tyre-setup-traits { display: none; }
 /* Ground surface under the mouse (hud/surfaceHover.js). */
 #surface-hover,
 #road-bed-inspect {

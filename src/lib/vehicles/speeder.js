@@ -11,6 +11,7 @@ export default {
   rimSize: 20,
   tyre: 355,
   profile: 15,
+  tyreCompound: 'slickHard', // tyres/compounds.js
   suspension: {
     suspensionStiffness: 100,
     suspensionRestLength: 0.0,

@@ -11,6 +11,9 @@ import {
   repairTyre,
   inflateTyre,
   rimLump,
+  updateCondition,
+  conditionState,
+  setConditionState,
 } from './tyres.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
@@ -28,7 +31,8 @@ import {
 //     plus the engine's reflected inertia on driven wheels): it free-spins
 //     in the air, spins up / locks when the patch exceeds static grip, and
 //     then slides with the surface's lower dynamic friction.
-//  6. Tyres wear and puncture (tyres.js); a flat runs on its rim.
+//  6. Tyres wear and puncture (tyres.js); a flat runs on its rim. Their compound,
+//     temperature, dirt and water scale grip (tyres/).
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
@@ -231,17 +235,19 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   function repairTyres() {
     for (const wheel of vehicle.wheelInfos) repairTyre(wheel);
   }
-  /** Per-wheel [{ tread, punctured }], for the save. */
+  /** Per-wheel [{ tread, punctured, tempC, dirt, wetness }], for the save. */
   function getTyreState() {
-    return vehicle.wheelInfos.map((w) => ({ tread: w.tread, punctured: w.punctured }));
+    return vehicle.wheelInfos.map((w) => ({ tread: w.tread, punctured: w.punctured, ...conditionState(w) }));
   }
-  function setTyreState(state) {
+  /** `parkedS`: time since the state was saved, the tyres cool meanwhile. */
+  function setTyreState(state, parkedS = 0) {
     if (!Array.isArray(state) || state.length !== vehicle.wheelInfos.length) return;
     state.forEach((s, i) => {
       const wheel = vehicle.wheelInfos[i];
       repairTyre(wheel);
       if (Number.isFinite(s?.tread)) wheel.tread = Math.min(1, Math.max(0, s.tread));
       if (s?.punctured === true) punctureTyre(wheel);
+      setConditionState(wheel, s, parkedS);
     });
   }
   // Called with the wheel index when a tyre pops (sound).
@@ -473,6 +479,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       w = approachZero(wDrive * (1 - Math.min(1, AIR_SPIN_DRAG_PER_S * dt)), brakeLimit / spinMass);
       wheel.spinSlipSpeed = 0;
       wheel.sideSlipSpeed = 0;
+      updateCondition(wheel, null, 0, 0, 0, dt);
     } else {
       w = applyGroundFriction(wheel, dt, spinMass, wDrive, brakeLimit, wasSliding);
     }
@@ -605,7 +612,9 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     }
     if (body.type === CANNON.Body.DYNAMIC) {
       const slipSpeed = Math.hypot(wheel.spinSlipSpeed, wheel.sideSlipSpeed);
-      if (wearTyre(wheel, Math.hypot(longImpulse, sideImpulse), slipSpeed, vLong, compound, dt)) popTyre(wheel);
+      const frictionImpulse = Math.hypot(longImpulse, sideImpulse);
+      updateCondition(wheel, wheel.surface, frictionImpulse / dt, slipSpeed, vLong, dt);
+      if (wearTyre(wheel, frictionImpulse, slipSpeed, vLong, compound, dt)) popTyre(wheel);
     }
     return w;
   }

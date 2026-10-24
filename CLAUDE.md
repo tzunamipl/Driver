@@ -33,9 +33,14 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
     with neutral; optional turbo from descriptor `turbo` - boost lag scales torque, gauge in `hud/boostGauge.js`; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `engineHeat.js` (block/coolant/oil temps from load, rpm and airflow; thermostat + fan; descriptor `radiator`/`coolantL`; coolant level with leaks from nose hits (`collisions.js` `frontImpactSpeed`) and boil-over, limp-mode `powerFactor` into `engine.js`; fixed by reset and `repairs: true` rally points; outside air = `AMBIENT_TEMP_C` placeholder), `airDrag.js`,
-    `surfaceCompounds.js` (also per-surface tyre wear / puncture multipliers), `terrainSurface.js`. `tyres.js` = tread wear
+    `surfaceCompounds.js` (also per-surface tyre wear / puncture / wet / dirt factors), `terrainSurface.js`. `tyres.js` = tread wear
     (grip), rim-strike punctures and running on the rim (smaller radius, drag, toe pull, no sidewall), per-wheel
     fields used by `wheeledVehicle.js`; reset and rally service points (`tyres: true` point types) fit fresh tyres.
+    `tyres/compounds.js` = tyre types (grip per surface, wear, temp window, wet/dirt traits; descriptor `tyreCompound` = stock),
+    `tyres/condition.js` = tread temperature, dirt, wetness (`WEATHER_WETNESS` placeholder in `config.js`),
+    `tyres/setup.js` = player setup { compound, rimSize, width, profile } around stock (descriptor `tyreSizes`), applied
+    to the descriptor by `createCar`. `garage.js` = per-mode, per-vehicle paint + tyre setup (mode-wide save field);
+    picked in `ui/tyreSetupPicker.js` (lobby, rally picker, debug picker, rally `ui/tyreServiceDialog.js`).
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`

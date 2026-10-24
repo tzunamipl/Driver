@@ -62,6 +62,7 @@ export default {
   rimSize: 18,
   tyre: 555,
   profile: 75,
+  tyreCompound: 'mud', // tyres/compounds.js
   suspension: SUSPENSION,
   suspensionForceG: SUSPENSION_FORCE_G,
   engine: 'v8',

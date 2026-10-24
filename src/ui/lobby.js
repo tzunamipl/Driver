@@ -2,6 +2,7 @@ import { NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.j
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
 import { createVehicleColorPicker } from './vehicleColorPicker.js';
+import { createTyreSetupPicker } from './tyreSetupPicker.js';
 import { getVehicleColor, setVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
@@ -74,11 +75,18 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   // Paint edits are drafts until join/apply.
   const colorPicker = createVehicleColorPicker({ onChange: (color) => vehiclePreview.setColor(color) });
   document.getElementById('lobby-color').append(colorPicker.el);
+  // Tyre edits too; shown once a game mode is picked (its garage keeps them).
+  const tyrePicker = createTyreSetupPicker({ onChange: (setup) => vehiclePreview.setTyreSetup(setup) });
+  document.getElementById('lobby-tyres').append(tyrePicker.el);
 
-  const showVehicleColor = () => colorPicker.show(vehiclePicker.getSelectedId());
+  const showVehicleColor = () => {
+    colorPicker.show(vehiclePicker.getSelectedId());
+    tyrePicker.show(vehiclePicker.getSelectedId());
+  };
 
   function showLobby({ cancellable = joined } = {}) {
     colorPicker.discard();
+    tyrePicker.discard();
     lobbyEl.style.display = '';
     lobbyCancel.hidden = !cancellable;
     lobbyJoin.disabled = false;
@@ -145,6 +153,7 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
 
   // Re-pick while already joined: apply live, no reconnect.
   function applyLivePick(name, color, vehicleId) {
+    tyrePicker.commit(); // the respawn fits the garage's tyres
     const carManager = getCarManager();
     carManager.setLocalName(name.slice(0, 16));
     carManager.spawnLocalCar(color, vehicleId);
@@ -159,6 +168,7 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
 
   function saveProfile(name, vehicleId) {
     colorPicker.commit();
+    tyrePicker.commit();
     saveChoices(name, toHex(colorPicker.getColor()), vehicleId);
     saved = loadSavedChoices();
   }

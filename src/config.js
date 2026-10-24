@@ -195,6 +195,7 @@ export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
 
 // ---------- Weather ----------
 export const AMBIENT_TEMP_C = 15; // outside air (°C); placeholder until weather drives it
+export const WEATHER_WETNESS = 0; // 0 dry .. 1 soaked surfaces (tyre wet grip); placeholder until rain drives it
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h speedo scale for rigs without an engine (wheeled cars use their gearing top speed)

@@ -114,6 +114,7 @@ import { createEditorNotePicking } from './app/editorNotePicking.js';
 import { createPacenotePanel } from './ui/pacenotePanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
+import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
 
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
@@ -385,6 +386,7 @@ const vehicleDebugPicker = createVehicleDebugPicker({
   tabsEl: document.getElementById('vehicle-debug-tabs'),
   listEl: document.getElementById('vehicle-debug-list'),
   colorEl: document.getElementById('vehicle-debug-color'),
+  tyresEl: document.getElementById('vehicle-debug-tyres'),
   initialVehicleId: devCarChoice?.vehicleId,
 });
 
@@ -546,6 +548,15 @@ menuPark = {
 };
 
 // ---------- Rally game mode ----------
+// Tyre service points: fresh tyres, then the dialog offers another type or size.
+const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose() }) : null;
+async function onTyreService() {
+  const vehicle = carManager.getVehicle();
+  vehicle?.repairTyres?.();
+  if (!vehicle?.tyreSetup) return;
+  const setup = await tyreService.open(carManager.getVehicleId());
+  if (setup && carManager.getVehicle() === vehicle) carManager.setTyreSetup(setup);
+}
 const rallySession =
   getActiveModeId() === 'rally' && !isEditorSession()
     ? createRallySession({
@@ -562,6 +573,7 @@ const rallySession =
         getVehicleId: () => carManager.getVehicleId(),
         switchVehicle,
         parkCar: input.latchHandbrake,
+        onTyreService,
         keepsProgress,
         playerId,
         getPlayerName: loadProfileName,

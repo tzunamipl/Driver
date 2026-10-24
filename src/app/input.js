@@ -1,4 +1,4 @@
-import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, BRAKE_RAMP_S, TURBO_MULT, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
+import { STEER_SPEED, MAX_STEER, BRAKE_FORCE, BRAKE_RAMP_S, TURBO_MULT, IS_DEV_MODE, HANDBRAKE_LATCH_S, GEAR_MODE_STORAGE_KEY, TRANSMISSION_STORAGE_KEY } from '../config.js';
 import { GEAR_MODES } from '../lib/engine.js';
 
 // Keyboard -> vehicle controls, applied each frame.
@@ -107,7 +107,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     const left = keys.has('KeyA') || keys.has('ArrowLeft');
     const right = keys.has('KeyD') || keys.has('ArrowRight');
     const handbrakePressed = keys.has('Space');
-    const turbo = keys.has('ShiftLeft') || keys.has('ShiftRight');
+    const turbo = IS_DEV_MODE && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
     const forceScale = turbo ? TURBO_MULT : 1;
 
     // Flat fallback force; hover rigs use it only as a ±1 throttle sign,

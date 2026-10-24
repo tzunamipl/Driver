@@ -7,6 +7,13 @@
 //     up bumps and a flapping tyre thumping once per revolution.
 // Rim strikes pop a tyre: the suspension bottoms out and the tyre is crushed
 // against the rim faster than it can take, less the more worn it is.
+// wheel.compound (tyres/compounds.js) sets grip per surface, wear, rolling drag and
+// carcass strength; temperature, dirt and water live in tyres/condition.js.
+import { getSurfaceCompound } from './surfaceCompounds.js';
+import { compoundGripOn, compoundWearOn, compoundRollingOn } from './tyres/compounds.js';
+import { initCondition, freshCondition, temperatureGrip, wetGrip, dirtGrip, overheatWear } from './tyres/condition.js';
+
+export { updateCondition, conditionState, setConditionState } from './tyres/condition.js';
 
 const GRAVITY = 9.82;
 // Metres of slip at a friction force equal to the static load that wear a tyre bald.
@@ -40,21 +47,36 @@ export function initTyre(wheel) {
   wheel.staticLoadN ??= (wheel.body.mass * GRAVITY) / 4;
   wheel.lastStrikeSpeed = 0; // debug HUD: last rim strike (m/s) and what it took to pop
   wheel.lastStrikeLimit = 0;
+  wheel.strikeScale ??= 1; // sidewall height vs stock (tyres/setup.js): taller survives harder hits
+  initCondition(wheel);
 }
 
-/** Grip multiplier from tread wear, or the rim's when punctured. */
+/** Grip multiplier on the wheel's surface: compound, tread, temperature, water and dirt; the rim's when punctured. */
 export function tyreGrip(wheel) {
   if (wheel.punctured) return RIM_GRIP;
-  return 1 - WORN_GRIP_LOSS * Math.pow(1 - wheel.tread, WORN_GRIP_CURVE);
+  return treadGrip(wheel) * gripBreakdown(wheel).total;
+}
+
+/** Tread wear's share of grip. */
+export const treadGrip = (wheel) => 1 - WORN_GRIP_LOSS * Math.pow(1 - wheel.tread, WORN_GRIP_CURVE);
+
+/** Condition factors of tyreGrip (tread aside), for the debug HUD. */
+export function gripBreakdown(wheel) {
+  const surface = getSurfaceCompound(wheel.surface);
+  const compound = compoundGripOn(wheel.compound, wheel.surface);
+  const temp = temperatureGrip(wheel);
+  const wet = wetGrip(wheel, surface);
+  const dirt = dirtGrip(wheel, surface);
+  return { compound, temp, wet, dirt, total: compound * temp * wet * dirt };
 }
 
 export function tyreRollingResistance(wheel) {
-  return wheel.punctured ? RIM_ROLLING_RESISTANCE : 1;
+  return wheel.punctured ? RIM_ROLLING_RESISTANCE : compoundRollingOn(wheel.compound, wheel.surface);
 }
 
 /** Strike speed that pops this tyre on this surface. */
 export function strikeLimit(wheel, compound) {
-  const strength = MIN_STRENGTH + (1 - MIN_STRENGTH) * wheel.tread;
+  const strength = (MIN_STRENGTH + (1 - MIN_STRENGTH) * wheel.tread) * (wheel.compound.puncture ?? 1) * wheel.strikeScale;
   return (STRIKE_SPEED * strength) / (compound.punctureMultiplier ?? 1);
 }
 
@@ -70,7 +92,8 @@ export function wearTyre(wheel, frictionImpulse, slipSpeed, rollSpeed, compound,
   const wear =
     (loadShare * slipSpeed * dt) / SLIDE_LIFE_M +
     (Math.abs(rollSpeed) * dt * (ROLL_WEAR_BASE + grip * grip)) / ROLL_LIFE_M;
-  wheel.tread = Math.max(0, wheel.tread - wear * (compound.tyreWearMultiplier ?? 1));
+  const tyreWear = compoundWearOn(wheel.compound, wheel.surface) * overheatWear(wheel);
+  wheel.tread = Math.max(0, wheel.tread - wear * tyreWear * (compound.tyreWearMultiplier ?? 1));
   return wheel.tread === 0;
 }
 
@@ -99,8 +122,10 @@ export function inflateTyre(wheel) {
   wheel.rimToe = 0;
 }
 
+/** Fresh tyre of the same compound: full tread, clean, at outside temperature. */
 export function repairTyre(wheel) {
   inflateTyre(wheel);
+  freshCondition(wheel);
   wheel.tread = 1;
   wheel.lastStrikeSpeed = 0;
   wheel.lastStrikeLimit = 0;

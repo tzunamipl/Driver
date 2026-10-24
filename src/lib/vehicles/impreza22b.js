@@ -13,6 +13,7 @@ export default {
   rimSize: 17,
   tyre: 235,
   profile: 40,
+  tyreCompound: 'gravelHard', // tyres/compounds.js
   axles: carAxles('awd', 0.83),
   suspension: {
     suspensionStiffness: 48,

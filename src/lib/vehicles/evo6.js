@@ -13,6 +13,7 @@ export default {
   rimSize: 15,
   tyre: 205,
   profile: 65,
+  tyreCompound: 'gravelHard', // tyres/compounds.js
   suspension: {
     suspensionStiffness: 45,
     suspensionRestLength: 0.15,

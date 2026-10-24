@@ -15,6 +15,7 @@ export default {
   rimSize: 22.5,
   tyre: 315,
   profile: 80,
+  tyreCompound: 'allTerrain', // tyres/compounds.js
   axles: [
     { z: 3.0, halfTrack: 1.0, steer: true, driven: true },
     { z: -1.6, halfTrack: 0.95, dual: true, driven: true },

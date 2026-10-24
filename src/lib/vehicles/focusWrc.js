@@ -13,6 +13,7 @@ export default {
   rimSize: 18,
   tyre: 225,
   profile: 40,
+  tyreCompound: 'semiSlickHard', // tyres/compounds.js
   axles: carAxles('awd', 0.82),
   suspension: {
     suspensionStiffness: 50,

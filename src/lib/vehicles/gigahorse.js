@@ -18,6 +18,7 @@ export default {
   gloss: 0.8,
   buildBody,
   ...FRONT_WHEEL,
+  tyreCompound: 'allTerrain', // tyres/compounds.js
   axles: [
     { z: 2.0, halfTrack: 0.98, steer: true },
     { z: -2.0, halfTrack: 1.33, driven: true, wheel: REAR_WHEEL, attachY: ATTACH_Y + REAR_RADIUS_GAIN },

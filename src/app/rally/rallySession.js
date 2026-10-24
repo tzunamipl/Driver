@@ -23,6 +23,8 @@ import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { getVehicle } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
+import { getTyreSetup } from '../../lib/garage.js';
+import { sameTyreSetup } from '../../lib/tyres/setup.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
@@ -103,6 +105,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {() => string} deps.getVehicleId
  * @param {(vehicleId: string) => void} deps.switchVehicle
  * @param {() => void} deps.parkCar - pulls the handbrake once the car is placed at a stage.
+ * @param {() => void} [deps.onTyreService] - a tyre service point was passed (default: fresh tyres).
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
  * @param {string} deps.playerId - for the online leaderboard.
  * @param {() => string | null} deps.getPlayerName
@@ -114,7 +117,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -345,6 +348,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       finished = false;
       saveProgress();
       if (picked.vehicleId !== getVehicleId() || getVehicleColor(picked.vehicleId) !== carManager.getColor()) switchVehicle(picked.vehicleId);
+      else if (!sameTyreSetup(getTyreSetup(picked.vehicleId), carManager.getVehicle()?.tyreSetup)) carManager.setTyreSetup(getTyreSetup(picked.vehicleId));
       await startPlan(picked.plan);
     } catch (err) {
       console.warn('Rally:', err);
@@ -596,7 +600,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
           : dist < gate?.halfWidth + LIAISON_PASS_PAD_M;
         if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
-          if (pointType?.tyres) carManager.getVehicle()?.repairTyres?.(); // service: fresh tyres
+          if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
           if (pointType?.repairs) carManager.getVehicle()?.heat?.repair();
           itemDone(null);
         }

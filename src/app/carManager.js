@@ -4,6 +4,8 @@ import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
 import { DEFAULT_VEHICLE_ID, getVehicle } from '../lib/vehicles/index.js';
 import { DEFAULT_BODY_COLOR } from '../config.js';
 import { applyImpactRoll, frontImpactSpeed } from './collisions.js';
+import { getTyreSetup } from '../lib/garage.js';
+import { sameTyreSetup } from '../lib/tyres/setup.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
@@ -31,7 +33,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
   // Fuel of the last car removed (or the save), so a recolour/respawn doesn't refill it.
   let carriedFuel = initialFuel;
-  let carriedTyres = initialTyres; // { vehicleId, wheels: [{ tread, punctured }] }
+  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }] }
+  let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
   let carVehicleId = null; // vehicle id the current car was built as
 
@@ -44,7 +47,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   }
 
   function getTyreState() {
-    return vehicle?.getTyreState ? { vehicleId: carVehicleId, wheels: vehicle.getTyreState() } : null;
+    return vehicle?.getTyreState ? { vehicleId: carVehicleId, setup: vehicle.tyreSetup, savedAt: Date.now(), wheels: vehicle.getTyreState() } : null;
   }
 
   function hookCar(nextVehicle, mesh) {
@@ -52,7 +55,11 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     if (nextVehicle.fuel && carriedFuel?.vehicleId === carVehicleId && Number.isFinite(carriedFuel.litres)) {
       nextVehicle.fuel.setLitres(carriedFuel.litres);
     }
-    if (nextVehicle.setTyreState && carriedTyres?.vehicleId === carVehicleId) nextVehicle.setTyreState(carriedTyres.wheels);
+    // Same tyres only: saves from before tyre setups carry no setup.
+    if (nextVehicle.setTyreState && carriedTyres?.vehicleId === carVehicleId && (!carriedTyres.setup || sameTyreSetup(carriedTyres.setup, nextVehicle.tyreSetup))) {
+      const parkedS = Number.isFinite(carriedTyres.savedAt) ? (Date.now() - carriedTyres.savedAt) / 1000 : 0;
+      nextVehicle.setTyreState(carriedTyres.wheels, parkedS);
+    }
     if (nextVehicle.heat && carriedHeat?.vehicleId === carVehicleId) {
       const parkedS = Number.isFinite(carriedHeat.savedAt) ? (Date.now() - carriedHeat.savedAt) / 1000 : 0;
       nextVehicle.heat.setState(carriedHeat, parkedS);
@@ -106,63 +113,61 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     podMesh = null;
   }
 
-  function spawnLocalCar(color, vehicleId) {
-    currentColor = color;
-    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
-    removeCurrentCar();
+  function buildCar(position, quaternion) {
     ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
       world,
       scene,
-      playerSpawnPos(),
-      playerSpawnQuat ? playerSpawnQuat() : startQuat,
+      position,
+      quaternion,
       currentColor,
-      currentVehicleId
+      currentVehicleId,
+      currentTyreSetup ?? getTyreSetup(currentVehicleId)
     ));
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
+  }
+
+  /** Rebuilds the car with the current kind/colour/tyres, same pose and velocity. */
+  function rebuildInPlace() {
+    const position = vehicle.chassisBody.position.clone();
+    const quaternion = vehicle.chassisBody.quaternion.clone();
+    const velocity = vehicle.chassisBody.velocity.clone();
+    removeCurrentCar();
+    buildCar(position, quaternion);
+    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
+  }
+
+  function spawnLocalCar(color, vehicleId) {
+    currentColor = color;
+    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    currentTyreSetup = null;
+    removeCurrentCar();
+    buildCar(playerSpawnPos(), playerSpawnQuat ? playerSpawnQuat() : startQuat);
   }
 
   /** Swaps the vehicle kind (and optionally colour) in place, same pose and velocity; debug picker. */
   function setVehicleKind(vehicleId, color = currentColor) {
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     currentColor = color;
-    if (!vehicle) return;
-    const position = vehicle.chassisBody.position.clone();
-    const quaternion = vehicle.chassisBody.quaternion.clone();
-    const velocity = vehicle.chassisBody.velocity.clone();
-    removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
-      world,
-      scene,
-      position,
-      quaternion,
-      currentColor,
-      currentVehicleId
-    ));
-    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
-    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
-    hookCar(vehicle, chassisMesh);
+    currentTyreSetup = null;
+    if (vehicle) rebuildInPlace();
   }
 
   /** Swaps the body colour in place; debug picker. */
   function setColor(color) {
     currentColor = color;
+    if (vehicle) rebuildInPlace();
+  }
+
+  /** Fits a tyre setup (tyres/setup.js) in place; new tyres unless it's the one already fitted. */
+  function setTyreSetup(setup) {
+    currentTyreSetup = setup;
     if (!vehicle) return;
-    const position = vehicle.chassisBody.position.clone();
-    const quaternion = vehicle.chassisBody.quaternion.clone();
-    const velocity = vehicle.chassisBody.velocity.clone();
-    removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
-      world,
-      scene,
-      position,
-      quaternion,
-      currentColor,
-      currentVehicleId
-    ));
-    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
-    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
-    hookCar(vehicle, chassisMesh);
+    if (sameTyreSetup(setup, vehicle.tyreSetup)) {
+      vehicle.repairTyres?.();
+      return;
+    }
+    rebuildInPlace(); // the old tyres' state doesn't match the new setup, so they start fresh
   }
 
   // `poses` are already remapped into the view frame by mainLoop.
@@ -223,6 +228,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     spawnLocalCar,
     setVehicleKind,
     setColor,
+    setTyreSetup,
     updateRemotes,
     getRemoteLights,
     shiftOrigin,
