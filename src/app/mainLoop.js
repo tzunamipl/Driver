@@ -77,6 +77,7 @@ export function createMainLoop({
   waterImmersion,
   tireSmoke,
   exhaustFlames,
+  rimSparks,
   terrainDust,
   bodyDust,
   dissolve,
@@ -378,6 +379,7 @@ export function createMainLoop({
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
+    rimSparks.update(frameDelta, currentVehicle, world);
     exhaustFlames.update(frameDelta, currentVehicle, currentChassisMesh, getVehicleDescriptor(carManager.getVehicleId()));
     tireSqueal.update(currentVehicle);
     gravelSpinSound.update(currentVehicle);

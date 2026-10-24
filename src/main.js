@@ -12,6 +12,7 @@ import { createSplash } from './lib/splash.js';
 import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createExhaustFlames } from './lib/exhaustFlames.js';
+import { createRimSparks } from './lib/rimSparks.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createDissolve } from './lib/dissolve.js';
@@ -30,6 +31,7 @@ import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createTyrePopSound } from './lib/audio/tyrePop.js';
+import { createRimGrindSound } from './lib/audio/rimGrind.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
@@ -82,6 +84,7 @@ import { createSuspensionHud } from './hud/suspensionHud.js';
 import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
+import { setupDebugFolds } from './hud/debugFold.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
@@ -335,6 +338,9 @@ const debugVisuals = createDebugVisualsToggle(
   IS_DEV_MODE
 );
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
+setupDebugFolds(
+  ['suspension-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+);
 createSurfaceHover({
   el: document.getElementById('surface-hover'),
   canvas: renderer.domElement,
@@ -347,6 +353,7 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
+const rimSparks = createRimSparks(scene, { onGrind: createRimGrindSound().update });
 const carManager = createCarManager({
   world,
   scene,
@@ -356,6 +363,7 @@ const carManager = createCarManager({
   bodyScrapeSound,
   impactSound,
   tyrePopSound,
+  rimSparks,
   playerSpawnPos,
   startQuat: START_QUAT,
   playerSpawnQuat,
@@ -592,7 +600,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, ...(rallySession ? [rallySession] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, ...(rallySession ? [rallySession] : [])],
 });
 
 // ---------- Main loop ----------
@@ -634,6 +642,7 @@ const mainLoop = createMainLoop({
   waterImmersion,
   tireSmoke,
   exhaustFlames,
+  rimSparks,
   terrainDust,
   bodyDust,
   dissolve,

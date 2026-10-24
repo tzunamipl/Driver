@@ -268,3 +268,26 @@
   background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
   box-shadow: var(--w95-pressed);
 }
+/* Click a debug panel's title to fold it down to just the title. */
+.debug-fold-title {
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  pointer-events: auto; /* some panels are click-through */
+}
+.debug-fold-title::before {
+  content: '▾ ';
+}
+.debug-folded > .debug-fold-title::before {
+  content: '▸ ';
+}
+.debug-folded > :not(.debug-fold-title) {
+  display: none !important; /* beats the panels' id-scoped display rules */
+}
+#fps-graph-panel > .debug-fold-title,
+#terrain-stats > .debug-fold-title {
+  margin-bottom: 4px;
+}
+.debug-folded > .debug-fold-title {
+  margin-bottom: 0 !important;
+}

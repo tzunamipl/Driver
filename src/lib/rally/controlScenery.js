@@ -24,7 +24,7 @@ import { createTrigger, launchDebris, settleDebris } from '../knockable.js';
 import { controlFrame } from '../scenarios/roadSnap.js';
 import { boardTexture, bannerTexture } from './fiaBoards.js';
 import { createFireworks } from './fireworks.js';
-import { createSparkles } from './sparkles.js';
+import { createSparkles } from '../particles/sparkles.js';
 import { CLOCK_HEIGHT_M, makeClock, setClockTime } from './timingClock.js';
 import * as props from './zoneProps.js';
 import { bakeProps } from './zoneProps.js';

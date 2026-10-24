@@ -39,14 +39,15 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`
-    (backfire pops scaled by descriptor `backfire` 0..1, tips from `exhaustTips`) (all on
-    `particles/puffPool.js`), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
+    (backfire pops scaled by descriptor `backfire` 0..1, tips from `exhaustTips`, plus a flash point light) (all on
+    `particles/puffPool.js`), `rimSparks.js` (tyre-pop smoke + spark burst, sparks from flat rims on road/rock; streaks
+    from `particles/sparkles.js`, shared with the rally controls), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
     `headlights.js` = cosmetic lamps + front and rear ground spotlights (brake/reverse on the rear; on/off in `app/headlightSwitch.js`); geometry builders tag lamp
     materials with `userData: { lamp: 'head' | 'tail' | 'fog' }`.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):

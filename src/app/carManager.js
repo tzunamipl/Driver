@@ -8,7 +8,7 @@ import { applyImpactRoll, frontImpactSpeed } from './collisions.js';
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
 /** initialFuel / initialTyres / initialHeat: { vehicleId, ... } from the save; respawns of that vehicle keep them. */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -57,7 +57,10 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       const parkedS = Number.isFinite(carriedHeat.savedAt) ? (Date.now() - carriedHeat.savedAt) / 1000 : 0;
       nextVehicle.heat.setState(carriedHeat, parkedS);
     }
-    nextVehicle.onTyrePop = () => tyrePopSound?.play();
+    nextVehicle.onTyrePop = (i) => {
+      tyrePopSound?.play();
+      rimSparks?.burst(nextVehicle.wheelInfos[i], nextVehicle.chassisBody.velocity);
+    };
     const onCollide = (body) => (event) => {
       const hitGroup = event.body.collisionFilterGroup;
       if (body === nextVehicle.chassisBody && nextVehicle.heat && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {

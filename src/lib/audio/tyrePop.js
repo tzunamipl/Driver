@@ -1,5 +1,6 @@
 // Tyre puncture: a sharp bang (noise crack over a low thump), then the air
-// rushing out as a hiss that falls in pitch and fades.
+// rushing out as a hiss that falls in pitch and fades, with a crackle of
+// sparks as the rim hits the ground.
 
 import { getAudio } from './audioContext.js';
 import { playThud } from './impact.js';
@@ -9,6 +10,9 @@ const BANG_LEN_S = 0.07;
 const HISS_GAIN = 0.35;
 const HISS_LEN_S = 1.4;
 const HISS_HZ = [5200, 1800]; // band centre over the hiss
+const CRACKLES = 10;
+const CRACKLE_SPREAD_S = 0.35;
+const CRACKLE_GAIN = 0.22;
 const COOLDOWN_S = 0.05; // two tyres on one hit still read as two pops
 
 function playBang(ctx, out, now) {
@@ -44,6 +48,22 @@ function playHiss(ctx, out, now) {
   src.stop(now + HISS_LEN_S);
 }
 
+function playCrackle(ctx, out, at) {
+  const { noise } = getAudio();
+  const len = 0.01 + Math.random() * 0.012;
+  const src = ctx.createBufferSource();
+  src.buffer = noise;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 3500 + Math.random() * 3500;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(CRACKLE_GAIN * (0.4 + Math.random() * 0.6), at);
+  g.gain.exponentialRampToValueAtTime(0.001, at + len);
+  src.connect(filter).connect(g).connect(out);
+  src.start(at, Math.random() * 0.5);
+  src.stop(at + len);
+}
+
 export function createTyrePopSound() {
   let lastAt = 0;
   return {
@@ -57,6 +77,7 @@ export function createTyrePopSound() {
       playBang(ctx, buses.carSfx, now);
       playThud(0.6, { gain: 1.2, pitch: 0.8, crunch: 0, knock: 1, length: 0.5, attack: 0.002 });
       playHiss(ctx, buses.carSfx, now);
+      for (let i = 0; i < CRACKLES; i++) playCrackle(ctx, buses.carSfx, now + 0.02 + CRACKLE_SPREAD_S * Math.random() ** 1.5);
     },
   };
 }

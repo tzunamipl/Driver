@@ -195,7 +195,7 @@
       <div id="pacenote-panel" hidden></div>
       <div id="debug-hud-row">
         <div id="suspension-hud">
-          <div class="susp-title">SUSPENSION</div>
+          <div class="susp-title debug-fold-title">SUSPENSION</div>
           <div class="susp-grid" id="susp-grid"></div>
           <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
           <div class="susp-landed" id="susp-fuel" title="Average fuel consumption over the last minute">
@@ -221,13 +221,13 @@
           </div>
         </div>
         <div id="vehicle-debug-hud">
-          <div class="susp-title">VEHICLE</div>
+          <div class="susp-title debug-fold-title">VEHICLE</div>
           <div id="vehicle-debug-tabs"></div>
           <div id="vehicle-debug-list"></div>
           <div id="vehicle-debug-color"></div>
         </div>
         <div id="debug-layers-hud">
-          <div class="susp-title">LAYERS</div>
+          <div class="susp-title debug-fold-title">LAYERS</div>
           <div class="debug-layers-list"></div>
           <div class="susp-title debug-time-title">TIME</div>
           <div class="debug-time-list"></div>
@@ -255,7 +255,7 @@
     <div id="road-bed-inspect"></div>
     <div id="top-right-stack">
       <div id="top-right-row">
-        <div id="fps-graph-panel"><canvas id="fps-graph"></canvas><div id="fps-graph-label"></div></div>
+        <div id="fps-graph-panel"><div class="debug-fold-title">FPS</div><canvas id="fps-graph"></canvas><div id="fps-graph-label"></div></div>
         <div id="players-panel">
           <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
           <div id="players-list"></div>
@@ -263,7 +263,7 @@
       </div>
       <div id="rally-plan" hidden></div>
       <div id="editor-panel" hidden></div>
-      <div id="terrain-stats"></div>
+      <div id="terrain-stats"><div class="debug-fold-title">STREAMING</div><div class="ts-body"></div></div>
     </div>
     <div id="minimap">
       <div id="minimap-info">
