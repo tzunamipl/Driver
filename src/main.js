@@ -568,8 +568,10 @@ menuPark = {
     document.documentElement.classList.add('menu-aside');
     cameraFollow.holdView('drone', { screenX: carBesideMenus });
   },
-  onClose() {
+  /** @param {{ releaseHandbrake?: boolean }} [opts] - let the handbrake off once no menu is left. */
+  onClose({ releaseHandbrake = false } = {}) {
     if (menusOpen === 0 || --menusOpen > 0) return;
+    if (releaseHandbrake) input.releaseHandbrake();
     input.setLocked(false);
     document.documentElement.classList.remove('menu-aside');
     cameraFollow.releaseView();
@@ -579,7 +581,7 @@ menuPark = {
 // ---------- Rally game mode ----------
 // Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size.
 // A click on the tyre props (fitted: false) opens it without the free set: Fit puts one on.
-const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose() }) : null;
+const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 async function onTyreService({ fitted = true } = {}) {
   const vehicle = carManager.getVehicle();
   const removed = vehicle?.getTyreState ? { setup: vehicle.tyreSetup, labels: vehicle.wheelLabels, wheels: vehicle.getTyreState() } : null;
@@ -589,7 +591,7 @@ async function onTyreService({ fitted = true } = {}) {
   if (setup && carManager.getVehicle() === vehicle) carManager.setTyreSetup(setup);
 }
 // Refuel points / a click on the bowser: litres to add.
-const refuelDialog = isRallyGame ? createRefuelDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose() }) : null;
+const refuelDialog = isRallyGame ? createRefuelDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 async function onRefuel() {
   const vehicle = carManager.getVehicle();
   if (!vehicle?.fuel) return;

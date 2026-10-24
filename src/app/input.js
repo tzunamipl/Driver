@@ -272,6 +272,10 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       handbrakeLatched = true;
       onHandbrakeLatch?.();
     },
+    /** Lets a latched handbrake off. */
+    releaseHandbrake() {
+      handbrakeLatched = false;
+    },
     /** On: driving keys are ignored (menus over the game). */
     setLocked(on) {
       locked = on;

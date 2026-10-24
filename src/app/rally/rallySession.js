@@ -32,6 +32,8 @@ const SPAWN_DROP_M = 1.5;
 const LIAISON_PASS_PAD_M = 3; // liaison point passed within its half width + this
 const LIAISON_STOP_ZONE_M = 15; // stop-type liaison points: stop within this
 const LIAISON_STOP_SPEED = 0.6; // m/s: counts as stopped
+const REFUEL_MENU_SPEED = 1.5; // m/s: a passed refuel point's menu opens once the car is this slow
+const REFUEL_WAIT_M = 60; // ...unless it drives on further than this first
 const ROUTE_MIN_M = 250; // closer targets aren't worth a navigation route
 const JUMP_GUARD_M = 50; // a step moving the car further (teleport, reset) checks nothing
 const SPLIT_SHOW_S = 5;
@@ -133,6 +135,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   let finishHeld = false;
   let busy = false; // picking / loading / spawning
   let prev = null; // car world position after the last step
+  let refuelWaitM = null; // metres driven since passing a refuel point whose menu waits for a stop
   let simTime = 0;
   let flash = null; // { text, until, result? } short status after a split / GO / a rally's stage
   let resultRows = null; // stable array for the HUD while unchanged
@@ -607,7 +610,16 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       step.z = pos.z;
       if (!prev || Math.hypot(step.x - prev.x, step.z - prev.z) > JUMP_GUARD_M) {
         prev = { x: step.x, z: step.z };
+        refuelWaitM = null;
         return;
+      }
+      if (refuelWaitM !== null) {
+        refuelWaitM += Math.hypot(step.x - prev.x, step.z - prev.z);
+        if (refuelWaitM > REFUEL_WAIT_M) refuelWaitM = null;
+        else if (carManager.getVehicle().chassisBody.velocity.length() < REFUEL_MENU_SPEED) {
+          refuelWaitM = null;
+          onRefuel?.();
+        }
       }
       if (keepsProgress && simTime >= nextProgressSave) saveProgress();
       const item = currentItem();
@@ -624,7 +636,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
           if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
           if (pointType?.repairs) carManager.getVehicle()?.repairDamage?.();
-          if (pointType?.refuel) onRefuel?.();
+          if (pointType?.refuel) refuelWaitM = 0;
           itemDone(null);
         }
       }
