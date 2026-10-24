@@ -40,6 +40,8 @@ const MUD_DIRT_GAIN = 1;
 const SOAK_PER_S = 2;
 const DRY_PER_M = 1 / 400;
 const DRY_PER_S = 1 / 120;
+// Warmed-up tyres (event start) sit this share of the window below the optimum.
+const WARM_WINDOW_SHARE = 0.5;
 
 /** Sets a wheel's condition fields (fresh, at outside temperature); call from initTyre. */
 export function initCondition(wheel) {
@@ -55,6 +57,12 @@ export function freshCondition(wheel) {
   wheel.tempC = AMBIENT_TEMP_C;
   wheel.dirt = 0;
   wheel.wetness = WEATHER_WETNESS;
+}
+
+/** Tread warmed to just under the compound's optimum (tyre blankets before a start). */
+export function warmCondition(wheel) {
+  const c = wheel.compound;
+  wheel.tempC = Math.max(wheel.tempC, c.optimalTempC - c.windowC * WARM_WINDOW_SHARE);
 }
 
 /** Temperature grip multiplier: 1 in the window, down to 1 - tempGripLoss TEMP_FALLOFF_C beyond it. */

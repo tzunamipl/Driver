@@ -16,9 +16,10 @@ export function wheelRadiusOf(d) {
   return d.wheelRadius ?? DEFAULT_WHEEL_RADIUS;
 }
 
-/** Tyre (torus sidewalls + tread cylinder) and rim, added to `parent`. */
-export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
-  const segments = 8;
+const DEFAULT_SEGMENTS = 8;
+
+/** Tyre (torus sidewalls + tread cylinder) and rim, added to `parent`; `segments` around (low-poly in game). */
+export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent, segments = DEFAULT_SEGMENTS) {
   const tyreWallScale = 0.3;
   const group = new THREE.Group();
   const rimDiameter = rimSize * 2.54 / 100;

@@ -33,6 +33,9 @@ function select(label, onChange) {
   return { wrap, input };
 }
 
+/** Whole wheel diameter (mm): rim plus two sidewalls. */
+const diameterMm = ({ rimSize, width, profile }) => rimSize * 25.4 + (2 * width * profile) / 100;
+
 function fillOptions(input, values, format = String) {
   input.replaceChildren(...values.map((v) => Object.assign(document.createElement('option'), { value: String(v), textContent: format(v) })));
 }
@@ -55,11 +58,12 @@ export function createTyreSetupPicker({ onChange, title = true } = {}) {
   }
   compound.input.append(...groups.values());
 
-  const width = select('Width', (v) => edit({ width: Number(v) }));
+  // Rim, then width: each picks the profile that keeps the wheel's diameter closest to stock.
+  const rim = select('Rim', (v) => edit(keepDiameter({ rimSize: Number(v) })));
+  const width = select('Width', (v) => edit(keepDiameter({ width: Number(v) })));
   const profile = select('Profile', (v) => edit({ profile: Number(v) }));
-  const rim = select('Rim', (v) => edit({ rimSize: Number(v) }));
   const sizeRow = el('div', 'tyre-setup-sizes');
-  sizeRow.append(width.wrap, profile.wrap, rim.wrap);
+  sizeRow.append(rim.wrap, width.wrap, profile.wrap);
 
   const summary = el('div', 'tyre-setup-summary');
   const sizeText = el('span', 'tyre-setup-size');
@@ -77,6 +81,17 @@ export function createTyreSetupPicker({ onChange, title = true } = {}) {
   let vehicleId = null;
 
   const setup = () => drafts.get(vehicleId) ?? getTyreSetup(vehicleId);
+
+  /** `patch` plus the profile whose wheel diameter is closest to the stock wheel's. */
+  function keepDiameter(patch) {
+    const descriptor = getVehicle(vehicleId);
+    const { rimSize, width } = { ...setup(), ...patch };
+    const target = diameterMm(stockTyreSetup(descriptor));
+    const best = tyreSizeOptions(descriptor).profile.reduce((a, b) =>
+      Math.abs(diameterMm({ rimSize, width, profile: b }) - target) < Math.abs(diameterMm({ rimSize, width, profile: a }) - target) ? b : a
+    );
+    return { ...patch, profile: best };
+  }
 
   function edit(patch) {
     drafts.set(vehicleId, sanitizeTyreSetup(getVehicle(vehicleId), { ...setup(), ...patch }));
@@ -120,8 +135,7 @@ export function createTyreSetupPicker({ onChange, title = true } = {}) {
     profile.input.value = String(s.profile);
     rim.input.value = String(s.rimSize);
     const stock = stockTyreSetup(descriptor);
-    const diameterMm = Math.round(s.rimSize * 25.4 + (2 * s.width * s.profile) / 100);
-    sizeText.textContent = `${tyreSizeLabel(s)} · ⌀${diameterMm} mm`;
+    sizeText.textContent = `${tyreSizeLabel(s)} · ⌀${Math.round(diameterMm(s))} mm`;
     stockBtn.disabled = sameTyreSetup(s, stock);
     renderTraits(getTyreCompound(s.compound));
   }

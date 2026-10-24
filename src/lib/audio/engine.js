@@ -7,7 +7,7 @@
 import { getAudio } from './audioContext.js';
 import { DEFAULT_ENGINE_SOUND, ENGINE_SOUNDS } from './engineProfiles.js';
 
-const MASTER_GAIN = 0.025;
+const MASTER_GAIN = 0.032;
 const FALLBACK_IDLE_RPM = 900; // hover rigs have no engine.js state
 const FALLBACK_REDLINE_RPM = 6500;
 const WAVE_SAMPLES = 2048;

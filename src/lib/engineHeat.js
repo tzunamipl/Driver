@@ -33,6 +33,10 @@ const BLOCK_AIR_W_PER_K_KW = 0.5; // engine bay at full airflow
 const THERMOSTAT_OPEN_C = 88;
 const THERMOSTAT_FULL_C = 98;
 const THERMOSTAT_LEAK = 0.05;
+// Working temperatures of a warmed-up engine (event start), °C.
+const WARM_BLOCK_C = 92;
+const WARM_COOLANT_C = 90;
+const WARM_OIL_C = 90;
 // Airflow 0..1: still air, ram air full at this speed, the fan's equivalent speed.
 const STILL_AIR = 0.06;
 const FULL_AIRFLOW_MS = 30;
@@ -115,6 +119,7 @@ export function createEngineHeat(descriptor, ambientC) {
     hitRadiator,
     startLeak,
     repair,
+    warmUp,
     getState,
     setState,
   };
@@ -179,6 +184,14 @@ export function createEngineHeat(descriptor, ambientC) {
   function repair() {
     heat.leakLps = 0;
     heat.coolantL = capacityL;
+  }
+
+  /** Repaired and at working temperature, as if warmed up before a start. */
+  function warmUp() {
+    repair();
+    heat.blockTempC = Math.max(heat.blockTempC, WARM_BLOCK_C);
+    heat.coolantTempC = Math.max(heat.coolantTempC, WARM_COOLANT_C);
+    heat.oilTempC = Math.max(heat.oilTempC, WARM_OIL_C);
   }
 
   function getState() {

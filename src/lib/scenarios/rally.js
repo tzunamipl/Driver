@@ -18,7 +18,7 @@ const HEADING_DECIMALS = 1;
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
-// stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; repairs: passing it fixes the radiator and tops up coolant;
+// stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; repairs: passing it fixes the radiator (topped up), shocks and lamps; refuel: passing it offers fuel;
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
   timeControl: {
@@ -62,8 +62,8 @@ const POINT_TYPES = {
     description: 'Liaison checkpoint where the field gathers between stages: drive through it.',
   },
   refuel: {
-    label: 'Refuel zone', short: 'FUEL', color: 0xff8a00, gate: true, defaultWidth: NARROW_GATE_WIDTH_M,
-    description: 'Liaison checkpoint at a refuelling zone: drive through it, from either direction.',
+    label: 'Refuel zone', short: 'FUEL', color: 0xff8a00, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, refuel: true,
+    description: 'Liaison checkpoint at a refuelling zone: drive through it, from either direction, and choose how much fuel to add.',
   },
   tyreFitting: {
     label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, stop: true, tyres: true,

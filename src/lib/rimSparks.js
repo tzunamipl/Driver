@@ -2,7 +2,7 @@
 // every rim running on a hard surface, more with rubbing speed. Visual only;
 // the grinding sound goes out via onGrind.
 
-import { isWheelGrounded } from './wheelContact.js';
+import { isWheelGrounded, wheelSide } from './wheelContact.js';
 import { createPuffPool } from './particles/puffPool.js';
 import { createSparkles } from './particles/sparkles.js';
 
@@ -26,7 +26,7 @@ function rubSpeed(wheel) {
 }
 
 /**
- * onGrind(dt, speed) fires once per update with the fastest sparking rim's rub speed (0 = none), for the sound.
+ * onGrind(dt, speed, side) fires once per update with the fastest sparking rim's rub speed (0 = none) and its side (-1 left .. 1 right), for the sound.
  */
 export function createRimSparks(scene, { onGrind } = {}) {
   const sparkles = createSparkles(scene);
@@ -72,13 +72,17 @@ export function createRimSparks(scene, { onGrind } = {}) {
     puffs.update(dt);
     sparkles.update(dt);
     let grind = 0;
+    let grindSide = 0;
     if (vehicle && world && dt > 0) {
       const next = new Map();
       for (const wheel of vehicle.wheelInfos) {
         if (!wheel.punctured || !HARD_SURFACES.has(wheel.surface)) continue;
         const speed = rubSpeed(wheel);
         if (speed < MIN_RUB_SPEED || !wheel.isInContact || !isWheelGrounded(world, wheel)) continue;
-        grind = Math.max(grind, speed);
+        if (speed > grind) {
+          grind = speed;
+          grindSide = wheelSide(wheel);
+        }
         const due = (owed.get(wheel) ?? 0) + Math.min(MAX_SPARKS_PER_S, speed * SPARKS_PER_M) * dt;
         const count = Math.floor(due);
         next.set(wheel, due - count);
@@ -92,7 +96,7 @@ export function createRimSparks(scene, { onGrind } = {}) {
       }
       owed = next;
     }
-    onGrind?.(dt, grind);
+    onGrind?.(dt, grind, grindSide);
   }
 
   return { update, burst, shiftOrigin: sparkles.shiftOrigin };

@@ -49,6 +49,9 @@ function isSpaceActivated(el) {
  */
 export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, holdLatchesHandbrake = () => true, onGearEvent } = {}) {
   const keys = new Set();
+  const noKeys = new Set();
+  // Locked (a menu over the game): the car gets no keys, as if nothing were pressed.
+  let locked = false;
   // Ignore keydown while typing in a field; keyup always runs so keys don't stick.
 
   // For gradual, not instant steering
@@ -93,6 +96,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   function updateControls(vehicle, reset, dt = 0) {
     throttle = 0;
     if (!vehicle) return;
+    const held = locked ? noKeys : keys;
     // Driven wheels; default RWD (hover rigs ignore the index).
     const driveWheels = vehicle.driveWheels ?? [2, 3];
     if (isTypingInField()) {
@@ -102,12 +106,12 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       vehicle.airControlYaw = 0;
       return;
     }
-    const forward = keys.has('KeyW') || keys.has('ArrowUp');
-    const backward = keys.has('KeyS') || keys.has('ArrowDown');
-    const left = keys.has('KeyA') || keys.has('ArrowLeft');
-    const right = keys.has('KeyD') || keys.has('ArrowRight');
-    const handbrakePressed = keys.has('Space');
-    const turbo = IS_DEV_MODE && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const forward = held.has('KeyW') || held.has('ArrowUp');
+    const backward = held.has('KeyS') || held.has('ArrowDown');
+    const left = held.has('KeyA') || held.has('ArrowLeft');
+    const right = held.has('KeyD') || held.has('ArrowRight');
+    const handbrakePressed = held.has('Space');
+    const turbo = IS_DEV_MODE && (held.has('ShiftLeft') || held.has('ShiftRight'));
     const forceScale = turbo ? TURBO_MULT : 1;
 
     // Flat fallback force; hover rigs use it only as a ±1 throttle sign,
@@ -135,8 +139,8 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       : (forward && movingBackward) || (backward && (movingForward || backwardBrakeOnly));
     // Gearbox force for wheeled cars. direction 0 while pedal-braking (no
     // premature reverse) but rpm/gear still track wheel speed for the HUD.
-    const shiftUp = keys.has('KeyE');
-    const shiftDown = keys.has('KeyQ');
+    const shiftUp = held.has('KeyE');
+    const shiftDown = held.has('KeyQ');
     if (vehicle.engine?.requestShift) {
       if (shiftUp && !shiftUpWasPressed) vehicle.engine.requestShift(1);
       if (shiftDown && !shiftDownWasPressed) vehicle.engine.requestShift(-1);
@@ -238,7 +242,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       setFourBrakes(vehicle, pedalBrake, handbrakeForce, handbrake, abs);
     }
 
-    const resetPressed = keys.has('KeyR');
+    const resetPressed = held.has('KeyR');
     if (resetPressed && !resetWasPressed && reset) reset();
     resetWasPressed = resetPressed;
   }
@@ -268,6 +272,11 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       handbrakeLatched = true;
       onHandbrakeLatch?.();
     },
+    /** On: driving keys are ignored (menus over the game). */
+    setLocked(on) {
+      locked = on;
+    },
+    isLocked: () => locked,
     getGearMode: () => gearMode,
     toggleGearMode() {
       gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];

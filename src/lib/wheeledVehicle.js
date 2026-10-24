@@ -9,12 +9,14 @@ import {
   strikeTyre,
   punctureTyre,
   repairTyre,
+  freshWarmTyre,
   inflateTyre,
   rimLump,
   updateCondition,
   conditionState,
   setConditionState,
 } from './tyres.js';
+import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } from './shocks.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -204,6 +206,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.spinMass = Math.max(MIN_SPIN_MASS, WHEEL_INERTIA_SHAPE * WHEEL_MASS_PER_R2_WIDTH * r2w);
     }
     initTyre(wheel);
+    initShock(wheel);
     vehicle.wheelInfos.push(wheel);
     return vehicle.wheelInfos.length - 1;
   }
@@ -234,6 +237,24 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   /** Fresh tyres on every wheel. */
   function repairTyres() {
     for (const wheel of vehicle.wheelInfos) repairTyre(wheel);
+  }
+  /** Fresh tyres on every wheel, warmed close to their working temperature. */
+  function fitWarmTyres() {
+    for (const wheel of vehicle.wheelInfos) freshWarmTyre(wheel);
+  }
+  /** Fresh shock absorbers on every wheel. */
+  function repairShocks() {
+    for (const wheel of vehicle.wheelInfos) repairShock(wheel);
+  }
+  /** Per-wheel shock health, for the save. */
+  function getShockState() {
+    return vehicle.wheelInfos.map((w) => w.shockHealth);
+  }
+  function setShockState(state) {
+    if (!Array.isArray(state) || state.length !== vehicle.wheelInfos.length) return;
+    state.forEach((health, i) => {
+      if (Number.isFinite(health)) setShockHealth(vehicle.wheelInfos[i], health);
+    });
   }
   /** Per-wheel [{ tread, punctured, tempC, dirt, wetness }], for the save. */
   function getTyreState() {
@@ -384,6 +405,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     if (!wheel.isInContact) {
       wheel.suspensionForce = 0;
       wheel.closingSpeed = 0;
+      endShockStrike(wheel);
       return;
     }
     const lengthDiff = wheel.suspensionRestLength - wheel.suspensionLength; // + = compressed
@@ -404,18 +426,21 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     wheel.raycastResult.hitPointWorld.vsub(body.position, suspensionRelPos);
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
     if (wheel.nearBumpStop && body.type === CANNON.Body.DYNAMIC) checkRimStrike(wheel, closingSpeed, dt);
+    else endShockStrike(wheel);
   }
 
   /**
    * Strike speed: the chassis closing on the ground, or the ground rising
    * under the wheel (kerb, rock) - a step of height h met at speed v rises
    * over about one tyre radius, so ~v * h / r (and never faster than one step).
+   * Wears the shock and may pop the tyre.
    */
   function checkRimStrike(wheel, closingSpeed, dt) {
     const rise = Math.max(0, wheel.groundRise);
     const speed = wheel.body.velocity.length();
     const kerbSpeed = Math.min(rise / dt, (speed * rise) / wheel.inflatedRadius);
     const strike = Math.max(closingSpeed, kerbSpeed);
+    strikeShock(wheel, strike);
     if (strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
 
@@ -672,6 +697,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   vehicle.setDriveline = setDriveline;
   vehicle.resetWheelSpin = resetWheelSpin;
   vehicle.repairTyres = repairTyres;
+  vehicle.fitWarmTyres = fitWarmTyres;
+  vehicle.repairShocks = repairShocks;
+  vehicle.getShockState = getShockState;
+  vehicle.setShockState = setShockState;
   vehicle.getTyreState = getTyreState;
   vehicle.setTyreState = setTyreState;
   vehicle.updateWheelTransform = updateWheelTransform;

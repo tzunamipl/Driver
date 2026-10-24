@@ -7,4 +7,5 @@
 export default {
   id: 'chase',
   label: 'Chase',
+  wheelStereo: true, // behind the car facing its way: wheel sounds pan hard by side
 };

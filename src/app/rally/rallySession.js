@@ -21,6 +21,7 @@ import { createStageRun } from './stageRun.js';
 import { createPacenoteRun } from './pacenoteRun.js';
 import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
+import { createZonePicking } from './zonePicking.js';
 import { getVehicle } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup } from '../../lib/garage.js';
@@ -105,7 +106,10 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {() => string} deps.getVehicleId
  * @param {(vehicleId: string) => void} deps.switchVehicle
  * @param {() => void} deps.parkCar - pulls the handbrake once the car is placed at a stage.
- * @param {() => void} [deps.onTyreService] - a tyre service point was passed (default: fresh tyres).
+ * @param {(opts?: {fitted?: boolean}) => void} [deps.onTyreService] - a tyre service point was passed (default: fresh tyres), or its props clicked ({ fitted: false }).
+ * @param {() => void} [deps.onRefuel] - a refuel point was passed or its bowser clicked.
+ * @param {HTMLCanvasElement} [deps.canvas] - with `camera`: service props answer the mouse (zonePicking.js).
+ * @param {import('three').Camera} [deps.camera]
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
  * @param {string} deps.playerId - for the online leaderboard.
  * @param {() => string | null} deps.getPlayerName
@@ -117,7 +121,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -152,6 +156,16 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   const isLive = () => !!run?.isLive();
   addressSearch.setBlocked(isLive);
   routeGuidance.setBlocked(isLive);
+  const picking = canvas
+    ? createZonePicking({
+        canvas,
+        camera,
+        scenery,
+        getVehicle: () => carManager.getVehicle(),
+        isEnabled: () => !!plan && !busy && !isLive(),
+        onAction: (action) => (action === 'tyres' ? onTyreService?.({ fitted: false }) : onRefuel?.()),
+      })
+    : null;
 
   const currentItem = () => plan?.items[itemIndex] ?? null;
   const bestKey = (stage) => localBestKey(plan.source, stage.id);
@@ -335,6 +349,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     routeToItem();
   }
 
+  /** A new event (picked, or a single stage restarted) starts in a brand new car. */
+  function newCar() {
+    carManager.getVehicle()?.makeNew?.();
+  }
+
   async function choose() {
     if (busy) return;
     busy = true;
@@ -350,6 +369,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (picked.vehicleId !== getVehicleId() || getVehicleColor(picked.vehicleId) !== carManager.getColor()) switchVehicle(picked.vehicleId);
       else if (!sameTyreSetup(getTyreSetup(picked.vehicleId), carManager.getVehicle()?.tyreSetup)) carManager.setTyreSetup(getTyreSetup(picked.vehicleId));
       await startPlan(picked.plan);
+      newCar();
     } catch (err) {
       console.warn('Rally:', err);
       plan = null;
@@ -367,6 +387,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       // Single stage: a fresh run; rally: the current stage again.
       const index = plan.kind === 'stage' ? 0 : itemIndex;
       await startPlan(plan, index, plan.kind === 'stage' ? [] : results);
+      if (plan.kind === 'stage') newCar();
     } finally {
       busy = false;
     }
@@ -544,6 +565,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         busy = true;
         try {
           await startPlan(initialPick.plan, 0, [], 'place');
+          newCar();
         } finally {
           busy = false;
         }
@@ -601,7 +623,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
           if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
-          if (pointType?.repairs) carManager.getVehicle()?.heat?.repair();
+          if (pointType?.repairs) carManager.getVehicle()?.repairDamage?.();
+          if (pointType?.refuel) onRefuel?.();
           itemDone(null);
         }
       }
@@ -612,6 +635,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     /** Per frame: scenery, start lights, HUD. */
     update(dt) {
       scenery.update(dt, carPosition());
+      picking?.update();
       // A liaison item is its one point: index 0.
       const next = run ? (run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1) : plan && !finished && currentItem() ? 0 : -1;
       scenery.setNext(next);

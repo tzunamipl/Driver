@@ -2,7 +2,8 @@
 // whose amplitude is shaken by a low-passed noise envelope (stones scattering),
 // plus a thin spatter hiss that grows with slip speed.
 
-import { getAudio } from './audioContext.js';
+import { getAudio, createWheelOutput } from './audioContext.js';
+import { wheelSide } from '../wheelContact.js';
 
 // Surfaces that crunch; road/rock/builtUp squeal (tireSqueal.js), water wades.
 export const GRAVEL_SURFACES = new Set(['unpaved', 'normal', 'forest', 'scrub', 'sand']);
@@ -23,6 +24,7 @@ const LAYERS = [
 
 export function createGravelSpinSound() {
   let voices = null;
+  let output = null;
 
   function build(ctx, out, noise) {
     // Shared crunch envelope: slow noise driving the grain gain's AudioParam.
@@ -65,22 +67,28 @@ export function createGravelSpinSound() {
   function update(vehicle) {
     let level = 0;
     let slip = 0;
+    let sideSum = 0;
     for (const w of vehicle?.wheelInfos ?? []) {
       if (!w.sliding || !GRAVEL_SURFACES.has(w.surface)) continue;
       const wheelSlip = Math.hypot(w.spinSlipSpeed ?? 0, w.sideSlipSpeed ?? 0);
       const frac = Math.min(1, wheelSlip / SLIP_FOR_MAX_MPS);
-      level += MIN_WHEEL_LEVEL + (1 - MIN_WHEEL_LEVEL) * frac;
+      const wheelLevel = MIN_WHEEL_LEVEL + (1 - MIN_WHEEL_LEVEL) * frac;
+      level += wheelLevel;
+      sideSum += wheelSide(w) * wheelLevel;
       slip = Math.max(slip, frac);
     }
+    const side = level > 0 ? sideSum / level : 0;
     level = Math.min(1, level / 2); // two sliding wheels = full
 
     const audio = getAudio();
     if (!audio) return;
-    const { ctx, buses, noise } = audio;
+    const { ctx, noise } = audio;
     if (!voices) {
       if (level <= 0) return; // don't start the graph until first needed
-      voices = build(ctx, buses.carSfx, noise);
+      output = createWheelOutput();
+      voices = build(ctx, output.input, noise);
     }
+    if (level > 0) output.setSide(side);
     const now = ctx.currentTime;
     for (const v of voices) {
       const { layer } = v;

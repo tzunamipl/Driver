@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { createPuffPool } from './particles/puffPool.js';
+import { localBounds } from './vehicleShared.js';
 
 const DEFAULT_BACKFIRE = 0;
 const POOL_SIZE = 96;
@@ -33,21 +34,6 @@ const LIGHT_FLICKER = 0.35; // random +/- share per frame
 
 const tipScratch = new THREE.Vector3();
 const dirScratch = new THREE.Vector3();
-
-/** Bounds of every mesh under `root` in root's own frame. */
-function localBounds(root) {
-  root.updateMatrixWorld(true);
-  const inverse = root.matrixWorld.clone().invert();
-  const toLocal = new THREE.Matrix4();
-  const part = new THREE.Box3();
-  const box = new THREE.Box3();
-  root.traverse((o) => {
-    if (!o.isMesh) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    box.union(part.copy(o.geometry.boundingBox).applyMatrix4(toLocal.multiplyMatrices(inverse, o.matrixWorld)));
-  });
-  return box;
-}
 
 /**
  * Creates the exhaust-flame effect. Call update() once per rendered frame.

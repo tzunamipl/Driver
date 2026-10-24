@@ -47,6 +47,9 @@ import { readSaveField, writeSaveField } from '../lib/saves.js';
 // the vehicle instead. Teleports swap in a wide orbit round the car until
 // it has landed at the destination.
 
+// 1/s: how fast a held view's projection slides the car beside a menu.
+const VIEW_SHIFT_RATE = 3;
+
 function isTypingInField() {
   const el = document.activeElement;
   if (!el) return false;
@@ -137,11 +140,17 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
 
   // View to go back to after holdView(); null when not held.
   let heldFrom = null;
+  let heldScreenX = null; // () => where the car should sit across the screen (0..1), null = centre
+  let viewShift = 0; // eased car offset from the screen centre, share of the width
 
-  /** Switches to `id` for a while (not saved); releaseView() returns to the previous view. */
-  function holdView(id) {
+  /**
+   * Switches to `id` for a while (not saved); releaseView() returns to the previous view.
+   * `screenX` keeps the car off centre (e.g. beside a menu) by shifting the projection.
+   */
+  function holdView(id, { screenX = null } = {}) {
     if (heldFrom == null) heldFrom = viewId;
     viewId = getCameraView(id, currentVehicleType).id;
+    heldScreenX = screenX;
     resetSmoothing();
   }
 
@@ -149,7 +158,19 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     if (heldFrom == null) return;
     viewId = getCameraView(heldFrom, currentVehicleType).id;
     heldFrom = null;
+    heldScreenX = null;
+    viewShift = 0;
+    if (camera.view?.enabled) camera.clearViewOffset();
     resetSmoothing();
+  }
+
+  /** Eases the held view's off-centre projection towards where heldScreenX wants the car. */
+  function updateViewShift(delta) {
+    if (!heldScreenX) return;
+    const target = (heldScreenX() ?? 0.5) - 0.5;
+    viewShift += (target - viewShift) * (1 - Math.exp(-VIEW_SHIFT_RATE * delta));
+    // Full width = the aspect, so the camera's aspect stays as it is.
+    camera.setViewOffset(camera.aspect, 1, -viewShift * camera.aspect, 0, camera.aspect, 1);
   }
 
   function cycleView() {
@@ -158,7 +179,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
 
   window.addEventListener('keydown', (e) => {
     if (isTypingInField()) return;
-    if (e.code === 'KeyC' && !e.repeat) cycleView();
+    if (e.code === 'KeyC' && !e.repeat && heldFrom == null) cycleView();
   });
 
   /** Camera fixed to `mountMesh`, aimed along `lookAtMesh` (default: the mount). */
@@ -520,6 +541,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
     keepAboveTerrain(camera.position);
     updateTransition(delta, chassisMesh.position, descriptor?.cameraScale ?? 1, teleporting, resetting);
     keepAboveTerrain(camera.position);
+    updateViewShift(delta);
   };
 
   /** Floating-origin shift (camera.position itself is moved by the caller). */

@@ -20,6 +20,7 @@ import { createWheeledVehicle } from './wheeledVehicle.js';
 import { createEngineState } from './engine.js';
 import { createFuelTank } from './fuel.js';
 import { createEngineHeat } from './engineHeat.js';
+import { createLampDamage } from './lampDamage.js';
 import { MAX_STEER, AMBIENT_TEMP_C } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
 import {
@@ -281,6 +282,20 @@ export function createCar(
   Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
   Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => vehicle.heat.powerFactor });
+  vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
+  /** Fixed radiator (topped up), fresh shocks, working lamps. */
+  vehicle.repairDamage = () => {
+    vehicle.heat.repair();
+    vehicle.repairShocks();
+    vehicle.lamps.repair();
+  };
+  /** Brand new for an event start: warm fresh tyres, no damage, full tank, engine at working temperature. */
+  vehicle.makeNew = () => {
+    vehicle.fitWarmTyres();
+    vehicle.repairDamage();
+    vehicle.heat.warmUp();
+    vehicle.fuel.setLitres(vehicle.fuel.capacityL);
+  };
   vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
   vehicle.hasTrailer = !!trailer;
@@ -473,7 +488,7 @@ export function createCar(
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres, fixes the radiator.
+  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres and shocks, fixes the radiator and lamps.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -500,7 +515,7 @@ export function createCar(
     setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
     vehicle.repairTyres();
-    vehicle.heat.repair();
+    vehicle.repairDamage();
     resetInterpolation();
   }
 

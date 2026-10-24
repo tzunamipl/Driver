@@ -11,15 +11,15 @@
 // carcass strength; temperature, dirt and water live in tyres/condition.js.
 import { getSurfaceCompound } from './surfaceCompounds.js';
 import { compoundGripOn, compoundWearOn, compoundRollingOn } from './tyres/compounds.js';
-import { initCondition, freshCondition, temperatureGrip, wetGrip, dirtGrip, overheatWear } from './tyres/condition.js';
+import { initCondition, freshCondition, warmCondition, temperatureGrip, wetGrip, dirtGrip, overheatWear } from './tyres/condition.js';
 
 export { updateCondition, conditionState, setConditionState } from './tyres/condition.js';
 
 const GRAVITY = 9.82;
 // Metres of slip at a friction force equal to the static load that wear a tyre bald.
-const SLIDE_LIFE_M = 1800;
+const SLIDE_LIFE_M = 18000;
 // Metres of rolling that wear a tyre bald: base share + gripFraction^2.
-const ROLL_LIFE_M = 100000;
+const ROLL_LIFE_M = 1000000;
 const ROLL_WEAR_BASE = 0.25;
 // Grip lost at 0 tread; (1 - tread)^curve, so the first half wears in gently.
 const WORN_GRIP_LOSS = 0.3;
@@ -129,6 +129,12 @@ export function repairTyre(wheel) {
   wheel.tread = 1;
   wheel.lastStrikeSpeed = 0;
   wheel.lastStrikeLimit = 0;
+}
+
+/** Fresh tyre warmed close to its working temperature, for an event start. */
+export function freshWarmTyre(wheel) {
+  repairTyre(wheel);
+  warmCondition(wheel);
 }
 
 /** Ray shortening (m) from a flat tyre's thump at this wheel rotation. */

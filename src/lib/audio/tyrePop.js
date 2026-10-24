@@ -2,7 +2,7 @@
 // rushing out as a hiss that falls in pitch and fades, with a crackle of
 // sparks as the rim hits the ground.
 
-import { getAudio } from './audioContext.js';
+import { getAudio, createWheelOutput } from './audioContext.js';
 import { playThud } from './impact.js';
 
 const BANG_GAIN = 1.2;
@@ -66,18 +66,26 @@ function playCrackle(ctx, out, at) {
 
 export function createTyrePopSound() {
   let lastAt = 0;
+  // One per side so two tyres popping together keep their own speakers.
+  const outputs = new Map();
   return {
-    play() {
+    /** @param {number} [side] - popped wheel's side, -1 left .. 1 right. */
+    play(side = 0) {
       const audio = getAudio();
       if (!audio) return;
-      const { ctx, buses } = audio;
+      const { ctx } = audio;
       const now = ctx.currentTime;
       if (now - lastAt < COOLDOWN_S) return;
       lastAt = now;
-      playBang(ctx, buses.carSfx, now);
-      playThud(0.6, { gain: 1.2, pitch: 0.8, crunch: 0, knock: 1, length: 0.5, attack: 0.002 });
-      playHiss(ctx, buses.carSfx, now);
-      for (let i = 0; i < CRACKLES; i++) playCrackle(ctx, buses.carSfx, now + 0.02 + CRACKLE_SPREAD_S * Math.random() ** 1.5);
+      if (!outputs.has(side)) {
+        outputs.set(side, createWheelOutput());
+        outputs.get(side).setSide(side, true);
+      }
+      const out = outputs.get(side).input;
+      playBang(ctx, out, now);
+      playThud(0.6, { gain: 1.2, pitch: 0.8, crunch: 0, knock: 1, length: 0.5, attack: 0.002, destination: out });
+      playHiss(ctx, out, now);
+      for (let i = 0; i < CRACKLES; i++) playCrackle(ctx, out, now + 0.02 + CRACKLE_SPREAD_S * Math.random() ** 1.5);
     },
   };
 }

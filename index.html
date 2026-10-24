@@ -171,7 +171,13 @@
               <div id="suspension-hud" class="susp-panel">
                 <div class="susp-title debug-fold-title">SUSPENSION</div>
                 <div class="susp-grid" id="susp-grid"></div>
-                <div class="susp-landed">hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+                <div class="susp-landed">
+                  <div>hasLanded: <span id="susp-landed-val">&mdash;</span></div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="susp-shock-hit" title="Debug: take 25% off every shock">Wear</button>
+                    <button type="button" id="susp-shock-fix" title="Debug: fresh shocks">Fix</button>
+                  </div>
+                </div>
               </div>
               <div id="tyre-hud" class="susp-panel">
                 <div class="susp-title debug-fold-title">TYRES</div>
@@ -183,6 +189,17 @@
                     <button type="button" id="tyre-hud-pop-all" title="Debug: pop every tyre">Pop all</button>
                     <button type="button" id="tyre-hud-new" title="Debug: fresh tyres all round">New</button>
                   </div>
+                </div>
+              </div>
+              <div id="body-hud" class="susp-panel">
+                <div class="susp-title debug-fold-title">BODY</div>
+                <div title="Broken lamps (lib/lampDamage.js), +x side first">
+                  <div>Head lamps: <span id="body-lamps-head">&mdash;</span></div>
+                  <div>Tail lamps: <span id="body-lamps-tail">&mdash;</span></div>
+                </div>
+                <div class="susp-heat-actions">
+                  <button type="button" id="body-lamps-break" title="Debug: break every lamp">Break</button>
+                  <button type="button" id="body-lamps-fix" title="Debug: working lamps">Fix</button>
                 </div>
               </div>
               <div id="engine-hud" class="susp-panel">
@@ -270,6 +287,7 @@
     </div>
     <div id="rally-picker" hidden></div>
     <div id="tyre-service" hidden></div>
+    <div id="refuel-dialog" hidden></div>
     <div id="surface-hover"></div>
     <div id="road-bed-inspect"></div>
     <div id="top-right-stack">

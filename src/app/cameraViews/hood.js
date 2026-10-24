@@ -11,6 +11,7 @@ export default {
   id: 'hood',
   label: 'Hood',
   rigid: true,
+  wheelStereo: true,
   offset: [0, 1.3, 1.6],
   lookAtOffset: [0, 1.0, 10],
 };

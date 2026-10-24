@@ -16,6 +16,7 @@
 }
 #suspension-hud,
 #tyre-hud,
+#body-hud,
 #engine-hud {
   /* Stacked below the help/controls HUD inside #top-left-stack
      (same flex-column approach #terrain-stats uses under
@@ -86,7 +87,14 @@
   text-align: center;
   white-space: nowrap;
 }
-#tyre-hud[hidden] {
+.susp-panel .susp-shock {
+  font-size: 11px;
+}
+.susp-panel .susp-shock.worn {
+  color: #b00000;
+}
+#tyre-hud[hidden],
+#body-hud[hidden] {
   display: none;
 }
 #tyre-hud .tyre-row {

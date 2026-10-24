@@ -32,7 +32,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     helpers in `chariot/` (hover repulsor, formation heading/coupling/tether, remote).
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
-    with neutral; optional turbo from descriptor `turbo` - boost lag scales torque, gauge in `hud/boostGauge.js`; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `engineHeat.js` (block/coolant/oil temps from load, rpm and airflow; thermostat + fan; descriptor `radiator`/`coolantL`; coolant level with leaks from nose hits (`collisions.js` `frontImpactSpeed`) and boil-over, limp-mode `powerFactor` into `engine.js`; fixed by reset and `repairs: true` rally points; outside air = `AMBIENT_TEMP_C` placeholder), `airDrag.js`,
+    with neutral; optional turbo from descriptor `turbo` - boost lag scales torque, gauge in `hud/boostGauge.js`; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `engineHeat.js` (block/coolant/oil temps from load, rpm and airflow; thermostat + fan; descriptor `radiator`/`coolantL`; coolant level with leaks from nose hits (`collisions.js` `endImpact`) and boil-over, limp-mode `powerFactor` into `engine.js`; fixed with shocks + lamps by `vehicle.repairDamage()` (reset and `repairs: true` rally points); outside air = `AMBIENT_TEMP_C` placeholder), `airDrag.js`,
     `surfaceCompounds.js` (also per-surface tyre wear / puncture / wet / dirt factors), `terrainSurface.js`. `tyres.js` = tread wear
     (grip), rim-strike punctures and running on the rim (smaller radius, drag, toe pull, no sidewall), per-wheel
     fields used by `wheeledVehicle.js`; reset and rally service points (`tyres: true` point types) fit fresh tyres.
@@ -40,19 +40,21 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `tyres/condition.js` = tread temperature, dirt, wetness (`WEATHER_WETNESS` placeholder in `config.js`),
     `tyres/setup.js` = player setup { compound, rimSize, width, profile } around stock (descriptor `tyreSizes`), applied
     to the descriptor by `createCar`. `garage.js` = per-mode, per-vehicle paint + tyre setup (mode-wide save field);
-    picked in `ui/tyreSetupPicker.js` (lobby, rally picker, debug picker, rally `ui/tyreServiceDialog.js`).
+    picked in `ui/tyreSetupPicker.js` (lobby, rally picker, debug picker, rally `ui/tyreServiceDialog.js` = removed set per wheel + 3D views of its dirtiest tyre and the pick, `ui/tyrePreview.js`; the rally picker leaves tyres to service points, a single stage picks them there).
+    `shocks.js` = per-wheel shock health, worn by bump-stop strikes; lowers damping and spring rate. `lampDamage.js` =
+    broken head/tail lamps per side from end hits (`endImpact`); `headlights.js` darkens them and scales the pools. Both saved as car state `damage`.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`
     (backfire pops scaled by descriptor `backfire` 0..1, tips from `exhaustTips`, plus a flash point light) (all on
     `particles/puffPool.js`), `rimSparks.js` (tyre-pop smoke + spark burst, sparks from flat rims on road/rock; streaks
-    from `particles/sparkles.js`, shared with the rally controls), `splash.js`, `clouds.js` - visual only; sound events go out via callbacks.
+    from `particles/sparkles.js`, shared with the rally controls), `splash.js`, `coolantSteam.js` (front steam puffs by `heat.lossLps`, hiss in `audio/coolantHiss.js`), `clouds.js` - visual only; sound events go out via callbacks.
     `headlights.js` = cosmetic lamps + front and rear ground spotlights (brake/reverse on the rear; on/off in `app/headlightSwitch.js`); geometry builders tag lamp
     materials with `userData: { lamp: 'head' | 'tail' | 'fog' }`.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `coolantHiss.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):
@@ -62,10 +64,10 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
 - Online leaderboards + editor saves: `worker/` = Cloudflare Worker (own `package.json`, `wrangler.toml`, deployed by `.github/workflows/worker.yml`) that validates stage times
   against the official stage file and keeps each player's best in the GitHub data repo, and commits editor saves to a player-name branch of the
   scenarios repo with a PR; the tokens are worker secrets, never in the bundle. Client: `lib/leaderboard.js`, URL from `VITE_LEADERBOARD_URL` (`.env.local` locally, repo variable in CI).
-- Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js` + plan map `ui/rallyPlanMap.js`, itinerary, spawn, progress save, blocks
+- Rally mode: `app/rally/rallySession.js` (pick via `ui/rallyPicker.js` + plan map `ui/rallyPlanMap.js`, itinerary, spawn (a picked event / restarted single stage gets `vehicle.makeNew()`: warm fresh tyres, repaired, full tank, warm engine), progress save, blocks
   teleport/navigation via their `setBlocked` while a stage is live) + `stageRun.js` (per-physics-step timing state
   machine); `hud/rallyPlanHud.js` = itinerary side panel, plan icons go to the minimap / Navigation map via `setScenarioPoints`; `lib/rally/` = FIA boards, arches, split flags, fireworks (`controlScenery.js`), per-point-type props (`zoneProps.js`); `hud/rallyHud.js`;
-  R rocks the car (`app/carRocking.js`) instead of resetting it. Pacenotes: stage files carry optional `pacenotes` (format +
+  R rocks the car (`app/carRocking.js`) instead of resetting it. Tyre / refuel props are clickable near the car (`app/rally/zonePicking.js` → `controlScenery.pickAction`, hover outline) and reopen `ui/tyreServiceDialog.js` / `ui/refuelDialog.js`. Menus over the game go through `menuPark` in `main.js`: handbrake, `input.setLocked`, drone view with the car shifted beside the left-docked menu (`holdView(id, { screenX })`). Pacenotes: stage files carry optional `pacenotes` (format +
   wording in `lib/rally/pacenoteCalls.js`), generated in the editor by `lib/rally/pacenotes.js` (corners/junctions) over
   `lib/rally/stageRoute.js` (own OSM tile fetch + road graph + route through the gates); in play `app/rally/pacenoteRun.js`
   tracks the next note, `hud/pacenoteHud.js` draws the strip.

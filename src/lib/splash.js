@@ -2,7 +2,7 @@
 // rivers centerlines) burst small blue balls that arc down under gravity.
 
 import * as THREE from 'three';
-import { isWheelGrounded } from './wheelContact.js';
+import { isWheelGrounded, wheelSide } from './wheelContact.js';
 
 // Sized so a burst never cuts a visible particle short.
 const POOL_SIZE = 160;
@@ -26,7 +26,7 @@ const PARTICLE_MAT = new THREE.MeshBasicMaterial({ color: PARTICLE_COLOR });
 
 /**
  * Creates the wheel-splash effect. Call update() once per frame.
- * `onWade(wetFraction, speed)` fires every frame with the share of wheels in water.
+ * `onWade(wetFraction, speed, side)` fires every frame with the share of wheels in water and their side (-1 left .. 1 right).
  */
 export function createSplash(scene, { onWade } = {}) {
   const pool = [];
@@ -92,6 +92,7 @@ export function createSplash(scene, { onWade } = {}) {
 
     const speed = vehicle.chassisBody.velocity.length();
     let wetWheels = 0;
+    let wetSide = 0;
     vehicle.wheelInfos.forEach((wheel, i) => {
       wheelTimers[i] -= dt;
       if (!isWheelGrounded(world, wheel)) return;
@@ -100,6 +101,7 @@ export function createSplash(scene, { onWade } = {}) {
       const onWater = waterAreas?.classifyAt(pos.x, pos.z) === 'water' || rivers?.containsPoint(pos.x, pos.z);
       if (!onWater) return;
       wetWheels++;
+      wetSide += wheelSide(wheel);
 
       if (speed < MIN_SPLASH_SPEED || wheelTimers[i] > 0) return;
       // Ground contact = water surface (the visible wheel may be sunk below it).
@@ -109,7 +111,7 @@ export function createSplash(scene, { onWade } = {}) {
       const speedFrac = Math.min(1, speed / EMIT_SPEED_FOR_MIN_INTERVAL);
       wheelTimers[i] = EMIT_INTERVAL_MAX_S - (EMIT_INTERVAL_MAX_S - EMIT_INTERVAL_MIN_S) * speedFrac;
     });
-    onWade?.(vehicle.wheelInfos.length ? wetWheels / vehicle.wheelInfos.length : 0, speed);
+    onWade?.(vehicle.wheelInfos.length ? wetWheels / vehicle.wheelInfos.length : 0, speed, wetWheels ? wetSide / wetWheels : 0);
   }
 
   return { update };

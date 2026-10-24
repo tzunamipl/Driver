@@ -1,5 +1,5 @@
 // Stage / rally picker: the car to drive (ui/vehiclePicker.js, with the lobby's turning
-// model + stats, ui/vehiclePreview.js, its paint, ui/vehicleColorPicker.js, and tyres, ui/tyreSetupPicker.js) and a folding tree of the official scenarios and
+// model + stats, ui/vehiclePreview.js, its paint, ui/vehicleColorPicker.js, and for a single stage tyres, ui/tyreSetupPicker.js) and a folding tree of the official scenarios and
 // every player's branch (ui/scenarioTree.js); picking a file shows its plan on a map
 // (ui/rallyPlanMap.js) with its best times (ui/rallyBestTimes.js), Start (or a double-click) drives it.
 
@@ -49,11 +49,13 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
    * @param {string} [opts.vehicleId] - preselected car.
    */
   function pick({ title, folder, kind, loadPlan, vehicleId }) {
+    // A rally's tyres are picked at its service points.
+    const pickTyres = kind.id !== 'rally';
     return new Promise((resolve) => {
       const finish = (result) => {
         if (result) {
           colors.commit();
-          tyres.commit();
+          if (pickTyres) tyres.commit();
         } else {
           colors.discard();
           tyres.discard();
@@ -111,7 +113,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
       });
       const win = el('div', 'menu-window rally-picker-window');
       const carPick = el('div', 'rally-car-pick');
-      carPick.append(tabs, list, colors.el, tyres.el);
+      carPick.append(tabs, list, colors.el, ...(pickTyres ? [tyres.el] : []));
       const showcase = el('div', 'rally-car-showcase');
       showcase.append(canvas, stats);
       const car = el('div', 'rally-car');

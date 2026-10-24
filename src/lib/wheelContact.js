@@ -25,3 +25,8 @@ export function isWheelGrounded(world, wheel) {
   world.raycastClosest(rayFrom, rayTo, { collisionFilterMask: GROUND_COLLISION_GROUP }, rayResult);
   return rayResult.hasHit;
 }
+
+/** Wheel's side: -1 left, 1 right (chassis +x = left). */
+export function wheelSide(wheel) {
+  return wheel.chassisConnectionPointLocal.x > 0 ? -1 : 1;
+}
