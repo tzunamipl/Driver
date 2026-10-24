@@ -590,11 +590,13 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       } else {
         const gate = scenery.getGate(0);
         const dist = gate ? Math.hypot(step.x - gate.x, step.z - gate.z) : Infinity;
-        const done = rallyFormat.pointTypes[item.point.type]?.stop
+        const pointType = rallyFormat.pointTypes[item.point.type];
+        const done = pointType?.stop
           ? dist < LIAISON_STOP_ZONE_M && carManager.getVehicle().chassisBody.velocity.length() < LIAISON_STOP_SPEED
           : dist < gate?.halfWidth + LIAISON_PASS_PAD_M;
         if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
+          if (pointType?.tyres) carManager.getVehicle()?.repairTyres?.(); // service: fresh tyres
           itemDone(null);
         }
       }

@@ -3,6 +3,7 @@
 import { isWheelGrounded } from '../lib/wheelContact.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { DEFAULT_SURFACE_KEY } from '../lib/surfaceCompounds.js';
+import { tyreGrip } from '../lib/tyres.js';
 
 // Fill colour: blue when airborne (own ground raycast, wheelContact.js),
 // else green -> amber -> red by wheel.gripFraction (red = sliding).
@@ -72,6 +73,8 @@ export function createSuspensionHud() {
   const fuelPer100 = document.getElementById('susp-fuel-per100');
   const fuelPerHour = document.getElementById('susp-fuel-perhour');
   const fuelTank = document.getElementById('susp-fuel-tank');
+  const tyreRow = document.getElementById('susp-tyres');
+  const tyreHit = document.getElementById('susp-tyre-hit');
   // Rebuilt when the wheel count/labels signature changes.
   let bars = [];
   let lastSignature = '';
@@ -85,19 +88,22 @@ export function createSuspensionHud() {
       wheelEl.innerHTML =
         '<div class="susp-terrain"></div>' +
         '<div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill"></div></div>' +
-        `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>`;
+        `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>` +
+        '<div class="susp-tyre">&mdash;</div>';
       grid.appendChild(wheelEl);
       return {
         terrain: wheelEl.querySelector('.susp-terrain'),
         fill: wheelEl.querySelector('.susp-fill'),
         val: wheelEl.querySelector('.susp-val'),
+        tyre: wheelEl.querySelector('.susp-tyre'),
       };
     });
   }
 
   /**
    * Fill: 0% full droop .. 100% bottomed out, rest marker at 50%; colour
-   * as above. Square above each bar: terrain type under that wheel.
+   * as above. Square above each bar: terrain type under that wheel. Below:
+   * tread left (title: grip multiplier), or FLAT.
    */
   function updateSuspensionHud(vehicle, debugVisualsEnabled, hasLanded, world, terrainLayers) {
     if (!debugVisualsEnabled || !vehicle) return;
@@ -108,8 +114,9 @@ export function createSuspensionHud() {
       lastSignature = signature;
     }
 
+    let hardestHit = null;
     vehicle.wheelInfos.forEach((wheel, i) => {
-      const { terrain, fill, val } = bars[i];
+      const { terrain, fill, val, tyre } = bars[i];
       const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;
       const maxLength = wheel.suspensionRestLength + wheel.maxSuspensionTravel;
       const span = maxLength - minLength || 1;
@@ -124,7 +131,21 @@ export function createSuspensionHud() {
 
       const pos = wheel.worldTransform.position;
       terrain.style.background = terrainColor(classifyTerrainAt(pos.x, pos.z, terrainLayers));
+
+      if (wheel.tread !== undefined) {
+        tyre.textContent = wheel.punctured ? 'FLAT' : `T ${Math.round(wheel.tread * 100)}%`;
+        tyre.classList.toggle('flat', wheel.punctured);
+        tyre.title = `Grip x${tyreGrip(wheel).toFixed(2)}`;
+        const ratio = wheel.lastStrikeLimit > 0 ? wheel.lastStrikeSpeed / wheel.lastStrikeLimit : 0;
+        if (ratio > 0 && (!hardestHit || ratio > hardestHit.ratio)) hardestHit = { ratio, wheel };
+      }
     });
+    if (tyreRow) tyreRow.hidden = vehicle.wheelInfos[0]?.tread === undefined;
+    if (tyreHit) {
+      tyreHit.textContent = hardestHit
+        ? `${hardestHit.wheel.lastStrikeSpeed.toFixed(1)} / ${hardestHit.wheel.lastStrikeLimit.toFixed(1)}`
+        : '—';
+    }
 
     if (landedVal) landedVal.textContent = hasLanded ? 'true' : 'false';
     if (fuelRow) fuelRow.hidden = !vehicle.fuel;

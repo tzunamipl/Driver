@@ -33,7 +33,9 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `vehicleShared.js` = shared bits (material, name tag, reset helpers, remote shell).
     `wheeledVehicle.js` (custom raycast vehicle), `engine.js` (engine + gearbox, auto or fully manual
     with neutral; `gearGate.js` = H-gate + parallel range layout for the manual stick, `hud/gearstick.js` draws it), `fuel.js` (tank per descriptor `fuelTankL`/`fuelType`, burns by `engine.throttle`, `loadFraction` + rpm, adds fuel mass to the chassis), `airDrag.js`,
-    `surfaceCompounds.js`, `terrainSurface.js`.
+    `surfaceCompounds.js` (also per-surface tyre wear / puncture multipliers), `terrainSurface.js`. `tyres.js` = tread wear
+    (grip), rim-strike punctures and running on the rim (smaller radius, drag, toe pull, no sidewall), per-wheel
+    fields used by `wheeledVehicle.js`; reset and rally service points (`tyres: true` point types) fit fresh tyres.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
     Register new vehicles in `vehicles/index.js`.
   - Effects: `tireSmoke.js`, `terrainDust.js`, `bodyDust.js`, `exhaustFlames.js`
@@ -44,7 +46,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `gearShift.js`, `backfire.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):

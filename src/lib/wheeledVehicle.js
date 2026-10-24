@@ -1,6 +1,16 @@
 import * as CANNON from 'cannon-es';
 import { getSurfaceCompound, DEFAULT_SURFACE_KEY, REFERENCE_TYRE_WIDTH_M } from './surfaceCompounds.js';
 import { sampleImperfection } from './surfaceImperfections.js';
+import {
+  initTyre,
+  tyreGrip,
+  tyreRollingResistance,
+  wearTyre,
+  strikeTyre,
+  punctureTyre,
+  repairTyre,
+  rimLump,
+} from './tyres.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -17,6 +27,7 @@ import { sampleImperfection } from './surfaceImperfections.js';
 //     plus the engine's reflected inertia on driven wheels): it free-spins
 //     in the air, spins up / locks when the patch exceeds static grip, and
 //     then slides with the surface's lower dynamic friction.
+//  6. Tyres wear and puncture (tyres.js); a flat runs on its rim.
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
 
 const DEFAULT_WHEEL_OPTIONS = {
@@ -66,6 +77,8 @@ const AIR_SPIN_DRAG_PER_S = 0.4;
 const IMPERFECTION_MIN_NORMAL_Y = 0.7;
 // Share of the sidewall height that flattens bumps (subtracted from their peak-to-peak).
 const SIDEWALL_BUMP_ABSORPTION = 0.2;
+// Share of the suspension travel (from full compression) where a hit can pop the tyre.
+const BUMP_STOP_ZONE = 0.15;
 
 function axisVec(index) {
   return index === 0 ? new CANNON.Vec3(1, 0, 0) : index === 1 ? new CANNON.Vec3(0, 1, 0) : new CANNON.Vec3(0, 0, 1);
@@ -155,6 +168,9 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       suspensionLength: 0,
       suspensionForce: 0,
       closingSpeed: 0, // suspension compression rate (m/s, + = compressing), last step
+      nearBumpStop: false, // last step's raw suspension length within BUMP_STOP_ZONE of full compression
+      groundRise: 0, // m the unclamped suspension length shrank since the last step
+      prevRawLength: null,
       isInContact: false,
       sliding: false,
       wheelspin: false, // sliding because the drive overruns the patch (vs. sideways/locked)
@@ -182,6 +198,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       const r2w = wheel.radius * wheel.radius * wheel.width;
       wheel.spinMass = Math.max(MIN_SPIN_MASS, WHEEL_INERTIA_SHAPE * WHEEL_MASS_PER_R2_WIDTH * r2w);
     }
+    initTyre(wheel);
     vehicle.wheelInfos.push(wheel);
     return vehicle.wheelInfos.length - 1;
   }
@@ -208,6 +225,29 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   /** Stops every wheel spinning (teleports/resets). */
   function resetWheelSpin() {
     for (const wheel of vehicle.wheelInfos) wheel.spinSpeed = 0;
+  }
+  /** Fresh tyres on every wheel. */
+  function repairTyres() {
+    for (const wheel of vehicle.wheelInfos) repairTyre(wheel);
+  }
+  /** Per-wheel [{ tread, punctured }], for the save. */
+  function getTyreState() {
+    return vehicle.wheelInfos.map((w) => ({ tread: w.tread, punctured: w.punctured }));
+  }
+  function setTyreState(state) {
+    if (!Array.isArray(state) || state.length !== vehicle.wheelInfos.length) return;
+    state.forEach((s, i) => {
+      const wheel = vehicle.wheelInfos[i];
+      repairTyre(wheel);
+      if (Number.isFinite(s?.tread)) wheel.tread = Math.min(1, Math.max(0, s.tread));
+      if (s?.punctured === true) punctureTyre(wheel);
+    });
+  }
+  // Called with the wheel index when a tyre pops (sound).
+  vehicle.onTyrePop = null;
+  function popTyre(wheel) {
+    punctureTyre(wheel);
+    vehicle.onTyrePop?.(vehicle.wheelInfos.indexOf(wheel));
   }
 
   const rayFrom = new CANNON.Vec3();
@@ -238,6 +278,17 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     point.x -= wheel.directionWorld.x * shorten;
     point.y -= wheel.directionWorld.y * shorten;
     point.z -= wheel.directionWorld.z * shorten;
+  }
+
+  /** A flat tyre's once-per-revolution thump (along the ray, like a bump). */
+  function applyRimLump(wheel) {
+    const lump = rimLump(wheel);
+    if (lump <= 0 || wheel.raycastResult.hitNormalWorld.y < IMPERFECTION_MIN_NORMAL_Y) return;
+    const hit = wheel.raycastResult;
+    hit.distance -= lump;
+    hit.hitPointWorld.x -= wheel.directionWorld.x * lump;
+    hit.hitPointWorld.y -= wheel.directionWorld.y * lump;
+    hit.hitPointWorld.z -= wheel.directionWorld.z * lump;
   }
 
   function castRay(wheel) {
@@ -271,9 +322,14 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.raycastResult.hitNormalWorld.copy(rayResult.hitNormalWorld);
       wheel.raycastResult.distance = rayResult.distance;
       applySurfaceImperfection(wheel);
+      applyRimLump(wheel);
       wheel.raycastResult.distance -= rayStart; // measured from the attachment point again
 
       let length = wheel.raycastResult.distance - wheel.radius;
+      // Near the bump stop a hit goes into the tyre itself (crushed against the rim).
+      wheel.nearBumpStop = length < minLength + (maxLength - minLength) * BUMP_STOP_ZONE;
+      wheel.groundRise = wheel.prevRawLength === null ? 0 : wheel.prevRawLength - length;
+      wheel.prevRawLength = length;
       if (length < minLength) length = minLength;
       if (length > maxLength) length = maxLength;
       wheel.suspensionLength = length;
@@ -281,6 +337,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.isInContact = false;
       wheel.raycastResult.body = null;
       wheel.suspensionLength = maxLength;
+      wheel.nearBumpStop = false;
+      wheel.prevRawLength = null;
     }
   }
 
@@ -293,7 +351,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     body.vectorToWorldFrame(wheel.directionLocal, wheel.directionWorld);
     body.vectorToWorldFrame(wheel.axleLocal, wheel.axleWorld);
 
-    steeringOrn.setFromAxisAngle(UP_LOCAL, wheel.steering);
+    steeringOrn.setFromAxisAngle(UP_LOCAL, wheel.steering + wheel.rimToe);
     rotatingOrn.setFromAxisAngle(rightAxisLocal, wheel.rotation);
     body.quaternion.mult(steeringOrn, wheel.worldTransform.quaternion);
     wheel.worldTransform.quaternion.mult(rotatingOrn, wheel.worldTransform.quaternion);
@@ -329,6 +387,20 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     wheel.raycastResult.hitNormalWorld.scale(force * dt, suspensionImpulse);
     wheel.raycastResult.hitPointWorld.vsub(body.position, suspensionRelPos);
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
+    if (wheel.nearBumpStop && body.type === CANNON.Body.DYNAMIC) checkRimStrike(wheel, closingSpeed, dt);
+  }
+
+  /**
+   * Strike speed: the chassis closing on the ground, or the ground rising
+   * under the wheel (kerb, rock) - a step of height h met at speed v rises
+   * over about one tyre radius, so ~v * h / r (and never faster than one step).
+   */
+  function checkRimStrike(wheel, closingSpeed, dt) {
+    const rise = Math.max(0, wheel.groundRise);
+    const speed = wheel.body.velocity.length();
+    const kerbSpeed = Math.min(rise / dt, (speed * rise) / wheel.inflatedRadius);
+    const strike = Math.max(closingSpeed, kerbSpeed);
+    if (strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
 
   // --- Tyre friction: forward (engine/brake via the wheel's spin) + lateral
@@ -421,7 +493,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const compound = getSurfaceCompound(wheel.surface);
     const staticMu = wheel.frictionSlip * compound.frictionMultiplier;
     const widthGrip = Math.pow(wheel.width / REFERENCE_TYRE_WIDTH_M, compound.widthGripExponent ?? 0);
-    const staticGrip = Math.min(wheel.suspensionForce * staticMu * widthGrip, compound.maxForceN) * dt;
+    const staticGrip = Math.min(wheel.suspensionForce * staticMu * widthGrip, compound.maxForceN) * tyreGrip(wheel) * dt;
     const dynamicGrip = staticGrip * (compound.dynamicFrictionRatio ?? 1);
 
     // Rolling resistance Frr = Crr(v) * Fz on the chassis, capped at the
@@ -432,7 +504,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       const denom = impulseDenominator(body, hitPoint, frictionForward);
       if (denom > 1e-9 && rollSpeed !== 0) {
         const stopImpulse = -rollSpeed / denom;
-        const effectiveRollingResistance = wheel.rollingResistance * compound.rollingResistanceMultiplier;
+        const effectiveRollingResistance = wheel.rollingResistance * compound.rollingResistanceMultiplier * tyreRollingResistance(wheel);
         const speedDependentCrr = effectiveRollingResistance * (1 + wheel.rollingResistanceSpeedFactor * Math.abs(rollSpeed));
         const maxResistImpulse = speedDependentCrr * wheel.suspensionForce * dt;
         const resistImpulse = Math.sign(stopImpulse) * Math.min(Math.abs(stopImpulse), maxResistImpulse);
@@ -521,6 +593,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       wheel.spinSlipSpeed = 0;
       wheel.sideSlipSpeed = 0;
     }
+    if (body.type === CANNON.Body.DYNAMIC) {
+      const slipSpeed = Math.hypot(wheel.spinSlipSpeed, wheel.sideSlipSpeed);
+      if (wearTyre(wheel, Math.hypot(longImpulse, sideImpulse), slipSpeed, vLong, compound, dt)) popTyre(wheel);
+    }
     return w;
   }
 
@@ -576,6 +652,9 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   vehicle.setBrake = setBrake;
   vehicle.setDriveline = setDriveline;
   vehicle.resetWheelSpin = resetWheelSpin;
+  vehicle.repairTyres = repairTyres;
+  vehicle.getTyreState = getTyreState;
+  vehicle.setTyreState = setTyreState;
   vehicle.updateWheelTransform = updateWheelTransform;
   vehicle.addToWorld = addToWorld;
   vehicle.removeFromWorld = removeFromWorld;

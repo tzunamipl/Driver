@@ -29,6 +29,7 @@ import { createImpactSound } from './lib/audio/impact.js';
 import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
+import { createTyrePopSound } from './lib/audio/tyrePop.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
@@ -256,6 +257,7 @@ const waterWadeSound = createWaterWadeSound();
 const gravelSpinSound = createGravelSpinSound();
 const bodyScrapeSound = createBodyScrapeSound();
 const impactSound = createImpactSound();
+const tyrePopSound = createTyrePopSound();
 const postHitSound = createPostHitSound();
 const places = createPlaces();
 const streetLampKind = createStreetLampKind(streets, builtUpAreas);
@@ -345,7 +347,21 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat, initialFuel: savedCarState?.fuel ?? null });
+const carManager = createCarManager({
+  world,
+  scene,
+  pedestrians,
+  debugVisuals,
+  bodyDust,
+  bodyScrapeSound,
+  impactSound,
+  tyrePopSound,
+  playerSpawnPos,
+  startQuat: START_QUAT,
+  playerSpawnQuat,
+  initialFuel: savedCarState?.fuel ?? null,
+  initialTyres: savedCarState?.tyres ?? null,
+});
 carManager.addScore(savedCarState?.score ?? 0);
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------

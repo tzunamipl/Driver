@@ -1,0 +1,62 @@
+// Tyre puncture: a sharp bang (noise crack over a low thump), then the air
+// rushing out as a hiss that falls in pitch and fades.
+
+import { getAudio } from './audioContext.js';
+import { playThud } from './impact.js';
+
+const BANG_GAIN = 1.2;
+const BANG_LEN_S = 0.07;
+const HISS_GAIN = 0.35;
+const HISS_LEN_S = 1.4;
+const HISS_HZ = [5200, 1800]; // band centre over the hiss
+const COOLDOWN_S = 0.05; // two tyres on one hit still read as two pops
+
+function playBang(ctx, out, now) {
+  const { noise } = getAudio();
+  const src = ctx.createBufferSource();
+  src.buffer = noise;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 2500 * (0.85 + Math.random() * 0.3);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(BANG_GAIN, now);
+  g.gain.exponentialRampToValueAtTime(0.001, now + BANG_LEN_S);
+  src.connect(filter).connect(g).connect(out);
+  src.start(now, Math.random() * 0.5);
+  src.stop(now + BANG_LEN_S);
+}
+
+function playHiss(ctx, out, now) {
+  const { noise } = getAudio();
+  const src = ctx.createBufferSource();
+  src.buffer = noise;
+  src.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.Q.value = 0.9;
+  filter.frequency.setValueAtTime(HISS_HZ[0], now);
+  filter.frequency.exponentialRampToValueAtTime(HISS_HZ[1], now + HISS_LEN_S);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(HISS_GAIN, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, now + HISS_LEN_S);
+  src.connect(filter).connect(g).connect(out);
+  src.start(now, Math.random() * 0.5);
+  src.stop(now + HISS_LEN_S);
+}
+
+export function createTyrePopSound() {
+  let lastAt = 0;
+  return {
+    play() {
+      const audio = getAudio();
+      if (!audio) return;
+      const { ctx, buses } = audio;
+      const now = ctx.currentTime;
+      if (now - lastAt < COOLDOWN_S) return;
+      lastAt = now;
+      playBang(ctx, buses.carSfx, now);
+      playThud(0.6, { gain: 1.2, pitch: 0.8, crunch: 0, knock: 1, length: 0.5, attack: 0.002 });
+      playHiss(ctx, buses.carSfx, now);
+    },
+  };
+}

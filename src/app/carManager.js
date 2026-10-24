@@ -7,8 +7,8 @@ import { applyImpactRoll } from './collisions.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
-/** initialFuel: { vehicleId, litres } from the save; respawns of that vehicle keep its fuel. */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null }) {
+/** initialFuel / initialTyres: { vehicleId, ... } from the save; respawns of that vehicle keep them. */
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -31,10 +31,15 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
   // Fuel of the last car removed (or the save), so a recolour/respawn doesn't refill it.
   let carriedFuel = initialFuel;
+  let carriedTyres = initialTyres; // { vehicleId, wheels: [{ tread, punctured }] }
   let carVehicleId = null; // vehicle id the current car was built as
 
   function getFuelState() {
     return vehicle?.fuel ? { vehicleId: carVehicleId, litres: vehicle.fuel.litres } : null;
+  }
+
+  function getTyreState() {
+    return vehicle?.getTyreState ? { vehicleId: carVehicleId, wheels: vehicle.getTyreState() } : null;
   }
 
   function hookCar(nextVehicle, mesh) {
@@ -42,6 +47,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     if (nextVehicle.fuel && carriedFuel?.vehicleId === carVehicleId && Number.isFinite(carriedFuel.litres)) {
       nextVehicle.fuel.setLitres(carriedFuel.litres);
     }
+    if (nextVehicle.setTyreState && carriedTyres?.vehicleId === carVehicleId) nextVehicle.setTyreState(carriedTyres.wheels);
+    nextVehicle.onTyrePop = () => tyrePopSound?.play();
     const onCollide = (body) => (event) => {
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);
@@ -71,6 +78,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   function removeCurrentCar() {
     if (!vehicle) return;
     carriedFuel = getFuelState() ?? carriedFuel;
+    carriedTyres = getTyreState() ?? carriedTyres;
     world.removeEventListener('preStep', vehicle.preStepCallback);
     if (stabilityAssistCallback) world.removeEventListener('preStep', stabilityAssistCallback);
     dispose?.();
@@ -207,6 +215,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     getLocalName: () => localName,
     getVehicleId: () => currentVehicleId,
     getFuelState,
+    getTyreState,
     getColor: () => currentColor,
     // Getters: values change on (re)spawn, so read them every frame.
     getVehicle: () => vehicle,

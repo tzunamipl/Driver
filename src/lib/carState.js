@@ -1,7 +1,8 @@
 import { readSaveField, writeSaveField } from './saves.js';
 
 // Remembers the local car's last known position/orientation, km driven
-// in this save (odoKm), score, latched handbrake and fuel ({ vehicleId, litres }) in the active game mode's save slot,
+// in this save (odoKm), score, latched handbrake, fuel ({ vehicleId, litres }) and tyres
+// ({ vehicleId, wheels: [{ tread, punctured }] }) in the active game mode's save slot,
 // so the car resumes where it was left off instead of always respawning at
 // the world origin.
 //

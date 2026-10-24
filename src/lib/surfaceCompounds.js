@@ -11,6 +11,8 @@
 // imperfectionCm: peak-to-peak height (cm) of the fixed pseudo-random bumps
 // the suspension rays feel on this surface (surfaceImperfections.js), less
 // 30% of the tyre sidewall height (wheeledVehicle.js).
+// tyreWearMultiplier scales tread wear (abrasive gravel/rock wear faster);
+// punctureMultiplier divides the rim-strike speed a tyre survives (tyres.js).
 export const SURFACE_COMPOUNDS = {
   // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
   // drops off noticeably once it breaks loose.
@@ -21,6 +23,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 0.55,
     imperfectionCm: 0,
+    tyreWearMultiplier: 1,
+    punctureMultiplier: 1,
   },
   // Unpaved roads (OSM surface=unpaved, untagged tracks/paths): packed gravel
   // or dirt - between road and open ground, slides more evenly than asphalt.
@@ -31,6 +35,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.3,
     imperfectionCm: 6,
+    tyreWearMultiplier: 1.3,
+    punctureMultiplier: 1.15,
   },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
@@ -40,6 +46,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.0,
     imperfectionCm: 20,
+    tyreWearMultiplier: 0.8,
+    punctureMultiplier: 1,
   },
   // Built-up area off the road (yards, verges, lots): packed and smoother
   // than open ground, between normal and road.
@@ -50,6 +58,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.2,
     imperfectionCm: 2,
+    tyreWearMultiplier: 1,
+    punctureMultiplier: 1,
   },
   // Forest floor (leaf litter, soft soil, roots): a bit less grip and more
   // drag than open ground, and rougher.
@@ -60,6 +70,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.6,
     imperfectionCm: 30,
+    tyreWearMultiplier: 0.7,
+    punctureMultiplier: 1.2,
   },
   // Rock (bare rock and scree): grippy where solid, but loose scree and big
   // steps make it the roughest surface.
@@ -70,6 +82,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.4,
     imperfectionCm: 45,
+    tyreWearMultiplier: 1.8,
+    punctureMultiplier: 1.4,
   },
   // Glacier ice: almost no grip, width barely matters.
   ice: {
@@ -79,6 +93,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 0.6,
     imperfectionCm: 1,
+    tyreWearMultiplier: 0.2,
+    punctureMultiplier: 1,
   },
   // Scrub (bushes, brush): like open ground but draggier and rougher.
   scrub: {
@@ -88,6 +104,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 2.8,
     imperfectionCm: 22,
+    tyreWearMultiplier: 0.9,
+    punctureMultiplier: 1.2,
   },
   // Sand (beach, dunes): low grip and heavy drag; wide tyres float on it.
   sand: {
@@ -97,6 +115,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 4.0,
     imperfectionCm: 2,
+    tyreWearMultiplier: 0.5,
+    punctureMultiplier: 0.8,
   },
   // Water: very little grip, wide tyres aquaplane. Mild rolling drag: depth
   // drag on the hull (waterDrag.js) does the real slowing.
@@ -107,6 +127,8 @@ export const SURFACE_COMPOUNDS = {
     maxForceN: Infinity,
     rollingResistanceMultiplier: 1.5,
     imperfectionCm: 0,
+    tyreWearMultiplier: 0.3,
+    punctureMultiplier: 1,
   },
 };
 

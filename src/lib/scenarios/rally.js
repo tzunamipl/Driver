@@ -18,7 +18,7 @@ const HEADING_DECIMALS = 1;
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
-// stop: a liaison point done by stopping in its zone instead of driving through;
+// stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres;
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
   timeControl: {
@@ -50,7 +50,7 @@ const POINT_TYPES = {
     description: "The rally's service park and home. One per rally; not a checkpoint.",
   },
   serviceParkIn: {
-    label: 'Service park in', short: 'SP IN', color: 0x00b0c0, gate: true, defaultWidth: NARROW_GATE_WIDTH_M,
+    label: 'Service park in', short: 'SP IN', color: 0x00b0c0, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, tyres: true,
     description: 'Liaison checkpoint at the service park entry: drive through it on the way into service.',
   },
   serviceParkOut: {
@@ -66,11 +66,11 @@ const POINT_TYPES = {
     description: 'Liaison checkpoint at a refuelling zone: drive through it, from either direction.',
   },
   tyreFitting: {
-    label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, stop: true,
+    label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, stop: true, tyres: true,
     description: 'Liaison checkpoint at a tyre fitting zone: stop in its zone (15 m), from either direction, then drive on.',
   },
   remoteService: {
-    label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true,
+    label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true, tyres: true,
     description: 'Liaison checkpoint at a remote service zone away from the base: drive through it.',
   },
   parcFerme: {

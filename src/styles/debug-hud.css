@@ -78,6 +78,14 @@
   text-align: center;
   white-space: nowrap;
 }
+#suspension-hud .susp-tyre {
+  text-align: center;
+  white-space: nowrap;
+}
+#suspension-hud .susp-tyre.flat {
+  color: #c00;
+  font-weight: bold;
+}
 #suspension-hud .susp-landed {
   margin-top: 8px;
   padding-top: 6px;

@@ -286,6 +286,7 @@ export function createMainLoop({
         score: carManager.getScore(),
         handbrakeLatched: input.getHandbrake().latched,
         fuel: carManager.getFuelState(),
+        tyres: carManager.getTyreState(),
       };
       if (now >= nextCarStateSave) {
         nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;

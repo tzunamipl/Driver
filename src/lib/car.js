@@ -30,7 +30,7 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setWheelSetFlat } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
@@ -142,6 +142,7 @@ function wheelOptionsFor(spec, bodyMass, wheelCount) {
     dampingCompression: scaled(suspension.dampingCompression),
     dampingRelaxation: scaled(suspension.dampingRelaxation),
     maxSuspensionForce: ((bodyMass * GRAVITY) / wheelCount) * (spec.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G),
+    staticLoadN: (bodyMass * GRAVITY) / wheelCount, // tyre wear scale (tyres.js)
   };
 }
 
@@ -371,6 +372,7 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
   const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual));
+  const wheelMeshFlat = allWheels.map(() => false);
 
   // --- Render interpolation ---
   // Physics runs at a fixed step; render lerps between the last two steps
@@ -452,6 +454,8 @@ export function createCar(
       group.quaternion.setFromEuler(sinkEuler.set(Math.asin(clampUnit(c)), 0, -Math.asin(clampUnit(b))));
     });
     wheelMeshes.forEach((mesh, i) => {
+      const flat = vehicle.wheelInfos[i].punctured;
+      if (flat !== wheelMeshFlat[i]) setWheelSetFlat(mesh, (wheelMeshFlat[i] = flat));
       mesh.position.lerpVectors(prevWheelPos[i], currWheelPos[i], alpha);
       mesh.position.y -= sinks[i];
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
@@ -459,7 +463,7 @@ export function createCar(
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted).
+  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -485,6 +489,7 @@ export function createCar(
     };
     setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
+    vehicle.repairTyres();
     resetInterpolation();
   }
 
