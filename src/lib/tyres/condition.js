@@ -26,6 +26,8 @@ const GRIP_CREEP_SHARE = 0.04;
 const SLIDE_HEAT_SHARE = 0.5;
 // Degrees outside the optimal window over which the compound's tempGripLoss fully applies.
 const TEMP_FALLOFF_C = 60;
+// Heat input share once the tread is above the optimal window: overheating builds slowly.
+const OVERHEAT_HEAT_SHARE = 0.25;
 // Extra wear per degree above the window.
 const OVERHEAT_WEAR_PER_C = 0.04;
 // Dirt drift per metre rolled: picking up, shedding (x (1 + speed / DIRT_FLING_SPEED)).
@@ -100,8 +102,9 @@ export function updateCondition(wheel, surfaceKey, frictionForceN, slipSpeed, ro
   const inWater = surfaceKey === 'water';
 
   // Temperature.
+  const overheated = wheel.tempC > c.optimalTempC + c.windowC;
   const heatW = surface
-    ? (wheel.suspensionForce * speed * ROLL_HEAT_CRR + frictionForceN * speed * GRIP_CREEP_SHARE + frictionForceN * slipSpeed * SLIDE_HEAT_SHARE) * (c.heatRate ?? 1)
+    ? (wheel.suspensionForce * speed * ROLL_HEAT_CRR + frictionForceN * speed * GRIP_CREEP_SHARE + frictionForceN * slipSpeed * SLIDE_HEAT_SHARE) * (c.heatRate ?? 1) * (overheated ? OVERHEAT_HEAT_SHARE : 1)
     : 0;
   const airSpeed = surface ? speed : Math.abs(wheel.spinSpeed);
   const cooling = (COOL_STILL_W_PER_K_M2 + COOL_PER_MS_W_PER_K_M2 * airSpeed) * wheel.treadBandM2 * (inWater ? WATER_COOLING : 1 + (WET_COOLING - 1) * wheel.wetness);

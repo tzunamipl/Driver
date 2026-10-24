@@ -1,9 +1,9 @@
-// Best times beside the stage / rally picker's map: the online board of an official plan, each
-// player once at their best (a rally: a player's stage times summed per car, only over cars that
-// finished every stage), the player's own row highlighted, and their local best below.
+// Best times beside the stage / rally picker's map: the online board of an official plan, one row
+// per player and car at its best (a rally: a player's stage times summed per car, only over cars
+// that finished every stage), the player's own rows highlighted, and their local best below.
 
 import { OFFICIAL_SCENARIO_SOURCE } from '../config.js';
-import { leaderboardEnabled, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../lib/leaderboard.js';
+import { leaderboardEnabled, fetchStageBoard, playerHash, rallyTotals } from '../lib/leaderboard.js';
 import { readLocalBests, localBestKey } from '../lib/rally/localBest.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 import { formatTime } from '../hud/rallyHud.js';
@@ -41,7 +41,7 @@ export function createRallyBestTimes({ playerId }) {
   function renderBoard(rows, myHash) {
     if (!rows.length) return message('No times yet');
     const mine = rows.findIndex((r) => r.player === myHash);
-    const shown = rows.slice(0, TOP_N).map((r, i) => row(r, i + 1, i === mine));
+    const shown = rows.slice(0, TOP_N).map((r, i) => row(r, i + 1, r.player === myHash));
     if (mine >= TOP_N) shown.push(el('div', 'rally-best-gap', '…'), row(rows[mine], mine + 1, true));
     list.replaceChildren(...shown);
   }
@@ -67,7 +67,8 @@ export function createRallyBestTimes({ playerId }) {
     Promise.all([Promise.all(stageIds(plan).map(fetchStageBoard)), me]).then(
       ([boards, myHash]) => {
         if (seq !== showSeq) return;
-        renderBoard(bestPerPlayer(plan.kind === 'stage' ? boards[0].entries : rallyTotals(boards)), myHash);
+        const rows = plan.kind === 'stage' ? [...boards[0].entries] : rallyTotals(boards);
+        renderBoard(rows.sort((a, b) => a.totalMs - b.totalMs), myHash);
       },
       (err) => {
         if (seq === showSeq) message(err.message);

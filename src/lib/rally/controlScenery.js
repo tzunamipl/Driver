@@ -94,7 +94,7 @@ const SCENERY = {
   regroup: { boards: 'clock', props: props.makeRegroupProps, clock: 'pole' },
   refuel: { boards: 'FUEL', bothWays: true, props: props.makeRefuelProps, action: 'refuel' },
   tyreFitting: { boards: 'TYRES', bothWays: true, props: props.makeTyreProps, action: 'tyres' },
-  remoteService: { boards: 'RSZ', props: props.makeRemoteServiceProps, action: 'tyres' },
+  remoteService: { boards: 'RSZ', props: props.makeRemoteServiceProps },
   parcFerme: { boards: 'PARC FERMÉ', props: props.makeParcFermeProps },
   podium: { arch: 'PODIUM', archColor: '#c08a10', line: true, props: props.makePodiumProps },
   base: { props: props.makeBaseTent, propsLeft: true },

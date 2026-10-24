@@ -8,7 +8,7 @@ import {
 import { DEFAULT_GAME_MODE_ID } from '../app/gameModes.js';
 
 // One save slot per game mode (per mode + start for modes with starts) in a single localStorage entry:
-// { latest: { modeId, startId }, lastLaunch: { modeId, editor, startId }, modes: { [slotId]: { savedAt, carState, vehicle, navDestination, cameraView, status } } }.
+// { latest: { modeId, startId }, lastLaunch: { modeId, editor, startId }, modes: { [slotId]: { savedAt, carState, vehicle, navDestination, cameraView, status, done } } }.
 // Slot ids: `<modeId>`, `<modeId>.<startId>` (e.g. rally.career), `<modeId>.editor`.
 // `latest` is the last played game that keeps progress (Continue); `lastLaunch` also counts editor sessions
 // and starts that keep nothing (dev-mode startup). Fields read and written here belong to the active slot,
@@ -73,11 +73,11 @@ export function getLatest() {
   return latest?.modeId ? { modeId: latest.modeId, startId: latest.startId ?? null } : null;
 }
 
-/** Summary for the menu: { savedAt, odoKm, status } or null without a save. */
+/** Summary for the menu: { savedAt, odoKm, status, done } or null without a save; `done` = the game is over, nothing to resume. */
 export function getSaveInfo(modeId, startId = null) {
   const slot = readStore().modes[slotId(modeId, startId)];
   if (!slot?.carState) return null;
-  return { savedAt: slot.savedAt ?? null, odoKm: slot.carState.odoKm ?? 0, status: slot.status ?? null };
+  return { savedAt: slot.savedAt ?? null, odoKm: slot.carState.odoKm ?? 0, status: slot.status ?? null, done: !!slot.done };
 }
 
 /** Empties a game's slot, except the `keep` fields (e.g. the last picked car). */

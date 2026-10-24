@@ -196,6 +196,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (!keepsProgress) return;
     nextProgressSave = simTime + PROGRESS_SAVE_S;
     writeSaveField('status', plan ? progressStatus() : null);
+    writeSaveField('done', !!plan && finished);
     if (!plan) return writeSaveField('rallyProgress', null);
     writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, run: finished ? null : run?.snapshot() ?? null });
   }
@@ -687,7 +688,6 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         if (done) {
           flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
           if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
-          if (pointType?.repairs) carManager.getVehicle()?.repairDamage?.();
           if (pointType?.refuel) refuelWaitM = 0;
           itemDone(null);
         }

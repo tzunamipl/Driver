@@ -84,7 +84,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   function renderRoot() {
     const { modeId, startId, editor } = continueTarget();
     const mode = getGameMode(modeId);
-    const playable = inGame || (mode?.available && getSaveInfo(modeId, startId));
+    const info = getSaveInfo(modeId, startId);
+    const playable = inGame || (mode?.available && info && !info.done);
     const name = getStart(mode, startId)?.name;
     continueBtn.disabled = !playable;
     continueLabel.textContent = !playable ? '' : editor ? `${mode.label} editor` : name ? `${mode.label} · ${name}` : mode.label;
@@ -116,7 +117,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
           const info = playable ? getSaveInfo(mode.id, st?.id) : null;
           const text = !playable ? 'Coming soon' : info ? describeSave(info) : 'No save yet';
           if (mode.available) status(st ? `${st.name}: ${text}` : text);
-          actions.append(button(st ? `Resume ${st.name.toLowerCase()}` : 'Continue', !info, () => launch(mode.id, st?.id ?? null, false)));
+          if (!info?.done) actions.append(button(st ? `Resume ${st.name.toLowerCase()}` : 'Continue', !info, () => launch(mode.id, st?.id ?? null, false)));
         }
         for (const st of mode.starts ?? [null]) {
           const label = st ? `New ${st.name.toLowerCase()}` : 'Start new';
