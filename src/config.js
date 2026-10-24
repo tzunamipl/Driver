@@ -18,7 +18,7 @@ export const ORIGIN_LON = 17.0385;
 
 // Day-night cycle speed: 1 = real time. Faster cycles wrap within today's
 // real date, so the sun's seasonal path always matches the actual date.
-export const TIME_SCALE = 48;
+export const TIME_SCALE = 24;
 // Sun / moon disc colour by the body's own elevation above the horizon (deg),
 // blended linearly between keys and held past the ends. Keys sorted by `el`.
 export const SUN_DISC_COLORS = [
@@ -192,6 +192,10 @@ export const DIRECTION_SIGN_JUNCTIONS = {
 };
 // Junctions of one class only: these classes point to cities, the rest to villages/towns.
 export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
+
+// ---------- Weather ----------
+export const AMBIENT_TEMP_C = 15; // outside air (°C); placeholder until weather drives it
+export const WEATHER_WETNESS = 0; // 0 dry .. 1 soaked surfaces (tyre wet grip); placeholder until rain drives it
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h speedo scale for rigs without an engine (wheeled cars use their gearing top speed)

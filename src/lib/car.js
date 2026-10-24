@@ -19,7 +19,9 @@ import { applyWaterDrag } from './waterDrag.js';
 import { createWheeledVehicle } from './wheeledVehicle.js';
 import { createEngineState } from './engine.js';
 import { createFuelTank } from './fuel.js';
-import { MAX_STEER } from '../config.js';
+import { createEngineHeat } from './engineHeat.js';
+import { createLampDamage } from './lampDamage.js';
+import { MAX_STEER, AMBIENT_TEMP_C } from '../config.js';
 import { GRAVITY } from './physicsConstants.js';
 import {
   CHASSIS_WIDTH,
@@ -30,10 +32,12 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setTyreDirt } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
+import { applyTyreSetup } from './tyres/setup.js';
+import { getTyreCompound } from './tyres/compounds.js';
 
 export { CHASSIS_MATERIAL, createNameTag };
 
@@ -142,6 +146,9 @@ function wheelOptionsFor(spec, bodyMass, wheelCount) {
     dampingCompression: scaled(suspension.dampingCompression),
     dampingRelaxation: scaled(suspension.dampingRelaxation),
     maxSuspensionForce: ((bodyMass * GRAVITY) / wheelCount) * (spec.suspensionForceG ?? DEFAULT_SUSPENSION_FORCE_G),
+    staticLoadN: (bodyMass * GRAVITY) / wheelCount, // tyre wear scale (tyres.js)
+    compound: getTyreCompound(spec.tyreCompound),
+    strikeScale: spec.tyreStrikeScale ?? 1,
   };
 }
 
@@ -187,8 +194,8 @@ function pedalBiasScales(wheels, bias) {
 
 /** Trailer spec: tyre/suspension/brake fields fall back to the tractor's. */
 function trailerSpecOf(descriptor) {
-  const { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce } = descriptor;
-  return { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, ...descriptor.trailer };
+  const { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound } = descriptor;
+  return { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, ...descriptor.trailer };
 }
 
 /**
@@ -203,12 +210,14 @@ export function createCar(
   startPosition = new CANNON.Vec3(0, 1, 0),
   startQuaternion = new CANNON.Quaternion(0, 0, 0, 1),
   color = DEFAULT_BODY_COLOR,
-  vehicleId = DEFAULT_VEHICLE_ID
+  vehicleId = DEFAULT_VEHICLE_ID,
+  tyreSetup = null
 ) {
-  const descriptor = getVehicle(vehicleId);
-  if (descriptor.vehicleType === 'hover') {
-    return createChariotVehicle(world, scene, startPosition, startQuaternion, color, descriptor);
+  const baseDescriptor = getVehicle(vehicleId);
+  if (baseDescriptor.vehicleType === 'hover') {
+    return createChariotVehicle(world, scene, startPosition, startQuaternion, color, baseDescriptor);
   }
+  const descriptor = applyTyreSetup(baseDescriptor, tyreSetup);
 
   const chassisMass = descriptor.mass ?? DEFAULT_CHASSIS_MASS;
   const { group: chassisMesh } = descriptor.buildBody(CHASSIS_WIDTH, CHASSIS_LENGTH, color);
@@ -263,11 +272,30 @@ export function createCar(
 
   const wheelRadius = (tractorWheels.find((w) => w.axle.driven) ?? tractorWheels[0]).options.radius;
   vehicle.vehicleType = descriptor.vehicleType;
+  vehicle.tyreSetup = descriptor.tyreSetup; // fitted { compound, rimSize, width, profile }
   vehicle.wheelLabels = allWheels.map((w) => w.label);
   vehicle.engineForce = descriptor.enginePowerHp * FORCE_PER_HP;
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
   vehicle.fuel = createFuelTank(descriptor, chassisBody); // burnt by mainLoop, adds its mass to the chassis
   Object.defineProperty(vehicle.engine, 'fuelFraction', { get: () => vehicle.fuel.fraction });
+  vehicle.heat = createEngineHeat(descriptor, AMBIENT_TEMP_C); // warmed by mainLoop, read by the aux gauge
+  Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
+  Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
+  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => vehicle.heat.powerFactor });
+  vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
+  /** Fixed radiator (topped up), fresh shocks, working lamps. */
+  vehicle.repairDamage = () => {
+    vehicle.heat.repair();
+    vehicle.repairShocks();
+    vehicle.lamps.repair();
+  };
+  /** Brand new for an event start: warm fresh tyres, no damage, full tank, engine at working temperature. */
+  vehicle.makeNew = () => {
+    vehicle.fitWarmTyres();
+    vehicle.repairDamage();
+    vehicle.heat.warmUp();
+    vehicle.fuel.setLitres(vehicle.fuel.capacityL);
+  };
   vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
   vehicle.hasTrailer = !!trailer;
@@ -455,11 +483,12 @@ export function createCar(
       mesh.position.lerpVectors(prevWheelPos[i], currWheelPos[i], alpha);
       mesh.position.y -= sinks[i];
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
+      setTyreDirt(mesh, Math.round(vehicle.wheelInfos[i].dirt * 100) / 100); // rounded: recolour only on visible change
     });
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted).
+  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres and shocks, fixes the radiator and lamps.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -485,6 +514,8 @@ export function createCar(
     };
     setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
+    vehicle.repairTyres();
+    vehicle.repairDamage();
     resetInterpolation();
   }
 
@@ -538,10 +569,11 @@ export function createCar(
 }
 
 /** Visual-only vehicle for another player: { setPose, setAppearance, dispose }. */
-export function createRemoteCar(scene, color = DEFAULT_BODY_COLOR, name = '', score = 0, vehicleId = DEFAULT_VEHICLE_ID) {
+/** `tyreSetup` (tyres/setup.js): wheel sizes to show; stock when omitted. */
+export function createRemoteCar(scene, color = DEFAULT_BODY_COLOR, name = '', score = 0, vehicleId = DEFAULT_VEHICLE_ID, tyreSetup = null) {
   const descriptor = getVehicle(vehicleId);
   if (descriptor.vehicleType === 'hover') {
     return createRemoteChariot(scene, color, name, score, descriptor);
   }
-  return createRemoteWheeledCar(scene, color, name, score, descriptor);
+  return createRemoteWheeledCar(scene, color, name, score, tyreSetup ? applyTyreSetup(descriptor, tyreSetup) : descriptor);
 }

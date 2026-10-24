@@ -8,7 +8,16 @@
   align-items: flex-start;
   gap: 8px;
 }
-#suspension-hud {
+.debug-hud-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+#suspension-hud,
+#tyre-hud,
+#body-hud,
+#engine-hud {
   /* Stacked below the help/controls HUD inside #top-left-stack
      (same flex-column approach #terrain-stats uses under
      #players-panel in #top-right-stack), so it automatically moves
@@ -25,29 +34,29 @@
   width: 180px;
   font-variant-numeric: tabular-nums;
 }
-#suspension-hud .susp-title {
+.susp-panel .susp-title {
   margin-bottom: 6px;
   font-weight: bold;
 }
-#suspension-hud .susp-grid {
+.susp-panel .susp-grid {
   display: grid;
   grid-template-columns: repeat(2, 48px);
   gap: 6px 16px;
 }
-#suspension-hud .susp-wheel {
+.susp-panel .susp-wheel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
 }
-#suspension-hud .susp-terrain {
+.susp-panel .susp-terrain {
   width: 10px;
   height: 10px;
   border: 1px solid #000;
   background: #4caf50;
   flex: none;
 }
-#suspension-hud .susp-bar {
+.susp-panel .susp-bar {
   width: 14px;
   height: 60px;
   box-sizing: border-box;
@@ -57,7 +66,7 @@
   position: relative;
   overflow: hidden;
 }
-#suspension-hud .susp-fill {
+.susp-panel .susp-fill {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -65,7 +74,7 @@
   height: 50%;
   background: var(--w95-select);
 }
-#suspension-hud .susp-rest-line {
+.susp-panel .susp-rest-line {
   position: absolute;
   left: -1px;
   right: -1px;
@@ -74,16 +83,115 @@
   background: #000;
   z-index: 1;
 }
-#suspension-hud .susp-label {
+.susp-panel .susp-label {
   text-align: center;
   white-space: nowrap;
 }
-#suspension-hud .susp-landed {
+.susp-panel .susp-shock {
+  font-size: 11px;
+}
+.susp-panel .susp-shock.worn {
+  color: #b00000;
+}
+#tyre-hud[hidden],
+#body-hud[hidden] {
+  display: none;
+}
+#tyre-hud .tyre-row {
+  display: grid;
+  grid-template-columns: 22px 80px 32px 28px;
+  align-items: center;
+  gap: 1px 4px;
+  pointer-events: auto;
+}
+#tyre-hud .tyre-sub {
+  font-size: 11px;
+  text-align: right;
+}
+/* Temp / dirt rows: value spans the Pop column too. */
+#tyre-hud .tyre-wide { grid-column: 3 / -1; }
+#tyre-hud .tyre-tread,
+#tyre-hud .tyre-temp,
+#tyre-hud .tyre-dirt {
+  width: 100%;
+  min-width: 0;
+  height: 4px;
+  margin: 3px 0;
+}
+/* Win95 slider like base.css's #hud one (this panel is outside #hud, so it would render natively):
+   4px track, small 3x10 thumb centred on it; the margin leaves the thumb room. */
+#tyre-hud input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+#tyre-hud input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+#tyre-hud input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-sunken);
+}
+#tyre-hud input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px;
+  height: 10px;
+  margin-top: -3px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}
+#tyre-hud input[type="range"]::-moz-range-thumb {
+  width: 3px;
+  height: 10px;
+  border: none;
+  border-radius: 0;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+}
+#tyre-hud .tyre-val {
+  text-align: right;
+  white-space: nowrap;
+}
+#tyre-hud .tyre-val.flat {
+  color: #c00;
+  font-weight: bold;
+}
+#tyre-hud .tyre-toggle {
+  min-width: 0;
+  padding: 1px 2px;
+}
+#tyre-hud .tyre-cond {
+  grid-column: 2 / -1;
+  white-space: nowrap;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+#tyre-hud-setup {
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+.susp-panel .susp-landed {
   margin-top: 8px;
   padding-top: 6px;
   border-top: 1px solid var(--w95-shadow);
   box-shadow: inset 0 1px #fff;
   white-space: nowrap;
+}
+/* The panels are click-through (#top-left-stack); the debug buttons opt back in. */
+.susp-panel .susp-heat-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  pointer-events: auto;
+}
+.susp-panel .susp-heat-actions button {
+  min-width: 0;
+  padding: 1px 8px;
 }
 /* Instant vehicle picker in the debug view (toggled with K, same as
    #suspension-hud/#terrain-stats) - a compact version of the lobby's
@@ -151,6 +259,8 @@
 #vehicle-debug-color {
   margin-top: 6px;
 }
+/* Compact: no traits table in the narrow panel. */
+#vehicle-debug-tyres .tyre-setup-traits { display: none; }
 /* Ground surface under the mouse (hud/surfaceHover.js). */
 #surface-hover,
 #road-bed-inspect {
@@ -248,4 +358,27 @@
 #debug-layers-hud .debug-time-btn.active {
   background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
   box-shadow: var(--w95-pressed);
+}
+/* Click a debug panel's title to fold it down to just the title. */
+.debug-fold-title {
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  pointer-events: auto; /* some panels are click-through */
+}
+.debug-fold-title::before {
+  content: '▾ ';
+}
+.debug-folded > .debug-fold-title::before {
+  content: '▸ ';
+}
+.debug-folded > :not(.debug-fold-title) {
+  display: none !important; /* beats the panels' id-scoped display rules */
+}
+#fps-graph-panel > .debug-fold-title,
+#terrain-stats > .debug-fold-title {
+  margin-bottom: 4px;
+}
+.debug-folded > .debug-fold-title {
+  margin-bottom: 0 !important;
 }

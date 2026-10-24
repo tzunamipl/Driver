@@ -1,6 +1,7 @@
 // Camera view registry, cycled with C. Each file overrides only what
 // differs from the shared config.js defaults (see ./chase.js). A view may
-// set `vehicleTypes` to apply only to those descriptor.vehicleType values.
+// set `vehicleTypes` to apply only to those descriptor.vehicleType values,
+// and `wheelStereo` to put each wheel side's sounds in its own speaker.
 
 import chase from './chase.js';
 import close from './close.js';

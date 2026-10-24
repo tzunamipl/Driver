@@ -11,6 +11,7 @@ export default {
   rimSize: 20,
   tyre: 355,
   profile: 15,
+  tyreCompound: 'slickHard', // tyres/compounds.js
   suspension: {
     suspensionStiffness: 100,
     suspensionRestLength: 0.0,
@@ -37,6 +38,8 @@ export default {
   brakeForce: 400,
   mass: 1500,
   fuelTankL: 70,
+  radiator: 1.5,
+  coolantL: 20,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.65, -0.35, -0.8] })),
   steerSpeedD: 0.005,

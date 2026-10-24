@@ -140,3 +140,18 @@ export function createRemoteShell(scene, group, bodyMat, color, name, score) {
 
   return { setAppearance, dispose, mesh: group };
 }
+
+/** Bounds of every mesh under `root` in root's own frame. */
+export function localBounds(root) {
+  root.updateMatrixWorld(true);
+  const inverse = root.matrixWorld.clone().invert();
+  const toLocal = new THREE.Matrix4();
+  const part = new THREE.Box3();
+  const box = new THREE.Box3();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    box.union(part.copy(o.geometry.boundingBox).applyMatrix4(toLocal.multiplyMatrices(inverse, o.matrixWorld)));
+  });
+  return box;
+}

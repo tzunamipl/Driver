@@ -62,6 +62,7 @@ export default {
   rimSize: 18,
   tyre: 555,
   profile: 75,
+  tyreCompound: 'mud', // tyres/compounds.js
   suspension: SUSPENSION,
   suspensionForceG: SUSPENSION_FORCE_G,
   engine: 'v8',
@@ -78,6 +79,8 @@ export default {
   abs: false,
   mass: MASS,
   fuelTankL: 120,
+  radiator: 1.2,
+  coolantL: 20,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.55, -0.3, -1.95] })),
   steerSpeedD: STEER_SPEED_D,

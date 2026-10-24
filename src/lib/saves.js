@@ -21,7 +21,7 @@ const slotId = (modeId, startId) => (startId ? `${modeId}.${startId}` : modeId);
 const activeSlotId = () => (editorSession ? `${activeModeId}.editor` : slotId(activeModeId, activeStartId));
 
 // Settings of the whole mode, not of one game: shared with its editor and starts, kept by a new game.
-const MODE_WIDE_FIELDS = new Set(['cameraView']);
+const MODE_WIDE_FIELDS = new Set(['cameraView', 'debugFolded', 'garage']);
 const slotFor = (field) => (MODE_WIDE_FIELDS.has(field) ? activeModeId : activeSlotId());
 
 function readStore() {

@@ -30,6 +30,8 @@ export default {
   peakTorqueRpm: 3500,
   idleRpm: 900,
   redlineRpm: 6000,
+  // Small twin-scroll: early, soft boost.
+  turbo: { boostBar: 0.9, spoolRpm: 2000, lagS: 0.4 }, // bar, full-boost rpm, spool lag (s)
   // TR580 range 3.58-0.57; upper steps spread evenly to the tallest ratio.
   gearRatios: [3.56, 2.255, 1.655, 1.201, 0.92, 0.71, 0.57],
   finalDriveRatio: 3.9,
@@ -40,6 +42,8 @@ export default {
   tractionControl: true,
   mass: 1500,
   fuelTankL: 60,
+  radiator: 1.0,
+  coolantL: 7,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

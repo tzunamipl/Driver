@@ -39,6 +39,8 @@ export default {
   peakTorqueRpm: 1100,
   idleRpm: 600,
   redlineRpm: 2000,
+  // Big diesel turbo: strong but slow to build.
+  turbo: { boostBar: 2.5, spoolRpm: 1000, lagS: 1.2 }, // bar, full-boost rpm, spool lag (s)
   // 4-speed main box x LO/MID/HI range stage, evenly stepped 14.9..1.0.
   ...rangeGearbox([2.09, 1.63, 1.28, 1.0], [7.14, 2.67, 1.0]),
   finalDriveRatio: 3.4,
@@ -49,6 +51,8 @@ export default {
   tractionControl: true,
   mass: 13000, // empty
   fuelTankL: 400,
+  radiator: 1.1,
+  coolantL: 45,
   fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.6,

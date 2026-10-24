@@ -1,10 +1,13 @@
 // Debug-view vehicle/colour picker (dev mode has no lobby): swaps the car
 // live via carManager, broadcasts via net, and persists the pick to
 // DEV_CAR_STORAGE_KEY for the next dev-mode join. Paint goes through the shared
-// per-vehicle colours (ui/vehicleColorPicker.js), stored as it changes.
+// per-vehicle colours (ui/vehicleColorPicker.js), stored as it changes; tyres likewise
+// (ui/tyreSetupPicker.js), refitted live.
 
 import { createVehiclePicker } from '../ui/vehiclePicker.js';
 import { createVehicleColorPicker } from '../ui/vehicleColorPicker.js';
+import { createTyreSetupPicker } from '../ui/tyreSetupPicker.js';
+import { sameTyreSetup } from '../lib/tyres/setup.js';
 import { DEV_CAR_STORAGE_KEY } from '../config.js';
 import { DEFAULT_VEHICLE_ID } from '../lib/vehicles/index.js';
 import { getVehicleColor } from '../lib/vehicleColors.js';
@@ -37,9 +40,10 @@ function saveDevCarChoice(color, vehicleId) {
  * @param {HTMLElement} deps.tabsEl
  * @param {HTMLElement} deps.listEl
  * @param {HTMLElement} [deps.colorEl] - container for the paint widget
+ * @param {HTMLElement} [deps.tyresEl] - container for the tyre widget
  * @param {string} [deps.initialVehicleId] - initial highlight (saved pick before spawn)
  */
-export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colorEl, initialVehicleId }) {
+export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colorEl, tyresEl, initialVehicleId }) {
   const picker = createVehiclePicker({
     tabsEl,
     listEl,
@@ -50,6 +54,7 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
       net.setVehicleId(vehicleId);
       net.setColor(color);
       colors?.show(vehicleId);
+      tyres?.show(vehicleId);
       saveDevCarChoice(color, vehicleId);
     },
   });
@@ -71,11 +76,29 @@ export function createVehicleDebugPicker({ carManager, net, tabsEl, listEl, colo
     colors.show(picker.getSelectedId());
   }
 
+  // Live: a changed setup is stored and fitted (new tyres) straight away.
+  const tyres = tyresEl
+    ? createTyreSetupPicker({
+        title: false,
+        onChange: (setup) => {
+          const vehicle = carManager.getVehicle();
+          if (!vehicle?.tyreSetup || sameTyreSetup(setup, vehicle.tyreSetup)) return;
+          tyres?.commit();
+          carManager.setTyreSetup(setup);
+        },
+      })
+    : null;
+  if (tyres) {
+    tyresEl.append(tyres.el);
+    tyres.show(picker.getSelectedId());
+  }
+
   return {
     // Re-sync with the actual car after a (re)spawn.
     syncFromCar: () => {
       picker.select(carManager.getVehicleId());
       colors?.show(carManager.getVehicleId());
+      tyres?.show(carManager.getVehicleId());
     },
   };
 }

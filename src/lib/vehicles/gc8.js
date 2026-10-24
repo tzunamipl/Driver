@@ -30,6 +30,7 @@ export default {
   peakTorqueRpm: 4000,
   idleRpm: 900,
   redlineRpm: 7000,
+  turbo: { boostBar: 1.0, spoolRpm: 3200, lagS: 0.55 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [3.454, 2.062, 1.448, 1.088, 0.825], // TY75 5MT
   finalDriveRatio: 4.111,
   reverseRatio: 3.636,
@@ -38,6 +39,8 @@ export default {
   abs: false,
   mass: 1300,
   fuelTankL: 50,
+  radiator: 1.05,
+  coolantL: 7,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,
   maxSteerAt100: 0.4,

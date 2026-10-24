@@ -13,6 +13,7 @@ export default {
   rimSize: 17,
   tyre: 235,
   profile: 40,
+  tyreCompound: 'gravelHard', // tyres/compounds.js
   axles: carAxles('awd', 0.83),
   suspension: {
     suspensionStiffness: 48,
@@ -32,6 +33,8 @@ export default {
   peakTorqueRpm: 3200,
   idleRpm: 900,
   redlineRpm: 7500,
+  turbo: { boostBar: 1.1, spoolRpm: 3200, lagS: 0.5 }, // bar, full-boost rpm, spool lag (s)
+  launchRpm: 4000, // launches on boost
   gearRatios: [3.083, 2.062, 1.545, 1.151, 0.825],
   finalDriveRatio: 4.444,
   reverseRatio: 3.545,
@@ -40,6 +43,8 @@ export default {
   abs: false,
   mass: 1270,
   fuelTankL: 60,
+  radiator: 1.15,
+  coolantL: 7.5,
   backfire: 0.3,
   steerSpeedD: 0.005,
   maxSteerAt0: 0.5,

@@ -14,6 +14,7 @@ export default {
   rimSize: 20,
   tyre: 406,
   profile: 90,
+  tyreCompound: 'allTerrain', // tyres/compounds.js
   axles: [
     { z: 3.4, halfTrack: 1.0, steer: true, driven: true },
     { z: 1.9, halfTrack: 1.0, steer: true, driven: true },
@@ -45,6 +46,7 @@ export default {
   peakTorqueRpm: 1400,
   idleRpm: 650,
   redlineRpm: 2300,
+  turbo: { boostBar: 1.5, spoolRpm: 1200, lagS: 1.0 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [6, 4.7, 2.21, 1.53, 1.0, 0.76, 0.67],
   finalDriveRatio: 7.3,
   reverseRatio: 4.8,
@@ -53,6 +55,8 @@ export default {
   brakeForce: 220,
   mass: 17000,
   fuelTankL: 590,
+  radiator: 1.3, // military spec, sized for desert heat
+  coolantL: 50,
   fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.6,

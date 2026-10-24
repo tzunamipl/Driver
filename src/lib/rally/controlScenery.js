@@ -5,9 +5,11 @@
 // active item. Placed once the streets around a point are loaded; anchored in lat/lon and
 // repositioned every frame, so teleports and origin shifts need nothing special.
 // Flags, board posts and start lights knock over like road posts (knockable.js) and stand
-// again once the car is far from where they fell; nothing else collides.
+// again once the car is far from where they fell; nothing else collides. Props with an
+// `action` (tyre fitting, refuel) answer pickAction() and take a hover outline.
 
 import {
+  BackSide,
   BoxGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -24,7 +26,7 @@ import { createTrigger, launchDebris, settleDebris } from '../knockable.js';
 import { controlFrame } from '../scenarios/roadSnap.js';
 import { boardTexture, bannerTexture } from './fiaBoards.js';
 import { createFireworks } from './fireworks.js';
-import { createSparkles } from './sparkles.js';
+import { createSparkles } from '../particles/sparkles.js';
 import { CLOCK_HEIGHT_M, makeClock, setClockTime } from './timingClock.js';
 import * as props from './zoneProps.js';
 import { bakeProps } from './zoneProps.js';
@@ -69,13 +71,17 @@ const POST_HALF_M = 0.06;
 const TABLE_CLOCK_AT = [0.9, 0.76]; // marshal tent's table (zoneProps.js): x from the props origin, top height
 const TABLE_CLOCK_TURN = Math.PI / 6; // from facing the road towards approaching cars
 const LIGHTS_TOP_M = 2.8;
+const OUTLINE_M = 0.05; // hover outline: the props' hull pushed out along its normals
+const OUTLINE_READY = 0xffd400; // usable now
+const OUTLINE_FAR = 0xffffff; // the car has to come closer
 
 // boards: symbol on the yellow/red/beige boards; zoneEnd false = no beige board; boardHeight: board centre (m);
 // bothWays: approachable from either side: a yellow board 100 m out each way, a two-faced red one, no zone end;
 // flags: feather flag on each side of the road (text, colour; pole height and cloth length / width in m),
 // in colour only while it's the next point to pass, grey otherwise;
 // props: zoneProps.js builder set beside the road (right of travel, or left with propsLeft);
-// clock: time-of-day clock on the marshal tent's table ('table'), else on the start lights or the props-side red board ('pole').
+// clock: time-of-day clock on the marshal tent's table ('table'), else on the start lights or the props-side red board ('pole');
+// action: the props can be clicked for this service ('tyres' | 'refuel').
 const SCENERY = {
   timeControl: { boards: 'clock', props: props.makeMarshalTent, propsLeft: true, clock: 'table' },
   start: { arch: 'START', archColor: '#1d4fd8', lights: true, line: true, props: props.makeTimingHut, propsLeft: true, clock: 'pole' },
@@ -86,9 +92,9 @@ const SCENERY = {
   serviceParkIn: { boards: 'clock', props: props.makeServiceGate, clock: 'pole' },
   serviceParkOut: { boards: 'clock', props: props.makeServiceGate, clock: 'pole' },
   regroup: { boards: 'clock', props: props.makeRegroupProps, clock: 'pole' },
-  refuel: { boards: 'FUEL', bothWays: true, props: props.makeRefuelProps },
-  tyreFitting: { boards: 'TYRES', bothWays: true, props: props.makeTyreProps },
-  remoteService: { boards: 'RSZ', props: props.makeRemoteServiceProps },
+  refuel: { boards: 'FUEL', bothWays: true, props: props.makeRefuelProps, action: 'refuel' },
+  tyreFitting: { boards: 'TYRES', bothWays: true, props: props.makeTyreProps, action: 'tyres' },
+  remoteService: { boards: 'RSZ', props: props.makeRemoteServiceProps, action: 'tyres' },
   parcFerme: { boards: 'PARC FERMÉ', props: props.makeParcFermeProps },
   podium: { arch: 'PODIUM', archColor: '#c08a10', line: true, props: props.makePodiumProps },
   base: { props: props.makeBaseTent, propsLeft: true },
@@ -105,6 +111,17 @@ const lampGeometry = new SphereGeometry(0.11, 10, 8);
 const greyMaterial = new MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.6 });
 const whiteMaterial = new MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
 const boardMaterials = new Map();
+
+/** Back faces pushed out along the normals: an outline round whatever mesh it shares geometry with. */
+function outlineMaterial(color) {
+  const material = new MeshBasicMaterial({ color, side: BackSide });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\ntransformed += normalize(normal) * ${OUTLINE_M.toFixed(3)};`);
+  };
+  material.userData.shared = true;
+  return material;
+}
+const outlineMaterials = { ready: outlineMaterial(OUTLINE_READY), far: outlineMaterial(OUTLINE_FAR) };
 
 /**
  * The point type's control boards as [colour, metres along travel, facing]: facing 1 =
@@ -316,6 +333,7 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
   let baseEntry = null; // rally base: shown for the whole rally, not one of the indexed points
   let time = 0;
   const pendingHits = []; // { object, by }, queued during the physics step
+  let outlined = null; // { object, mesh }: hovered action props
 
   const isLit = (index) => lit >= 0 && index >= lit && index < lit + LIT_AHEAD;
   const neighbour = (points, i) => (points[i] ? viewFrame.fromLatLon(points[i].lat, points[i].lon) : null);
@@ -439,7 +457,9 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       // Builders put +x away from the road: turned round on the left side.
       const s = def.propsLeft ? -1 : 1;
       const q = side(frame.x, frame.z, s * (halfSpan + PROPS_GAP_M));
-      objects.push(anchor(bakeProps(def.props()), q.x, q.z, s * dirX, s * dirZ));
+      const propsObject = anchor(bakeProps(def.props()), q.x, q.z, s * dirX, s * dirZ);
+      if (def.action) propsObject.action = def.action;
+      objects.push(propsObject);
       if (def.clock === 'table') {
         // Same frame as the props; approaching cars are at local +z on the right side, -z on the left.
         const holder = new Group();
@@ -466,6 +486,7 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
 
   function removeObjects(entry) {
     for (const object of entry?.resolved?.objects ?? []) {
+      if (outlined?.object === object) outlined = null;
       dropTrigger(object);
       if (object.debris) restand(object);
       scene.remove(object.group);
@@ -529,7 +550,43 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
     }
   }
 
+  /** Visible props with an action, for pickAction. */
+  function actionObjects() {
+    const list = [];
+    for (const entry of baseEntry ? [...entries, baseEntry] : entries) {
+      for (const object of entry.resolved?.objects ?? []) if (object.action && object.group.visible) list.push(object);
+    }
+    return list;
+  }
+
   return {
+    /**
+     * The nearest clickable props under the ray: { action, x, z } (props position), or null.
+     * @param {import('three').Raycaster} raycaster
+     */
+    pickAction(raycaster) {
+      const objects = actionObjects();
+      const hit = raycaster.intersectObjects(objects.map((o) => o.group), false)[0];
+      const object = hit && objects.find((o) => o.group === hit.object);
+      return object ? { action: object.action, x: object.group.position.x, z: object.group.position.z, object } : null;
+    },
+
+    /** Outlines a pickAction() result's props: state 'ready' | 'far', or none for null. */
+    setOutline(picked, state) {
+      const object = picked?.object ?? null;
+      if (outlined && (outlined.object !== object || !state)) {
+        outlined.object.group.remove(outlined.mesh);
+        outlined = null;
+      }
+      if (!object || !state) return;
+      if (!outlined) {
+        outlined = { object, mesh: new Mesh(object.group.geometry, outlineMaterials[state]) };
+        outlined.mesh.raycast = () => {}; // never picked itself
+        object.group.add(outlined.mesh);
+      }
+      outlined.mesh.material = outlineMaterials[state];
+    },
+
     /** Shows scenery for these points (the whole itinerary, driving order), replacing any previous set. */
     setPoints(points) {
       clearPoints();

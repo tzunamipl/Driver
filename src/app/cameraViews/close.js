@@ -7,6 +7,7 @@
 export default {
   id: 'close',
   label: 'Close Chase',
+  wheelStereo: true,
   offset: [0, 6, -11],
   lookAtOffset: [0, 4, 8],
   closeScaleAtMaxSpeed: 0.6, // same distance as when slow

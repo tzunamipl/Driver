@@ -18,6 +18,7 @@ export default {
   gloss: 0.8,
   buildBody,
   ...FRONT_WHEEL,
+  tyreCompound: 'allTerrain', // tyres/compounds.js
   axles: [
     { z: 2.0, halfTrack: 0.98, steer: true },
     { z: -2.0, halfTrack: 1.33, driven: true, wheel: REAR_WHEEL, attachY: ATTACH_Y + REAR_RADIUS_GAIN },
@@ -41,6 +42,8 @@ export default {
   peakTorqueRpm: 3500,
   idleRpm: 800,
   redlineRpm: 6000,
+  // Belt-driven blowers: boost follows rpm, no lag.
+  turbo: { boostBar: 0.8, spoolRpm: 2000, lagS: 0.05 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [3.0, 2.0, 1.45, 1.1],
   finalDriveRatio: 7.0,
   reverseRatio: 3.0,
@@ -50,6 +53,8 @@ export default {
   abs: false,
   mass: 4000,
   fuelTankL: 400,
+  radiator: 0.8, // twin V8s, makeshift cooling
+  coolantL: 50,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].flatMap((sx) => [0, 1, 2].map((i) => ({ pos: [sx * (0.86 + i * 0.07), 1.88, 1.22 - i * 0.18], dir: [sx * 0.12, 0.97, -0.2] }))), // stack tops
   steerSpeedD: 0.006,

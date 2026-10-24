@@ -13,6 +13,7 @@ export default {
   rimSize: 15,
   tyre: 205,
   profile: 65,
+  tyreCompound: 'gravelHard', // tyres/compounds.js
   suspension: {
     suspensionStiffness: 45,
     suspensionRestLength: 0.15,
@@ -31,6 +32,8 @@ export default {
   peakTorqueRpm: 3500,
   idleRpm: 1000,
   redlineRpm: 7500,
+  turbo: { boostBar: 1.3, spoolRpm: 3500, lagS: 0.45 }, // bar, full-boost rpm, spool lag (s)
+  launchRpm: 4500, // launches on boost
   gearRatios: [3.0, 2.1, 1.6, 1.28, 1.05, 0.88],
   finalDriveRatio: 4.529,
   reverseRatio: 3.416,
@@ -39,6 +42,8 @@ export default {
   abs: false,
   mass: 1230,
   fuelTankL: 60,
+  radiator: 1.15,
+  coolantL: 7,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [{ pos: [-0.5, -0.27, -2.24] }],
   steerSpeedD: 0.005,

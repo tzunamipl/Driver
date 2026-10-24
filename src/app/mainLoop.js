@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS, AMBIENT_TEMP_C } from '../config.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
 import { getVehicleOdometerKm, setVehicleOdometerKm } from '../lib/vehicleOdometers.js';
 import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
-import { setCarListener } from '../lib/audio/audioContext.js';
+import { setCarListener, setWheelStereo } from '../lib/audio/audioContext.js';
+import { getCameraView } from './cameraViews/index.js';
 
 // Own-car sounds play at full volume within this camera distance (covers the
 // default chase view), then fall off as 1/distance.
@@ -63,6 +64,7 @@ export function createMainLoop({
   balls,
   pedestrians,
   shots,
+  fireAndJump,
   horn,
   headlights,
   headlightSwitch,
@@ -76,6 +78,8 @@ export function createMainLoop({
   waterImmersion,
   tireSmoke,
   exhaustFlames,
+  coolantSteam,
+  rimSparks,
   terrainDust,
   bodyDust,
   dissolve,
@@ -91,6 +95,9 @@ export function createMainLoop({
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
+  engineHud,
+  tyreHud,
+  bodyHud,
   playersPanel,
   minimapHud,
   routeGuidance,
@@ -169,7 +176,8 @@ export function createMainLoop({
     // Rally: R rocks the car instead of resetting it.
     input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
     if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
-    jump.update(frameDelta, !!vehicle && !input.isTyping() && input.keys.has('KeyJ'), vehicle);
+    if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), AMBIENT_TEMP_C);
+    jump.update(frameDelta, fireAndJump && !!vehicle && !input.isTyping() && !input.isLocked() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
     // player's view frame (viewFrame.js), and ours back before publishing.
@@ -233,7 +241,7 @@ export function createMainLoop({
       daylight.getSunElevation()
     );
     if (isJoined() && currentChassisMesh && currentVehicle) {
-      if (!input.isTyping()) {
+      if (fireAndJump && !input.isTyping() && !input.isLocked()) {
         const shot = shots.tryFire(currentVehicle.chassisBody, input.keys.has('KeyF'));
         if (shot) net.publishProps({ type: 'shot', ...toNetworkFrame(shot) });
       }
@@ -286,6 +294,9 @@ export function createMainLoop({
         score: carManager.getScore(),
         handbrakeLatched: input.getHandbrake().latched,
         fuel: carManager.getFuelState(),
+        tyres: carManager.getTyreState(),
+        heat: carManager.getHeatState(),
+        damage: carManager.getDamageState(),
       };
       if (now >= nextCarStateSave) {
         nextCarStateSave = now + CAR_STATE_SAVE_INTERVAL_MS;
@@ -306,6 +317,7 @@ export function createMainLoop({
       teleporting: addressSearch.isTeleporting(),
       resetting: carManager.isResetting(),
     });
+    setWheelStereo(!!getCameraView(cameraFollow.getViewId()).wheelStereo);
     if (currentChassisMesh) updateCarListener(camera, currentChassisMesh.position);
     if (currentVehicle && carManager.getVehicleId() !== odometerVehicleId) {
       saveOdometer();
@@ -322,6 +334,7 @@ export function createMainLoop({
       on: lightsOn,
       braking: input.isBraking(),
       reversing: currentVehicle?.engine?.gear === 0,
+      damage: currentVehicle?.lamps?.broken,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
     const debugVisualsEnabled = debugVisuals.isEnabled();
@@ -370,11 +383,16 @@ export function createMainLoop({
       landcoverAreas,
       builtUpAreas,
     });
+    engineHud.updateEngineHud(currentVehicle, debugVisualsEnabled);
+    tyreHud.updateTyreHud(currentVehicle, debugVisualsEnabled);
+    bodyHud.updateBodyHud(currentVehicle, debugVisualsEnabled);
     // Effects run regardless of debug state. Splash also takes streets
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
+    rimSparks.update(frameDelta, currentVehicle, world);
     exhaustFlames.update(frameDelta, currentVehicle, currentChassisMesh, getVehicleDescriptor(carManager.getVehicleId()));
+    coolantSteam.update(frameDelta, currentVehicle, currentChassisMesh);
     tireSqueal.update(currentVehicle);
     gravelSpinSound.update(currentVehicle);
     bodyScrapeSound.update(frameDelta);

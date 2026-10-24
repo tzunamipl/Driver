@@ -35,6 +35,8 @@ export default {
   peakTorqueRpm: 4500,
   idleRpm: 850,
   redlineRpm: 6800,
+  // Belt-driven blower: boost follows rpm, no lag.
+  turbo: { boostBar: 0.7, spoolRpm: 2500, lagS: 0.05 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [2.78, 1.93, 1.36, 1.0],
   finalDriveRatio: 3.5,
   reverseRatio: 2.78,
@@ -43,6 +45,8 @@ export default {
   abs: false,
   mass: 1550,
   fuelTankL: 180, // twin boot tanks
+  radiator: 0.85, // supercharged V8 behind a small grille: runs hot
+  coolantL: 16,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
   steerSpeedD: 0.005,

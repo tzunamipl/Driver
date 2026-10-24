@@ -15,6 +15,7 @@ export default {
   rimSize: 22.5,
   tyre: 315,
   profile: 80,
+  tyreCompound: 'allTerrain', // tyres/compounds.js
   axles: [
     { z: 3.0, halfTrack: 1.0, steer: true, driven: true },
     { z: -1.6, halfTrack: 0.95, dual: true, driven: true },
@@ -39,6 +40,8 @@ export default {
   peakTorqueRpm: 2800,
   idleRpm: 700,
   redlineRpm: 4800,
+  // Belt-driven blowers: boost follows rpm, no lag.
+  turbo: { boostBar: 0.8, spoolRpm: 1500, lagS: 0.05 }, // bar, full-boost rpm, spool lag (s)
   gearRatios: [4.4, 2.6, 1.7, 1.25, 1.0, 0.82],
   finalDriveRatio: 6.0,
   reverseRatio: 4.2,
@@ -48,6 +51,8 @@ export default {
   abs: false,
   mass: 11000,
   fuelTankL: 1200,
+  radiator: 0.9,
+  coolantL: 60,
   fuelType: 'diesel',
   steerSpeedD: 0.006,
   maxSteerAt0: 0.55,

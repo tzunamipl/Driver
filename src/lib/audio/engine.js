@@ -7,12 +7,22 @@
 import { getAudio } from './audioContext.js';
 import { DEFAULT_ENGINE_SOUND, ENGINE_SOUNDS } from './engineProfiles.js';
 
-const MASTER_GAIN = 0.025;
+const MASTER_GAIN = 0.032;
 const FALLBACK_IDLE_RPM = 900; // hover rigs have no engine.js state
 const FALLBACK_REDLINE_RPM = 6500;
 const WAVE_SAMPLES = 2048;
 const WAVE_HARMONICS = 96;
 const BOV_MIN_RPM_FRAC = 0.45;
+// Simulated turbo: blow-off only with real boost to dump (fraction of max boost).
+const BOV_MIN_BOOST_FRAC = 0.3;
+// Simulated turbo whizz: shaft speed (0..1) follows boost up, coasts down slowly
+// after a lift; audible only above WHIZZ_FROM_SPIN, a narrow noise band that rises with it.
+const SPIN_UP_TAU_S = 0.3;
+const SPIN_DOWN_TAU_S = 1.5;
+const WHIZZ_FROM_SPIN = 0.5;
+const WHIZZ_GAIN = 0.03;
+const WHIZZ_HZ_MIN = 3500;
+const WHIZZ_HZ_MAX = 9000;
 const CLATTER_DECAY = 0.004; // cycle fractions: near-instant injector knock
 const CLATTER_HZ = 2600;
 
@@ -147,14 +157,30 @@ export function createEngineSound() {
   whistle.connect(whistleGain);
   whistleGain.connect(out);
 
+  // Turbo whizz: own noise loop (offset from the hiss so they don't correlate).
+  const whizz = ctx.createBufferSource();
+  whizz.buffer = noise;
+  whizz.loop = true;
+  const whizzFilter = ctx.createBiquadFilter();
+  whizzFilter.type = 'bandpass';
+  whizzFilter.Q.value = 7;
+  const whizzGain = ctx.createGain();
+  whizzGain.gain.value = 0;
+  whizz.connect(whizzFilter);
+  whizzFilter.connect(whizzGain);
+  whizzGain.connect(out);
+
   bankA.start();
   bankB.start();
   hiss.start();
   whistle.start();
+  whizz.start(0, noise.duration / 2);
   clatterEnv.start();
 
   let profile = null;
   let lastThrottle = 0;
+  let spin = 0; // turbo shaft speed, 0..1
+  let lastTime = ctx.currentTime;
 
   function setProfile(next) {
     if (next === profile) return;
@@ -222,13 +248,24 @@ export function createEngineSound() {
     clatterDepth.gain.setTargetAtTime(clatter, now, 0.08);
     clatterGain.gain.setTargetAtTime(clatter * 0.2, now, 0.08);
 
-    const boost = profile.turbo ? throttle * r * r : 0;
+    // Engines with a simulated turbo whistle with their real boost; the rest fake it from load.
+    const simulated = !!engine?.turbo;
+    const boost = simulated ? engine.boostFraction : profile.turbo ? throttle * r * r : 0;
     const whistlePitch = profile.whistlePitch ?? DEFAULT_WHISTLE_PITCH;
-    whistle.frequency.setTargetAtTime(whistlePitch * (1600 + r * 4200), now, 0.2);
+    whistle.frequency.setTargetAtTime(whistlePitch * (1600 + (simulated ? boost : r) * 4200), now, 0.2);
     whistleGain.gain.setTargetAtTime(boost * 0.012, now, 0.3);
 
-    const hasBlowOff = profile.blowOff ?? profile.turbo;
-    if (hasBlowOff && vehicle && lastThrottle > 0.5 && throttle < 0.5 && r > BOV_MIN_RPM_FRAC) blowOff(now);
+    const dt = Math.min(0.1, now - lastTime);
+    lastTime = now;
+    const spinTarget = simulated ? boost : 0;
+    spin += (spinTarget - spin) * Math.min(1, dt / (spinTarget > spin ? SPIN_UP_TAU_S : SPIN_DOWN_TAU_S));
+    const whizzLevel = Math.max(0, (spin - WHIZZ_FROM_SPIN) / (1 - WHIZZ_FROM_SPIN));
+    whizzFilter.frequency.setTargetAtTime(whistlePitch * (WHIZZ_HZ_MIN + (WHIZZ_HZ_MAX - WHIZZ_HZ_MIN) * spin), now, 0.1);
+    whizzGain.gain.setTargetAtTime(whizzLevel * whizzLevel * WHIZZ_GAIN, now, 0.1);
+
+    const hasBlowOff = profile.blowOff ?? (simulated || profile.turbo);
+    const pressurised = simulated ? boost > BOV_MIN_BOOST_FRAC : r > BOV_MIN_RPM_FRAC;
+    if (hasBlowOff && vehicle && lastThrottle > 0.5 && throttle < 0.5 && pressurised) blowOff(now);
     lastThrottle = throttle;
   }
 

@@ -1,7 +1,7 @@
 // Wading through water: a continuous wash of filtered noise layers, louder and
 // brighter with speed. Filters and levels drift randomly so it never pulses.
 
-import { getAudio } from './audioContext.js';
+import { getAudio, createWheelOutput } from './audioContext.js';
 
 const MAX_GAIN = 0.12;
 const FULL_SPEED_MPS = 12; // speed at which the wash reaches full level
@@ -24,6 +24,7 @@ const rand = ([min, max]) => min + Math.random() * (max - min);
 
 export function createWaterWadeSound() {
   let voices = null;
+  let output = null;
 
   function build(ctx, out, noise) {
     return LAYERS.map((layer) => {
@@ -48,15 +49,18 @@ export function createWaterWadeSound() {
   /**
    * @param {number} wetFraction - share of wheels on water, 0..1.
    * @param {number} speed - chassis speed (m/s).
+   * @param {number} [side] - wet wheels' side, -1 left .. 1 right.
    */
-  function update(wetFraction, speed) {
+  function update(wetFraction, speed, side = 0) {
     const audio = getAudio();
     if (!audio) return;
-    const { ctx, buses, noise } = audio;
+    const { ctx, noise } = audio;
     if (!voices) {
       if (wetFraction <= 0) return; // don't start the graph until first needed
-      voices = build(ctx, buses.carSfx, noise);
+      output = createWheelOutput();
+      voices = build(ctx, output.input, noise);
     }
+    if (wetFraction > 0) output.setSide(side);
     const now = ctx.currentTime;
     const speedFrac = Math.min(1, speed / FULL_SPEED_MPS);
     const level = wetFraction > 0 ? Math.sqrt(wetFraction) * (IDLE_LEVEL + (1 - IDLE_LEVEL) * speedFrac) : 0;

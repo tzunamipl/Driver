@@ -2,7 +2,8 @@
 // loose ground crunches instead, gravelSpin.js). Two voice sets mixed by slip kind: a high sustained squeal
 // for sideways/locked slides, a lower chattering scrub for power wheelspin.
 
-import { getAudio } from './audioContext.js';
+import { getAudio, createWheelOutput } from './audioContext.js';
+import { wheelSide } from '../wheelContact.js';
 
 const SQUEAL_SURFACES = new Set(['road', 'rock', 'builtUp']);
 
@@ -25,12 +26,13 @@ const SPIN_PITCH_MAX = 1.4; // ...up to this multiple
 export function createTireSqueal() {
   const audio = getAudio();
   if (!audio) return { update() {} };
-  const { ctx, buses } = audio;
+  const { ctx } = audio;
+  const output = createWheelOutput();
 
   // Spin voices go through a bus whose gain the chatter LFO wobbles.
   const spinBus = ctx.createGain();
   spinBus.gain.value = 1 - SPIN_CHATTER_DEPTH;
-  spinBus.connect(buses.carSfx);
+  spinBus.connect(output.input);
   const chatter = ctx.createOscillator();
   chatter.frequency.value = SPIN_CHATTER_HZ;
   const chatterDepth = ctx.createGain();
@@ -52,7 +54,7 @@ export function createTireSqueal() {
       return { ...tone, osc, gainNode: gain };
     });
   }
-  const slideVoices = createVoices(SLIDE_TONES, buses.carSfx);
+  const slideVoices = createVoices(SLIDE_TONES, output.input);
   const spinVoices = createVoices(SPIN_TONES, spinBus);
 
   /** @param {object|null} vehicle - wheeledVehicle.js vehicle, or null. */
@@ -61,6 +63,7 @@ export function createTireSqueal() {
     let spin = 0;
     let slide = 0;
     let spinSpeed = 0;
+    let sideSum = 0;
     for (const w of vehicle?.wheelInfos ?? []) {
       if (!w.sliding || !SQUEAL_SURFACES.has(w.surface)) continue;
       const long = Math.abs(w.spinSlipSpeed ?? 0);
@@ -68,8 +71,10 @@ export function createTireSqueal() {
       const spinShare = w.wheelspin && total > 1e-3 ? long / total : 0;
       spin += spinShare;
       slide += 1 - spinShare;
+      sideSum += wheelSide(w);
       if (w.wheelspin) spinSpeed = Math.max(spinSpeed, long);
     }
+    if (spin + slide > 0) output.setSide(sideSum / (spin + slide));
     const spinLevel = Math.min(1, spin);
     const slideLevel = Math.min(1, slide);
     const spinPitch = Math.min(SPIN_PITCH_MAX, 1 + spinSpeed * SPIN_PITCH_PER_MPS);

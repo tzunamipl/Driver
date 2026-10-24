@@ -12,6 +12,8 @@ import { createSplash } from './lib/splash.js';
 import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createExhaustFlames } from './lib/exhaustFlames.js';
+import { createCoolantSteam } from './lib/coolantSteam.js';
+import { createRimSparks } from './lib/rimSparks.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createDissolve } from './lib/dissolve.js';
@@ -29,11 +31,14 @@ import { createImpactSound } from './lib/audio/impact.js';
 import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
+import { createTyrePopSound } from './lib/audio/tyrePop.js';
+import { createRimGrindSound } from './lib/audio/rimGrind.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
 import { createSparklePop } from './lib/audio/sparklePop.js';
 import { createBackfireSound } from './lib/audio/backfire.js';
+import { createCoolantHissSound } from './lib/audio/coolantHiss.js';
 import { createStartBeep } from './lib/audio/startBeep.js';
 import { createHeadlights } from './lib/headlights.js';
 import { createHeadlightSwitch } from './app/headlightSwitch.js';
@@ -78,9 +83,13 @@ import { createGearstickHud } from './hud/gearstick.js';
 import { createCursorHide } from './app/cursorHide.js';
 import { createTerrainStatsHud } from './hud/terrainStatsHud.js';
 import { createSuspensionHud } from './hud/suspensionHud.js';
+import { createEngineHud } from './hud/engineHud.js';
+import { createTyreHud } from './hud/tyreHud.js';
+import { createBodyHud } from './hud/bodyHud.js';
 import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
+import { setupDebugFolds } from './hud/debugFold.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
@@ -108,6 +117,9 @@ import { createEditorNotePicking } from './app/editorNotePicking.js';
 import { createPacenotePanel } from './ui/pacenotePanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
+import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
+import { createRefuelDialog } from './ui/refuelDialog.js';
+import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
 
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
@@ -256,6 +268,7 @@ const waterWadeSound = createWaterWadeSound();
 const gravelSpinSound = createGravelSpinSound();
 const bodyScrapeSound = createBodyScrapeSound();
 const impactSound = createImpactSound();
+const tyrePopSound = createTyrePopSound();
 const postHitSound = createPostHitSound();
 const places = createPlaces();
 const streetLampKind = createStreetLampKind(streets, builtUpAreas);
@@ -325,6 +338,9 @@ const debugVisuals = createDebugVisualsToggle(
     terrainStatsEl: document.getElementById('terrain-stats'),
     fpsGraphEl: document.getElementById('fps-graph-panel'),
     suspensionHudEl: document.getElementById('suspension-hud'),
+    engineHudEl: document.getElementById('engine-hud'),
+    tyreHudEl: document.getElementById('tyre-hud'),
+    bodyHudEl: document.getElementById('body-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
     roadside,
@@ -333,6 +349,9 @@ const debugVisuals = createDebugVisualsToggle(
   IS_DEV_MODE
 );
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
+setupDebugFolds(
+  ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+);
 createSurfaceHover({
   el: document.getElementById('surface-hover'),
   canvas: renderer.domElement,
@@ -345,7 +364,25 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 // ---------- Car + remote players ----------
 // Created before carManager: its collide listener needs it on first spawn.
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
-const carManager = createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat: START_QUAT, playerSpawnQuat, initialFuel: savedCarState?.fuel ?? null });
+const rimSparks = createRimSparks(scene, { onGrind: createRimGrindSound().update });
+const carManager = createCarManager({
+  world,
+  scene,
+  pedestrians,
+  debugVisuals,
+  bodyDust,
+  bodyScrapeSound,
+  impactSound,
+  tyrePopSound,
+  rimSparks,
+  playerSpawnPos,
+  startQuat: START_QUAT,
+  playerSpawnQuat,
+  initialFuel: savedCarState?.fuel ?? null,
+  initialTyres: savedCarState?.tyres ?? null,
+  initialHeat: savedCarState?.heat ?? savedCarState?.coolant ?? null,
+  initialDamage: savedCarState?.damage ?? null,
+});
 carManager.addScore(savedCarState?.score ?? 0);
 
 // ---------- Debug-view vehicle picker (pre-loaded with the saved dev pick) ----------
@@ -356,6 +393,7 @@ const vehicleDebugPicker = createVehicleDebugPicker({
   tabsEl: document.getElementById('vehicle-debug-tabs'),
   listEl: document.getElementById('vehicle-debug-list'),
   colorEl: document.getElementById('vehicle-debug-color'),
+  tyresEl: document.getElementById('vehicle-debug-tyres'),
   initialVehicleId: devCarChoice?.vehicleId,
 });
 
@@ -395,6 +433,9 @@ const gearstickHud = createGearstickHud();
 const terrainStatsHud = createTerrainStatsHud();
 const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
+const engineHud = createEngineHud();
+const tyreHud = createTyreHud();
+const bodyHud = createBodyHud();
 const playersPanel = createPlayersPanel();
 function getCarLatLon() {
   const pos = carManager.getVehicle()?.chassisBody.position;
@@ -441,10 +482,15 @@ const shots = createShots({
 });
 const horn = createHorn();
 const jump = createJump({ world });
+const fireAndJump = !isEditorSession() && getGameMode(getActiveModeId())?.fireAndJump === true;
+if (!fireAndJump) {
+  for (const code of ['KeyJ', 'KeyF']) document.querySelector(`#touch-controls button[data-code="${code}"]`)?.remove();
+}
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play });
+const coolantSteam = createCoolantSteam(scene, { onLeak: createCoolantHissSound().update });
 const terrainDust = createTerrainDust(scene);
 const clouds = createClouds(scene);
 createMusic();
@@ -495,22 +541,61 @@ if (scenarioEditor) {
 }
 
 // ---------- Menus over the game ----------
-// Main menu / stage picker / rally results open: the handbrake is pulled and the drone circles the car until they close.
+// Main menu / stage picker / rally results / service dialogs open: the handbrake is pulled, the
+// car takes no keys, and the drone circles it until they close. Menus move to the left
+// (html.menu-aside) and the car sits in the free space to their right.
 let menusOpen = 0;
+// Free space narrower than this share of the screen: the car stays centred.
+const MENU_ASIDE_MIN_FREE = 0.2;
+// Car this share of the way across the free space, a little towards the menu.
+const MENU_ASIDE_CAR_AT = 0.4;
+/** Screen x (0..1) of the car in the space right of the open menu windows, or null. */
+function carBesideMenus() {
+  let right = 0;
+  for (const win of document.querySelectorAll('.menu-window')) {
+    if (win.offsetParent) right = Math.max(right, win.getBoundingClientRect().right);
+  }
+  const width = window.innerWidth;
+  if (!right || width - right < width * MENU_ASIDE_MIN_FREE) return null;
+  return (right + (width - right) * MENU_ASIDE_CAR_AT) / width;
+}
 menuPark = {
   onOpen() {
     if (menusOpen++ > 0) return;
     cloudSave.push();
     input.latchHandbrake();
-    cameraFollow.holdView('drone');
+    input.setLocked(true);
+    document.documentElement.classList.add('menu-aside');
+    cameraFollow.holdView('drone', { screenX: carBesideMenus });
   },
   onClose() {
     if (menusOpen === 0 || --menusOpen > 0) return;
+    input.setLocked(false);
+    document.documentElement.classList.remove('menu-aside');
     cameraFollow.releaseView();
   },
 };
 
 // ---------- Rally game mode ----------
+// Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size.
+// A click on the tyre props (fitted: false) opens it without the free set: Fit puts one on.
+const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose() }) : null;
+async function onTyreService({ fitted = true } = {}) {
+  const vehicle = carManager.getVehicle();
+  const removed = vehicle?.getTyreState ? { setup: vehicle.tyreSetup, labels: vehicle.wheelLabels, wheels: vehicle.getTyreState() } : null;
+  if (fitted) vehicle?.repairTyres?.();
+  if (!vehicle?.tyreSetup) return;
+  const setup = await tyreService.open(carManager.getVehicleId(), removed, { fitted });
+  if (setup && carManager.getVehicle() === vehicle) carManager.setTyreSetup(setup);
+}
+// Refuel points / a click on the bowser: litres to add.
+const refuelDialog = isRallyGame ? createRefuelDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose() }) : null;
+async function onRefuel() {
+  const vehicle = carManager.getVehicle();
+  if (!vehicle?.fuel) return;
+  const add = await refuelDialog.open({ litres: vehicle.fuel.litres, capacityL: vehicle.fuel.capacityL, fuelType: getVehicleDescriptor(carManager.getVehicleId()).fuelType });
+  if (add && carManager.getVehicle() === vehicle) vehicle.fuel.setLitres(vehicle.fuel.litres + add);
+}
 const rallySession =
   getActiveModeId() === 'rally' && !isEditorSession()
     ? createRallySession({
@@ -527,6 +612,10 @@ const rallySession =
         getVehicleId: () => carManager.getVehicleId(),
         switchVehicle,
         parkCar: input.latchHandbrake,
+        onTyreService,
+        onRefuel,
+        canvas: renderer.domElement,
+        camera,
         keepsProgress,
         playerId,
         getPlayerName: loadProfileName,
@@ -571,7 +660,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, ...(rallySession ? [rallySession] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, ...(rallySession ? [rallySession] : [])],
 });
 
 // ---------- Main loop ----------
@@ -599,6 +688,7 @@ const mainLoop = createMainLoop({
   balls,
   pedestrians,
   shots,
+  fireAndJump,
   horn,
   headlights,
   headlightSwitch,
@@ -612,6 +702,8 @@ const mainLoop = createMainLoop({
   waterImmersion,
   tireSmoke,
   exhaustFlames,
+  coolantSteam,
+  rimSparks,
   terrainDust,
   bodyDust,
   dissolve,
@@ -627,6 +719,9 @@ const mainLoop = createMainLoop({
   terrainStatsHud,
   streamingStatus,
   suspensionHud,
+  engineHud,
+  tyreHud,
+  bodyHud,
   playersPanel,
   minimapHud,
   routeGuidance,

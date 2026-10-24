@@ -2,6 +2,8 @@
 // (landings, kerbs, potholes), one per wheel per compression stroke.
 
 import { playThud } from './impact.js';
+import { createWheelOutput } from './audioContext.js';
+import { wheelSide } from '../wheelContact.js';
 
 const MIN_CLOSING_SPEED = 0.4; // m/s; below = ordinary road bumps
 const MIN_TRAVEL = 0.05; // m compressed within one stroke; filters fast but tiny jitters
@@ -17,11 +19,14 @@ export function createSuspensionThud() {
   const strokeStart = [];
   const strokePeak = [];
   const strokeFired = [];
+  let output = null;
 
   /** @param {object|null} vehicle - wheeledVehicle.js vehicle, or null. */
   function update(dt, vehicle) {
     const wheels = vehicle?.wheelInfos ?? [];
     let loudest = 0;
+    let sideSum = 0;
+    let fired = 0;
     for (let i = 0; i < wheels.length; i++) {
       const wheel = wheels[i];
       cooldowns[i] = Math.max(0, (cooldowns[i] ?? 0) - dt);
@@ -49,9 +54,13 @@ export function createSuspensionThud() {
       strokeFired[i] = true;
       cooldowns[i] = COOLDOWN_S;
       loudest = Math.max(loudest, strokePeak[i]);
+      sideSum += wheelSide(wheel);
+      fired++;
     }
     // Wheels hitting together (a flat landing) make one bigger thud, not a stack.
     if (loudest > 0) {
+      output ??= createWheelOutput();
+      output?.setSide(sideSum / fired, true);
       const level = Math.min(1, (loudest - MIN_CLOSING_SPEED) / (CLOSING_SPEED_FOR_MAX - MIN_CLOSING_SPEED));
       playThud(level, {
         gain: MIN_GAIN + (MAX_GAIN - MIN_GAIN) * level,
@@ -60,6 +69,7 @@ export function createSuspensionThud() {
         knock: 0.3, // muffled attack: rubber and springs, not metal
         attack: 0.015,
         length: 1.0,
+        destination: output?.input,
       });
     }
   }

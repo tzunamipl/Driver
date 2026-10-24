@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { createRemoteCar } from '../lib/car.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 import { driveLabel } from '../lib/car/axles.js';
+import { sameTyreSetup } from '../lib/tyres/setup.js';
 
 const SPIN_RAD_PER_S = 0.6;
 const CAMERA_FOV_DEG = 30;
@@ -52,6 +53,7 @@ export function createVehiclePreview({ canvas, statsEl }) {
   let model = null;
   let vehicleId = null;
   let color = 0xffffff;
+  let tyreSetup = null; // null: stock wheels
   let rafId = 0;
   let lastT = 0;
 
@@ -61,7 +63,7 @@ export function createVehiclePreview({ canvas, statsEl }) {
   scene.add(holder);
 
   function buildModel() {
-    model = createRemoteCar(holder, color, '', 0, vehicleId);
+    model = createRemoteCar(holder, color, '', 0, vehicleId, tyreSetup);
     const group = holder.children[0];
     // Drop the name tag so it neither shows nor skews the framing.
     const sprites = [];
@@ -122,9 +124,17 @@ export function createVehiclePreview({ canvas, statsEl }) {
       const resolved = getVehicle(id).id;
       if (resolved === vehicleId && model) return;
       vehicleId = resolved;
+      tyreSetup = null;
       model?.dispose();
       buildModel();
       renderStats();
+    },
+    /** Shows these wheel sizes (tyres/setup.js) on the current vehicle. */
+    setTyreSetup(next) {
+      if (sameTyreSetup(next, tyreSetup) || !vehicleId) return;
+      tyreSetup = next;
+      model?.dispose();
+      buildModel();
     },
     setColor(next) {
       color = next;

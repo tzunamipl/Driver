@@ -1,5 +1,6 @@
-// Sparkles thrown at a passed control: glowing streaks shot up and out from a pole,
-// stretched along their flight and fading as they fall. One InstancedMesh; visual only.
+// Sparkles: glowing streaks shot up and out from a point (a rally control's pole,
+// a rim on tarmac), stretched along their flight and fading as they fall.
+// One InstancedMesh; visual only.
 
 import { AdditiveBlending, BoxGeometry, Color, InstancedMesh, MeshBasicMaterial, Object3D } from 'three';
 
@@ -10,6 +11,7 @@ const STREAK_S = 0.05; // a streak is as long as its flight over this much time
 const MIN_STREAK_M = 0.08;
 const LAUNCH_SPEED = [5, 10]; // m/s
 const LIFE_S = [0.7, 1.3];
+const UP = [0.4, 1]; // vertical share of the launch direction
 const GRAVITY = -9.81;
 const DRAG = 1.2; // 1/s
 const COLORS = [0xfff2b0, 0xffd34d, 0xffffff, 0xffb347].map((c) => new Color(c));
@@ -33,22 +35,25 @@ export function createSparkles(scene) {
   const sparks = [];
 
   return {
-    /** One throw of sparks from world point (x, y, z), e.g. a pole's top. */
-    throw(x, y, z) {
-      for (let i = 0; i < SPARKS_PER_THROW && sparks.length < MAX_SPARKS; i++) {
+    /**
+     * One throw of sparks from world point (x, y, z), e.g. a pole's top.
+     * Options override count, speed / up / life ranges; `inherit` = velocity added to every spark.
+     */
+    throw(x, y, z, { count = SPARKS_PER_THROW, speed: speedRange = LAUNCH_SPEED, up: upRange = UP, life = LIFE_S, inherit } = {}) {
+      for (let i = 0; i < count && sparks.length < MAX_SPARKS; i++) {
         const a = Math.random() * Math.PI * 2;
-        const up = 0.4 + Math.random() * 0.6; // mostly upwards
-        const speed = rand(LAUNCH_SPEED);
+        const up = rand(upRange);
+        const speed = rand(speedRange);
         const side = Math.sqrt(1 - up * up) * speed;
         sparks.push({
           x,
           y,
           z,
-          vx: Math.cos(a) * side,
-          vy: up * speed,
-          vz: Math.sin(a) * side,
+          vx: Math.cos(a) * side + (inherit?.x ?? 0),
+          vy: up * speed + (inherit?.y ?? 0),
+          vz: Math.sin(a) * side + (inherit?.z ?? 0),
           life: 0,
-          maxLife: rand(LIFE_S),
+          maxLife: rand(life),
           color: COLORS[Math.floor(Math.random() * COLORS.length)],
         });
       }

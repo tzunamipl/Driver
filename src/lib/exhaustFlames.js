@@ -2,9 +2,11 @@
 // (lift-off, gear-change torque cut). Amount from descriptor `backfire` (0 none .. 1 full).
 // Tips come from descriptor `exhaustTips` ([{ pos: [x, y, z], dir: [x, y, z] }],
 // chassis-local); without them, one tip at the rear bottom of the body.
+// Each pop flashes one orange point light at the tips' midpoint.
 
 import * as THREE from 'three';
 import { createPuffPool } from './particles/puffPool.js';
+import { localBounds } from './vehicleShared.js';
 
 const DEFAULT_BACKFIRE = 0;
 const POOL_SIZE = 96;
@@ -23,24 +25,15 @@ const MIN_REV_FRACTION = 0.55;
 const POP_RATE_PER_S = [3, 12];
 const OVERRUN_STRENGTH = [0.5, 0.85]; // sound strength of off-load pops, gear-change pops are 1
 const DEFAULT_DIR = [0, 0, -1];
+const LIGHT_COLOR = 0xff7a20;
+const LIGHT_INTENSITY = 60; // cd at a strength-1 pop
+const LIGHT_DISTANCE_M = 8;
+const LIGHT_DECAY = 2;
+const LIGHT_FADE_S = 0.05; // time constant of the flash dying away
+const LIGHT_FLICKER = 0.35; // random +/- share per frame
 
 const tipScratch = new THREE.Vector3();
 const dirScratch = new THREE.Vector3();
-
-/** Bounds of every mesh under `root` in root's own frame. */
-function localBounds(root) {
-  root.updateMatrixWorld(true);
-  const inverse = root.matrixWorld.clone().invert();
-  const toLocal = new THREE.Matrix4();
-  const part = new THREE.Box3();
-  const box = new THREE.Box3();
-  root.traverse((o) => {
-    if (!o.isMesh) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    box.union(part.copy(o.geometry.boundingBox).applyMatrix4(toLocal.multiplyMatrices(inverse, o.matrixWorld)));
-  });
-  return box;
-}
 
 /**
  * Creates the exhaust-flame effect. Call update() once per rendered frame.
@@ -59,6 +52,12 @@ export function createExhaustFlames(scene, { onPop } = {}) {
   let tips = [];
   let prevShiftTimer = 0;
   let prevRevFraction = 0;
+  // Always in the scene at intensity 0: adding/removing lights recompiles every lit shader.
+  const light = new THREE.PointLight(LIGHT_COLOR, 0, LIGHT_DISTANCE_M, LIGHT_DECAY);
+  light.castShadow = false;
+  scene.add(light);
+  const lightLocal = new THREE.Vector3(); // tips' midpoint, a bit out along the flame
+  let flash = 0;
 
   function resolveTips(descriptor, chassisMesh) {
     if (tipsFor === descriptor) return tips;
@@ -72,11 +71,25 @@ export function createExhaustFlames(scene, { onPop } = {}) {
       const box = localBounds(chassisMesh);
       tips = [{ pos: new THREE.Vector3(box.min.x * 0.55, box.min.y + 0.15, box.min.z), dir: new THREE.Vector3(...DEFAULT_DIR) }];
     }
+    lightLocal.set(0, 0, 0);
+    for (const tip of tips) lightLocal.addScaledVector(tip.pos, 1 / tips.length).addScaledVector(tip.dir, TONGUE_LENGTH / 2 / tips.length);
     return tips;
+  }
+
+  function updateLight(dt, chassisMesh) {
+    flash *= Math.exp(-dt / LIGHT_FADE_S);
+    if (flash < 0.01 || !chassisMesh) {
+      flash = 0;
+      light.intensity = 0;
+      return;
+    }
+    light.position.copy(lightLocal).applyQuaternion(chassisMesh.quaternion).add(chassisMesh.position);
+    light.intensity = LIGHT_INTENSITY * flash * (1 + (Math.random() - 0.5) * 2 * LIGHT_FLICKER);
   }
 
   function pop(chassisMesh, velocity, strength) {
     onPop?.(strength);
+    flash = Math.max(flash, strength);
     for (const tip of tips) {
       tipScratch.copy(tip.pos).applyQuaternion(chassisMesh.quaternion).add(chassisMesh.position);
       dirScratch.copy(tip.dir).applyQuaternion(chassisMesh.quaternion);
@@ -105,6 +118,7 @@ export function createExhaustFlames(scene, { onPop } = {}) {
    */
   function update(dt, vehicle, chassisMesh, descriptor) {
     puffs.update(dt);
+    updateLight(dt, chassisMesh);
 
     const engine = vehicle?.engine;
     if (!engine || !chassisMesh || !descriptor) return;

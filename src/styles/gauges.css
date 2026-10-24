@@ -46,6 +46,35 @@
 #tach .gauge-needle {
   height: 58px;
 }
+/* Turbo boost gauge (hud/boostGauge.js): a small dial behind the tach's upper-left
+   rim, its centre --boost-reach tach-sizes out from the tach centre at 45deg.
+   The mask cuts away the part under the tach (plus a gap ring) so the tach's
+   translucent face doesn't show it through. */
+#boost-gauge {
+  --boost-size: calc(var(--tach-size) * 0.46);
+  --boost-reach: 0.41; /* 0.58 tach-sizes along the diagonal, per axis */
+  --boost-tach-center: calc(var(--tach-size) * var(--boost-reach) + var(--boost-size) / 2);
+  position: absolute;
+  width: var(--boost-size);
+  height: var(--boost-size);
+  left: calc(var(--tach-size) * (0.5 - var(--boost-reach)) - var(--boost-size) / 2);
+  top: calc(var(--tach-size) * (0.5 - var(--boost-reach)) - var(--boost-size) / 2);
+  display: none;
+  -webkit-mask-image: radial-gradient(circle at var(--boost-tach-center) var(--boost-tach-center), transparent calc(var(--tach-size) / 2 + 3px), #000 calc(var(--tach-size) / 2 + 4px));
+  mask-image: radial-gradient(circle at var(--boost-tach-center) var(--boost-tach-center), transparent calc(var(--tach-size) / 2 + 3px), #000 calc(var(--tach-size) / 2 + 4px));
+}
+#boost-gauge.visible { display: block; }
+#boost-gauge .dial-tick-label { font-size: 8px; font-weight: bold; }
+.boost-needle { height: 30%; width: 2px; }
+#boost-gauge .boost-hub { width: 8px; height: 8px; }
+.boost-unit {
+  position: absolute;
+  left: 33%;
+  top: 56%;
+  transform: translate(-50%, -50%);
+  font-size: 7px;
+  opacity: 0.7;
+}
 /* Gearbox-mode badge: clickable, unlike the rest of the dash. */
 #gear-mode,
 #transmission-mode {

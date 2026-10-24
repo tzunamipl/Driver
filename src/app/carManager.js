@@ -3,12 +3,15 @@ import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
 import { DEFAULT_VEHICLE_ID, getVehicle } from '../lib/vehicles/index.js';
 import { DEFAULT_BODY_COLOR } from '../config.js';
-import { applyImpactRoll } from './collisions.js';
+import { applyImpactRoll, endImpact } from './collisions.js';
+import { getTyreSetup } from '../lib/garage.js';
+import { sameTyreSetup } from '../lib/tyres/setup.js';
+import { wheelSide } from '../lib/wheelContact.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
-/** initialFuel: { vehicleId, litres } from the save; respawns of that vehicle keep its fuel. */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null }) {
+/** initialFuel / initialTyres / initialHeat / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them. */
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -31,10 +34,26 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
   // Fuel of the last car removed (or the save), so a recolour/respawn doesn't refill it.
   let carriedFuel = initialFuel;
+  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }] }
+  let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
+  let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState() }
   let carVehicleId = null; // vehicle id the current car was built as
 
   function getFuelState() {
     return vehicle?.fuel ? { vehicleId: carVehicleId, litres: vehicle.fuel.litres } : null;
+  }
+
+  function getHeatState() {
+    return vehicle?.heat ? { vehicleId: carVehicleId, savedAt: Date.now(), ...vehicle.heat.getState() } : null;
+  }
+
+  function getDamageState() {
+    return vehicle?.lamps ? { vehicleId: carVehicleId, shocks: vehicle.getShockState(), lamps: vehicle.lamps.getState() } : null;
+  }
+
+  function getTyreState() {
+    return vehicle?.getTyreState ? { vehicleId: carVehicleId, setup: vehicle.tyreSetup, savedAt: Date.now(), wheels: vehicle.getTyreState() } : null;
   }
 
   function hookCar(nextVehicle, mesh) {
@@ -42,7 +61,30 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     if (nextVehicle.fuel && carriedFuel?.vehicleId === carVehicleId && Number.isFinite(carriedFuel.litres)) {
       nextVehicle.fuel.setLitres(carriedFuel.litres);
     }
+    // Same tyres only: saves from before tyre setups carry no setup.
+    if (nextVehicle.setTyreState && carriedTyres?.vehicleId === carVehicleId && (!carriedTyres.setup || sameTyreSetup(carriedTyres.setup, nextVehicle.tyreSetup))) {
+      const parkedS = Number.isFinite(carriedTyres.savedAt) ? (Date.now() - carriedTyres.savedAt) / 1000 : 0;
+      nextVehicle.setTyreState(carriedTyres.wheels, parkedS);
+    }
+    if (nextVehicle.heat && carriedHeat?.vehicleId === carVehicleId) {
+      const parkedS = Number.isFinite(carriedHeat.savedAt) ? (Date.now() - carriedHeat.savedAt) / 1000 : 0;
+      nextVehicle.heat.setState(carriedHeat, parkedS);
+    }
+    if (nextVehicle.lamps && carriedDamage?.vehicleId === carVehicleId) {
+      nextVehicle.setShockState(carriedDamage.shocks);
+      nextVehicle.lamps.setState(carriedDamage.lamps);
+    }
+    nextVehicle.onTyrePop = (i) => {
+      tyrePopSound?.play(wheelSide(nextVehicle.wheelInfos[i]));
+      rimSparks?.burst(nextVehicle.wheelInfos[i], nextVehicle.chassisBody.velocity);
+    };
     const onCollide = (body) => (event) => {
+      const hitGroup = event.body.collisionFilterGroup;
+      if (body === nextVehicle.chassisBody && nextVehicle.heat && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
+        const hit = endImpact(body, event.contact);
+        if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
+        nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
+      }
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);
         impactSound?.play(Math.abs(event.contact.getImpactVelocityAlongNormal()));
@@ -71,6 +113,9 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   function removeCurrentCar() {
     if (!vehicle) return;
     carriedFuel = getFuelState() ?? carriedFuel;
+    carriedTyres = getTyreState() ?? carriedTyres;
+    if (vehicle.heat) carriedHeat = { vehicleId: carVehicleId, ...vehicle.heat.getState() };
+    carriedDamage = getDamageState() ?? carriedDamage;
     world.removeEventListener('preStep', vehicle.preStepCallback);
     if (stabilityAssistCallback) world.removeEventListener('preStep', stabilityAssistCallback);
     dispose?.();
@@ -81,63 +126,61 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     podMesh = null;
   }
 
-  function spawnLocalCar(color, vehicleId) {
-    currentColor = color;
-    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
-    removeCurrentCar();
+  function buildCar(position, quaternion) {
     ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
       world,
       scene,
-      playerSpawnPos(),
-      playerSpawnQuat ? playerSpawnQuat() : startQuat,
+      position,
+      quaternion,
       currentColor,
-      currentVehicleId
+      currentVehicleId,
+      currentTyreSetup ?? getTyreSetup(currentVehicleId)
     ));
     debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
     hookCar(vehicle, chassisMesh);
+  }
+
+  /** Rebuilds the car with the current kind/colour/tyres, same pose and velocity. */
+  function rebuildInPlace() {
+    const position = vehicle.chassisBody.position.clone();
+    const quaternion = vehicle.chassisBody.quaternion.clone();
+    const velocity = vehicle.chassisBody.velocity.clone();
+    removeCurrentCar();
+    buildCar(position, quaternion);
+    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
+  }
+
+  function spawnLocalCar(color, vehicleId) {
+    currentColor = color;
+    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    currentTyreSetup = null;
+    removeCurrentCar();
+    buildCar(playerSpawnPos(), playerSpawnQuat ? playerSpawnQuat() : startQuat);
   }
 
   /** Swaps the vehicle kind (and optionally colour) in place, same pose and velocity; debug picker. */
   function setVehicleKind(vehicleId, color = currentColor) {
     currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
     currentColor = color;
-    if (!vehicle) return;
-    const position = vehicle.chassisBody.position.clone();
-    const quaternion = vehicle.chassisBody.quaternion.clone();
-    const velocity = vehicle.chassisBody.velocity.clone();
-    removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
-      world,
-      scene,
-      position,
-      quaternion,
-      currentColor,
-      currentVehicleId
-    ));
-    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
-    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
-    hookCar(vehicle, chassisMesh);
+    currentTyreSetup = null;
+    if (vehicle) rebuildInPlace();
   }
 
   /** Swaps the body colour in place; debug picker. */
   function setColor(color) {
     currentColor = color;
+    if (vehicle) rebuildInPlace();
+  }
+
+  /** Fits a tyre setup (tyres/setup.js) in place; new tyres unless it's the one already fitted. */
+  function setTyreSetup(setup) {
+    currentTyreSetup = setup;
     if (!vehicle) return;
-    const position = vehicle.chassisBody.position.clone();
-    const quaternion = vehicle.chassisBody.quaternion.clone();
-    const velocity = vehicle.chassisBody.velocity.clone();
-    removeCurrentCar();
-    ({ vehicle, chassisMesh, podMesh, wheelMeshes, syncMeshes, snapshotPhysics, reset, updateReset, setHitboxVisible: setCarHitboxVisible, stabilityAssistCallback, dispose, shiftOrigin: shiftRigOrigin, isResetting } = createCar(
-      world,
-      scene,
-      position,
-      quaternion,
-      currentColor,
-      currentVehicleId
-    ));
-    for (const body of [vehicle.chassisBody, ...(vehicle.extraBodies ?? [])]) body.velocity.copy(velocity);
-    debugVisuals.setCarHitboxSetter(setCarHitboxVisible);
-    hookCar(vehicle, chassisMesh);
+    if (sameTyreSetup(setup, vehicle.tyreSetup)) {
+      vehicle.repairTyres?.();
+      return;
+    }
+    rebuildInPlace(); // the old tyres' state doesn't match the new setup, so they start fresh
   }
 
   // `poses` are already remapped into the view frame by mainLoop.
@@ -198,6 +241,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     spawnLocalCar,
     setVehicleKind,
     setColor,
+    setTyreSetup,
     updateRemotes,
     getRemoteLights,
     shiftOrigin,
@@ -207,6 +251,9 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     getLocalName: () => localName,
     getVehicleId: () => currentVehicleId,
     getFuelState,
+    getHeatState,
+    getDamageState,
+    getTyreState,
     getColor: () => currentColor,
     // Getters: values change on (re)spawn, so read them every frame.
     getVehicle: () => vehicle,

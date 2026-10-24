@@ -5,6 +5,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tyreOffsets } from './axles.js';
 
 const DEFAULT_WHEEL_RADIUS = 0.4;
+const TYRE_COLOR = new THREE.Color(0x1a1a1a);
+const MUD_COLOR = new THREE.Color(0x6b4a2b);
+// Dirt (0..1) at which the tread is fully brown; the sidewalls brown from there to fully caked.
+const TREAD_BROWN_AT = 0.5;
 
 /** Tyre outer radius (m) from rim size (in) + tyre width/profile, else descriptor.wheelRadius. */
 export function wheelRadiusOf(d) {
@@ -12,9 +16,10 @@ export function wheelRadiusOf(d) {
   return d.wheelRadius ?? DEFAULT_WHEEL_RADIUS;
 }
 
-/** Tyre (torus sidewalls + tread cylinder) and rim, added to `parent`. */
-export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
-  const segments = 8;
+const DEFAULT_SEGMENTS = 8;
+
+/** Tyre (torus sidewalls + tread cylinder) and rim, added to `parent`; `segments` around (low-poly in game). */
+export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent, segments = DEFAULT_SEGMENTS) {
   const tyreWallScale = 0.3;
   const group = new THREE.Group();
   const rimDiameter = rimSize * 2.54 / 100;
@@ -35,15 +40,14 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
   const treadGeo = new THREE.CylinderGeometry(wheelSize, wheelSize, tyreWidth, segments, 1, true);
   treadGeo.rotateZ(Math.PI / 2);
 
-  const tireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
-  group.add(new THREE.Mesh(tyreGeo1, tireMat));
-  group.add(new THREE.Mesh(tyreGeo2, tireMat));
-  group.add(new THREE.Mesh(treadGeo, tireMat));
+  // Tread and sidewalls apart, so dirt can brown them separately (setTyreDirt).
+  const sideMat = new THREE.MeshStandardMaterial({ color: TYRE_COLOR, roughness: 0.9, flatShading: true, side: THREE.DoubleSide });
+  const treadMat = sideMat.clone();
+  group.add(new THREE.Mesh(tyreGeo1, sideMat));
+  group.add(new THREE.Mesh(tyreGeo2, sideMat));
+  group.add(new THREE.Mesh(treadGeo, treadMat));
 
-  const tire = new THREE.Mesh(
-    mergeGeometries([tyreGeo1, tyreGeo2, treadGeo]),
-    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, flatShading: true })
-  );
+  const tire = new THREE.Mesh(mergeGeometries([tyreGeo1, tyreGeo2, treadGeo], true), [sideMat, sideMat, treadMat]);
   tire.castShadow = true;
   group.add(tire);
 
@@ -53,8 +57,20 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent) {
   rim.castShadow = true;
   group.add(rim);
 
+  group.userData.tyreMats = { side: [sideMat], tread: [treadMat] };
   parent.add(group);
   return group;
+}
+
+/** Browns a wheel set's tyres: the tread up to TREAD_BROWN_AT dirt, then the sidewalls. */
+export function setTyreDirt(wheelSet, dirt) {
+  const mats = wheelSet.userData.tyreMats;
+  if (!mats || mats.dirt === dirt) return;
+  mats.dirt = dirt;
+  const tread = Math.min(1, dirt / TREAD_BROWN_AT);
+  const side = Math.max(0, (dirt - TREAD_BROWN_AT) / (1 - TREAD_BROWN_AT));
+  for (const m of mats.tread) m.color.lerpColors(TYRE_COLOR, MUD_COLOR, tread);
+  for (const m of mats.side) m.color.lerpColors(TYRE_COLOR, MUD_COLOR, side);
 }
 
 /** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set. */
@@ -63,7 +79,14 @@ export function buildWheelSet(descriptor, parent, dual = false) {
   const offsets = tyreOffsets(tyreWidth, dual);
   if (offsets.length === 1) return buildWheelMesh(descriptor, parent);
   const set = new THREE.Group();
-  for (const x of offsets) buildWheelMesh(descriptor, set).position.x = x;
+  const tyreMats = { side: [], tread: [] };
+  for (const x of offsets) {
+    const wheel = buildWheelMesh(descriptor, set);
+    wheel.position.x = x;
+    tyreMats.side.push(...wheel.userData.tyreMats.side);
+    tyreMats.tread.push(...wheel.userData.tyreMats.tread);
+  }
+  set.userData.tyreMats = tyreMats;
   parent.add(set);
   return set;
 }

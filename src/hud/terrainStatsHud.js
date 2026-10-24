@@ -49,6 +49,7 @@ function formatCount(n) {
 
 export function createTerrainStatsHud() {
   const terrainStatsEl = document.getElementById('terrain-stats');
+  const bodyEl = terrainStatsEl.querySelector('.ts-body');
   let statsAccum = 0;
   let fps = 0;
   let fpsAccum = 0;
@@ -58,7 +59,7 @@ export function createTerrainStatsHud() {
     delta,
     { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, chassisMesh, debugVisualsEnabled, pedestrians, viewFrame, roadside, trees, bushes, rocks }
   ) {
-    if (!debugVisualsEnabled || !chassisMesh) return;
+    if (!debugVisualsEnabled || !chassisMesh || terrainStatsEl.classList.contains('debug-folded')) return;
 
     fpsAccum += delta;
     fpsFrames += 1;
@@ -129,7 +130,7 @@ export function createTerrainStatsHud() {
     }
 
     const cols = s.grid[0].length;
-    terrainStatsEl.innerHTML =
+    bodyEl.innerHTML =
       `<div class="ts-text">${textLines.join('\n')}</div>` +
       (coordsText ? `<div class="ts-coords" title="Current position - selectable to copy">${coordsText}</div>` : '') +
       `<div class="ts-compass-wrap">` +

@@ -1,7 +1,7 @@
 // Engine + gearbox for wheeled cars: rpm-dependent torque curve through
 // gear ratios and final drive, with automatic shifting (sport/comfort) and
 // manual override (requestShift), or a fully manual box with neutral
-// (setManual/selectGear). Pure math (no physics imports); input.js calls update() each frame.
+// (setManual/selectGear), optional turbo (boost lag scales torque). Pure math (no physics imports); input.js calls update() each frame.
 
 // Drivetrain loss (typical manual gearbox + diff: 8-12%).
 const DRIVETRAIN_EFFICIENCY = 0.9;
@@ -51,6 +51,15 @@ const NEUTRAL_LIMITER_DROP = 0.94;
 // Free revving in neutral only spins the engine up: this share of full-load power (fuel).
 const NEUTRAL_LOAD_FRACTION = 0.15;
 export const NEUTRAL = -1;
+// Turbo: off-boost torque is 1 / (1 + boostBar * gain) of the full-boost curve
+// (gain < 1: not all of the extra charge turns into torque). Boost builds from
+// half of spoolRpm, full at spoolRpm; it bleeds off faster than it builds (blow-off).
+const TURBO_TORQUE_GAIN = 0.6;
+const TURBO_SPOOL_START_FRACTION = 0.5;
+const TURBO_BLEED_FRACTION = 0.3;
+// Manifold vacuum on a closed throttle (bar, gauge reads below 0).
+const TURBO_VACUUM_BAR = -0.6;
+const DEFAULT_TURBO_LAG_S = 0.6;
 // Manual box: most H-gate slots; longer boxes split over parallel ranges.
 const MAX_GATE_SLOTS = 6;
 const RANGE_LETTERS = { 2: ['L', 'H'], 3: ['L', 'M', 'H'] };
@@ -114,6 +123,15 @@ export function createEngineState(descriptor, wheelRadius) {
     launchRpm: descriptor.launchRpm ?? descriptor.peakTorqueRpm ?? DEFAULT_ENGINE_PROFILE.peakTorqueRpm,
     engineInertia: descriptor.engineInertia ?? DEFAULT_ENGINE_INERTIA,
   };
+  // descriptor.turbo: { boostBar, spoolRpm, lagS }; peakTorqueNm is the full-boost figure.
+  const turbo = descriptor.turbo
+    ? {
+        maxBoostBar: descriptor.turbo.boostBar,
+        spoolRpm: descriptor.turbo.spoolRpm ?? profile.peakTorqueRpm,
+        lagS: descriptor.turbo.lagS ?? DEFAULT_TURBO_LAG_S,
+        offBoostFraction: 1 / (1 + descriptor.turbo.boostBar * TURBO_TORQUE_GAIN),
+      }
+    : null;
   let peakCurvePower = 0; // max torque x rpm up to redline (Nm rpm)
   for (let i = 0; i <= POWER_CURVE_SAMPLES; i++) {
     const rpm = profile.idleRpm + ((profile.redlineRpm - profile.idleRpm) * i) / POWER_CURVE_SAMPLES;
@@ -144,6 +162,12 @@ export function createEngineState(descriptor, wheelRadius) {
     engineBrakeForce: 0, // closed-throttle drag at the tread (N)
     loadFraction: 0, // brake power now / peak power (0..1), refreshed by update(); fuel.js burns by it
     throttle: 0, // throttle actually applied (0..1, 0 while braking/coasting), refreshed by update()
+    powerFactor: 1, // torque multiplier from outside (car.js: overheating limp mode)
+    turbo, // null for naturally aspirated engines; boost gauge reads turbo.maxBoostBar
+    boostBar: 0, // manifold pressure over atmospheric (bar), negative = vacuum
+    get boostFraction() {
+      return turbo ? Math.max(0, engine.boostBar) / turbo.maxBoostBar : 0;
+    },
     get gearLabel() {
       if (engine.gear === 0) return 'R';
       if (engine.gear === NEUTRAL) return 'N';
@@ -183,6 +207,17 @@ export function createEngineState(descriptor, wheelRadius) {
     engine.gear = gear;
     engine.shiftTimer = profile.shiftDurationS;
     if (gear >= 1) engine.range = rangeOf(gear);
+  }
+
+  /** Spools the turbo toward the boost this throttle and rpm can make; returns the torque multiplier. */
+  function updateBoost(dt, throttle, rpm) {
+    if (!turbo) return 1;
+    const spoolStart = turbo.spoolRpm * TURBO_SPOOL_START_FRACTION;
+    const available = Math.min(1, Math.max(0, (rpm - spoolStart) / (turbo.spoolRpm - spoolStart)));
+    const target = throttle > 0 ? turbo.maxBoostBar * available * throttle : TURBO_VACUUM_BAR;
+    const tau = turbo.lagS * (target > engine.boostBar ? 1 : TURBO_BLEED_FRACTION);
+    engine.boostBar += (target - engine.boostBar) * Math.min(1, dt / Math.max(tau, 1e-3));
+    return turbo.offBoostFraction + (1 - turbo.offBoostFraction) * engine.boostFraction;
   }
 
   // Net requested manual gear steps since the last update.
@@ -360,10 +395,12 @@ export function createEngineState(descriptor, wheelRadius) {
     const throttleCap = engine.manual ? 1 : MODE_THROTTLE_CAP[mode] ?? 1;
     const clampedThrottle = direction === 0 ? 0 : Math.min(throttleCap, Math.max(0, throttle));
     engine.throttle = clampedThrottle;
+    // Pedal (not the shift cut) drives the boost, so flat shifts keep the turbo spooled.
+    const boostMultiplier = updateBoost(dt, clampedThrottle, engine.rpm);
     // Torque from the unsmoothed wheel rpm, so the limiter bites immediately;
     // while the clutch slips at pull-away, from the revving engine instead.
     const torqueRpm = launching ? Math.max(wheelRpm, engine.rpm) : wheelRpm;
-    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle;
+    const engineTorqueNm = inTorqueCut ? 0 : torqueAtRpm(torqueRpm, profile) * clampedThrottle * boostMultiplier * engine.powerFactor;
     const torqueToForce = (totalRatio * DRIVETRAIN_EFFICIENCY) / wheelRadius;
     const totalDrivetrainForce = engineTorqueNm * torqueToForce;
     engine.loadFraction = Math.min(1, (engineTorqueNm * torqueRpm) / peakCurvePower);
@@ -383,14 +420,15 @@ export function createEngineState(descriptor, wheelRadius) {
   /** Clutch out of the driveline: the engine revs freely, no drive or engine braking. */
   function updateNeutral(dt, throttle) {
     const revving = throttle > 0;
+    const boostMultiplier = updateBoost(dt, Math.max(0, throttle), engine.rpm);
     const target = revving ? profile.redlineRpm * 1.02 : profile.idleRpm;
-    engine.rpm += (target - engine.rpm) * Math.min(1, dt * (revving ? NEUTRAL_REV_UP_PER_S : NEUTRAL_REV_DOWN_PER_S));
+    engine.rpm += (target - engine.rpm) * Math.min(1, dt * (revving ? NEUTRAL_REV_UP_PER_S * boostMultiplier : NEUTRAL_REV_DOWN_PER_S));
     if (engine.rpm > profile.redlineRpm) engine.rpm = profile.redlineRpm * NEUTRAL_LIMITER_DROP;
     engine.reflectedMass = 0;
     engine.limitWheelSpeed = Infinity;
     engine.engineBrakeForce = 0;
     engine.throttle = Math.max(0, throttle);
-    engine.loadFraction = (engine.throttle * NEUTRAL_LOAD_FRACTION * torqueAtRpm(engine.rpm, profile) * engine.rpm) / peakCurvePower;
+    engine.loadFraction = (engine.throttle * NEUTRAL_LOAD_FRACTION * boostMultiplier * engine.powerFactor * torqueAtRpm(engine.rpm, profile) * engine.rpm) / peakCurvePower;
     return 0;
   }
 
