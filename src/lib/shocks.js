@@ -5,7 +5,7 @@
 //   spring sags (that corner sits lower and leans more).
 
 // Strike speed (m/s) a shock shrugs off, and the one that takes all its health in one hit.
-const HIT_MIN_MS = 3;
+export const HIT_MIN_MS = 2;
 const HIT_FULL_MS = 20;
 // Share of the stock damping / spring rate left at 0 health.
 const DAMPING_FLOOR = 0.25;
@@ -19,6 +19,7 @@ export function initShock(wheel) {
   wheel.stockDampingCompression = wheel.dampingCompression;
   wheel.stockDampingRelaxation = wheel.dampingRelaxation;
   wheel.shockHitPeak = 0; // hardest severity of the current bump-stop episode
+  wheel.shockStrikeMax = 0; // debug HUD: hardest strike speed (m/s), bump stop or not, since it last read it
   setShockHealth(wheel, 1);
 }
 
@@ -29,6 +30,11 @@ export function setShockHealth(wheel, health) {
   wheel.suspensionStiffness = wheel.stockStiffness * spring;
   wheel.dampingCompression = wheel.stockDampingCompression * damping;
   wheel.dampingRelaxation = wheel.stockDampingRelaxation * damping;
+}
+
+/** Strike speed of any grounded step, for the debug HUD; only bump-stop strikes (strikeShock) do damage. */
+export function noteShockLoad(wheel, speed) {
+  if (speed > wheel.shockStrikeMax) wheel.shockStrikeMax = speed;
 }
 
 /** Bump-stop strike at `speed` m/s; one bottoming spans several steps, only its hardest moment counts. */

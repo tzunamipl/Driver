@@ -46,7 +46,7 @@ export const BRAKE_FORCE = 3000;
 // Pedal brake starts capped at this share of the tyres' static grip (just short of locking)...
 export const BRAKE_GRIP_START = 0.8;
 // ...the cap rises to the grip limit over this hold time, then lifts so the wheels can lock.
-export const BRAKE_LOCK_S = 1;
+export const BRAKE_LOCK_S = 0.4;
 // Holding the handbrake this long leaves it pulled until the next press.
 export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;

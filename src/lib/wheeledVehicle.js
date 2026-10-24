@@ -16,7 +16,7 @@ import {
   conditionState,
   setConditionState,
 } from './tyres.js';
-import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } from './shocks.js';
+import { initShock, strikeShock, noteShockLoad, endShockStrike, repairShock, setShockHealth } from './shocks.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -427,7 +427,10 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     wheel.raycastResult.hitNormalWorld.scale(force * dt, suspensionImpulse);
     wheel.raycastResult.hitPointWorld.vsub(body.position, suspensionRelPos);
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
-    if (wheel.nearBumpStop && body.type === CANNON.Body.DYNAMIC) checkRimStrike(wheel, closingSpeed, dt);
+    if (body.type !== CANNON.Body.DYNAMIC) return;
+    const strike = strikeSpeed(wheel, closingSpeed, dt);
+    noteShockLoad(wheel, strike);
+    if (wheel.nearBumpStop) checkRimStrike(wheel, strike);
     else endShockStrike(wheel);
   }
 
@@ -435,13 +438,16 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
    * Strike speed: the chassis closing on the ground, or the ground rising
    * under the wheel (kerb, rock) - a step of height h met at speed v rises
    * over about one tyre radius, so ~v * h / r (and never faster than one step).
-   * Wears the shock and may pop the tyre.
    */
-  function checkRimStrike(wheel, closingSpeed, dt) {
+  function strikeSpeed(wheel, closingSpeed, dt) {
     const rise = Math.max(0, wheel.groundRise);
     const speed = wheel.body.velocity.length();
     const kerbSpeed = Math.min(rise / dt, (speed * rise) / wheel.inflatedRadius);
-    const strike = Math.max(closingSpeed, kerbSpeed);
+    return Math.max(closingSpeed, kerbSpeed);
+  }
+
+  /** Bump-stop strike: wears the shock and may pop the tyre. */
+  function checkRimStrike(wheel, strike) {
     strikeShock(wheel, strike);
     if (strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
