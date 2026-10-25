@@ -28,12 +28,15 @@ const surfaceCenter = { value: new Vector2() };
 // higher classes, a dashed centre line on most two-way roads; faded out at junctions.
 const MARK_EDGES = 1;
 const MARK_CENTRE = 2;
+const MARK_TWO_LANES = 4; // edge lines hug two painted lanes; the centre line divides them, one-way or not
 const EDGE_LINE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+const TWO_LANE_CLASSES = new Set(['motorway', 'trunk']);
 const CENTRE_LINE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor']);
 const MARKING = {
   color: new Color(0xe6e6df),
   edgeWidth: 0.15,
   edgeInset: 0.5, // edge line centre in from the stripe's side (the widths include a shoulder)
+  laneWidth: 3.5, // two-lane roads: edge lines this far either side of the centre line
   centreWidth: 0.12,
   dash: 3, // centre line: painted metres per period
   period: 9,
@@ -107,8 +110,10 @@ function applyMarkings(shader) {
         float across = abs(vStripe.x);
         float aa = fwidth(vStripe.x);
         float edges = mod(flags, 2.0);
-        float centre = step(2.0, flags);
-        float edge = edges * markingLine(abs(across - (vStripe.w - ${f(MARKING.edgeInset)})), ${f(MARKING.edgeWidth / 2)}, aa);
+        float centre = mod(floor(flags / 2.0), 2.0);
+        float edgeOffset = vStripe.w - ${f(MARKING.edgeInset)};
+        if (flags >= 4.0) edgeOffset = min(edgeOffset, ${f(MARKING.laneWidth)});
+        float edge = edges * markingLine(abs(across - edgeOffset), ${f(MARKING.edgeWidth / 2)}, aa);
         float along = mod(vStripe.y, ${f(MARKING.period)});
         float aaAlong = fwidth(vStripe.y);
         float dash = smoothstep(0.0, aaAlong, along) * (1.0 - smoothstep(${f(MARKING.dash)}, ${f(MARKING.dash)} + aaAlong, along));
@@ -123,7 +128,12 @@ function applyMarkings(shader) {
 /** Marking flags of a street style. */
 function markingsOf(style) {
   if (style.key.endsWith('_construction')) return 0;
-  return (EDGE_LINE_CLASSES.has(style.key) ? MARK_EDGES : 0) | (CENTRE_LINE_CLASSES.has(style.key) && !style.oneway ? MARK_CENTRE : 0);
+  const twoLanes = TWO_LANE_CLASSES.has(style.key);
+  return (
+    (EDGE_LINE_CLASSES.has(style.key) ? MARK_EDGES : 0) |
+    (CENTRE_LINE_CLASSES.has(style.key) && (twoLanes || !style.oneway) ? MARK_CENTRE : 0) |
+    (twoLanes ? MARK_TWO_LANES : 0)
+  );
 }
 
 // Debug road polygons: wireframe over the stripes; the fill is skipped when only the polygons are asked for.
