@@ -29,6 +29,7 @@ const surfaceCenter = { value: new Vector2() };
 const MARK_EDGES = 1;
 const MARK_CENTRE = 2;
 const MARK_TWO_LANES = 4; // edge lines hug two painted lanes; the centre line divides them, one-way or not
+const MARK_ONE_LANE = 8; // slip roads (`ramp`): edge lines hug one lane, no centre line
 const EDGE_LINE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 const TWO_LANE_CLASSES = new Set(['motorway', 'trunk']);
 const CENTRE_LINE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor']);
@@ -112,7 +113,8 @@ function applyMarkings(shader) {
         float edges = mod(flags, 2.0);
         float centre = mod(floor(flags / 2.0), 2.0);
         float edgeOffset = vStripe.w - ${f(MARKING.edgeInset)};
-        if (flags >= 4.0) edgeOffset = min(edgeOffset, ${f(MARKING.laneWidth)});
+        if (mod(floor(flags / 4.0), 2.0) > 0.5) edgeOffset = min(edgeOffset, ${f(MARKING.laneWidth)});
+        if (flags >= 8.0) edgeOffset = min(edgeOffset, ${f(MARKING.laneWidth / 2)});
         float edge = edges * markingLine(abs(across - edgeOffset), ${f(MARKING.edgeWidth / 2)}, aa);
         float along = mod(vStripe.y, ${f(MARKING.period)});
         float aaAlong = fwidth(vStripe.y);
@@ -128,9 +130,11 @@ function applyMarkings(shader) {
 /** Marking flags of a street style. */
 function markingsOf(style) {
   if (style.key.endsWith('_construction')) return 0;
+  const edges = EDGE_LINE_CLASSES.has(style.key) ? MARK_EDGES : 0;
+  if (style.ramp) return edges | MARK_ONE_LANE;
   const twoLanes = TWO_LANE_CLASSES.has(style.key);
   return (
-    (EDGE_LINE_CLASSES.has(style.key) ? MARK_EDGES : 0) |
+    edges |
     (CENTRE_LINE_CLASSES.has(style.key) && (twoLanes || !style.oneway) ? MARK_CENTRE : 0) |
     (twoLanes ? MARK_TWO_LANES : 0)
   );
@@ -158,11 +162,11 @@ function surfaceStyle(style) {
   return out;
 }
 
-/** roadClasses {key, color, width, unpaved} -> vectorLineLayer {key, color, linewidth}, plus brunnel for roadside.js and oneway for the markings. */
+/** roadClasses {key, color, width, unpaved} -> vectorLineLayer {key, color, linewidth}, plus brunnel for roadside.js and oneway / ramp for the markings. */
 function classify(props) {
   const style = classifyRoad(props);
   if (!style) return null;
-  return { key: style.key, color: style.color, linewidth: style.width, unpaved: style.unpaved, brunnel: props.brunnel, oneway: !!Number(props.oneway) };
+  return { key: style.key, color: style.color, linewidth: style.width, unpaved: style.unpaved, brunnel: props.brunnel, oneway: !!Number(props.oneway), ramp: !!Number(props.ramp) };
 }
 
 const StreetLayer = createVectorLineLayer({
