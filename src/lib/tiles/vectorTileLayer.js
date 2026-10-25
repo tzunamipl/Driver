@@ -107,6 +107,14 @@ export class VectorTileLayer {
     return this.radius + UNLOAD_MARGIN;
   }
 
+  /** Hook: once a source tile's features are all decoded into `items`. */
+  _finishDecode(items) {} // eslint-disable-line no-unused-vars
+
+  /** Square half-size, in DETAIL_ZOOM tiles, meshes are built within (the data streams over `radius`). */
+  _meshRadius() {
+    return this.radius;
+  }
+
   /**
    * Items decoded from the tileZoom tile containing (lat, lon). The source
    * clips features to its tile, so this holds every polygon piece covering it.
@@ -149,6 +157,7 @@ export class VectorTileLayer {
         console.warn(`Skipping one malformed ${layerName} feature`, tx, ty, err);
       }
     }
+    this._finishDecode(items);
     return { byTile, items };
   }
 
@@ -405,10 +414,12 @@ export class VectorTileLayer {
     else ensure.catch(() => {});
     if (!this._visible) return;
 
-    const keepRadius = this._keepRadius();
+    const meshRadius = this._meshRadius();
+    const keepRadius = meshRadius + UNLOAD_MARGIN;
 
     if (this._regionCovers(centerTx, centerTy)) {
       for (const { dx, dy } of this._loadOffsets) {
+        if (!inSquare(dx, dy, meshRadius)) continue;
         const tx = centerTx + dx;
         const ty = centerTy + dy;
         const key = this._key(tx, ty);

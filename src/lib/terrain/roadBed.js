@@ -42,6 +42,11 @@ export const ROAD_BED_CAUSE = { top: 1, fill: 2, cut: 3, bankFade: 4, tailFade: 
 export const ROAD_BED_CAUSE_MASK = 7;
 export const ROAD_BED_OVERRIDE = 8; // a lower class had moved it already
 
+/** True if roads of this class key and brunnel are carved into the terrain as a road bed. */
+export function onRoadBed(classKey, brunnel) {
+  return !SKIP_BRUNNELS.has(brunnel) && !SKIP_CLASSES.has(classKey.replace(/_construction$/, ''));
+}
+
 /** Road bed profile of a class key (aliases and `_construction` share their base class's). */
 function roadProfile(key) {
   const def = ROAD_CLASSES[key.replace(/_construction$/, '')];
@@ -170,8 +175,7 @@ async function decodeRoadTile(tx, ty) {
     if (props.brunnel === 'tunnel') continue;
     const style = classifyRoad(props);
     if (!style) continue;
-    const onBed = !SKIP_BRUNNELS.has(props.brunnel) && !SKIP_CLASSES.has(style.key.replace(/_construction$/, ''));
-    const info = onBed
+    const info = onRoadBed(style.key, props.brunnel)
       ? { halfWidth: style.width / 2, priority: roadPriority(style.key), roadClass: hierarchyClass(style.key), ...roadProfile(style.key) }
       : null;
     for (const line of feature.loadGeometry()) {

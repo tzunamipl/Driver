@@ -26,7 +26,7 @@ export const VEHICLE_NAMES = {
   C023: 'Attacker',
   C024: 'Stallion',
   C025: 'Halny R',
-  C026: 'Super',
+  C026: 'Ultra',
   C027: 'Muscle',
   S001: 'Chariot of Fire',
 };

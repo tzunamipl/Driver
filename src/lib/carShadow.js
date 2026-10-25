@@ -29,8 +29,8 @@ const WHEEL = {
   edgeSoftness: 0.8,
   heading: 'axle', // local x stays put while the wheel spins
 };
-const LIFT_M = 0.04; // above the hit point, against z-fighting
-const WHEEL_LIFT_M = 0.05; // drawn over the body patch
+const LIFT_M = 0.1; // above the hit point, over the road surface stripes (streets.js)
+const WHEEL_LIFT_M = 0.1; // drawn over the body patch
 const RAY_UP_M = 1;
 const RAY_DOWN_M = BODY.fadeEnd + 5;
 const TEXTURE_SIZE = 128;

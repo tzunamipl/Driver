@@ -296,6 +296,8 @@ export const VEHICLE_ODOMETERS_STORAGE_KEY = 'driver.vehicleOdometers.v1'; // pe
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
 export const GRAPHICS_DETAIL_STORAGE_KEY = 'driver.graphicsDetail';
+export const ROAD_SURFACE_STORAGE_KEY = 'driver.roadSurface.v1'; // Settings > Graphics: tarmac / unpaved stripes
+export const CAR_DIRT_STORAGE_KEY = 'driver.carDirt.v1'; // Settings > Graphics: '0' = cars stay clean
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
