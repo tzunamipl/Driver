@@ -425,20 +425,26 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     saveProgress();
   }
 
-  /** Puts the car just before the item's first point, facing along the road towards it; teleports there first unless the world is already loaded around it. */
+  /**
+   * Puts the car just before the item's first point, facing along the road towards it (the rally's
+   * first item: on the road beside the base, facing towards that point); teleports there first
+   * unless the world is already loaded around it.
+   */
   async function spawnAt(index, teleport = true) {
     const points = itemPoints(plan.items[index]);
-    const first = points[0];
+    const atBase = index === 0 && plan.base;
+    const first = atBase ? plan.base : points[0];
     if (!first) return;
     if (teleport && !(await addressSearch.teleport(first.lat, first.lon, plan.name))) return;
     const at = viewFrame.fromLatLon(first.lat, first.lon);
-    const next = points[1] ? viewFrame.fromLatLon(points[1].lat, points[1].lon) : null;
+    const nextPoint = atBase ? points[0] : points[1];
+    const next = nextPoint ? viewFrame.fromLatLon(nextPoint.lat, nextPoint.lon) : null;
     const frame = controlFrame(streets, at.x, at.z, first, null, next, 40);
     let pos = at;
     let dirX = next ? next.x - at.x : 0;
     let dirZ = next ? next.z - at.z : 1;
     if (frame) {
-      pos = frame.walk(-SPAWN_BACK_M);
+      pos = atBase ? frame : frame.walk(-SPAWN_BACK_M);
       ({ dirX, dirZ } = pos);
     }
     const y = (terrain.surfaceHeightAt(pos.x, pos.z) ?? 0) + SPAWN_DROP_M;

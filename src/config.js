@@ -279,6 +279,7 @@ export const DEFAULT_GRAPHICS_DETAIL = 'high';
 export const MINIMAP_MIN_ZOOM = 3; // continent
 export const MINIMAP_MAX_ZOOM = 19; // buildings
 export const MINIMAP_DEFAULT_ZOOM = 17;
+export const MINIMAP_RALLY_DEFAULT_ZOOM = 16; // 50 m scale bar at European latitudes
 // Documents the #minimap CSS size; not read by code (keep in sync).
 export const MINIMAP_SIZE_PX = 260;
 

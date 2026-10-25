@@ -76,7 +76,7 @@ const OUTLINE_READY = 0xffd400; // usable now
 const OUTLINE_FAR = 0xffffff; // the car has to come closer
 
 // boards: symbol on the yellow/red/beige boards; zoneEnd false = no beige board; boardHeight: board centre (m);
-// bothWays: approachable from either side: a yellow board 100 m out each way, a two-faced red one, no zone end;
+// bothWays: approachable from either side: only a two-faced red board, no warning or zone end boards;
 // flags: feather flag on each side of the road (text, colour; pole height and cloth length / width in m),
 // in colour only while it's the next point to pass, grey otherwise;
 // props: zoneProps.js builder set beside the road (right of travel, or left with propsLeft);
@@ -131,9 +131,9 @@ const outlineMaterials = { ready: outlineMaterial(OUTLINE_READY), far: outlineMa
 export function boardSpots(type) {
   const def = SCENERY[type];
   if (!def?.boards) return [];
+  if (def.bothWays) return [['red', 0, 1]];
   const spots = [['yellow', -WARNING_BOARD_M, 1], ['red', 0, 1]];
-  if (def.bothWays) spots.push(['yellow', WARNING_BOARD_M, -1]);
-  else if (def.zoneEnd !== false) spots.push(['beige', ZONE_END_M, 1]);
+  if (def.zoneEnd !== false) spots.push(['beige', ZONE_END_M, 1]);
   return spots;
 }
 

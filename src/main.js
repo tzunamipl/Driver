@@ -65,7 +65,7 @@ import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -466,7 +466,10 @@ function getCarLatLon() {
   return pos ? viewFrame.toLatLon(pos.x, pos.z) : null;
 }
 const routeGuidance = createRouteGuidance({ getCarLatLon });
-const minimapHud = createMinimapHud({ getRouteState: routeGuidance.getState });
+const minimapHud = createMinimapHud({
+  getRouteState: routeGuidance.getState,
+  ...(isRallyGame && { defaultZoom: MINIMAP_RALLY_DEFAULT_ZOOM, storageKey: `${MINIMAP_STORAGE_KEY}.rally` }),
+});
 createVersionBadge();
 createFpsCounter();
 createFpsGraph();

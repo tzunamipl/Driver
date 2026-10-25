@@ -15,9 +15,9 @@ function clampZoom(z) {
   return Math.min(MINIMAP_MAX_ZOOM, Math.max(MINIMAP_MIN_ZOOM, z));
 }
 
-function loadStoredZoom() {
-  const raw = Number(localStorage.getItem(MINIMAP_STORAGE_KEY));
-  return Number.isFinite(raw) && raw > 0 ? clampZoom(raw) : MINIMAP_DEFAULT_ZOOM;
+function loadStoredZoom(storageKey, defaultZoom) {
+  const raw = Number(localStorage.getItem(storageKey));
+  return Number.isFinite(raw) && raw > 0 ? clampZoom(raw) : defaultZoom;
 }
 
 // "Nice" round distances (meters) considered for the scale bar.
@@ -67,8 +67,10 @@ function setText(el, text) {
 /**
  * @param {object} [deps]
  * @param {() => import('../app/routeGuidance.js').RouteState} [deps.getRouteState]
+ * @param {number} [deps.defaultZoom] - zoom until the player picks one.
+ * @param {string} [deps.storageKey] - where the picked zoom is kept (per mode).
  */
-export function createMinimapHud({ getRouteState } = {}) {
+export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_ZOOM, storageKey = MINIMAP_STORAGE_KEY } = {}) {
   const root = document.getElementById('minimap');
   const canvas = document.getElementById('minimap-canvas');
   const arrowsCanvas = document.getElementById('minimap-arrows-canvas');
@@ -90,7 +92,7 @@ export function createMinimapHud({ getRouteState } = {}) {
   // zoom/scale chrome.
   const arrowsCtx = arrowsCanvas?.getContext('2d') ?? null;
   const tiles = createMapTileCache();
-  let zoom = loadStoredZoom();
+  let zoom = loadStoredZoom(storageKey, defaultZoom);
   // dialSizeCss = the #minimap box width; the canvas is larger by
   // arrowBand on each side so arrows can be drawn outside the dial.
   let dialSizeCss = 0;
@@ -170,7 +172,7 @@ export function createMinimapHud({ getRouteState } = {}) {
 
   function setZoom(z) {
     zoom = clampZoom(z);
-    localStorage.setItem(MINIMAP_STORAGE_KEY, String(zoom));
+    localStorage.setItem(storageKey, String(zoom));
   }
 
   zoomInBtn?.addEventListener('click', () => setZoom(zoom + 1));
