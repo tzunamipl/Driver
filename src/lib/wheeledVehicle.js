@@ -16,7 +16,7 @@ import {
   conditionState,
   setConditionState,
 } from './tyres.js';
-import { initShock, strikeShock, noteShockLoad, endShockStrike, repairShock, setShockHealth } from './shocks.js';
+import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } from './shocks.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
 // surface (wheelInfos[], addWheel, setSteeringValue, applyEngineForce,
@@ -429,9 +429,8 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
     if (body.type !== CANNON.Body.DYNAMIC) return;
     const strike = strikeSpeed(wheel, closingSpeed, dt);
-    noteShockLoad(wheel, strike);
-    if (wheel.nearBumpStop) checkRimStrike(wheel, strike);
-    else endShockStrike(wheel);
+    strikeShock(wheel, strike);
+    if (wheel.nearBumpStop && strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
 
   /**
@@ -444,12 +443,6 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const speed = wheel.body.velocity.length();
     const kerbSpeed = Math.min(rise / dt, (speed * rise) / wheel.inflatedRadius);
     return Math.max(closingSpeed, kerbSpeed);
-  }
-
-  /** Bump-stop strike: wears the shock and may pop the tyre. */
-  function checkRimStrike(wheel, strike) {
-    strikeShock(wheel, strike);
-    if (strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
 
   // --- Tyre friction: forward (engine/brake via the wheel's spin) + lateral

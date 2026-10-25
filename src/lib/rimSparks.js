@@ -10,10 +10,10 @@ const HARD_SURFACES = new Set(['road', 'rock']);
 const MIN_RUB_SPEED = 1.5; // m/s
 const SPARKS_PER_M = 7; // per metre the rim rubs along the ground
 const MAX_SPARKS_PER_S = 260; // per wheel
-const RIM_SPARK = { speed: [1.5, 5], up: [0.15, 0.6], life: [0.15, 0.45] };
+const RIM_SPARK = { speed: [1.5, 5], up: [0.15, 0.6], life: [0.15, 0.45], size: 0.5, spread: 0.15 };
 const RIM_INHERIT_FRACTION = 0.15; // contact patch barely moves; the sparks trail behind the car
 
-const POP_SPARKS = { count: 36, speed: [2, 7], up: [0.2, 0.8], life: [0.2, 0.6] };
+const POP_SPARKS = { count: 36, speed: [2, 7], up: [0.2, 0.8], life: [0.2, 0.6], size: 0.6, spread: 0.2 };
 const POP_PUFFS = 10;
 const POP_PUFF = { opacity: 0.55, endScale: [0.7, 1.2], out: [0.6, 2], rise: [0.3, 1.2] };
 const POP_INHERIT_FRACTION = 0.6;

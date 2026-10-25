@@ -55,16 +55,21 @@ export function fetchStageBoard(stage) {
   return boardCache.get(stage).board;
 }
 
-/** Per stage item's board -> { player, name, vehicle, totalMs } per car that drove every one. */
+/**
+ * Per stage item's board -> { player, name, vehicle, totalMs } per player that drove every one: their
+ * best on each stage in any car summed; vehicle = null when those bests came from different cars.
+ */
 export function rallyTotals(boards) {
   const sums = new Map();
   for (const board of boards) {
-    for (const e of board.entries) {
-      const key = `${e.player}|${e.vehicle}`;
-      const sum = sums.get(key) ?? { player: e.player, name: e.name, vehicle: e.vehicle, totalMs: 0, stages: 0 };
+    const best = new Map(); // player -> fastest entry on this stage
+    for (const e of board.entries) if (!(best.get(e.player)?.totalMs <= e.totalMs)) best.set(e.player, e);
+    for (const e of best.values()) {
+      const sum = sums.get(e.player) ?? { player: e.player, name: e.name, vehicle: e.vehicle, totalMs: 0, stages: 0 };
       sum.totalMs += e.totalMs;
       sum.stages++;
-      sums.set(key, sum);
+      if (sum.vehicle !== e.vehicle) sum.vehicle = null;
+      sums.set(e.player, sum);
     }
   }
   return [...sums.values()].filter((s) => s.stages === boards.length);

@@ -118,7 +118,7 @@ export function createSuspensionHud() {
         '<div class="susp-bar"><div class="susp-rest-line"></div><div class="susp-fill"></div></div>' +
         `<div class="susp-label">${label} <span class="susp-val">&mdash;</span></div>` +
         '<div class="susp-label susp-shock" title="Shock health"></div>' +
-        `<div class="susp-label susp-shock susp-strike" title="Hardest strike in the last ${STRIKE_WINDOW_MS / 1000} s (m/s); red = above ${HIT_MIN_MS} m/s, which wears the shock if it is at the bump stop"></div>`;
+        `<div class="susp-label susp-shock susp-strike" title="Hardest strike in the last ${STRIKE_WINDOW_MS / 1000} s (m/s); red = above ${HIT_MIN_MS} m/s, which wears the shock"></div>`;
       grid.appendChild(wheelEl);
       return {
         terrain: wheelEl.querySelector('.susp-terrain'),

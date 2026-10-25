@@ -24,7 +24,7 @@ import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { createZonePicking } from './zonePicking.js';
 import { createSpareTyreFix } from './spareTyreFix.js';
-import { getVehicle } from '../../lib/vehicles/index.js';
+import { getVehicle, vehicleLabel } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
 import { sameTyreSetup } from '../../lib/tyres/setup.js';
@@ -512,7 +512,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (worldTop.error) return [['World times', worldTop.error]];
     const { rows, myHash } = worldTop;
     if (!rows.length) return [['World times', 'none yet']];
-    const line = (row, i) => [`${i + 1}. ${row.name} · ${getVehicle(row.vehicle).name}`, formatTime(row.totalMs), row.player === myHash ? 'mine' : ''];
+    const line = (row, i) => [`${i + 1}. ${row.name} · ${vehicleLabel(row.vehicle)}`, formatTime(row.totalMs), row.player === myHash ? 'mine' : ''];
     const out = [[`World top ${WORLD_TOP_N}`, '', 'head'], ...rows.slice(0, WORLD_TOP_N).map(line)];
     const mine = rows.findIndex((row) => row.player === myHash);
     if (mine >= WORLD_TOP_N) out.push(['…', ''], line(rows[mine], mine));

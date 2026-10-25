@@ -87,6 +87,9 @@ export function getVehicle(id) {
   return byId.get(id) ?? byId.get(DEFAULT_VEHICLE_ID);
 }
 
+/** A board row's car name; null = a rally total driven in several cars. */
+export const vehicleLabel = (id) => (id == null ? 'Mixed cars' : getVehicle(id).name);
+
 /** Vehicles belonging to one category tab, in registry order. */
 export function vehiclesInCategory(categoryId) {
   return VEHICLES.filter((v) => v.category === categoryId);

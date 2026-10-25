@@ -1,11 +1,11 @@
 // Best times beside the stage / rally picker's map: the online board of an official plan, one row
-// per player and car at its best (a rally: a player's stage times summed per car, only over cars
-// that finished every stage), the player's own rows highlighted, and their local best below.
+// per player and car at its best, each player's best first (a rally: one row per player, their best on each stage in any car
+// summed, only over players that finished every stage), the player's own rows highlighted, and their local best below.
 
 import { OFFICIAL_SCENARIO_SOURCE } from '../config.js';
 import { leaderboardEnabled, fetchStageBoard, playerHash, rallyTotals } from '../lib/leaderboard.js';
 import { readLocalBests, localBestKey } from '../lib/rally/localBest.js';
-import { getVehicle } from '../lib/vehicles/index.js';
+import { vehicleLabel } from '../lib/vehicles/index.js';
 import { formatTime } from '../hud/rallyHud.js';
 
 const TOP_N = 10;
@@ -32,14 +32,22 @@ export function createRallyBestTimes({ playerId }) {
     r.append(
       el('span', 'rally-best-rank', `${rank}.`),
       el('span', 'rally-best-name', entry.name),
-      el('span', 'rally-best-vehicle', getVehicle(entry.vehicle).name),
+      el('span', 'rally-best-vehicle', vehicleLabel(entry.vehicle)),
       el('span', 'rally-best-time', formatTime(entry.totalMs))
     );
     return r;
   }
 
-  function renderBoard(rows, myHash) {
-    if (!rows.length) return message('No times yet');
+  function renderBoard(sorted, myHash) {
+    if (!sorted.length) return message('No times yet');
+    // Each player's best first, then their slower rows (other cars) below.
+    const seen = new Set();
+    const firsts = [], repeats = [];
+    for (const r of sorted) {
+      (seen.has(r.player) ? repeats : firsts).push(r);
+      seen.add(r.player);
+    }
+    const rows = [...firsts, ...repeats];
     const mine = rows.findIndex((r) => r.player === myHash);
     const shown = rows.slice(0, TOP_N).map((r, i) => row(r, i + 1, r.player === myHash));
     if (mine >= TOP_N) shown.push(el('div', 'rally-best-gap', '…'), row(rows[mine], mine + 1, true));

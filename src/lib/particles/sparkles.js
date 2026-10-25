@@ -14,7 +14,9 @@ const LIFE_S = [0.7, 1.3];
 const UP = [0.4, 1]; // vertical share of the launch direction
 const GRAVITY = -9.81;
 const DRAG = 1.2; // 1/s
-const COLORS = [0xfff2b0, 0xffd34d, 0xffffff, 0xffb347].map((c) => new Color(c));
+const COLORS = [0xfff2b0, 0xffd34d, 0xffffff, 0xffe08a].map((c) => new Color(c));
+const COOLED = new Color(0xff6a10);
+const COOL_SHARE = 0.25; // share of its life a spark takes to cool from its hot colour to orange
 
 const rand = ([a, b]) => a + Math.random() * (b - a);
 
@@ -31,29 +33,38 @@ export function createSparkles(scene) {
   scene.add(mesh);
   const dummy = new Object3D();
   const color = new Color();
-  // { x, y, z, vx, vy, vz, life, maxLife, color }
+  // { x, y, z, vx, vy, vz, life, maxLife, size, color }
   const sparks = [];
 
   return {
     /**
      * One throw of sparks from world point (x, y, z), e.g. a pole's top.
-     * Options override count, speed / up / life ranges; `inherit` = velocity added to every spark.
+     * Options override count, speed / up / life ranges; `inherit` = velocity added to every spark,
+     * `size` = streak scale, `spread` = radius (m) of the random start offset around the point.
      */
-    throw(x, y, z, { count = SPARKS_PER_THROW, speed: speedRange = LAUNCH_SPEED, up: upRange = UP, life = LIFE_S, inherit } = {}) {
+    throw(
+      x,
+      y,
+      z,
+      { count = SPARKS_PER_THROW, speed: speedRange = LAUNCH_SPEED, up: upRange = UP, life = LIFE_S, inherit, size = 1, spread = 0 } = {}
+    ) {
       for (let i = 0; i < count && sparks.length < MAX_SPARKS; i++) {
+        const offA = Math.random() * Math.PI * 2;
+        const offR = spread * Math.sqrt(Math.random());
         const a = Math.random() * Math.PI * 2;
         const up = rand(upRange);
         const speed = rand(speedRange);
         const side = Math.sqrt(1 - up * up) * speed;
         sparks.push({
-          x,
+          x: x + Math.cos(offA) * offR,
           y,
-          z,
+          z: z + Math.sin(offA) * offR,
           vx: Math.cos(a) * side + (inherit?.x ?? 0),
           vy: up * speed + (inherit?.y ?? 0),
           vz: Math.sin(a) * side + (inherit?.z ?? 0),
           life: 0,
           maxLife: rand(life),
+          size,
           color: COLORS[Math.floor(Math.random() * COLORS.length)],
         });
       }
@@ -79,13 +90,15 @@ export function createSparkles(scene) {
       sparks.forEach((s, i) => {
         const speed = Math.hypot(s.vx, s.vy, s.vz);
         // Streak trails behind the spark, pointing along its flight.
-        dummy.position.set(s.x - (s.vx * STREAK_S) / 2, s.y - (s.vy * STREAK_S) / 2, s.z - (s.vz * STREAK_S) / 2);
+        const streakS = STREAK_S * s.size;
+        dummy.position.set(s.x - (s.vx * streakS) / 2, s.y - (s.vy * streakS) / 2, s.z - (s.vz * streakS) / 2);
         dummy.lookAt(s.x, s.y, s.z);
-        dummy.scale.set(1, 1, Math.max(MIN_STREAK_M, speed * STREAK_S));
+        dummy.scale.set(s.size, s.size, Math.max(MIN_STREAK_M * s.size, speed * streakS));
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
-        // Additive: fading to black fades out.
-        mesh.setColorAt(i, color.copy(s.color).multiplyScalar(1 - s.life / s.maxLife));
+        // Cools to orange early, then fades out (additive: fading to black).
+        const age = s.life / s.maxLife;
+        mesh.setColorAt(i, color.copy(s.color).lerp(COOLED, Math.min(1, age / COOL_SHARE)).multiplyScalar(1 - age));
       });
       mesh.count = sparks.length;
       mesh.instanceMatrix.needsUpdate = true;
