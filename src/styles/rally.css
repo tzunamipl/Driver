@@ -133,6 +133,7 @@
 #rally-picker[hidden] { display: none; }
 /* Rally tyre service dialog (ui/tyreServiceDialog.js), over the game like the picker. */
 #tyre-service,
+#garage-dialog,
 #refuel-dialog {
   position: fixed;
   inset: 0;
@@ -146,6 +147,7 @@
   font-size: 11px;
 }
 #tyre-service[hidden],
+#garage-dialog[hidden],
 #refuel-dialog[hidden] { display: none; }
 .refuel-window { width: min(320px, 100%); }
 .refuel-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
@@ -206,6 +208,9 @@
   background: radial-gradient(circle at 50% 40%, #f4f4f4, #b8b8b8);
   box-shadow: var(--w95-sunken);
 }
+/* Garage (ui/garageDialog.js): the rally picker's car row on its own. */
+.garage-window { width: min(720px, 100%); max-height: 100%; overflow-y: auto; }
+.garage-window .rally-car-pick .tyre-setup { margin-top: 6px; }
 @media (max-width: 560px) {
   .tyre-service-body-grid { flex-direction: column; }
 }
@@ -298,6 +303,7 @@
 .menu-aside #main-menu.in-game,
 .menu-aside #rally-picker,
 .menu-aside #tyre-service,
+.menu-aside #garage-dialog,
 .menu-aside #refuel-dialog {
   justify-content: flex-start;
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0) 75%);
@@ -305,10 +311,12 @@
 .menu-aside #main-menu.in-game::before,
 .menu-aside #rally-picker::before,
 .menu-aside #tyre-service::before,
+.menu-aside #garage-dialog::before,
 .menu-aside #refuel-dialog::before,
 .menu-aside #main-menu.in-game::after,
 .menu-aside #rally-picker::after,
 .menu-aside #tyre-service::after,
+.menu-aside #garage-dialog::after,
 .menu-aside #refuel-dialog::after {
   content: '';
   flex: 1 1 0;
@@ -316,6 +324,7 @@
 .menu-aside #main-menu.in-game::after,
 .menu-aside #rally-picker::after,
 .menu-aside #tyre-service::after,
+.menu-aside #garage-dialog::after,
 .menu-aside #refuel-dialog::after {
   flex-grow: 2.4;
 }

@@ -21,72 +21,38 @@
   align-items: flex-start;
   gap: 8px;
 }
+/* Garage button + Discord link; the Settings body (#hud-body) lives here but only shows in the main menu. */
 #hud {
   color: #000;
   font-size: 11px;
   background: var(--w95-face);
   box-shadow: var(--w95-raised);
-  padding: 6px 8px;
+  padding: 4px;
   line-height: 1.5;
   pointer-events: none;
   z-index: 10;
-  opacity: 1;
-  transform: none;
-  transition: opacity var(--hud-fold-ms) ease, transform var(--hud-fold-ms) ease, padding var(--hud-fold-ms) ease;
 }
 #hud-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  pointer-events: auto;
-  transition: margin-bottom var(--hud-fold-ms) ease;
-}
-#hud-toggle {
-  display: block;
-  flex: 1;
-  margin: 0;
-  padding: 0 6px;
-  font-weight: bold;
-  text-align: left;
-}
-#hud-toggle::before {
-  content: '▾ ';
-}
-#hud.collapsed {
-  padding: 4px;
-}
-#hud.collapsed #hud-header {
   gap: 6px;
-  margin-bottom: 0;
+  pointer-events: auto;
 }
-#hud.collapsed #hud-toggle {
-  flex: 0 0 auto;
+#garage-toggle {
+  display: block;
+  margin: 0;
+  padding: 0 10px;
+  font-weight: bold;
 }
-#hud.collapsed #hud-toggle::before {
-  content: '▸ ';
-}
-/* Rolled up to the small "Settings" pill: the body folds away via
-   max-height/opacity (rather than snapping with display: none) so
-   collapsing/expanding is animated the same way hiding is. */
+#garage-toggle[hidden] { display: none; }
+#hud > #hud-body { display: none; }
 #hud-body {
   --hud-body-w: min(46ch, calc(100vw - 44px));
   width: var(--hud-body-w);
-  max-height: 800px; /* fold animation cap; must exceed the wrapped body height */
-  opacity: 1;
-  overflow: hidden;
-  transition: max-height var(--hud-fold-ms) ease, opacity var(--hud-fold-ms) ease, width var(--hud-fold-ms) ease;
 }
-/* Fixed child width so lines don't rewrap while the body narrows; the
-   collapsed panel then shrinks to the header (Settings + Discord). */
 #hud-body > * {
   box-sizing: border-box;
   width: var(--hud-body-w);
-}
-#hud.collapsed #hud-body {
-  width: 0;
-  max-height: 0;
-  opacity: 0;
 }
 /* Hanging indent: wrapped lines sit under the description, not the key. */
 :is(#hud, #main-menu) .hud-line {

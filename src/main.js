@@ -124,6 +124,8 @@ import { createRallyPicker } from './ui/rallyPicker.js';
 import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
 import { createRoadsideRepair } from './app/roadsideRepair.js';
 import { createRefuelDialog } from './ui/refuelDialog.js';
+import { createGarageDialog } from './ui/garageDialog.js';
+import { sameTyreSetup } from './lib/tyres/setup.js';
 import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
 
 // ---------- Composition root ----------
@@ -596,6 +598,32 @@ menuPark = {
     cameraFollow.releaseView();
   },
 };
+
+// ---------- Garage (free roam + editors; a rally picks its car in the rally picker) ----------
+// A new kind is a fresh car; the same kind keeps its wear unless the tyre setup changed.
+if (!isRallyGame) {
+  const garage = createGarageDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) });
+  const garageBtn = document.getElementById('garage-toggle');
+  garageBtn.hidden = false;
+  garageBtn.addEventListener('click', async () => {
+    garageBtn.blur();
+    const vehicle = carManager.getVehicle();
+    if (!vehicle) return;
+    const pick = await garage.open(carManager.getVehicleId());
+    if (!pick || carManager.getVehicle() !== vehicle) return;
+    const { vehicleId, color, setup } = pick;
+    if (vehicleId !== carManager.getVehicleId()) {
+      carManager.setVehicleKind(vehicleId, color);
+    } else {
+      if (color !== carManager.getColor()) carManager.setColor(color);
+      if (vehicle.tyreSetup && !sameTyreSetup(setup, vehicle.tyreSetup)) carManager.setTyreSetup(setup);
+    }
+    net.setVehicleId(vehicleId);
+    net.setColor(color);
+    writeSaveField('vehicle', { vehicleId, color });
+    vehicleDebugPicker.syncFromCar();
+  });
+}
 
 // ---------- Rally game mode ----------
 // Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size and the spares.
