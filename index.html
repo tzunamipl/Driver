@@ -92,7 +92,6 @@
         <p id="lobby-status"></p>
       </form>
     </div>
-    <div id="net-status" hidden></div>
     <div id="attribution">
       Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &middot;
       Buildings via <a href="https://openfreemap.org">OpenFreeMap</a>
@@ -303,6 +302,10 @@
       <div id="top-right-row">
         <div id="fps-graph-panel"><div class="debug-fold-title">FPS</div><canvas id="fps-graph"></canvas><div id="fps-graph-label"></div></div>
         <div id="players-panel">
+          <div id="net-row">
+            <span id="net-status"></span>
+            <button type="button" id="net-mode-toggle"></button>
+          </div>
           <button type="button" id="players-toggle" class="players-title" aria-expanded="true" aria-controls="players-list">PLAYERS <span id="players-count">0</span></button>
           <div id="players-list"></div>
         </div>

@@ -56,6 +56,23 @@
   max-width: 240px;
   pointer-events: none;
 }
+#net-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+#net-status {
+  flex: 1 1 auto;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+#net-status[data-status="offline"] { color: #c00000; }
+#net-status[data-status="online"] { color: #008000; }
+#net-mode-toggle {
+  pointer-events: auto;
+  padding: 0 6px;
+}
 #players-toggle {
   pointer-events: auto;
   display: block;
@@ -68,7 +85,24 @@
 #players-toggle::before {
   content: '▾ ';
 }
-#players-panel.collapsed #players-toggle {
+#players-panel.collapsed #net-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+#net-status {
+  flex: 1 1 auto;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+#net-status[data-status="offline"] { color: #c00000; }
+#net-status[data-status="online"] { color: #008000; }
+#net-mode-toggle {
+  pointer-events: auto;
+  padding: 0 6px;
+}
+#players-toggle {
   margin-bottom: 0;
 }
 #players-panel.collapsed #players-toggle::before {

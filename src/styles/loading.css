@@ -123,10 +123,9 @@
 @keyframes loading-blink {
   50% { background-image: none; }
 }
-/* Just above #net-status (bottom: 20px). */
 #streaming-status {
   position: fixed;
-  bottom: 50px;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;

@@ -1,5 +1,4 @@
-// Tiny version/build badge, centered at the bottom of the screen just
-// below the online/offline #net-status pill. Version comes from
+// Tiny version/build badge in the bottom-right corner. Version comes from
 // package.json (see vite.config.js's `define`), with the build timestamp
 // appended - "YY.MM.DD-HH.MM", UTC, stamped at `vite build` time on GitHub
 // Actions - so a deployed GitHub Pages build can always be traced back to

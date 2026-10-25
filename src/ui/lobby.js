@@ -1,4 +1,4 @@
-import { NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY } from '../config.js';
+import { NET_STATUS_TEXT, CAN_USE_NETWORK, LOBBY_STORAGE_KEY, MULTIPLAYER_STORAGE_KEY } from '../config.js';
 import { createVehiclePicker } from './vehiclePicker.js';
 import { createVehiclePreview } from './vehiclePreview.js';
 import { createVehicleColorPicker } from './vehicleColorPicker.js';
@@ -33,6 +33,22 @@ function saveChoices(name, color, vehicleId) {
   }
 }
 
+function loadMultiplayer() {
+  try {
+    return localStorage.getItem(MULTIPLAYER_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function saveMultiplayer(on) {
+  try {
+    localStorage.setItem(MULTIPLAYER_STORAGE_KEY, on ? '1' : '0');
+  } catch {
+    // Storage unavailable: just don't persist.
+  }
+}
+
 const toHex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 
 // Lobby: name/colour/vehicle form, join flow and network status. Before joining
@@ -52,12 +68,14 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   const lobbyJoin = document.getElementById('lobby-join');
   const lobbyStatus = document.getElementById('lobby-status');
   const netStatusEl = document.getElementById('net-status');
+  const netModeToggle = document.getElementById('net-mode-toggle');
   const vehicleTabsEl = document.getElementById('vehicle-tabs');
   const vehicleListEl = document.getElementById('vehicle-list');
   const lobbyCancel = document.getElementById('lobby-cancel');
 
   let joined = false;
   let onProfileSaved = null;
+  let multiplayer = CAN_USE_NETWORK && loadMultiplayer();
 
   // ---- Vehicle picker (category tabs + list) with a 3D preview + stats.
   const vehiclePreview = createVehiclePreview({
@@ -124,6 +142,25 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
     netStatusEl.dataset.status = status;
   }
 
+  function showNetMode() {
+    netModeToggle.textContent = multiplayer ? 'Go solo' : 'Go online';
+    netModeToggle.disabled = !CAN_USE_NETWORK;
+    netModeToggle.title = CAN_USE_NETWORK ? '' : 'No network in dev mode';
+  }
+  showNetMode();
+  setNetStatus(multiplayer ? 'offline' : 'solo');
+
+  netModeToggle.addEventListener('click', () => {
+    if (!CAN_USE_NETWORK) return;
+    multiplayer = !multiplayer;
+    saveMultiplayer(multiplayer);
+    showNetMode();
+    if (!multiplayer) return net.disconnect();
+    if (!joined) return setNetStatus('offline');
+    const carManager = getCarManager();
+    net.connect({ name: carManager.getLocalName(), color: carManager.getColor(), vehicleId: carManager.getVehicleId() });
+  });
+
   net.onStatus((status) => {
     setNetStatus(status);
     if (lobbyEl.style.display !== 'none') setLobbyStatus(NET_STATUS_TEXT[status] ?? status);
@@ -132,7 +169,7 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
   async function joinRoom(name, color, vehicleId = vehiclePicker.getSelectedId()) {
     if (joined) return;
     lobbyJoin.disabled = true;
-    if (CAN_USE_NETWORK) {
+    if (multiplayer) {
       setLobbyStatus('Connecting…');
       try {
         await net.connect({ name, color, vehicleId });
@@ -146,8 +183,7 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
     writeSaveField('vehicle', { vehicleId, color });
     joined = true;
     hideLobby();
-    netStatusEl.hidden = false;
-    setNetStatus(CAN_USE_NETWORK && net.isOnline() ? 'online' : 'offline');
+    setNetStatus(!multiplayer ? 'solo' : net.isOnline() ? 'online' : 'offline');
     onJoined(color, vehicleId);
   }
 

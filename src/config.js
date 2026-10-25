@@ -222,6 +222,7 @@ export const NET_STATUS_TEXT = {
   connecting: 'Connecting…',
   online: 'In the room',
   offline: 'Offline — driving solo',
+  solo: 'Singleplayer',
 };
 
 // ---------- Players panel HUD ----------
@@ -284,6 +285,7 @@ export const MINIMAP_SIZE_PX = 260;
 // ---------- localStorage keys ----------
 export const MINIMAP_STORAGE_KEY = 'driver.minimapZoom';
 export const LOBBY_STORAGE_KEY = 'driver.lobby.v1';
+export const MULTIPLAYER_STORAGE_KEY = 'driver.multiplayer.v1';
 export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1'; // legacy, migrated into SAVES_STORAGE_KEY
 export const SAVES_STORAGE_KEY = 'driver.saves.v1'; // per-game-mode save slots (lib/saves.js)
 export const LAUNCH_STORAGE_KEY = 'driver.launch'; // sessionStorage: mode to start after a menu reload

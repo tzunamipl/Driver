@@ -262,20 +262,6 @@
   font-size: 11px;
   box-shadow: var(--w95-field);
 }
-#net-status {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 12;
-  font-size: 11px;
-  color: #000;
-  background: var(--w95-face);
-  box-shadow: var(--w95-raised);
-  padding: 4px 10px;
-}
-#net-status[data-status="offline"] { color: #c00000; }
-#net-status[data-status="online"] { color: #008000; }
 @media (max-width: 640px) {
   #lobby-body { flex-direction: column; }
   #vehicle-preview { height: 160px; }

@@ -233,6 +233,18 @@ export function createNet({ clientId } = {}) {
     });
   }
 
+  /** Leaves the room for solo driving; connect() rejoins. */
+  function disconnect() {
+    if (!client) return;
+    publishLeave();
+    client.removeAllListeners();
+    client.end();
+    client = null;
+    connected = false;
+    peers.clear();
+    emitStatus('solo');
+  }
+
   function isOnline() {
     return connected;
   }
@@ -289,6 +301,7 @@ export function createNet({ clientId } = {}) {
     clientId,
     spawnOffset,
     connect,
+    disconnect,
     publishPose,
     publishProps,
     publishLeave,

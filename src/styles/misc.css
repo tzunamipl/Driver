@@ -14,8 +14,7 @@
 #version-badge {
   position: fixed;
   bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 8px;
   z-index: 10;
   color: #fff;
   font-size: 11px;

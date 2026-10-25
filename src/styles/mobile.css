@@ -19,8 +19,7 @@
     line-height: 21px;
     padding: 0 7px;
   }
-  #net-status { bottom: 104px; }
-  #streaming-status { bottom: 134px; }
+  #streaming-status { bottom: 104px; }
   #version-badge { bottom: 88px; }
   #odometer { --odo-scale: 0.48; }
   #minimap {
