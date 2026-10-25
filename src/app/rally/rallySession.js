@@ -2,6 +2,8 @@
 // order. A stage item is a stageRun.js; a point item (service park, regroup, ...) is a
 // liaison checkpoint to drive through, routed by the Navigation tab. Teleport and
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
+// A rally's liaison leg longer than SKIP_LIAISON_M can be skipped: fade to black, the car moved
+// before the next point, fade back in.
 // Once stopped the crew can do field fixes (spare wheel, patches, the carried cans; fieldRepair.js),
 // at a penalty on a live stage, and the car can be inspected. Service points open a repair menu against a time budget per visit
 // (lib/serviceRepairs.js); going over it adds a late penalty to the rally total.
@@ -31,7 +33,7 @@ import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
 import { fullSupplies } from '../../lib/supplies.js';
 import { sameTyreSetup } from '../../lib/tyres/setup.js';
-import { SERVICE_ZONES, latePenaltyMs } from '../../lib/serviceRepairs.js';
+import { SERVICE_ZONES, latePenaltyMs, carParts } from '../../lib/serviceRepairs.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
@@ -51,6 +53,12 @@ const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the
 // m/s: Inspect car shows once this slow, kept until faster than the second.
 const INSPECT_SHOW_SPEED = 0.8;
 const INSPECT_HIDE_SPEED = 1.5;
+const SKIP_LIAISON_M = 3000; // straight line to the next point
+const SKIP_ROAD_FACTOR = 1.3; // road distance per straight-line metre, for a skip's fuel
+const SKIP_MIN_PART_LEVEL = 0.3; // any part (tyre tread, shock, gearbox, fluids...) below this blocks a skip
+
+/** HUD distance: metres, km past 1 km. */
+const formatDistance = (m) => (m > 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
@@ -139,8 +147,10 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
+ * @param {ReturnType<import('../../ui/screenFade.js').createScreenFade>} [deps.screenFade] - liaison skips need it.
+ * @param {() => void} [deps.snapCamera] - the camera jumps to the car (after a skip).
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -172,6 +182,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     retire: () => run?.retire(),
     inspect: () => onInspect?.(fieldFix && plan && !finished ? { fieldFix: fieldFix.apply, penaltyApplies: fieldFix.penaltyApplies } : {}),
     restart: () => restartStage(),
+    skipLiaison: () => skipLiaison(),
     pick: () => choose(),
     newRally: () => choose(),
     pickAgain: () => choose(),
@@ -433,19 +444,23 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
 
   /**
    * Puts the car just before the item's first point, facing along the road towards it (the rally's
-   * first item: on the road beside the base, facing towards that point); teleports there first
-   * unless the world is already loaded around it.
+   * first item, unless `fromBase` is off: on the road beside the base, facing towards that point);
+   * teleports there first unless the world is already loaded around it (`quiet`: no teleport effects).
+   * @returns {Promise<boolean>} false when the car wasn't moved.
    */
-  async function spawnAt(index, teleport = true) {
+  async function spawnAt(index, { teleport = true, quiet = false, fromBase = true } = {}) {
     const points = itemPoints(plan.items[index]);
-    const atBase = index === 0 && plan.base;
+    const atBase = fromBase && index === 0 && plan.base;
     const first = atBase ? plan.base : points[0];
-    if (!first) return;
-    if (teleport && !(await addressSearch.teleport(first.lat, first.lon, plan.name))) return;
+    if (!first) return false;
+    if (teleport && !(await addressSearch.teleport(first.lat, first.lon, plan.name, { quiet }))) return false;
     const at = viewFrame.fromLatLon(first.lat, first.lon);
     const nextPoint = atBase ? points[0] : points[1];
     const next = nextPoint ? viewFrame.fromLatLon(nextPoint.lat, nextPoint.lon) : null;
-    const frame = controlFrame(streets, at.x, at.z, first, null, next, 40);
+    // A lone liaison point faces as if arriving from the previous item.
+    const prevPoint = next ? null : (index > 0 ? itemPoints(plan.items[index - 1]).at(-1) : plan.base) ?? null;
+    const from = prevPoint ? viewFrame.fromLatLon(prevPoint.lat, prevPoint.lon) : null;
+    const frame = controlFrame(streets, at.x, at.z, first, from, next, 40);
     let pos = at;
     let dirX = next ? next.x - at.x : 0;
     let dirZ = next ? next.z - at.z : 1;
@@ -460,6 +475,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     carManager.getReset()?.(new CANNON.Vec3(pos.x, y, pos.z), quat);
     parkCar();
     prev = null;
+    return true;
   }
 
   /**
@@ -480,7 +496,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (finished) return loadWorldTop();
     showItem(savedRun);
     saveProgress();
-    if (spawn) await spawnAt(itemIndex, spawn === 'teleport');
+    if (spawn) await spawnAt(itemIndex, { teleport: spawn === 'teleport' });
     routeToItem();
   }
 
@@ -531,6 +547,56 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     }
   }
 
+  /** The current item's first point and the straight-line metres to it when the drive there can be skipped (a rally, not yet on the stage, far enough), else null. */
+  function skipTarget() {
+    if (plan?.kind !== 'rally' || finished || busy || !screenFade) return null;
+    if (run && (run.state.phase !== 'approach' || run.state.next > 0)) return null;
+    const target = itemPoints(currentItem())[0];
+    const pos = carPosition();
+    if (!target || !pos || !addressSearch.canTeleport()) return null;
+    const { x, z } = viewFrame.fromLatLon(target.lat, target.lon);
+    const metres = Math.hypot(x - pos.x, z - pos.z);
+    return metres > SKIP_LIAISON_M ? { target, metres } : null;
+  }
+
+  /** Skips the liaison drive, burning its fuel: fade to black, the car placed before the next point, fade back in. */
+  async function skipLiaison() {
+    const skip = skipTarget();
+    if (!skip) return;
+    const vehicle = carManager.getVehicle();
+    // Fuel and cans are checked by the litres below, not as wear.
+    const worn = vehicle ? carParts(vehicle).find((p) => p.group !== 'Fuel & spares' && p.level != null && p.level < SKIP_MIN_PART_LEVEL) : null;
+    if (worn) {
+      const flat = vehicle.wheelInfos?.some((w) => w.punctured);
+      flash = { text: `Can't skip: ${flat ? 'flat tyre' : `${worn.label.toLowerCase()} too damaged`}`, until: simTime + SPLIT_SHOW_S };
+      return;
+    }
+    const fuel = vehicle?.fuel;
+    const litres = fuel?.skippedDriveLitres(skip.metres * SKIP_ROAD_FACTOR) ?? 0;
+    if (fuel && litres > fuel.litres) {
+      flash = { text: `Not enough fuel to skip: ${litres.toFixed(1)} L needed`, until: simTime + SPLIT_SHOW_S };
+      return;
+    }
+    busy = true;
+    try {
+      const item = currentItem();
+      const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
+      const to = item.type === 'stage' ? `SS${ss} · ${item.stage.name}` : pointLabel(item.point.type).toLowerCase();
+      const used = `${formatDistance(skip.metres * SKIP_ROAD_FACTOR)} · ${litres.toFixed(1)} L fuel`;
+      routeGuidance.stop();
+      await screenFade.out(`Liaison to ${to}\n${used}`);
+      if (await spawnAt(itemIndex, { quiet: true, fromBase: false })) {
+        while (carManager.isResetting()) await new Promise(requestAnimationFrame);
+        fuel?.setLitres(fuel.litres - litres);
+        flash = { text: `Liaison skipped: ${used}`, until: simTime + SPLIT_SHOW_S };
+        snapCamera?.();
+      }
+    } finally {
+      busy = false;
+      screenFade.in();
+    }
+  }
+
   function stageView(item) {
     const stage = item.stage;
     const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
@@ -551,9 +617,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       clockMs: state.startTime == null ? (state.phase === 'countdown' ? 0 : null) : run.elapsedMs(),
       lights: state.phase === 'countdown' || run.lights().green ? run.lights() : null,
       status,
-      next: next && dist != null && state.phase !== 'countdown' ? `Next: ${pointLabel(next.type)} · ${Math.round(dist)} m` : '',
+      next: next && dist != null && state.phase !== 'countdown' ? `Next: ${pointLabel(next.type)} · ${formatDistance(dist)}` : '',
       penaltyMs: run.penaltyMs(),
-      buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(run.isLive() ? ['retire'] : [])],
+      buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : []), ...(run.isLive() ? ['retire'] : [])],
     };
   }
 
@@ -729,12 +795,12 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (item.type === 'stage') return stageView(item);
     const gate = scenery.getGate(0);
     const pos = carPosition();
-    const dist = gate && pos ? Math.round(Math.hypot(gate.x - pos.x, gate.z - pos.z)) : null;
+    const dist = gate && pos ? Math.hypot(gate.x - pos.x, gate.z - pos.z) : null;
     return {
       title: plan.name,
       status: flash && simTime < flash.until ? flash.text : liaisonStatus(item.point.type, dist),
-      next: dist == null ? '' : `${pointLabel(item.point.type)} · ${dist} m`,
-      buttons: stopped && onInspect ? ['inspect'] : [],
+      next: dist == null ? '' : `${pointLabel(item.point.type)} · ${formatDistance(dist)}`,
+      buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : [])],
     };
   }
 

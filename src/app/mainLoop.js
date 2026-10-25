@@ -317,7 +317,7 @@ export function createMainLoop({
       podMesh: carManager.getPodMesh(),
       vehicle: currentVehicle,
       vehicleId: carManager.getVehicleId(),
-      teleporting: addressSearch.isTeleporting(),
+      teleporting: addressSearch.showsTeleportFx(),
       resetting: carManager.isResetting(),
     });
     setWheelStereo(!!getCameraView(cameraFollow.getViewId()).wheelStereo);

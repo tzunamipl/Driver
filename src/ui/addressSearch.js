@@ -65,17 +65,20 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
   }
 
   let teleporting = false;
+  let quiet = false; // a teleport hidden by the caller: no status, no dissolve / orbit camera
   let isBlocked = () => false;
 
   // One teleport at a time.
   let teleportChain = Promise.resolve();
 
-  async function teleportTo(lat, lon, label) {
+  async function teleportTo(lat, lon, label, hidden) {
     teleporting = true;
+    quiet = hidden;
+    const status = (text) => !hidden && setAddressStatus(text);
     // Live counts, so a stalled load shows where it stalled.
     const showTerrainProgress = () => {
       const p = terrain.getLoadProgress();
-      setAddressStatus(`Loading terrain at new location\u2026 ${p.physicsLoaded} / ${p.physicsTotal} tiles`);
+      status(`Loading terrain at new location\u2026 ${p.physicsLoaded} / ${p.physicsTotal} tiles`);
     };
     showTerrainProgress();
     const progressTimer = setInterval(showTerrainProgress, TELEPORT_PROGRESS_INTERVAL_MS);
@@ -87,7 +90,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       } finally {
         clearInterval(progressTimer);
       }
-      setAddressStatus('Loading roads, water & buildings\u2026');
+      status('Loading roads, water & buildings\u2026');
       buildings.recenter(lat, lon);
       if (streets) streets.recenter(lat, lon);
       if (rivers) rivers.recenter(lat, lon);
@@ -105,18 +108,24 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       // Stay "teleporting" until the ease lands: it starts at the old spot's
       // stale coordinates, and streaming around it would drop the new ground.
       while (carManager.isResetting()) await new Promise(requestAnimationFrame);
-      setAddressStatus(`Teleported to ${label}`);
-      setTimeout(() => setAddressStatus(''), 3000);
+      if (!hidden) {
+        setAddressStatus(`Teleported to ${label}`);
+        setTimeout(() => setAddressStatus(''), 3000);
+      }
     } finally {
       teleporting = false;
+      quiet = false;
     }
   }
 
-  /** Queues a teleport; resolves true once the car is there, false if it failed or isn't allowed. */
-  function teleport(lat, lon, label) {
+  /**
+   * Queues a teleport; resolves true once the car is there, false if it failed or isn't allowed.
+   * `quiet`: the caller hides it (e.g. a fade to black), so no status line and no teleport effects.
+   */
+  function teleport(lat, lon, label, { quiet: hidden = false } = {}) {
     if (!canTeleport()) return Promise.resolve(false);
     lon = ((((lon + 180) % 360) + 360) % 360) - 180; // a lon off the -180..180 range has no tiles: load would hang
-    const run = teleportChain.then(() => teleportTo(lat, lon, label));
+    const run = teleportChain.then(() => teleportTo(lat, lon, label, hidden));
     teleportChain = run.catch((err) => {
       console.warn('Teleport failed', err);
       setAddressStatus(`Couldn't teleport: ${err.message}`, true);
@@ -132,6 +141,8 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
     awaitOriginChain: () => teleportChain,
     // True during a teleport; mainLoop skips its own streaming meanwhile.
     isTeleporting: () => teleporting,
+    // Teleport effects (dissolve, orbit camera) play; off for a quiet teleport.
+    showsTeleportFx: () => teleporting && !quiet,
     canTeleport,
     teleport,
     /** Game-mode veto, e.g. during a rally stage. */

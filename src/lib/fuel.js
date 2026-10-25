@@ -19,6 +19,10 @@ const IDLE_FUEL_LPH_PER_KW = 0.008;
 const MASS_UPDATE_KG = 0.5;
 // Average consumption window, in one-second buckets.
 const AVERAGE_WINDOW_S = 60;
+// Skipped drives (rally liaison): L/100 km on petrol, flat + per rated hp. High on purpose, so driving
+// there is cheaper. Descriptor `skipFuelLPer100Km` overrides.
+const SKIP_L_PER_100KM = 12;
+const SKIP_L_PER_100KM_PER_HP = 0.05;
 
 /** Tank for a wheeled engine descriptor; `chassisBody` gets the fuel's mass. */
 export function createFuelTank(descriptor, chassisBody) {
@@ -48,6 +52,7 @@ export function createFuelTank(descriptor, chassisBody) {
     setLitres,
     setCargoKg,
     getAverage,
+    skippedDriveLitres,
   };
 
   function applyMass() {
@@ -97,6 +102,12 @@ export function createFuelTank(descriptor, chassisBody) {
       if (buckets.length > AVERAGE_WINDOW_S) buckets.shift();
       current = { litres: 0, metres: 0, seconds: 0 };
     }
+  }
+
+  /** Fuel a skipped drive of `metres` (by road) costs. */
+  function skippedDriveLitres(metres) {
+    const per100Km = descriptor.skipFuelLPer100Km ?? (SKIP_L_PER_100KM + SKIP_L_PER_100KM_PER_HP * (descriptor.enginePowerHp ?? 0)) * (fuel.bsfc / FUELS.petrol.bsfc);
+    return (per100Km * metres) / 100000;
   }
 
   /** Consumption over the last minute: { litresPerHour, litresPer100Km (null when barely moving) }. */

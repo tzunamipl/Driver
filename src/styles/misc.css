@@ -24,3 +24,19 @@
 #fps-counter:not(:empty)::after {
   content: ' \00b7 ';
 }
+
+/* Fade to black (ui/screenFade.js): over the HUD, under dialogs (35) and the main menu. */
+#screen-fade {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.7s ease-in-out;
+  pointer-events: auto;
+}
+#screen-fade[hidden] { display: none; }
+.screen-fade-caption { white-space: pre-line; color: #fff; font-size: 18px; letter-spacing: 0.05em; text-align: center; }

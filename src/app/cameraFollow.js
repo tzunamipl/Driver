@@ -83,6 +83,7 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   const upVec = new THREE.Vector3(0, 1, 0);
   const smoothedLookAt = new THREE.Vector3();
   let smoothedLookAtInit = false;
+  let snapPosition = false; // next chase frame puts the camera in place instead of lerping there
   let lastYaw = 0;
   let smoothedYaw = 0;
   let smoothedYawInit = false;
@@ -438,7 +439,8 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
       .add(carPos)
       .add(tmpLeadPos)
       .add(tmpAccelLag);
-    camera.position.lerp(tmpVec, posFactor);
+    camera.position.lerp(tmpVec, snapPosition ? 1 : posFactor);
+    snapPosition = false;
 
     const lookAt = cameraLookOffset
       .clone()
@@ -555,6 +557,11 @@ export function createCameraFollow(camera, { groundHeightAt = () => null, terrai
   updateCamera.setView = setView;
   updateCamera.holdView = holdView;
   updateCamera.releaseView = releaseView;
+  /** Next frame jumps straight to the car (e.g. after it was moved behind a fade). */
+  updateCamera.snap = () => {
+    resetSmoothing();
+    snapPosition = true;
+  };
   updateCamera.getViewId = () => viewId;
   updateCamera.getViews = () => CAMERA_VIEWS;
 

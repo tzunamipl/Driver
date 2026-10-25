@@ -122,6 +122,7 @@ import { createPacenotePanel } from './ui/pacenotePanel.js';
 import { createCourseObjectsPanel } from './ui/courseObjectsPanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
+import { createScreenFade } from './ui/screenFade.js';
 import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
 import { createRoadsideRepair } from './app/roadsideRepair.js';
 import { createRefuelDialog } from './ui/refuelDialog.js';
@@ -491,7 +492,7 @@ const addressSearch = createAddressSearch({
   viewFrame,
   isJoined: () => lobby.isJoined(),
 });
-dissolve.setActiveWhen(() => addressSearch.isTeleporting());
+dissolve.setActiveWhen(() => addressSearch.showsTeleportFx());
 const navigationPanel = createNavigationPanel({
   addressSearch,
   getCarLatLon,
@@ -714,6 +715,8 @@ const rallySession =
         },
         onFinishHold: (held) => (held ? menuPark.onOpen() : menuPark.onClose()),
         openMainMenu: mainMenu.open,
+        screenFade: createScreenFade(),
+        snapCamera: cameraFollow.snap,
       })
     : null;
 /** Respawns the local car as `vehicleId` where it stands, with its saved paint. */
