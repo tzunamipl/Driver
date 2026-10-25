@@ -12,7 +12,7 @@ const V8 = {
   turbo: true,
 };
 
-// Subaru boxer with unequal-length headers: strongly paired, uneven pulses.
+// Boxer with unequal-length headers: strongly paired, uneven pulses.
 const BOXER = {
   pulseOffsets: [0, 0.085, -0.025, 0.105],
   pulseAmps: [1, 0.58, 0.95, 0.52],
@@ -41,6 +41,21 @@ const INLINE4 = {
 // Naturally aspirated inline four: same pulses, no turbo whistle or blow-off.
 const INLINE4_NA = { ...INLINE4, turbo: false };
 
+// Naturally aspirated straight six: six evenly spaced, near-identical pulses
+// blend into a smooth, rising howl.
+const INLINE6 = {
+  pulseOffsets: [0, 0.002, -0.002, 0.001, -0.001, 0.002],
+  pulseAmps: [1, 0.97, 0.98, 0.96, 0.99, 0.97],
+  pulseDecay: 0.022,
+  pulseRing: 0.06,
+  idleLope: 0.006,
+  bankMix: 0.2,
+  bankDetune: 1.001,
+  body: 1.1,
+  brightness: 1.2,
+  turbo: false,
+};
+
 // Truck V6 diesel: even, heavy, dark pulses plus injection clatter; big slow
 // turbo and no throttle plate, so no blow-off valve.
 const V6_DIESEL = {
@@ -58,5 +73,5 @@ const V6_DIESEL = {
   blowOff: false,
 };
 
-export const ENGINE_SOUNDS = { v8: V8, v4: BOXER, r4: INLINE4, r4na: INLINE4_NA, v6d: V6_DIESEL };
+export const ENGINE_SOUNDS = { v8: V8, v4: BOXER, r4: INLINE4, r4na: INLINE4_NA, r6: INLINE6, v6d: V6_DIESEL };
 export const DEFAULT_ENGINE_SOUND = V8;

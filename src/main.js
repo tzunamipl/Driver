@@ -64,6 +64,7 @@ import { createTrees, createBushes, createRocks } from './lib/trees.js';
 import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
 import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
+import { migrateStoredVehicleIds } from './lib/vehicleIdMigration.js';
 
 import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
@@ -144,6 +145,7 @@ const net = createNet({ clientId: playerId });
 // ---------- Cloud save ----------
 // Before anything reads the profile or the save slots: a newer backup replaces them.
 await restoreCloudSave(playerId);
+migrateStoredVehicleIds();
 const cloudSave = createCloudSave(playerId);
 
 // ---------- Lobby (name/color + join flow) ----------

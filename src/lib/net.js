@@ -5,6 +5,7 @@
 
 import mqtt from 'mqtt';
 import { DEFAULT_VEHICLE_ID, getVehicle } from './vehicles/index.js';
+import { METALLIC_PAINT } from './vehicles/geometry/paint.js';
 
 const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
 const POSE_TOPIC = 'tzunamipl/driver/v1/pose';
@@ -408,7 +409,7 @@ function sanitizeName(name) {
 
 function sanitizeColor(color) {
   const n = Number(color);
-  if (!Number.isInteger(n) || n < 0 || n > 0xffffff) return 0xffffff;
+  if (!Number.isInteger(n) || n < 0 || n > (0xffffff | METALLIC_PAINT)) return 0xffffff;
   return n;
 }
 

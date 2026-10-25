@@ -36,7 +36,7 @@ const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
  * a high-riding boxy cab, open truck bed, chunky chrome bumpers, a roll
  * cage, and flame decals streaking back across the hood. The group stands
  * in for the chassis mesh, sized to roughly match the physics chassis
- * footprint (same as every other vehicle - see ./gc8.js). `color` is the
+ * footprint (same as every other vehicle - see ./kairoS.js). `color` is the
  * painted shell so a remote car can recolor without rebuilding geometry.
  */
 
@@ -52,9 +52,8 @@ const DEFAULT_BODY_COLOR = 0xcc1f1f; // classic monster-truck red
  * baseline rally car, with zero changes needed to the shared rig itself.
  */
 export default {
-  id: 'bigfoot',
-  name: 'Bigfoot Monster Truck',
-  category: 'misc',
+  id: 'C006', // display name in ./names.js
+  category: 'dumb',
   defaultColor: DEFAULT_BODY_COLOR,
   rimColor: 0x404040,
   buildBody,

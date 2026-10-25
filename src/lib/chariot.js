@@ -1,4 +1,4 @@
-// Hover rig for "Chariots of Fire" pod racers (descriptor.vehicleType ===
+// Hover rig for Chariot of Fire hover vehicles (descriptor.vehicleType ===
 // 'hover', dispatched from car.js). No rigid chassis:
 //  - each engine is an independent dynamic sphere with its own hover
 //    repulsor and thrust (engineMeshes[i] renders engineBodies[i] 1:1);
@@ -22,8 +22,8 @@ import {
   uprightQuaternion,
 } from './vehicleShared.js';
 import { applyAirDrag, DEFAULT_DRAG_PROFILE } from './airDrag.js';
-import { ENGINE_RADIUS, POD_RADIUS, ENGINE_Z, engineLocalOffsets, POD_LOCAL_OFFSET } from './vehicles/podRacerLayout.js';
-import { orientStrut, orientTetherChain } from './vehicles/podRacer.js';
+import { ENGINE_RADIUS, POD_RADIUS, ENGINE_Z, engineLocalOffsets, POD_LOCAL_OFFSET } from './vehicles/chariotOfFireLayout.js';
+import { orientStrut, orientTetherChain } from './vehicles/chariotOfFire.js';
 import { HOVER_REST_HEIGHT, hoverAt } from './chariot/hover.js';
 import { createFormationHeading, createPowerCoupling, createTether, engineCentroid } from './chariot/formation.js';
 import { createRemoteChariot as createRemote } from './chariot/remote.js';
@@ -412,7 +412,7 @@ export function createChariotVehicle(world, scene, startPosition, startQuaternio
   };
 }
 
-/** Visual-only pod racer for another player. */
+/** Visual-only Chariot of Fire for another player. */
 export function createRemoteChariot(scene, color = DEFAULT_BODY_COLOR, name = '', score = 0, descriptor) {
   return createRemote(scene, color, name, score, descriptor);
 }

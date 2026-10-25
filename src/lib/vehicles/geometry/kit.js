@@ -38,3 +38,21 @@ export function createKit(group) {
   };
   return { add, box, tube, fender, profile, spike };
 }
+
+/**
+ * Side outline [z, y] for `profile`: `top` from nose to tail, then a flat
+ * floor at `floorY` back to the nose, cut by a half-round wheel arch over
+ * each { z, y, r }.
+ */
+export function sideOutline(top, floorY, arches, segments = 8) {
+  const points = [...top];
+  for (const { z, y, r } of [...arches].sort((a, b) => a.z - b.z)) {
+    points.push([z - r, floorY]);
+    for (let i = 0; i <= segments; i++) {
+      const a = Math.PI - (i / segments) * Math.PI;
+      points.push([z + r * Math.cos(a), y + r * Math.sin(a)]);
+    }
+    points.push([z + r, floorY]);
+  }
+  return points;
+}

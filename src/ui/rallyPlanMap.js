@@ -226,7 +226,7 @@ export function createRallyPlanMap() {
       else if (w.type === 'start') pills.push([at(w), plan.kind === 'rally' ? `SS${++stageNo}` : 'START', typeColor('start')]);
       else if (plan.kind === 'rally' && w.stage >= 0) continue; // a rally shows each stage by its start only
       else if (w.type === 'finish') pills.push([at(w), 'FINISH', typeColor('finish')]);
-      else drawDot(at(w), typeColor(w.type));
+      else if (w.type !== 'passageControl') drawDot(at(w), typeColor(w.type));
     }
     ctx.save();
     ctx.font = '700 10px system-ui, sans-serif';

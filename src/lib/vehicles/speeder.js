@@ -2,9 +2,8 @@ import { carAxles } from '../car/axles.js';
 import { buildBody } from './geometry/speeder.js';
 
 export default {
-  id: 'speeder',
-  name: 'Speeder',
-  category: 'misc',
+  id: 'C007', // display name in ./names.js
+  category: 'dumb',
   defaultColor: 0x1c1c1c, // black
   rimColor: 0xFF0000,
   buildBody,

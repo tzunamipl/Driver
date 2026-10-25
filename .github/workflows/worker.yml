@@ -3,7 +3,7 @@ name: Deploy leaderboard worker
 on:
   push:
     branches: [main]
-    paths: ['worker/**', '.github/workflows/worker.yml']
+    paths: ['worker/**', 'src/lib/vehicles/legacyIds.js', '.github/workflows/worker.yml']
   workflow_dispatch:
 
 permissions:

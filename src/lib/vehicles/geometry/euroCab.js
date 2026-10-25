@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { createGlossyMaterial } from './paint.js';
 
-// Shared low-poly pieces for European cab-over trucks (./scaniaR.js,
-// ./actros.js). Chassis-local, +z forward, wheel tops near y = 0 at rest.
+// Shared low-poly pieces for European cab-over trucks (./uranus.js,
+// ./samson.js). Chassis-local, +z forward, wheel tops near y = 0 at rest.
 
 export function truckMaterials() {
   return {
@@ -20,10 +20,10 @@ export function truckMaterials() {
 /**
  * Cab-over cab sitting over the front axle at `axleZ`. `front` = front face z,
  * `depth` front to back, `roofY` cab top; the lower front wraps the wheel in
- * a black arch. `grille` picks the face: 'scania' (tall slatted) or 'actros'
+ * a black arch. `grille` picks the face: 'slatted' (tall slats) or 'chrome'
  * (wide chrome bars).
  */
-export function buildCab(kit, m, bodyMat, { front, depth, axleZ, roofY, width = 2.5, grille = 'scania' }) {
+export function buildCab(kit, m, bodyMat, { front, depth, axleZ, roofY, width = 2.5, grille = 'slatted' }) {
   const { box, fender } = kit;
   const back = front - depth;
   const half = width / 2;
@@ -46,7 +46,7 @@ export function buildCab(kit, m, bodyMat, { front, depth, axleZ, roofY, width = 
   for (let i = -2; i <= 2; i++) box(0.22, 0.12, 0.08, i % 2 ? m.amber : m.head, i * 0.4, 2.24, front + 0.24);
 
   // Grille and bumper below the windscreen.
-  if (grille === 'scania') {
+  if (grille === 'slatted') {
     box(1.7, 0.85, 0.06, m.frame, 0, 0.55, front + 0.02);
     for (let i = 0; i < 5; i++) box(1.6, 0.05, 0.03, m.steel, 0, 0.22 + i * 0.17, front + 0.06);
     box(0.32, 0.12, 0.04, m.chrome, 0, 0.98, front + 0.05); // badge

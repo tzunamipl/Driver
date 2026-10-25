@@ -173,7 +173,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
 
   function spawnLocalCar(color, vehicleId) {
     currentColor = color;
-    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    currentVehicleId = getVehicle(vehicleId).id;
     currentTyreSetup = null;
     removeCurrentCar();
     buildCar(playerSpawnPos(), playerSpawnQuat ? playerSpawnQuat() : startQuat);
@@ -181,7 +181,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
 
   /** Swaps the vehicle kind (and optionally colour) in place, same pose and velocity; debug picker. */
   function setVehicleKind(vehicleId, color = currentColor) {
-    currentVehicleId = vehicleId ?? DEFAULT_VEHICLE_ID;
+    currentVehicleId = getVehicle(vehicleId).id;
     currentColor = color;
     currentTyreSetup = null;
     if (vehicle) rebuildInPlace();

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { findGroundY } from './terrain.js';
+import { setPaint } from './vehicles/geometry/paint.js';
 
 // Tags every vehicle's collision shapes; physicsSetup.js pairs it with
 // ground/building materials (low friction so wall hits slide, not stick).
@@ -117,7 +118,7 @@ export function createRemoteShell(scene, group, bodyMat, color, name, score) {
   function setAppearance(nextColor, nextName, nextScore = 0) {
     if (nextColor !== currentColor) {
       currentColor = nextColor;
-      bodyMat.color.set(nextColor);
+      setPaint(bodyMat, nextColor);
     }
     nameTag.set(nextName, nextScore);
   }
@@ -128,7 +129,7 @@ export function createRemoteShell(scene, group, bodyMat, color, name, score) {
     const geometries = new Set();
     group.traverse((obj) => {
       if (obj.geometry) geometries.add(obj.geometry);
-      // Multi-material meshes (e.g. the Impreza body) hold an array.
+      // Multi-material meshes (e.g. the Kairo body) hold an array.
       for (const material of [obj.material ?? []].flat()) materials.add(material);
     });
     for (const geometry of geometries) geometry.dispose();

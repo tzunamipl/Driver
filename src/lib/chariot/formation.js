@@ -1,4 +1,4 @@
-// Engine-formation physics for the pod racer: live heading derived from the
+// Engine-formation physics for the Chariot of Fire: live heading derived from the
 // real engine positions, engine-to-engine power coupling, and the pod tether.
 
 import * as THREE from 'three';

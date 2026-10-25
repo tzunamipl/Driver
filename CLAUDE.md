@@ -44,7 +44,9 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `shocks.js` = per-wheel shock health, worn by bump-stop strikes; lowers damping and spring rate. `lampDamage.js` =
     broken head/tail lamps per side from end hits (`endImpact`); `headlights.js` darkens them and scales the pools. Both (and gearbox health) saved as car state `damage`.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
-    Register new vehicles in `vehicles/index.js`.
+    Body paint = `geometry/paint.js` `createPaintMaterial`; a paint value is 0xRRGGBB plus the `METALLIC_PAINT` flag bit (saves, net, `defaultColor`). Register new vehicles in `vehicles/index.js`. Ids are `C001` (wheeled) / `S001` (hover), never reused; the display
+    name lives only in `vehicles/names.js`. Pre-scheme ids map in `vehicles/legacyIds.js` (`getVehicle` accepts them,
+    `lib/vehicleIdMigration.js` rewrites stored data after the cloud restore, the worker renames board entries).
   - Effects: `tireSmoke.js`, `terrainDust.js`, `wheelDebris.js` (leaves / grass / clods / stones from sliding tyres; it and wheel dust toggle in the Graphics layers), `bodyDust.js`, `exhaustFlames.js`
     (backfire pops scaled by descriptor `backfire` 0..1, tips from `exhaustTips`, plus a flash point light) (all on
     `particles/puffPool.js`), `rimSparks.js` (tyre-pop smoke + spark burst, sparks from flat rims on road/rock; streaks
@@ -91,7 +93,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
 
 ## Token hints
 - `README.md` is user-facing docs with deep background; usually skip it.
-- Largest files: `terrain.js` (~1000 lines), `buildings.js`, `vehicles/geometry/levorg.js` –
+- Largest files: `terrain.js` (~1300 lines), `app/rally/rallySession.js`, `main.js`, `rally/controlScenery.js` –
   grep for the function first and read only that range.
 - Comment-only edits can be verified by building and comparing the hash of `dist/assets/*.js`
   (the minifier strips comments; mask the `YY.MM.DD-HH.MM` build timestamp first).

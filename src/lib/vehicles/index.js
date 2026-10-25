@@ -1,46 +1,57 @@
 // Vehicle registry: collects every vehicle descriptor (one per file, see
-// ./gc8.js for the shape each must export) into a single list, grouped
+// ./kairoS.js for the shape each must export) into a single list, grouped
 // under a fixed set of category tabs for the lobby's vehicle picker (see
 // ui/lobby.js). Adding a new vehicle later is just a new file + one more
-// entry in VEHICLES below - lib/car.js's shared rig and the picker UI both
-// pick it up automatically.
+// entry in VEHICLES below + its display name in ./names.js - lib/car.js's
+// shared rig and the picker UI both pick it up automatically.
 
-import gc8 from './gc8.js';
-import gl from './gl.js';
-import levorg from './levorg.js';
-import podRacer from './podRacer.js';
+import kairoS from './kairoS.js';
+import kairoWagon from './kairoWagon.js';
+import kairoWagonMk2 from './kairoWagonMk2.js';
+import chariotOfFire from './chariotOfFire.js';
 import bigfoot from './bigfoot.js';
 import speeder from './speeder.js';
 import rally from './rally.js'
-import evo6 from './evo6.js';
-import hemtt from './hemtt.js';
-import warRig from './warRig.js';
-import impreza22b from './impreza22b.js';
-import focusWrc from './focusWrc.js';
+import attackerRS from './attackerRS.js';
+import htv from './htv.js';
+import deathTanker from './deathTanker.js';
+import kairoR from './kairoR.js';
+import stallionTurbo from './stallionTurbo.js';
 import { setPaintGloss } from './geometry/paint.js';
-import scaniaR from './scaniaR.js';
-import actros from './actros.js';
-import interceptor from './interceptor.js';
-import gigahorse from './gigahorse.js';
-import cinquecento from './cinquecento.js';
-import golf5 from './golf5.js';
+import { VEHICLE_NAMES } from './names.js';
+import { currentVehicleId } from './legacyIds.js';
+import uranus from './uranus.js';
+import samson from './samson.js';
+import v8Eagle from './v8Eagle.js';
+import peacemaker from './peacemaker.js';
+import klikKlak from './klikKlak.js';
+import halny from './halny.js';
+import president from './president.js';
+import zx2 from './zx2.js';
+import seagul from './seagul.js';
+import explorer from './explorer.js';
+import spring from './spring.js';
+import attacker from './attacker.js';
+import stallion from './stallion.js';
+import halnyR from './halnyR.js';
+import superCar from './super.js';
+import muscle from './muscle.js';
 
 
 // Fixed set of tabs shown in the lobby's vehicle picker, in display order.
 // `id` is what's actually stored/selected; `label` is only for display.
 export const CATEGORIES = [
-  { id: 'misc', label: 'Misc' },
   { id: 'cars', label: 'Cars' },
-  { id: 'chariots-of-fire', label: 'Chariots of Fire' },
-  { id: 'wrc', label: 'WRC' },
+  { id: 'rally', label: 'Rally' },
   { id: 'trucks', label: 'Trucks' },
-  { id: 'fury-road', label: 'Fury Road' },
+  { id: 'postapo', label: 'Postapo' },
+  { id: 'dumb', label: 'Dumb' },
 ];
 
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [gc8, gl, levorg, cinquecento, golf5, podRacer, bigfoot, speeder, rally, evo6, impreza22b, focusWrc, hemtt, actros, scaniaR, warRig, gigahorse, interceptor];
+export const VEHICLES = [kairoS, kairoWagon, kairoWagonMk2, klikKlak, halny, stallion, attacker, president, zx2, seagul, muscle, superCar, explorer, chariotOfFire, bigfoot, speeder, rally, spring, attackerRS, kairoR, stallionTurbo, halnyR, htv, samson, uranus, deathTanker, peacemaker, v8Eagle];
 
 // Optional descriptor `gloss` (0 matte .. 1 full clearcoat, default) for the body paint;
 // a trailer may set its own `gloss`, otherwise it inherits the tractor's.
@@ -71,6 +82,7 @@ function withFlatShading(build) {
   };
 }
 for (const v of VEHICLES) {
+  v.name = VEHICLE_NAMES[v.id] ?? v.id;
   v.buildBody = withFlatShading(v.buildBody);
   if (v.trailer) v.trailer.buildBody = withFlatShading(v.trailer.buildBody);
   if (v.gloss !== undefined) v.buildBody = withGloss(v.buildBody, v.gloss);
@@ -82,9 +94,9 @@ export const DEFAULT_VEHICLE_ID = bigfoot.id;
 
 const byId = new Map(VEHICLES.map((v) => [v.id, v]));
 
-/** Looks up a vehicle by id, falling back to the default if unknown/missing. */
+/** Looks up a vehicle by id (legacy ids too), falling back to the default if unknown/missing. */
 export function getVehicle(id) {
-  return byId.get(id) ?? byId.get(DEFAULT_VEHICLE_ID);
+  return byId.get(id) ?? byId.get(currentVehicleId(id)) ?? byId.get(DEFAULT_VEHICLE_ID);
 }
 
 /** A board row's car name; null = a rally total driven in several cars. */

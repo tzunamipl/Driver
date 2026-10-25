@@ -8,6 +8,8 @@
 //   POST /player/load { playerId } -> { save: { updatedAt, data } | null }
 //   POST /player/save { playerId, updatedAt, data } -> { stored }  (also sent as a text/plain beacon)
 
+import { currentVehicleId } from '../../src/lib/vehicles/legacyIds.js';
+
 const SLUG = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const STAGE_KEY_RE = new RegExp(`^(?:${SLUG}/${SLUG}/)?${SLUG}$`); // bare `id` = flat layout from before countries
 const PLAYER_ID_RE = /^[0-9a-f-]{8,64}$/i;
@@ -111,7 +113,7 @@ function readSubmission(body) {
   if (!PENALTIES_MS.includes(penaltyMs)) throw new HttpError(400, 'Bad penaltyMs');
   if (!Array.isArray(splits) || splits.length > 100) throw new HttpError(400, 'Bad splits');
   const cleanName = String(name ?? '').replace(/[\p{C}]/gu, '').trim().slice(0, NAME_MAX) || 'Player';
-  return { stage, sha, playerId, name: cleanName, vehicle, totalMs, splits, penaltyMs, version };
+  return { stage, sha, playerId, name: cleanName, vehicle: currentVehicleId(vehicle), totalMs, splits, penaltyMs, version };
 }
 
 // ---------- GitHub data repo ----------
@@ -144,7 +146,19 @@ async function readBoard(env, key) {
   if (res.status === 404) return { board: null, sha: null };
   if (!res.ok) throw new HttpError(502, `Data repo: ${res.status}`);
   const file = await res.json();
-  return { board: JSON.parse(fromBase64(file.content)), sha: file.sha };
+  return { board: migrateBoard(JSON.parse(fromBase64(file.content))), sha: file.sha };
+}
+
+/** Legacy vehicle ids renamed (written back with the next result); the sorted board keeps each player's best per car. */
+function migrateBoard(board) {
+  if (!Array.isArray(board?.entries)) return board;
+  const best = new Map();
+  for (const e of board.entries) {
+    const entry = { ...e, vehicle: currentVehicleId(e.vehicle) };
+    const key = `${entry.player}|${entry.vehicle}`;
+    if (!best.has(key)) best.set(key, entry);
+  }
+  return { ...board, entries: [...best.values()] };
 }
 
 /** Board as it stands for this stage version: one stale from an older version reads empty. */

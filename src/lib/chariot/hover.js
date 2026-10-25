@@ -1,4 +1,4 @@
-// Raycast hover repulsor shared by the pod racer's engines and pod.
+// Raycast hover repulsor shared by the Chariot of Fire's engines and pod.
 
 import * as THREE from 'three';
 import { GROUND_COLLISION_GROUP } from '../terrain.js';

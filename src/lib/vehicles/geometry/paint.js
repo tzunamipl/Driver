@@ -83,9 +83,30 @@ export function createGlossyMaterial(params) {
   return material;
 }
 
-/** Body paint: glossy material with paint-like defaults. */
-export function createPaintMaterial(color, options = {}) {
-  return createGlossyMaterial({ color, metalness: 0.3, roughness: 0.4, ...options });
+// A paint value is 0xRRGGBB plus this flag bit, so it travels everywhere a colour does (saves, net).
+export const METALLIC_PAINT = 0x1000000;
+const METALLIC = { metalness: 0.75, roughness: 0.28 };
+
+export const paintRgb = (paint) => paint & 0xffffff;
+export const isMetallicPaint = (paint) => (paint & METALLIC_PAINT) !== 0;
+export const withMetallic = (paint, on) => paintRgb(paint) | (on ? METALLIC_PAINT : 0);
+
+/** Body paint: glossy material with paint-like defaults; `paint` may carry the metallic flag. */
+export function createPaintMaterial(paint, options = {}) {
+  const solid = { metalness: 0.3, roughness: 0.4, ...options };
+  const material = createGlossyMaterial({ ...solid, color: paintRgb(paint) });
+  material.userData.solidPaint = { metalness: solid.metalness, roughness: solid.roughness };
+  setPaint(material, paint);
+  return material;
+}
+
+/** Repaints a createPaintMaterial material: colour + solid / metallic finish. */
+export function setPaint(material, paint) {
+  material.color.setHex(paintRgb(paint));
+  const finish = isMetallicPaint(paint) ? METALLIC : material.userData.solidPaint;
+  if (!finish) return;
+  material.metalness = finish.metalness;
+  material.roughness = finish.roughness;
 }
 
 /** Paint gloss 0 (satin, no clearcoat sheen) .. 1 (full clearcoat, the default). */

@@ -2,9 +2,8 @@ import { carAxles } from '../car/axles.js';
 import { buildBody } from './geometry/rally.js';
 
 export default {
-  id: 'rally',
-  name: 'Rally',
-  category: 'misc',
+  id: 'C008', // display name in ./names.js
+  category: 'dumb',
   defaultColor: 0xf2c230, // yellow
   rimColor: 0xF5F5F5,
   buildBody,

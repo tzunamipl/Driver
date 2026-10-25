@@ -1,5 +1,5 @@
 // Suspension HUD: one bar per vehicle.wheelInfos entry (labels from
-// vehicle.wheelLabels), so it works for 4-wheel cars and pod racers.
+// vehicle.wheelLabels), so it works for 4-wheel cars and the Chariot of Fire.
 // Under each bar: shock health and hardest strike (any grounded step) in the last
 // STRIKE_WINDOW_MS (shocks.js); below: debug Wear / Fix.
 import { isWheelGrounded } from '../lib/wheelContact.js';

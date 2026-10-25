@@ -1,4 +1,4 @@
-// Visual-only pod racer for other players: one rigid group (descriptor.buildBody)
+// Visual-only Chariot of Fire for other players: one rigid group (descriptor.buildBody)
 // posed from the replicated transform - per-engine physics isn't replicated.
 
 import { createRemoteShell } from '../vehicleShared.js';
