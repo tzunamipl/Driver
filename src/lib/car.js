@@ -329,6 +329,14 @@ export function createCar(
     vehicle.lamps.repair();
     vehicle.engine.gearbox.repair();
   };
+  /** Repaired with fresh tyres, and takes no damage from then on (editor). */
+  vehicle.setNoDamage = () => {
+    vehicle.noDamage = true;
+    vehicle.engine.gearbox.noWear = true;
+    vehicle.heat.sealed = true;
+    vehicle.repairDamage();
+    vehicle.repairTyres();
+  };
   /** Brand new for an event start: warm fresh tyres, no damage, full tank, engine at working temperature. */
   vehicle.makeNew = () => {
     vehicle.fitWarmTyres();

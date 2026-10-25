@@ -14,8 +14,9 @@ import { wheelSide } from '../lib/wheelContact.js';
  * initialFuel / initialTyres / initialHeat / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
  * repairOnReset false: a reset or teleport leaves the damage and worn tyres as they are.
  * refillWhenEmpty false: an empty tank stays empty (no power) until refuelled.
+ * noDamage: the car is repaired on spawn and takes no damage (editor).
  */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true, noDamage = false }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -90,13 +91,14 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       nextVehicle.setRepairState(carriedDamage.repairs);
       nextVehicle.setSupplies(carriedDamage.supplies);
     }
+    if (noDamage) nextVehicle.setNoDamage?.();
     nextVehicle.onTyrePop = (i) => {
       tyrePopSound?.play(wheelSide(nextVehicle.wheelInfos[i]));
       rimSparks?.burst(nextVehicle.wheelInfos[i], nextVehicle.chassisBody.velocity);
     };
     const onCollide = (body) => (event) => {
       const hitGroup = event.body.collisionFilterGroup;
-      if (body === nextVehicle.chassisBody && nextVehicle.heat && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
+      if (body === nextVehicle.chassisBody && nextVehicle.heat && !nextVehicle.noDamage && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
         const hit = endImpact(body, event.contact);
         if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
         if (hit.under) nextVehicle.heat.hitSump(hit.speed);

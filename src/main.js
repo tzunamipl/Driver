@@ -408,6 +408,7 @@ const carManager = createCarManager({
   initialDamage: savedCarState?.damage ?? null,
   repairOnReset: !isFreeRoam,
   refillWhenEmpty: !isFreeRoam,
+  noDamage: isEditorSession(),
 });
 carManager.addScore(savedCarState?.score ?? 0);
 

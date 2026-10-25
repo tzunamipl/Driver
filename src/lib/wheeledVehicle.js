@@ -147,6 +147,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     wheelInfos: [],
     numWheelsOnGround: 0,
     world: null,
+    noDamage: false, // tyres don't wear or pop, shocks don't wear (editor)
   };
 
   const rightAxisLocal = axisVec(indexRightAxis);
@@ -429,6 +430,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     body.applyImpulse(suspensionImpulse, suspensionRelPos);
     if (body.type !== CANNON.Body.DYNAMIC) return;
     const strike = strikeSpeed(wheel, closingSpeed, dt);
+    if (vehicle.noDamage) return;
     strikeShock(wheel, strike);
     if (wheel.nearBumpStop && strikeTyre(wheel, strike, getSurfaceCompound(wheel.surface))) popTyre(wheel);
   }
@@ -641,7 +643,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       const slipSpeed = Math.hypot(wheel.spinSlipSpeed, wheel.sideSlipSpeed);
       const frictionImpulse = Math.hypot(longImpulse, sideImpulse);
       updateCondition(wheel, wheel.surface, frictionImpulse / dt, slipSpeed, vLong, dt);
-      if (wearTyre(wheel, frictionImpulse, slipSpeed, vLong, compound, dt)) popTyre(wheel);
+      if (!vehicle.noDamage && wearTyre(wheel, frictionImpulse, slipSpeed, vLong, compound, dt)) popTyre(wheel);
     }
     return w;
   }

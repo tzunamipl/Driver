@@ -122,6 +122,7 @@ export function createEngineHeat(descriptor, ambientC) {
     oilCapacityL,
     oilL: oilCapacityL,
     oilLeakLps: 0, // cracked sump
+    sealed: false, // editor: no coolant or oil is lost
     radiatorRepair: null, // lib/partRepair.js records, cleared by a new part
     sumpRepair: null,
     lossLps: 0, // last step: leak + boil-over, for the debug HUD
@@ -185,6 +186,7 @@ export function createEngineHeat(descriptor, ambientC) {
     const steps = Math.ceil(dt / MAX_STEP_S);
     const h = dt / steps;
     for (let i = 0; i < steps; i++) step(h, speedMs, ambient);
+    if (heat.sealed) return;
     const burnLps = (OIL_BURN_LPH / 3600) * Math.min(1, engine.rpm / redlineRpm) ** 2;
     heat.oilL = Math.max(0, heat.oilL - (burnLps + heat.oilLeakLps) * dt);
   }
@@ -215,7 +217,7 @@ export function createEngineHeat(descriptor, ambientC) {
 
     // The system pressurises as it warms through the thermostat range.
     const pressure = COLD_PRESSURE + (1 - COLD_PRESSURE) * clamp01((c - ambient) / Math.max(1, THERMOSTAT_OPEN_C - ambient));
-    heat.lossLps = heat.coolantL > 0 ? heat.leakLps * pressure + Math.max(0, c - BOIL_C) * BOIL_LPS_PER_K : 0;
+    heat.lossLps = heat.coolantL > 0 && !heat.sealed ? heat.leakLps * pressure + Math.max(0, c - BOIL_C) * BOIL_LPS_PER_K : 0;
     heat.coolantL = Math.max(0, heat.coolantL - heat.lossLps * h);
   }
 
