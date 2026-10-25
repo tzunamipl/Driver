@@ -631,7 +631,7 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       else settleDebris(world, object.debris, dt);
     }
     const at = viewFrame.fromLatLon(entry.point.lat, entry.point.lon);
-    if (focus && Math.hypot(at.x - focus.x, at.z - focus.z) > VIEW_RANGE_M) {
+    if (entry.hidden || (focus && Math.hypot(at.x - focus.x, at.z - focus.z) > VIEW_RANGE_M)) {
       for (const object of entry.resolved?.objects ?? []) {
         object.group.visible = false;
         dropTrigger(object);
@@ -729,6 +729,11 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       active = 0;
       lit = -1;
       entries = points.map((point, index) => ({ point, points, index, resolved: null, retryAt: 0 }));
+    },
+    /** Points (setPoints indices) whose scenery stays down, e.g. other runs of a stage driven more than once. */
+    setHidden(indices) {
+      const hidden = new Set(indices);
+      entries.forEach((entry, n) => (entry.hidden = hidden.has(n)));
     },
     /** Point `offset` becomes index 0 of getGate / setLights / celebrate / sparkle; start lights go dark. */
     setActive(offset) {

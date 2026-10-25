@@ -318,6 +318,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   function showItem(savedRun = null) {
     const item = currentItem();
     scenery.setActive(plan.items.slice(0, itemIndex).reduce((n, it) => n + itemPoints(it).length, 0));
+    hideOtherRuns();
     run = null;
     pacenoteRun = null;
     resultRows = null;
@@ -328,6 +329,22 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (savedRun) run.restore(savedRun);
     }
     routeToItem();
+  }
+
+  /** A stage driven more than once keeps the scenery of one run: the current or next one, else the last. */
+  function hideOtherRuns() {
+    const shownRun = new Map(); // stage id -> item index
+    plan.items.forEach((item, i) => {
+      if (item.type === 'stage' && (!shownRun.has(item.stage.id) || shownRun.get(item.stage.id) < itemIndex)) shownRun.set(item.stage.id, i);
+    });
+    const hidden = [];
+    let offset = 0;
+    plan.items.forEach((item, i) => {
+      const count = itemPoints(item).length;
+      if (item.type === 'stage' && shownRun.get(item.stage.id) !== i) for (let k = 0; k < count; k++) hidden.push(offset + k);
+      offset += count;
+    });
+    scenery.setHidden(hidden);
   }
 
   function routeToItem() {
@@ -491,6 +508,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
+    hideOtherRuns();
     worldSeq++;
     worldTop = null;
     if (finished) return loadWorldTop();
