@@ -457,7 +457,7 @@ export function createMainLoop({
 
       minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
     }
-    scenarioEditor?.update();
+    scenarioEditor?.update(frameDelta);
     rallySession?.update(frameDelta);
     roadsideRepair?.update();
     profiler.mark('misc');

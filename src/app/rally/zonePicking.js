@@ -1,4 +1,4 @@
-// Rally service props in the world answer the mouse: hovering the tyre rack, the fuel bowser or a service bay
+// Rally service props in the world answer the mouse: hovering the tyre rack, the fuel bowser, a service bay or the base tents
 // outlines it (yellow when the car is stopped close by, grey otherwise) and a click opens its
 // dialog again (controlScenery.js pickAction).
 
@@ -15,7 +15,7 @@ const USE_SPEED = 1; // m/s: counts as stopped
  * @param {object} deps.scenery - controlScenery.js
  * @param {() => object | null} deps.getVehicle
  * @param {() => boolean} deps.isEnabled
- * @param {(action: string, picked: { index?: number }) => void} deps.onAction - 'tyres' | 'refuel' | 'service' | 'remoteService'; picked: controlScenery.js pickAction()
+ * @param {(action: string, picked: { index?: number }) => void} deps.onAction - 'tyres' | 'refuel' | 'service' | 'remoteService' | 'info'; picked: controlScenery.js pickAction()
  */
 export function createZonePicking({ canvas, camera, scenery, getVehicle, isEnabled, onAction }) {
   const raycaster = new THREE.Raycaster();

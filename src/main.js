@@ -119,11 +119,13 @@ import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
 import { createEditorNotePicking } from './app/editorNotePicking.js';
 import { createPacenotePanel } from './ui/pacenotePanel.js';
+import { createCourseObjectsPanel } from './ui/courseObjectsPanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
 import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
 import { createRoadsideRepair } from './app/roadsideRepair.js';
 import { createRefuelDialog } from './ui/refuelDialog.js';
+import { createRallyInfoDialog } from './ui/rallyInfoDialog.js';
 import { createServiceDialog } from './ui/serviceDialog.js';
 import { carParts } from './lib/serviceRepairs.js';
 import { createGarageDialog } from './ui/garageDialog.js';
@@ -540,6 +542,7 @@ const scenarioEditor = editorFormat
   ? createScenarioEditor({
       format: editorFormat,
       scene,
+      world,
       terrain,
       streets,
       viewFrame,
@@ -555,6 +558,7 @@ if (scenarioEditor) {
     openSettings: mainMenu.openSettings,
   });
   if (editorFormat.kinds.some((kind) => kind.id === 'stage')) createPacenotePanel(scenarioEditor);
+  if (editorFormat.objectTypes) createCourseObjectsPanel(scenarioEditor);
   createEditorNotePicking({ canvas: renderer.domElement, camera, editor: scenarioEditor });
   scenarioEditor.subscribe(() => {
     const points = scenarioEditor.mapPoints();
@@ -670,6 +674,8 @@ function onInspect() {
   const vehicle = carManager.getVehicle();
   if (vehicle) serviceDialog.open(carParts(vehicle));
 }
+// A click on the rally base's tents.
+const rallyInfoDialog = isRallyGame ? createRallyInfoDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 const rallySession =
   getActiveModeId() === 'rally' && !isEditorSession()
     ? createRallySession({
@@ -690,6 +696,7 @@ const rallySession =
         onRefuel,
         onService,
         onInspect,
+        onRallyInfo: (info) => rallyInfoDialog.open(info),
         canvas: renderer.domElement,
         camera,
         keepsProgress,
@@ -737,7 +744,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, ...(rallySession ? [rallySession] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
 });
 
 // ---------- Main loop ----------

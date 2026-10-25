@@ -1,13 +1,15 @@
 // Scenario editor session (a game mode's Editor button): free driving plus placing the
 // mode's points at the car. Each gate snaps across the nearest road and faces along it unless
 // unticked per point (then exactly where placed / turned by hand). Stages get generated,
-// hand-corrected pacenotes (lib/rally/pacenotes.js). Mode-specific parts come
-// from its format (lib/scenarios/formats.js); the panel is ui/editorPanel.js. The draft
+// hand-corrected pacenotes (lib/rally/pacenotes.js). Course objects (format `objectTypes`: bales,
+// tapes, signs) go exactly at the car, facing its way. They and the points' zone props stand as in the game
+// (lib/rally/controlScenery.js) but without collisions. Mode-specific parts come
+// from its format (lib/scenarios/formats.js); the panels are ui/editorPanel.js and ui/courseObjectsPanel.js. The draft
 // lives in the editor's save slot; Publish commits it to the player's branch (lib/scenarios/publish.js).
 
 import {
   OFFICIAL_SCENARIO_SOURCE,
-  EDITOR_SOURCE_STORAGE_KEY,
+  SCENARIOS_REPO,
   EDITOR_PACENOTE_BOARDS_STORAGE_KEY,
   EDITOR_SNAP_RADIUS_M,
 } from '../config.js';
@@ -16,6 +18,7 @@ import { parseSource, formatSource, openSource } from '../lib/scenarios/source.j
 import { publishScenario, publishEnabled, branchNameFor } from '../lib/scenarios/publish.js';
 import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
+import { createControlScenery } from '../lib/rally/controlScenery.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
 import { generatePacenotes, pacenoteAt } from '../lib/rally/pacenotes.js';
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
@@ -24,6 +27,7 @@ import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
 const DIR_RETRY_MS = 1000;
 const NOTE_MARKER_M = 300; // pacenote markers within this of the car
 const NOTE_COLOR = 0xffffff; // minimap dot
+const OBJECT_LABEL_M = 150; // course object labels within this of the car
 
 function readStored(key) {
   try {
@@ -47,22 +51,28 @@ function writeStored(key, value) {
  * @param {object} deps.format - the mode's scenario format.
  * @param {() => string | null} deps.getPlayerName - names the branch saves go to.
  */
-export function createScenarioEditor({ format, scene, terrain, streets, viewFrame, carManager, addressSearch, getPlayerName }) {
+export function createScenarioEditor({ format, scene, world, terrain, streets, viewFrame, carManager, addressSearch, getPlayerName }) {
   const markers = createGateMarkers(scene);
+  // Zone props of the points and the course objects, as the game shows them but never in the way.
+  const scenery = format.objectTypes ? createControlScenery({ scene, world, streets, terrain, viewFrame, editor: true }) : null;
+  let sceneryDirty = true;
+  let shownPoints = ''; // signature of the points the scenery shows
   const kindById = new Map(format.kinds.map((kind) => [kind.id, kind]));
   const listeners = new Set();
 
   // A new file keeps the folder of the one before it: authors work a region at a time.
-  const emptyDoc = (kind, { country = '', region = '' } = {}) => ({ kind, country, region, id: '', name: '', items: [] });
+  const emptyDoc = (kind, { country = '', region = '' } = {}) => ({ kind, country, region, id: '', name: '', items: [], objects: [] });
   const draft = readSaveField('editorDraft');
   const state = {
-    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', ...draft } : emptyDoc(format.kinds[0].id),
+    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', objects: [], ...draft } : emptyDoc(format.kinds[0].id),
     selected: -1,
+    selectedObject: -1, // index into doc.objects
     selectedNote: -1, // index into doc.pacenotes.notes
     hoverNote: -1, // under the mouse in the world
     showNoteBoards: readStored(EDITOR_PACENOTE_BOARDS_STORAGE_KEY) !== '0',
-    source: readStored(EDITOR_SOURCE_STORAGE_KEY) ?? OFFICIAL_SCENARIO_SOURCE,
+    source: OFFICIAL_SCENARIO_SOURCE, // where `index` comes from: the branch Publish goes to, else official
     index: null, // the source's index.json: { [indexKey]: file keys }
+    refNames: {}, // stage key -> its name in `source` (null while loading)
     status: { text: '', error: false },
     busy: false,
   };
@@ -73,7 +83,10 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
   const kind = () => kindById.get(state.doc.kind);
 
   function changed({ save = true } = {}) {
-    if (save) writeSaveField('editorDraft', state.doc);
+    if (save) {
+      writeSaveField('editorDraft', state.doc);
+      sceneryDirty = true;
+    }
     for (const listener of listeners) listener(state);
   }
 
@@ -81,6 +94,9 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     state.status = { text, error };
     changed({ save: false });
   }
+
+  /** Compass heading the chassis (quaternion `q`) faces: its local +z in world space. */
+  const facing = (q) => format.normalHeading(dirToHeading(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y)));
 
   /**
    * Point fields for the car's position. Gates go onto the nearest road (`snap`) and take the
@@ -91,10 +107,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     if (!body) return null;
     const { position: pos, quaternion: q } = body;
     if (!format.pointTypes[type].gate) return { ...viewFrame.toLatLon(pos.x, pos.z), snap: true, heading: null, roadless: false };
-    // Chassis forward (local +z) in world space.
-    const fx = 2 * (q.x * q.z + q.w * q.y);
-    const fz = 1 - 2 * (q.x * q.x + q.y * q.y);
-    const carHeading = format.normalHeading(dirToHeading(fx, fz));
+    const carHeading = facing(q);
     const road = snapToRoad(streets, pos.x, pos.z, EDITOR_SNAP_RADIUS_M);
     if (!road) return { ...viewFrame.toLatLon(pos.x, pos.z), snap: false, heading: carHeading, roadless: true };
     const at = snap ? road : pos;
@@ -151,6 +164,19 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     return { ...viewFrame.toLatLon(frame.x, frame.z), dirX: frame.dirX, dirZ: frame.dirZ, boards };
   }
 
+  /** The file's gates (repeats included, driving order), base and objects into the scenery; points only rebuilt when they changed. */
+  function syncScenery() {
+    const points = state.doc.items.map(pointOf).filter((point) => format.pointTypes[point?.type]?.gate);
+    const base = state.doc.items.find((item) => item.type === 'base') ?? null;
+    const signature = JSON.stringify([points, base?.lat, base?.lon]);
+    if (signature !== shownPoints) {
+      shownPoints = signature;
+      scenery.setPoints(points);
+      scenery.setBase(base);
+    }
+    scenery.setObjects(state.doc.objects, { keepState: true });
+  }
+
   function insertItem(item) {
     const at = state.selected >= 0 ? state.selected + 1 : state.doc.items.length;
     state.doc.items.splice(at, 0, item);
@@ -174,12 +200,24 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     };
   }
 
+  let opened = null; // the commit `state.index` was read from
+
+  async function useIndexOf(source) {
+    opened = source;
+    state.source = formatSource(source.source);
+    state.refNames = {};
+    state.index = (await source.readJson(indexPath(format.folder))) ?? {};
+  }
+
+  // Stages are listed from the branch Publish commits to (the worker makes it from official when
+  // missing): rally stage keys then resolve on that branch, and on official once it's merged.
   async function loadIndex() {
-    const source = parseSource(state.source);
-    if (!source) throw new Error('Source must look like owner/repo@branch');
-    const opened = await openSource(source);
-    const index = (await opened.readJson(indexPath(format.folder))) ?? {};
-    return { opened, index };
+    try {
+      await useIndexOf(await openSource({ ...SCENARIOS_REPO, ref: branchNameFor(getPlayerName()) }));
+    } catch (err) {
+      if (!err.notFound) throw err;
+      await useIndexOf(await openSource(parseSource(OFFICIAL_SCENARIO_SOURCE)));
+    }
   }
 
   function toFileJson() {
@@ -196,10 +234,11 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     },
 
     newDoc(kindId) {
-      if (state.doc.items.length && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
+      if ((state.doc.items.length || state.doc.objects.length) && !window.confirm('Start a new file? Unsaved points will be lost.')) return;
       state.doc = emptyDoc(kindId, state.doc);
       state.selected = -1;
       state.selectedNote = -1;
+      state.selectedObject = -1;
       state.status = { text: '', error: false };
       changed();
     },
@@ -233,6 +272,28 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       if (!key) return;
       insertItem({ type: 'ref', ref: key, name: '' });
       changed();
+    },
+    /** Whether a referenced file is on the listed branch; true until the index loads. */
+    refListed(key) {
+      const refKind = kind().refKind && kindById.get(kind().refKind);
+      return !refKind || !state.index || (state.index[refKind.indexKey] ?? []).includes(key);
+    },
+    /** Fetches the names of the referenced-kind files `keys` not asked for yet (into state.refNames). */
+    loadRefNames(keys) {
+      const refKind = kindById.get(kind().refKind);
+      const from = opened;
+      for (const key of keys) {
+        if (key in state.refNames) continue;
+        state.refNames[key] = null;
+        from.readJson(filePath(format.folder, refKind, key)).then(
+          (json) => {
+            if (from !== opened || !json?.name) return;
+            state.refNames[key] = json.name;
+            changed({ save: false });
+          },
+          () => {}
+        );
+      }
     },
     select(i) {
       state.selected = state.selected === i ? -1 : i;
@@ -410,28 +471,63 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       if (note) addressSearch.teleport(note.lat, note.lon, `Pacenote ${state.selectedNote + 1}`);
     },
 
-    setSource(text) {
-      state.source = text.trim();
-      writeStored(EDITOR_SOURCE_STORAGE_KEY, state.source);
-      state.index = null;
+    /** Course object at the car, facing its way, after the selected one; selected. */
+    placeObject(type) {
+      const body = carManager.getVehicle()?.chassisBody;
+      if (!body) return;
+      const { position: pos, quaternion: q } = body;
+      const object = { type, ...viewFrame.toLatLon(pos.x, pos.z), heading: facing(q) };
+      if (format.objectTypes[type].chain) object.length = format.objectTypes[type].defaultLength;
+      const at = state.selectedObject >= 0 ? state.selectedObject + 1 : state.doc.objects.length;
+      state.doc.objects.splice(at, 0, object);
+      state.selectedObject = at;
+      changed();
+    },
+    selectObject(i) {
+      state.selectedObject = state.selectedObject === i ? -1 : i;
       changed({ save: false });
     },
+    /** Selected object: 'heading' (compass degrees) or 'length' (tape, m). */
+    setObjectField(field, value) {
+      const object = state.doc.objects[state.selectedObject];
+      if (!object || !Number.isFinite(value)) return;
+      object[field] = field === 'heading' ? format.normalHeading(value) : value;
+      changed();
+    },
+    moveObjectToCar() {
+      const object = state.doc.objects[state.selectedObject];
+      const pos = carManager.getVehicle()?.chassisBody.position;
+      if (!object || !pos) return;
+      Object.assign(object, viewFrame.toLatLon(pos.x, pos.z));
+      changed();
+    },
+    deleteObject() {
+      if (!state.doc.objects[state.selectedObject]) return;
+      state.doc.objects.splice(state.selectedObject, 1);
+      state.selectedObject = Math.min(state.selectedObject, state.doc.objects.length - 1);
+      changed();
+    },
+    goToObject() {
+      const object = state.doc.objects[state.selectedObject];
+      if (object) addressSearch.teleport(object.lat, object.lon, format.objectTypes[object.type].label);
+    },
+
     loadIndex: guard(async () => {
       setStatus('Loading…');
-      ({ index: state.index } = await loadIndex());
-      setStatus(`Loaded ${state.source}`);
+      await loadIndex();
+      setStatus(`Stages from ${state.source}`);
     }),
-    /** A file picked in the scenario tree; its source becomes the one stages are added from. */
-    openPicked: guard(async ({ source, opened, kindId, key, json }) => {
-      if (state.doc.items.length && !window.confirm(`Open ${key}? Unsaved points will be lost.`)) return;
-      editor.setSource(formatSource(source));
-      state.index = (await opened.readJson(indexPath(format.folder))) ?? {};
+    /** A file picked in the scenario tree. Stages still come from the publish branch. */
+    openPicked: guard(async ({ source, kindId, key, json }) => {
+      if ((state.doc.items.length || state.doc.objects.length) && !window.confirm(`Open ${key}? Unsaved points will be lost.`)) return;
+      await loadIndex();
       // The file's folder is where it's saved back to.
-      state.doc = { kind: kindId, ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
+      state.doc = { kind: kindId, objects: [], ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
       state.selected = -1;
       state.selectedNote = -1;
+      state.selectedObject = -1;
       changed();
-      setStatus(`Opened ${key} from ${state.source}`);
+      setStatus(`Opened ${key} from ${formatSource(source)}`);
     }),
 
     problems: () => kind().validate(state.doc),
@@ -451,8 +547,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         key: fileKey(state.doc),
         content: toFileJson(),
       });
-      editor.setSource(formatSource({ owner: result.owner, repo: result.repo, ref: result.branch }));
-      ({ index: state.index } = await loadIndex());
+      await useIndexOf(await openSource({ owner: result.owner, repo: result.repo, ref: result.branch }, result.sha));
       setStatus(result.unchanged ? 'No changes to publish' : `Published, sent for review. Play it from source ${state.source}`);
     }),
 
@@ -469,11 +564,16 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       });
       const note = state.doc.pacenotes?.notes[state.selectedNote];
       if (note) points.push({ lat: note.lat, lon: note.lon, color: NOTE_COLOR, label: noteLabel(note), gate: false, selected: true });
+      const object = state.doc.objects[state.selectedObject];
+      if (object) {
+        const def = format.objectTypes[object.type];
+        points.push({ lat: object.lat, lon: object.lon, color: def.color, label: def.short, gate: false, selected: true });
+      }
       return points;
     },
 
-    /** Per frame: markers for the current file's points and their roadside boards. */
-    update() {
+    /** Per frame: markers for the current file's points and their roadside boards; course objects stand and get knocked. */
+    update(dt) {
       const now = performance.now();
       const { items } = state.doc;
       const entries = [];
@@ -528,9 +628,25 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         if (y == null) return;
         entries.push({ key: note, note, label: noteLabel(note), gap: gapLabel(pacenotes, i), selected: i === state.selectedNote, hover: i === state.hoverNote, x, y, z, dirX: 0, dirZ: 0 });
       });
+      state.doc.objects.forEach((object, i) => {
+        const { x, z } = viewFrame.fromLatLon(object.lat, object.lon);
+        if (i !== state.selectedObject && (!car || Math.hypot(x - car.x, z - car.z) > OBJECT_LABEL_M)) return;
+        const y = terrain.surfaceHeightAt(x, z);
+        const def = format.objectTypes[object.type];
+        if (y != null) entries.push({ key: object, tag: true, color: def.color, label: `${i + 1} ${def.short}`, selected: i === state.selectedObject, x, y, z, dirX: 0, dirZ: 0 });
+      });
       markers.sync(entries);
+      if (scenery) {
+        if (sceneryDirty) syncScenery();
+        sceneryDirty = false;
+        scenery.update(dt, car);
+      }
       // The dial shows the road's direction once it's known.
       if (selectedResolved) changed({ save: false });
+    },
+
+    shiftOrigin(dx, dz) {
+      scenery?.shiftOrigin(dx, dz);
     },
   };
   return editor;

@@ -17,7 +17,7 @@ function shared(thing) {
 }
 
 // Palette only: never rendered, bakeProps turns each into vertex colours.
-const paint = (color) => new MeshBasicMaterial({ color });
+export const paint = (color) => new MeshBasicMaterial({ color });
 const mat = {
   red: paint(0xc81e1e),
   darkRed: paint(0x7a1010),

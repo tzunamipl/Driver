@@ -2,6 +2,7 @@
 // (plus optional pacenotes, lib/rally/pacenoteCalls.js),
 // rallies are a base plus an itinerary of gates, stage references (stage file keys,
 // lib/scenarios/paths.js) and point references ({ point: id } = the gate with that `id` again).
+// Either can carry course `objects` (hay bales, tapes, warning signs: lib/rally/courseProps.js).
 // Both sit in a country / region-or-theme folder. Also the editor's
 // definition for the mode: file kinds, point types and their fields.
 
@@ -89,6 +90,24 @@ const POINT_TYPES = {
   },
 };
 
+// Course objects: exactly at their lat/lon (never snapped), facing `heading` (compass degrees of travel);
+// chain: tape on stakes across the heading, centred there, `length` metres (defaultLength when missing).
+const OBJECT_TYPES = {
+  hayBale: {
+    label: 'Hay bale', short: 'BALE', color: 0xc9a24a,
+    description: 'Round straw bale standing on its flat end. Solid: the car bounces off it and takes the hit. Build chicanes, or guard a tree or a ditch.',
+  },
+  tape: {
+    label: 'Tape', short: 'TAPE', color: 0xd71e1e, chain: true, defaultLength: 12,
+    description: 'Red-white plastic tape on stakes about every 3 m, running across its heading, centred where placed. Stakes knock over and the tape tears; they stand again once the car is far. Closes off junctions and shortcuts.',
+  },
+  warningSign: {
+    label: 'Warning sign', short: 'SIGN', color: 0xff6a6a,
+    description: 'Red-white striped board on a stand, facing cars that come along its heading. Knocks over like a post.',
+  },
+};
+const LENGTH_DECIMALS = 1;
+
 const STAGE_POINTS = ['timeControl', 'start', 'split', 'passageControl', 'finish', 'stop'];
 const RALLY_POINTS = ['base', 'serviceParkIn', 'service', 'serviceParkOut', 'regroup', 'refuel', 'tyreFitting', 'remoteService', 'parcFerme', 'podium'];
 
@@ -113,6 +132,28 @@ function readGate(entry) {
   if (typeof entry.id === 'string' && entry.id) point.id = entry.id;
   return point;
 }
+
+function readObject(entry) {
+  const def = OBJECT_TYPES[entry?.type];
+  if (!def || !Number.isFinite(entry.lat) || !Number.isFinite(entry.lon)) return null;
+  const object = { type: entry.type, lat: entry.lat, lon: entry.lon, heading: normalHeading(Number.isFinite(entry.heading) ? entry.heading : 0) };
+  if (def.chain) object.length = entry.length > 0 ? entry.length : def.defaultLength;
+  return object;
+}
+
+const writeObjects = (objects) =>
+  objects?.length
+    ? {
+        objects: objects.map(({ type, lat, lon, heading, length }) => ({
+          type,
+          lat: round(lat),
+          lon: round(lon),
+          heading: normalHeading(heading),
+          ...(OBJECT_TYPES[type].chain ? { length: Number(length.toFixed(LENGTH_DECIMALS)) } : {}),
+        })),
+      }
+    : {};
+const readObjects = (json) => (Array.isArray(json.objects) ? json.objects.map(readObject).filter(Boolean) : []);
 
 const isPointRef = (item) => item?.type === 'pointRef';
 
@@ -168,6 +209,9 @@ function validateCommon(doc, problems) {
   for (const item of doc.items) {
     if (POINT_TYPES[item.type]?.gate && !(item.width > 0)) problems.push(`${POINT_TYPES[item.type].label}: width must be above 0`);
   }
+  for (const object of doc.objects ?? []) {
+    if (OBJECT_TYPES[object.type]?.chain && !(object.length > 0)) problems.push(`${OBJECT_TYPES[object.type].label}: length must be above 0`);
+  }
 }
 
 /** Editor/loader definition of the rally mode. Documents: { kind, country, region, id, name, items }. */
@@ -178,6 +222,7 @@ export const rallyFormat = {
   // Roadside boards the game adds around a point (editor preview).
   satellites: (type) => boardSpots(type).map(([color, along, facing]) => ({ color: BOARD_COLORS[color], along, facing })),
   pointTypes: POINT_TYPES,
+  objectTypes: OBJECT_TYPES,
   kinds: [
     {
       id: 'stage',
@@ -185,8 +230,13 @@ export const rallyFormat = {
       folder: 'stages',
       indexKey: 'stages',
       points: STAGE_POINTS,
-      toFile: (doc) => ({ format: SCENARIO_FORMAT, ...fileMeta(doc), points: doc.items.map(gate), ...writePacenotes(doc.pacenotes) }),
-      fromFile: (json) => ({ ...docMeta(json), items: (json.points ?? []).map(readGate).filter(Boolean), pacenotes: readPacenotes(json.pacenotes) }),
+      toFile: (doc) => ({ format: SCENARIO_FORMAT, ...fileMeta(doc), points: doc.items.map(gate), ...writePacenotes(doc.pacenotes), ...writeObjects(doc.objects) }),
+      fromFile: (json) => ({
+        ...docMeta(json),
+        items: (json.points ?? []).map(readGate).filter(Boolean),
+        pacenotes: readPacenotes(json.pacenotes),
+        objects: readObjects(json),
+      }),
       validate(doc) {
         const problems = [];
         validateCommon(doc, problems);
@@ -220,6 +270,7 @@ export const rallyFormat = {
             .map((item) =>
               item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : isPointRef(item) ? { point: item.ref } : gate(item)
             ),
+          ...writeObjects(doc.objects),
         };
       },
       fromFile(json) {
@@ -235,7 +286,7 @@ export const rallyFormat = {
             if (point) items.push(point);
           }
         }
-        return { ...docMeta(json), items };
+        return { ...docMeta(json), items, objects: readObjects(json) };
       },
       validate(doc) {
         const problems = [];

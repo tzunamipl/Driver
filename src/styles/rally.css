@@ -135,6 +135,7 @@
 #tyre-service,
 #garage-dialog,
 #refuel-dialog,
+#rally-info,
 #service-dialog {
   position: fixed;
   inset: 0;
@@ -150,10 +151,12 @@
 #tyre-service[hidden],
 #garage-dialog[hidden],
 #refuel-dialog[hidden],
+#rally-info[hidden],
 #service-dialog[hidden] { display: none; }
 /* Long part lists: from the top of the screen, not centred. */
 #tyre-service,
 #refuel-dialog,
+#rally-info,
 #service-dialog { align-items: flex-start; }
 .refuel-window { width: min(320px, 100%); }
 .refuel-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
@@ -241,6 +244,28 @@
 .service-actions:empty { display: none; }
 .service-action { min-width: 0; padding: 1px 6px; font-size: 11px; }
 .service-action.selected { background: var(--w95-select); color: #fff; box-shadow: var(--w95-sunken); }
+/* Inspection: the field repair callouts' look (hud.css .repair-callout), centred on the screen. */
+#service-dialog.inspecting { align-items: center; }
+.service-window.service-inspect {
+  width: min(640px, 100%);
+  padding: 6px 8px 10px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 2px solid #f6c900;
+  box-shadow: none;
+  color: #fff;
+}
+.service-inspect .menu-titlebar { margin: 0 0 6px; padding: 0; background: none; color: #f6c900; font-size: 13px; text-align: center; }
+.service-inspect > :not(.menu-titlebar) { margin-left: 0; margin-right: 0; }
+.service-inspect .service-group { background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid rgba(246, 201, 0, 0.35); }
+.service-inspect .tyre-setup-title { color: #f6c900; }
+.service-inspect .service-row + .service-row { border-top-color: rgba(255, 255, 255, 0.15); }
+.service-inspect .service-note { color: #ffd7a0; }
+.service-inspect .tyre-setup-bar { box-shadow: none; --empty: rgba(255, 255, 255, 0.2); background: linear-gradient(90deg, #f6c900 var(--fill), var(--empty) var(--fill)); }
+.service-inspect .tyre-setup-bar.good { background: linear-gradient(90deg, #2fb82f var(--fill), var(--empty) var(--fill)); }
+.service-inspect .tyre-setup-bar.warn { background: linear-gradient(90deg, #f0a020 var(--fill), var(--empty) var(--fill)); }
+.service-inspect .tyre-setup-bar.poor { background: linear-gradient(90deg, #e03030 var(--fill), var(--empty) var(--fill)); }
+.service-inspect .menu-footer { justify-content: center; }
+.service-inspect .menu-footer button { color: #000; font-weight: bold; }
 /* Garage (ui/garageDialog.js): the rally picker's car row on its own. */
 .garage-window { width: min(720px, 100%); max-height: 100%; overflow-y: auto; }
 .garage-window .rally-car-pick .tyre-setup { margin-top: 6px; }
@@ -338,6 +363,7 @@
 .menu-aside #tyre-service,
 .menu-aside #garage-dialog,
 .menu-aside #refuel-dialog,
+.menu-aside #rally-info,
 .menu-aside #service-dialog {
   justify-content: flex-start;
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0) 75%);
@@ -347,12 +373,14 @@
 .menu-aside #tyre-service::before,
 .menu-aside #garage-dialog::before,
 .menu-aside #refuel-dialog::before,
+.menu-aside #rally-info::before,
 .menu-aside #service-dialog::before,
 .menu-aside #main-menu.in-game::after,
 .menu-aside #rally-picker::after,
 .menu-aside #tyre-service::after,
 .menu-aside #garage-dialog::after,
 .menu-aside #refuel-dialog::after,
+.menu-aside #rally-info::after,
 .menu-aside #service-dialog::after {
   content: '';
   flex: 1 1 0;
@@ -362,6 +390,20 @@
 .menu-aside #tyre-service::after,
 .menu-aside #garage-dialog::after,
 .menu-aside #refuel-dialog::after,
+.menu-aside #rally-info::after,
 .menu-aside #service-dialog::after {
   flex-grow: 2.4;
 }
+
+/* Rally info (base tents): conditions, itinerary table, totals. */
+.rally-info-window { width: min(520px, 100%); max-height: calc(100dvh - 32px); }
+.rally-info-heading { margin: 6px 0 2px; font-size: 11px; }
+.rally-info-conditions { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 0; }
+.rally-info-conditions dd { margin: 0; }
+.rally-info-scroll { min-height: 0; overflow-y: auto; margin-top: 6px; background: #fff; box-shadow: var(--w95-field); padding: 2px; }
+.rally-info-table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.rally-info-table th { text-align: left; border-bottom: 1px solid #808080; padding: 1px 4px; }
+.rally-info-table td { padding: 1px 4px; white-space: nowrap; }
+.rally-info-table td:nth-child(2) { white-space: normal; }
+.rally-info-table tr.current { background: var(--w95-select); color: #fff; }
+.rally-info-table tr.done { color: #555; }

@@ -5,8 +5,10 @@
 // active item. Placed once the streets around a point are loaded; anchored in lat/lon and
 // repositioned every frame, so teleports and origin shifts need nothing special.
 // Flags, board posts and start lights knock over like road posts (knockable.js) and stand
-// again once the car is far from where they fell; nothing else collides. Props with an
+// again once the car is far from where they fell; no other control prop collides. Props with an
 // `action` (tyre fitting, refuel, service) answer pickAction() and take a hover outline.
+// Course objects (setObjects, courseProps.js) stand at their own lat/lon and heading: hay
+// bales are static colliders, tape stakes and signs knock over, a tape span tears when hit.
 
 import {
   BackSide,
@@ -20,16 +22,19 @@ import {
   PlaneGeometry,
   SphereGeometry,
   TorusGeometry,
+  Vector3,
 } from 'three';
 import * as CANNON from 'cannon-es';
 import { createTrigger, launchDebris, settleDebris } from '../knockable.js';
-import { controlFrame } from '../scenarios/roadSnap.js';
+import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from '../buildings.js';
+import { controlFrame, headingToDir } from '../scenarios/roadSnap.js';
 import { boardTexture, bannerTexture } from './fiaBoards.js';
 import { createFireworks } from './fireworks.js';
 import { createSparkles } from '../particles/sparkles.js';
 import { CLOCK_HEIGHT_M, makeClock, setClockTime } from './timingClock.js';
 import * as props from './zoneProps.js';
 import { bakeProps } from './zoneProps.js';
+import { TAPE_HEIGHT_M, TAPE_STAKE_SPACING_M, makeHayBale, makeTapeSpan, makeTapeStake, makeWarningSign, tapeSpanShape } from './courseProps.js';
 
 const SNAP_RADIUS_M = 40;
 const RESOLVE_RETRY_S = 1;
@@ -74,6 +79,12 @@ const LIGHTS_TOP_M = 2.8;
 const OUTLINE_M = 0.05; // hover outline: the props' hull pushed out along its normals
 const OUTLINE_READY = 0xffd400; // usable now
 const OUTLINE_FAR = 0xffffff; // the car has to come closer
+// Course objects get their colliders only once the car is this far from them: the editor places them at the car.
+const ARM_M = 5;
+const COURSE_BUILDERS = { hayBale: makeHayBale, warningSign: makeWarningSign };
+const X_AXIS = new Vector3(1, 0, 0);
+const _tapeFrom = new Vector3();
+const _tapeDir = new Vector3();
 
 // boards: symbol on the yellow/red/beige boards; zoneEnd false = no beige board; boardHeight: board centre (m);
 // bothWays: approachable from either side: only a two-faced red board, no warning or zone end boards;
@@ -81,7 +92,7 @@ const OUTLINE_FAR = 0xffffff; // the car has to come closer
 // in colour only while it's the next point to pass, grey otherwise;
 // props: zoneProps.js builder set beside the road (right of travel, or left with propsLeft);
 // clock: time-of-day clock on the marshal tent's table ('table'), else on the start lights or the props-side red board ('pole');
-// action: the props can be clicked for this service ('tyres' | 'refuel' | 'service' | 'remoteService').
+// action: the props can be clicked for this service ('tyres' | 'refuel' | 'service' | 'remoteService'), or the rally info ('info').
 const SCENERY = {
   timeControl: { boards: 'clock', props: props.makeMarshalTent, propsLeft: true, clock: 'table' },
   start: { arch: 'START', archColor: '#1d4fd8', lights: true, line: true, props: props.makeTimingHut, propsLeft: true, clock: 'pole' },
@@ -98,7 +109,7 @@ const SCENERY = {
   remoteService: { boards: 'RSZ', bothWays: true, props: props.makeRemoteServiceProps, action: 'remoteService' },
   parcFerme: { boards: 'PARC FERMÉ', props: props.makeParcFermeProps },
   podium: { arch: 'PODIUM', archColor: '#c08a10', line: true, props: props.makePodiumProps },
-  base: { props: props.makeBaseTent, propsLeft: true },
+  base: { props: props.makeBaseTent, propsLeft: true, action: 'info' },
 };
 
 const postGeometry = new CylinderGeometry(0.05, 0.05, BOARD_HEIGHT_M + BOARD_SIZE_M / 2, 6);
@@ -320,11 +331,12 @@ function clockOnPole(top) {
 }
 
 /**
- * @param {{onSparkle?: () => void, onHit?: (speed: number, spec: object) => void, getTimeOfDayMs?: () => number}} deps - onSparkle:
+ * @param {{onSparkle?: () => void, onHit?: (speed: number, spec: object) => void, getTimeOfDayMs?: () => number, editor?: boolean}} deps - onSparkle:
  * sound hook, once per sparkle(); onHit: the car knocked an object over (spec.hitSound, spec.mass); getTimeOfDayMs: the
- * simulated clock (epoch ms) the control clocks show.
+ * simulated clock (epoch ms) the control clocks show; editor: nothing collides or knocks over, and points show only
+ * their zone props (the editor's markers stand in for boards, arches and flags).
  */
-export function createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit = () => {}, getTimeOfDayMs = Date.now }) {
+export function createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit = () => {}, getTimeOfDayMs = Date.now, editor = false }) {
   const fireworks = createFireworks(scene);
   const sparkles = createSparkles(scene);
   /** @type {{point: object, travel: {x: number, z: number} | null, resolved: object | null, retryAt: number}[]} */
@@ -332,8 +344,9 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
   let active = 0; // entries index of the active item's first point
   let lit = -1; // entries index of the first of LIT_AHEAD points whose flags are in colour
   let baseEntry = null; // rally base: shown for the whole rally, not one of the indexed points
+  let courseEntries = []; // one per course object (setObjects)
   let time = 0;
-  const pendingHits = []; // { object, by }, queued during the physics step
+  const pendingHits = []; // { object | span, by }, queued during the physics step
   let outlined = null; // { object, mesh }: hovered action props
 
   const isLit = (index) => lit >= 0 && index >= lit && index < lit + LIT_AHEAD;
@@ -348,6 +361,22 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
     object.trigger = null;
   }
 
+  function dropSolid(object) {
+    if (!object.solid) return;
+    world.removeBody(object.solid);
+    object.solid = null;
+  }
+
+  /** Puts `body` at the object's group pose, `center` (object frame) as its origin. */
+  function poseBody(body, object, [cx, cy, cz]) {
+    const { x, y, z } = object.group.position;
+    const cos = Math.cos(object.yaw);
+    const sin = Math.sin(object.yaw);
+    body.position.set(x + cx * cos + cz * sin, y + cy, z - cx * sin + cz * cos);
+    body.quaternion.setFromAxisAngle(CANNON.Vec3.UNIT_Y, object.yaw);
+    body.aabbNeedsUpdate = true;
+  }
+
   /** Trigger on a standing knockable object at its group's current pose. */
   function placeTrigger(object) {
     const { knock } = object.group.userData;
@@ -355,12 +384,24 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       object.trigger = createTrigger(knock.shape, (by) => pendingHits.push({ object, by }));
       world.addBody(object.trigger);
     }
-    const [cx, cy, cz] = knock.center;
-    const { x, y, z } = object.group.position;
-    const cos = Math.cos(object.yaw);
-    const sin = Math.sin(object.yaw);
-    object.trigger.position.set(x + cx * cos + cz * sin, y + cy, z - cx * sin + cz * cos);
-    object.trigger.quaternion.setFromAxisAngle(CANNON.Vec3.UNIT_Y, object.yaw);
+    poseBody(object.trigger, object, knock.center);
+  }
+
+  /** Static collider (like a building: impacts, damage) on a solid course object. */
+  function placeSolid(object) {
+    const { solid } = object.group.userData;
+    if (!object.solid) {
+      object.solid = new CANNON.Body({ mass: 0, type: CANNON.Body.STATIC, material: BUILDING_MATERIAL, collisionFilterGroup: BUILDING_COLLISION_GROUP });
+      object.solid.addShape(solid.shape, undefined, solid.orientation);
+      world.addBody(object.solid);
+    }
+    poseBody(object.solid, object, solid.center);
+  }
+
+  function dropSpanTrigger(span) {
+    if (!span.trigger) return;
+    world.removeBody(span.trigger);
+    span.trigger = null;
   }
 
   /** Swaps a standing object for a tumbling one, its group inside a wrapper centred on the body. */
@@ -390,7 +431,14 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
   }
 
   function flushHits() {
-    for (const { object, by } of pendingHits.splice(0)) if (object.trigger && !object.debris) knockOver(object, by);
+    for (const { object, span, by } of pendingHits.splice(0)) {
+      if (span) {
+        if (span.trigger) {
+          span.torn = true;
+          dropSpanTrigger(span);
+        }
+      } else if (object.trigger && !object.debris) knockOver(object, by);
+    }
   }
 
   function anchor(group, x, z, dirX, dirZ) {
@@ -400,9 +448,66 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
     return { group, ...viewFrame.toLatLon(x, z), yaw: yawFacing(dirX, dirZ) };
   }
 
+  /** A course object at its lat/lon facing its heading; a tape's stakes run across the heading, centred there. */
+  function resolveCourse({ point }) {
+    const at = viewFrame.fromLatLon(point.lat, point.lon);
+    const { dirX, dirZ } = headingToDir(point.heading ?? 0);
+    const objects = [];
+    const spans = [];
+    const place = (group, x, z) => {
+      const object = { ...anchor(group, x, z, dirX, dirZ), armed: false };
+      objects.push(object);
+      return object;
+    };
+    if (point.type === 'tape') {
+      const { length } = point;
+      const gaps = Math.max(1, Math.round(length / TAPE_STAKE_SPACING_M));
+      let prev = null;
+      for (let i = 0; i <= gaps; i++) {
+        const along = -length / 2 + (i * length) / gaps;
+        // Right of the heading: (-dirZ, dirX).
+        const stake = place(makeTapeStake(), at.x - dirZ * along, at.z + dirX * along);
+        if (prev) {
+          const mesh = makeTapeSpan(length / gaps);
+          mesh.visible = false;
+          scene.add(mesh);
+          spans.push({ mesh, a: prev, b: stake, length: length / gaps, trigger: null, torn: false });
+        }
+        prev = stake;
+      }
+    } else if (COURSE_BUILDERS[point.type]) place(COURSE_BUILDERS[point.type](), at.x, at.z);
+    return { dirX, dirZ, halfWidth: 0, objects, lamps: null, flags: [], lit: [], poleTops: [], spans };
+  }
+
+  /** Tape span between its stakes: shown while both stand and it isn't torn; torn ones mend once the car is far. */
+  function updateSpan(span, focus) {
+    const { mesh, a, b } = span;
+    const pa = a.group.position;
+    const pb = b.group.position;
+    const mx = (pa.x + pb.x) / 2;
+    const mz = (pa.z + pb.z) / 2;
+    const dist = focus ? Math.hypot(mx - focus.x, mz - focus.z) : Infinity;
+    if (span.torn && dist > RESTAND_M) span.torn = false;
+    mesh.visible = !span.torn && !a.debris && !b.debris && a.group.visible && b.group.visible;
+    if (!mesh.visible) return dropSpanTrigger(span);
+    _tapeFrom.set(pa.x, pa.y + TAPE_HEIGHT_M, pa.z);
+    _tapeDir.set(pb.x, pb.y + TAPE_HEIGHT_M, pb.z).sub(_tapeFrom);
+    mesh.position.copy(_tapeFrom);
+    mesh.scale.x = _tapeDir.length() / span.length;
+    mesh.quaternion.setFromUnitVectors(X_AXIS, _tapeDir.normalize());
+    if (editor || dist > TRIGGER_RADIUS_M || !a.armed || !b.armed) return dropSpanTrigger(span);
+    if (!span.trigger) {
+      span.trigger = createTrigger(tapeSpanShape(span.length), (by) => pendingHits.push({ span, by }));
+      world.addBody(span.trigger);
+    }
+    span.trigger.position.set(mx, (pa.y + pb.y) / 2 + TAPE_HEIGHT_M, mz);
+    span.trigger.quaternion.setFromAxisAngle(CANNON.Vec3.UNIT_Y, a.yaw);
+  }
+
   /** Builds the point's scenery around its road (or heading); null while the streets there aren't loaded. */
   function resolve(entry) {
     const { point } = entry;
+    if (entry.course) return resolveCourse(entry);
     const at = viewFrame.fromLatLon(point.lat, point.lon);
     // Facing follows the driving order: from the previous point towards the next one.
     const frame = controlFrame(streets, at.x, at.z, point, neighbour(entry.points, entry.index - 1), neighbour(entry.points, entry.index + 1), SNAP_RADIUS_M);
@@ -411,7 +516,8 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
     const roadWidth = frame.roadWidth ?? point.width ?? 0;
     const roadHalf = Math.max(point.width ?? 0, roadWidth) / 2;
     const halfSpan = poleHalfSpan(roadHalf);
-    const def = SCENERY[point.type] ?? {};
+    const full = SCENERY[point.type] ?? {};
+    const def = editor ? { props: full.props, propsLeft: full.propsLeft, clock: full.clock === 'table' ? 'table' : undefined } : full;
     const objects = [];
     let lamps = null;
     const flags = [];
@@ -500,9 +606,15 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
     for (const object of entry?.resolved?.objects ?? []) {
       if (outlined?.object === object) outlined = null;
       dropTrigger(object);
+      dropSolid(object);
       if (object.debris) restand(object);
       scene.remove(object.group);
       disposeGroup(object.group);
+    }
+    for (const span of entry?.resolved?.spans ?? []) {
+      dropSpanTrigger(span);
+      scene.remove(span.mesh);
+      span.mesh.geometry.dispose();
     }
   }
 
@@ -523,6 +635,11 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       for (const object of entry.resolved?.objects ?? []) {
         object.group.visible = false;
         dropTrigger(object);
+        dropSolid(object);
+      }
+      for (const span of entry.resolved?.spans ?? []) {
+        span.mesh.visible = false;
+        dropSpanTrigger(span);
       }
       return;
     }
@@ -537,14 +654,21 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       object.group.visible = y != null;
       if (y == null) {
         dropTrigger(object);
+        dropSolid(object);
         continue;
       }
       object.group.position.set(x, y, z);
       object.group.rotation.y = object.yaw;
-      const near = focus && object.group.userData.knock && Math.hypot(x - focus.x, z - focus.z) < TRIGGER_RADIUS_M;
-      if (near) placeTrigger(object);
+      const dist = focus ? Math.hypot(x - focus.x, z - focus.z) : Infinity;
+      if (object.armed === false && focus && dist > ARM_M) object.armed = true;
+      const near = !editor && dist < TRIGGER_RADIUS_M && object.armed !== false;
+      const { knock, solid } = object.group.userData;
+      if (near && knock) placeTrigger(object);
       else dropTrigger(object);
+      if (near && solid) placeSolid(object);
+      else dropSolid(object);
     }
+    for (const span of entry.resolved?.spans ?? []) updateSpan(span, focus);
     // Only the next point's dots pulse and spin; the one after holds still.
     const moving = entry.index === lit;
     const pulse = moving ? 1 + 0.35 * Math.sin(time * DOT_PULSE_HZ * Math.PI * 2) : 1;
@@ -616,9 +740,25 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       removeObjects(baseEntry);
       baseEntry = point ? { point: { ...point, type: 'base' }, points: [point], index: 0, resolved: null, retryAt: 0 } : null;
     },
+    /**
+     * Course objects ({ type: 'hayBale' | 'tape' | 'warningSign', lat, lon, heading, length? }), replacing the previous
+     * set; with keepState, unchanged ones stay as they are (knocked over, torn).
+     */
+    setObjects(objects, { keepState = false } = {}) {
+      const signature = (o) => `${o.type}|${o.lat}|${o.lon}|${o.heading}|${o.length}`;
+      const previous = courseEntries;
+      const old = new Map();
+      for (const entry of keepState ? courseEntries : []) {
+        const key = signature(entry.point);
+        old.set(key, [...(old.get(key) ?? []), entry]);
+      }
+      courseEntries = objects.map((point) => old.get(signature(point))?.shift() ?? { point: { ...point }, course: true, points: null, index: -1, resolved: null, retryAt: 0 });
+      for (const entry of previous) if (!courseEntries.includes(entry)) removeObjects(entry);
+    },
     clear() {
       clearPoints();
       this.setBase(null);
+      this.setObjects([]);
     },
 
     /**
@@ -691,6 +831,7 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       flushHits();
       for (const entry of entries) updateEntry(entry, focus, dt);
       if (baseEntry) updateEntry(baseEntry, focus, dt);
+      for (const entry of courseEntries) updateEntry(entry, focus, dt);
       fireworks.update(dt);
       sparkles.update(dt);
     },

@@ -49,13 +49,15 @@
 }
 .editor-body textarea { font-family: monospace; resize: vertical; }
 .editor-buttons,
-.editor-place,
-.editor-ref {
+.editor-place {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
 }
-.editor-ref > :first-child { flex: 1; }
+.editor-ref { display: flex; flex-direction: column; gap: 3px; }
+.editor-ref select { width: 100%; }
+.editor-ref .editor-buttons { flex-wrap: nowrap; }
+.editor-ref .editor-buttons select { flex: 1; min-width: 0; }
 .editor-kinds button.active { box-shadow: var(--w95-pressed); font-weight: bold; }
 .editor-heading { margin-top: 4px; font-weight: bold; }
 /* Colour chip of the point type. */
@@ -174,3 +176,25 @@
 .pacenote-body { min-height: 0; display: flex; flex-direction: column; gap: 3px; padding: 4px 2px 0; }
 .editor-notes { flex: 1 1 auto; min-height: 60px; max-height: none; padding-left: 30px; font-family: monospace; }
 .editor-notes li::before { display: none; }
+
+/* Course objects window, left side under the pacenotes. */
+#course-objects-panel {
+  pointer-events: auto;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
+  font-size: 11px;
+  line-height: 1.4;
+}
+#course-objects-panel[hidden],
+#course-objects-panel.collapsed .pacenote-body,
+#course-objects-panel .editor-selected[hidden],
+.course-objects-length[hidden] { display: none; }
+.course-objects-list { max-height: 160px; }
+.course-objects-length { display: flex; align-items: center; gap: 6px; }
+.course-objects-length input { width: 7ch; font: inherit; }

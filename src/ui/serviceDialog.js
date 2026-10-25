@@ -140,11 +140,13 @@ export function createServiceDialog({ onOpen, onClose } = {}) {
         repair.onclick = () => finish([...picked.values()]);
         footer.append(repair, Object.assign(el('button', '', 'Leave'), { type: 'button', onclick: () => finish([]) }));
       } else {
+        win.classList.add('service-inspect');
         win.append(el('h1', 'menu-titlebar', 'Car inspection'), body);
         footer.append(Object.assign(el('button', '', 'Close'), { type: 'button', onclick: () => finish([]) }));
       }
       win.append(footer);
       root.replaceChildren(win);
+      root.classList.toggle('inspecting', !zone);
       render();
       root.hidden = false;
       onOpen?.();

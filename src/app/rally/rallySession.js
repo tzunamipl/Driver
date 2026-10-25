@@ -9,7 +9,7 @@
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
-import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
+import { OFFICIAL_SCENARIO_SOURCE, AMBIENT_TEMP_C, WEATHER_WETNESS } from '../../config.js';
 import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
@@ -55,17 +55,17 @@ const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
 
-/** Stage file -> { id (its file key), name, points, pacenotes }. */
+/** Stage file -> { id (its file key), name, points, pacenotes, objects }. */
 function readStage(json, id) {
-  const { name, items, pacenotes } = stageKind.fromFile(json);
-  return { id, name, points: items, pacenotes };
+  const { name, items, pacenotes, objects } = stageKind.fromFile(json);
+  return { id, name, points: items, pacenotes, objects };
 }
 
 /** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
 async function buildPlan(kind, source, opened, key, json) {
   if (kind === 'stage') {
     const stage = readStage(json, key);
-    return { kind, source, sha: opened.sha, id: key, name: stage.name, items: [{ type: 'stage', stage }] };
+    return { kind, source, sha: opened.sha, id: key, name: stage.name, items: [{ type: 'stage', stage }], objects: [] };
   }
   const rally = rallyKind.fromFile(json);
   const stages = new Map();
@@ -85,8 +85,11 @@ async function buildPlan(kind, source, opened, key, json) {
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
   const base = rally.items.find((item) => item.type === 'base') ?? null;
-  return { kind, source, sha: opened.sha, id: key, name: rally.name, base, items };
+  return { kind, source, sha: opened.sha, id: key, name: rally.name, base, items, objects: rally.objects };
 }
+
+/** The plan's course objects: the rally's own and each stage's once, however often it's driven. */
+const planObjects = (plan) => [...new Set(plan.items.map((item) => item.stage?.objects ?? []))].flat().concat(plan.objects ?? []);
 
 /** Points of a plan item, in driving order. */
 const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item ? [item.point] : []);
@@ -121,6 +124,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {() => void} [deps.onRefuel] - a refuel point was passed or its bowser clicked.
  * @param {(zone: object, usedMin: number) => Promise<number>} [deps.onService] - a service visit's menu (SERVICE_ZONES entry, minutes already spent): resolves with the minutes the repairs took.
  * @param {() => void} [deps.onInspect] - Inspect car (stopped).
+ * @param {(info: object) => void} [deps.onRallyInfo] - the base tents were clicked: ui/rallyInfoDialog.js open() data.
  * @param {HTMLCanvasElement} [deps.canvas] - with `camera`: service props answer the mouse (zonePicking.js).
  * @param {import('three').Camera} [deps.camera]
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
@@ -135,7 +139,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -188,6 +192,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         onAction: (action, picked) => {
           if (action === 'tyres') onTyreService?.({ fitted: false });
           else if (action === 'refuel') onRefuel?.();
+          else if (action === 'info') onRallyInfo?.(rallyInfo());
           else serviceAtProps(picked.index);
         },
       })
@@ -465,6 +470,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     services = Object.fromEntries(Object.entries(savedServices ?? {}).filter(([i]) => Number(i) < index));
     scenery.setPoints(plan.items.flatMap(itemPoints));
     scenery.setBase(plan.base);
+    scenery.setObjects(planObjects(plan));
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
@@ -628,6 +634,57 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       rows.push({ label: `SS${ss} ${item.stage.name}`, value: result ? (result.ms == null ? 'DNF' : formatTime(result.ms)) : '', state });
     });
     return { title: plan.name, rows };
+  }
+
+  /** Rally info dialog data (ui/rallyInfoDialog.js): conditions, itinerary with stage details, totals so far. */
+  function rallyInfo() {
+    const bests = readLocalBests();
+    let ss = 0;
+    let km = 0;
+    const rows = plan.items.map((item, i) => {
+      const state = itemState(i);
+      if (item.type !== 'stage') {
+        const visit = services[i];
+        const value = !visit ? '' : `${visit.usedMin} min${visit.penaltyMs ? `, +${formatTime(visit.penaltyMs)}` : ''}`;
+        return { state, label: pointLabel(item.point.type), km: '', splits: '', best: '', value };
+      }
+      const { stage } = item;
+      const result = state === 'done' ? results[ss] : null;
+      ss++;
+      // Only pacenotes measure the stage road.
+      const length = stage.pacenotes?.length;
+      if (length) km += length / 1000;
+      const best = bests[bestKey(stage)];
+      return {
+        state,
+        label: `SS${ss} ${stage.name}`,
+        km: length ? (length / 1000).toFixed(2) : '–',
+        splits: String(stage.points.filter((p) => p.type === 'split').length),
+        best: best ? formatTime(best.totalMs) : '',
+        value: result ? (result.ms == null ? 'DNF' : `${formatTime(result.ms)}${result.penaltyMs ? ` (+${formatTime(result.penaltyMs)})` : ''}`) : '',
+      };
+    });
+    const dnf = results.some((r) => r.ms == null);
+    const stageMs = results.reduce((sum, r) => sum + (r.ms ?? 0), 0);
+    const time = new Date(getTimeOfDayMs?.() ?? Date.now());
+    const surface = WEATHER_WETNESS <= 0 ? 'Dry' : WEATHER_WETNESS < 0.4 ? 'Damp' : 'Wet';
+    return {
+      title: plan.name,
+      vehicle: getVehicle(getVehicleId()).name,
+      conditions: [
+        ['Time of day', time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
+        ['Air temperature', `${AMBIENT_TEMP_C} °C`],
+        ['Surface', surface],
+      ],
+      rows,
+      totals: [
+        ['Stages', `${results.length} / ${ss} driven`],
+        ['Stage distance', km ? `${km.toFixed(2)} km` : '–'],
+        ['Stage times', results.length ? (dnf ? 'DNF' : formatTime(stageMs)) : '–'],
+        ['Service penalties', servicePenaltyMs() ? `+${formatTime(servicePenaltyMs())}` : 'none'],
+        ['Rally time', results.length ? (dnf ? 'DNF' : formatTime(rallyTotalMs())) : '–'],
+      ],
+    };
   }
 
   /** Map icons: liaison points, the current stage's controls, other stages' start + finish; no PCs. */

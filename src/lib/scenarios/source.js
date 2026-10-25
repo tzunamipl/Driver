@@ -20,7 +20,7 @@ async function resolveSha(source) {
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, {
     headers: { Accept: 'application/vnd.github.sha' },
   });
-  if (res.status === 404 || res.status === 422) throw new Error(`${formatSource(source)} not found`);
+  if (res.status === 404 || res.status === 422) throw Object.assign(new Error(`${formatSource(source)} not found`), { notFound: true });
   if (!res.ok) throw new Error(`GitHub: ${res.status}`);
   return (await res.text()).trim();
 }
@@ -28,6 +28,7 @@ async function resolveSha(source) {
 /**
  * Pins `source` to its current commit. Returns { source, sha, readJson(path) }, where
  * readJson resolves null for a missing file and throws on a newer scenario format.
+ * A missing branch throws an error with `notFound: true`.
  * @param {string} [knownSha] - the branch's commit when already known (skips the lookup).
  */
 export async function openSource(source, knownSha) {

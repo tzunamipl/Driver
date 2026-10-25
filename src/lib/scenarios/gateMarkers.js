@@ -1,7 +1,7 @@
 // Editor markers for scenario points: a gate (two posts + banner, arrow along travel)
 // across the road, or a flag pole for non-gate points, with a label that shows through
 // terrain; small coloured boards preview the roadside boards the game adds, pacenotes are
-// HUD-style tiles on a post (pickable by mouse). Unlit, so
+// HUD-style tiles on a post (pickable by mouse), course objects get just a label. Unlit, so
 // they read at night too. Placed from scratch every sync, so no origin shift is needed.
 
 import {
@@ -30,6 +30,7 @@ const BOARD_POST_M = 2;
 const BOARD_SIZE_M = 0.9;
 const NOTE_POST_M = 2.5;
 const NOTE_TILE_HEIGHT_M = 3;
+const TAG_HEIGHT_M = 2.2;
 
 const postGeometry = new CylinderGeometry(0.12, 0.12, POST_HEIGHT_M, 8);
 postGeometry.translate(0, POST_HEIGHT_M / 2, 0);
@@ -77,6 +78,12 @@ function makeLabel(text, color, selected) {
 function buildMarker(entry) {
   const { gate, board, note, width, color, label, selected } = entry;
   const group = new Group();
+  if (entry.tag) {
+    const sprite = makeLabel(label, color, selected);
+    sprite.position.y = TAG_HEIGHT_M + LABEL_HEIGHT_M / 2;
+    group.add(sprite);
+    return group;
+  }
   const colorMaterial = new MeshBasicMaterial({ color });
   if (board) {
     group.add(new Mesh(boardPostGeometry, postMaterial));
@@ -141,14 +148,15 @@ export function createGateMarkers(scene) {
      * Shows exactly these markers. Entries: { key, gate, width, color, label, selected,
      * x, y, z, dirX, dirZ } (world position; travel direction, or 0, 0 when unknown),
      * or roadside boards { key, board: true, color, x, y, z, dirX, dirZ } (facing traffic),
-     * or pacenote tiles { key, note (the note), label (its call), gap, selected, hover, x, y, z }.
+     * or pacenote tiles { key, note (the note), label (its call), gap, selected, hover, x, y, z },
+     * or labels alone { key, tag: true, color, label, selected, x, y, z }.
      */
     sync(entries) {
       const seen = new Set();
       for (const entry of entries) {
         seen.add(entry.key);
         const noteSig = entry.note ? `${entry.note.dir}${entry.note.grade}${entry.note.junction}|${entry.gap}|${entry.hover}` : '';
-        const signature = `${entry.gate}|${entry.board}|${noteSig}|${entry.width}|${entry.color}|${entry.label}|${entry.selected}`;
+        const signature = `${entry.gate}|${entry.board}|${entry.tag}|${noteSig}|${entry.width}|${entry.color}|${entry.label}|${entry.selected}`;
         let marker = markers.get(entry.key);
         if (marker?.signature !== signature) {
           if (marker) {
