@@ -93,6 +93,7 @@ import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
 import { setupDebugFolds } from './hud/debugFold.js';
+import { setupDebugHudWrap } from './hud/debugHudWrap.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
@@ -362,6 +363,11 @@ const debugVisuals = createDebugVisualsToggle(
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
 setupDebugFolds(
   ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+);
+setupDebugHudWrap(
+  document.getElementById('debug-hud-row'),
+  ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map((id) => document.getElementById(id)),
+  document.getElementById('minimap')
 );
 createSurfaceHover({
   el: document.getElementById('surface-hover'),
