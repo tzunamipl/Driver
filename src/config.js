@@ -309,7 +309,7 @@ export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v
 // Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.
 export const SCENARIOS_REPO = { owner: 'tzunamipl', repo: 'Driver-scenarios' };
 export const OFFICIAL_SCENARIO_SOURCE = `${SCENARIOS_REPO.owner}/${SCENARIOS_REPO.repo}@main`;
-export const SCENARIO_FORMAT = 2; // files with a newer format are rejected
+export const SCENARIO_FORMAT = 3; // files with a newer format are rejected; 3 = rally point references
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
 export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times or editor saves
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }

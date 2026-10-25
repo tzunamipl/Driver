@@ -1,9 +1,9 @@
 // Rally: with a flat tyre and the car nearly stopped, a floating button points at the
-// flat wheel and swaps a spare in (hud/spareTyreHud.js, car.js fitSpareTyre). On a stage
+// flat wheel and swaps a spare in (hud/repairCallouts.js, car.js fitSpareTyre). On a stage
 // with the clock running (or counting down) the swap adds SPARE_FIT_PENALTY_MS.
 
 import * as THREE from 'three';
-import { createSpareTyreHud } from '../../hud/spareTyreHud.js';
+import { createRepairCallouts } from '../../hud/repairCallouts.js';
 import { formatTime } from '../../hud/rallyHud.js';
 import { SPARE_FIT_PENALTY_MS } from '../../lib/spareTyres.js';
 
@@ -19,9 +19,10 @@ const HIDE_SPEED = 1.5;
  * @param {() => boolean} deps.isEnabled
  * @param {() => object | null} deps.getRun - the current stage's stageRun.js, if any.
  * @param {(penaltyMs: number) => void} [deps.onFitted]
+ * @param {() => void} [deps.onRepair] - sound when the spare goes on.
  */
-export function createSpareTyreFix({ canvas, camera, getVehicle, isEnabled, getRun, onFitted }) {
-  const hud = createSpareTyreHud({ onFit: fit });
+export function createSpareTyreFix({ canvas, camera, getVehicle, isEnabled, getRun, onFitted, onRepair }) {
+  const hud = createRepairCallouts();
   const point = new THREE.Vector3();
   let wheelIndex = -1;
   let shown = false;
@@ -36,6 +37,7 @@ export function createSpareTyreFix({ canvas, camera, getVehicle, isEnabled, getR
     if (wheelIndex < 0 || !vehicle?.fitSpareTyre?.(wheelIndex)) return;
     const penaltyMs = penaltyApplies() ? SPARE_FIT_PENALTY_MS : 0;
     if (penaltyMs) getRun().addPenalty(penaltyMs);
+    onRepair?.();
     onFitted?.(penaltyMs);
   }
 
@@ -53,13 +55,16 @@ export function createSpareTyreFix({ canvas, camera, getVehicle, isEnabled, getR
     const rect = canvas.getBoundingClientRect();
     const spares = vehicle.spareTyres;
     const label = vehicle.wheelLabels?.[wheelIndex] ?? '';
-    hud.render({
-      x: rect.left + ((point.x + 1) / 2) * rect.width,
-      y: rect.top + ((1 - point.y) / 2) * rect.height,
-      label: spares ? `Fit spare wheel${label ? ` · ${label}` : ''}` : 'No spare wheel',
-      note: !spares ? '' : `${spares} spare${spares > 1 ? 's' : ''} left${penaltyApplies() ? ` · adds ${formatTime(SPARE_FIT_PENALTY_MS).replace(/\.0$/, '')} to the stage time` : ''}`,
-      disabled: !spares,
-    });
+    hud.render([
+      {
+        x: rect.left + ((point.x + 1) / 2) * rect.width,
+        y: rect.top + ((1 - point.y) / 2) * rect.height,
+        label: spares ? `Fit spare wheel${label ? ` · ${label}` : ''}` : 'No spare wheel',
+        note: !spares ? '' : `${spares} spare${spares > 1 ? 's' : ''} left${penaltyApplies() ? ` · adds ${formatTime(SPARE_FIT_PENALTY_MS).replace(/\.0$/, '')} to the stage time` : ''}`,
+        disabled: !spares,
+        onClick: fit,
+      },
+    ]);
   }
 
   return { update };

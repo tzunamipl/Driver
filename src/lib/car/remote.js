@@ -70,5 +70,6 @@ export function createRemoteWheeledCar(scene, color, name, score, descriptor) {
     }
   }
 
-  return { setPose, ...shell };
+  const wheelMeshes = [...wheels, ...(trailer?.wheels ?? [])].map((w) => w.mesh);
+  return { setPose, wheelMeshes, ...shell };
 }

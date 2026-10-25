@@ -257,3 +257,47 @@
 #camera-list.visible { opacity: 1; }
 #camera-list li { padding: 2px 6px; white-space: nowrap; }
 #camera-list li.active { background: var(--w95-select); color: #fff; font-weight: bold; }
+
+/* Floating repair buttons (rally spare wheel, free-roam fixes), each with a leader line to its part (hud/repairCallouts.js). */
+#repair-callouts {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+#repair-callouts[hidden],
+#repair-callouts [hidden] { display: none; }
+#repair-callouts svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+#repair-callouts line {
+  stroke: #f6c900;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 2px #000);
+}
+#repair-callouts circle {
+  fill: none;
+  stroke: #f6c900;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 2px #000);
+}
+.repair-callout {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 220px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 2px solid #f6c900;
+  color: #fff;
+  font-family: var(--w95-font);
+  text-align: center;
+  pointer-events: auto;
+}
+.repair-callout-fit { color: #000; font-weight: bold; }
+.repair-callout-note { margin-top: 4px; font-size: 11px; color: #ffd7a0; }

@@ -40,7 +40,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
     `tyres/condition.js` = tread temperature, dirt, wetness (`WEATHER_WETNESS` placeholder in `config.js`),
     `tyres/setup.js` = player setup { compound, rimSize, width, profile } around stock (descriptor `tyreSizes`), applied
     to the descriptor by `createCar`. `garage.js` = per-mode, per-vehicle paint + tyre setup (mode-wide save field);
-    picked in `ui/tyreSetupPicker.js` (lobby, rally picker, debug picker, rally `ui/tyreServiceDialog.js` = removed set per wheel + 3D views of its dirtiest tyre and the pick, `ui/tyrePreview.js`; the rally picker leaves tyres to service points, a single stage picks them there). Rally spare wheels: `spareTyres.js` (count, mass via `fuel.setCargoKg`, stage penalty), picked in `ui/spareTyresPicker.js` (rally picker + tyre service, garage field `spares`), fitted by `vehicle.fitSpareTyre(i)` from the floating button of `app/rally/spareTyreFix.js` + `hud/spareTyreHud.js`.
+    picked in `ui/tyreSetupPicker.js` (lobby, rally picker, debug picker, rally `ui/tyreServiceDialog.js` = removed set per wheel + 3D views of its dirtiest tyre and the pick, `ui/tyrePreview.js`; the rally picker leaves tyres to service points, a single stage picks them there). Rally spare wheels: `spareTyres.js` (count, mass via `fuel.setCargoKg`, stage penalty), picked in `ui/spareTyresPicker.js` (rally picker + tyre service, garage field `spares`), fitted by `vehicle.fitSpareTyre(i)` from the floating button of `app/rally/spareTyreFix.js` + `hud/repairCallouts.js`. Free roam: `app/roadsideRepair.js` puts one such button on each damaged part once stopped (flat/worn tyre, shock, radiator / coolant, lamp, gearbox, low fuel) and fixes it on a click; there resets and teleports don't repair (carManager `repairOnReset`) and an empty tank stays empty with no power (`refillWhenEmpty`).
     `shocks.js` = per-wheel shock health, worn by bump-stop strikes; lowers damping and spring rate. `lampDamage.js` =
     broken head/tail lamps per side from end hits (`endImpact`); `headlights.js` darkens them and scales the pools. Both (and gearbox health) saved as car state `damage`.
   - `vehicles/` – one descriptor file per vehicle (tuning data) + `geometry/` (mesh builders).
@@ -54,7 +54,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `coolantHiss.js`, `sparklePop.js`, `startBeep.js`). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `coolantHiss.js`, `sparklePop.js`, `startBeep.js`, `repairTool.js` = impact-wrench sound on any repair). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js`, `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):

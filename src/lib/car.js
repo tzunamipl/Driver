@@ -283,7 +283,7 @@ export function createCar(
   vehicle.heat = createEngineHeat(descriptor, AMBIENT_TEMP_C); // warmed by mainLoop, read by the aux gauge
   Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
-  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => vehicle.heat.powerFactor });
+  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.powerFactor : 0) });
   vehicle.spareTyres = 0; // rally only (lib/spareTyres.js); their mass rides with the fuel
   vehicle.setSpareTyres = (n) => {
     vehicle.spareTyres = clampSpareTyres(n);
@@ -297,6 +297,7 @@ export function createCar(
     vehicle.setSpareTyres(vehicle.spareTyres - 1);
     return true;
   };
+  vehicle.repairOnReset = true; // off: resets and teleports keep the damage (carManager)
   vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
   /** Fixed radiator (topped up), fresh shocks, working lamps, mended gearbox. */
   vehicle.repairDamage = () => {
@@ -505,7 +506,7 @@ export function createCar(
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted). Fits fresh tyres and shocks, fixes the radiator, lamps and gearbox.
+  // Without arguments: rights the car in place (same heading, lifted). With `repairOnReset` it also fits fresh tyres and shocks, fixes the radiator, lamps and gearbox.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -531,8 +532,10 @@ export function createCar(
     };
     setRigType(CANNON.Body.KINEMATIC);
     vehicle.resetWheelSpin();
-    vehicle.repairTyres();
-    vehicle.repairDamage();
+    if (vehicle.repairOnReset) {
+      vehicle.repairTyres();
+      vehicle.repairDamage();
+    }
     resetInterpolation();
   }
 

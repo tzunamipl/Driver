@@ -236,17 +236,17 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
   function resetWheelSpin() {
     for (const wheel of vehicle.wheelInfos) wheel.spinSpeed = 0;
   }
-  /** Fresh tyres on every wheel. */
-  function repairTyres() {
-    for (const wheel of vehicle.wheelInfos) repairTyre(wheel);
+  /** Fresh tyres on every wheel, or only on wheel i. */
+  function repairTyres(i) {
+    for (const wheel of i == null ? vehicle.wheelInfos : [vehicle.wheelInfos[i]]) repairTyre(wheel);
   }
   /** Fresh tyres on every wheel, warmed close to their working temperature. */
   function fitWarmTyres() {
     for (const wheel of vehicle.wheelInfos) freshWarmTyre(wheel);
   }
-  /** Fresh shock absorbers on every wheel. */
-  function repairShocks() {
-    for (const wheel of vehicle.wheelInfos) repairShock(wheel);
+  /** Fresh shock absorbers on every wheel, or only on wheel i. */
+  function repairShocks(i) {
+    for (const wheel of i == null ? vehicle.wheelInfos : [vehicle.wheelInfos[i]]) repairShock(wheel);
   }
   /** Per-wheel shock health, for the save. */
   function getShockState() {

@@ -39,6 +39,7 @@ import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
 import { createGearShiftSound } from './lib/audio/gearShift.js';
 import { createSparklePop } from './lib/audio/sparklePop.js';
+import { createRepairTool } from './lib/audio/repairTool.js';
 import { createBackfireSound } from './lib/audio/backfire.js';
 import { createCoolantHissSound } from './lib/audio/coolantHiss.js';
 import { createStartBeep } from './lib/audio/startBeep.js';
@@ -120,6 +121,7 @@ import { createPacenotePanel } from './ui/pacenotePanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
 import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
+import { createRoadsideRepair } from './app/roadsideRepair.js';
 import { createRefuelDialog } from './ui/refuelDialog.js';
 import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
 
@@ -177,6 +179,7 @@ await mainMenu.waitForLaunch();
 // menuPark (set once the world is up) parks the car while the picker covers the game.
 let menuPark = null;
 const isRallyGame = getActiveModeId() === 'rally' && !isEditorSession();
+const isFreeRoam = getActiveModeId() === 'freeRoam' && !isEditorSession();
 // Starts that don't save (e.g. a single stage) keep only the car pick.
 const keepsProgress = isEditorSession() || gameKeepsProgress(getGameMode(getActiveModeId()), getActiveStartId());
 if (!keepsProgress) {
@@ -391,6 +394,8 @@ const carManager = createCarManager({
   initialTyres: savedCarState?.tyres ?? null,
   initialHeat: savedCarState?.heat ?? savedCarState?.coolant ?? null,
   initialDamage: savedCarState?.damage ?? null,
+  repairOnReset: !isFreeRoam,
+  refillWhenEmpty: !isFreeRoam,
 });
 carManager.addScore(savedCarState?.score ?? 0);
 
@@ -589,11 +594,15 @@ menuPark = {
 // ---------- Rally game mode ----------
 // Tyre service points: fresh tyres, then the dialog shows the removed set and offers another type or size and the spares.
 // A click on the tyre props (fitted: false) opens it without the free set: Fit puts one on.
+const repairTool = createRepairTool();
 const tyreService = isRallyGame ? createTyreServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 async function onTyreService({ fitted = true } = {}) {
   const vehicle = carManager.getVehicle();
   const removed = vehicle?.getTyreState ? { setup: vehicle.tyreSetup, labels: vehicle.wheelLabels, wheels: vehicle.getTyreState() } : null;
-  if (fitted) vehicle?.repairTyres?.();
+  if (fitted && vehicle?.repairTyres) {
+    vehicle.repairTyres();
+    repairTool.play();
+  }
   if (!vehicle?.tyreSetup) return;
   const { setup, spares } = await tyreService.open(carManager.getVehicleId(), removed, { fitted });
   if (carManager.getVehicle() !== vehicle) return;
@@ -633,6 +642,7 @@ const rallySession =
         playerId,
         getPlayerName: loadProfileName,
         onSparkle: createSparklePop().play,
+        onRepair: repairTool.play,
         onPropHit: postHitSound.play,
         onStartBeep: createStartBeep().play,
         getTimeOfDayMs: daylight.getTimeMs,
@@ -751,6 +761,7 @@ const mainLoop = createMainLoop({
   isJoined: () => lobby.isJoined(),
   scenarioEditor,
   rallySession,
+  roadsideRepair: isFreeRoam ? createRoadsideRepair({ canvas: renderer.domElement, camera, getVehicle: () => carManager.getVehicle(), onRepair: repairTool.play }) : null,
 });
 graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
 

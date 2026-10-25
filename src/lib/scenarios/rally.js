@@ -1,7 +1,8 @@
 // Rally scenario files (format in the scenarios repo README): stages are ordered gates
 // (plus optional pacenotes, lib/rally/pacenoteCalls.js),
-// rallies are a base plus an itinerary of gates and stage references (stage file keys,
-// lib/scenarios/paths.js). Both sit in a country / region-or-theme folder. Also the editor's
+// rallies are a base plus an itinerary of gates, stage references (stage file keys,
+// lib/scenarios/paths.js) and point references ({ point: id } = the gate with that `id` again).
+// Both sit in a country / region-or-theme folder. Also the editor's
 // definition for the mode: file kinds, point types and their fields.
 
 import { SCENARIO_FORMAT } from '../../config.js';
@@ -89,8 +90,9 @@ const RALLY_POINTS = ['base', 'serviceParkIn', 'serviceParkOut', 'regroup', 'ref
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
 const normalHeading = (deg) => Number((((deg % 360) + 360) % 360).toFixed(HEADING_DECIMALS)) % 360;
-const gate = ({ type, lat, lon, width, heading, snap }) => ({
+const gate = ({ type, id, lat, lon, width, heading, snap }) => ({
   type,
+  ...(id ? { id } : {}),
   lat: round(lat),
   lon: round(lon),
   width: round(width ?? defaultWidth(type)),
@@ -103,7 +105,21 @@ function readGate(entry) {
   const point = { type: entry.type, lat: entry.lat, lon: entry.lon, width: Number.isFinite(entry.width) ? entry.width : defaultWidth(entry.type) };
   if (Number.isFinite(entry.heading)) point.heading = normalHeading(entry.heading);
   if (entry.snap === false) point.snap = false;
+  if (typeof entry.id === 'string' && entry.id) point.id = entry.id;
   return point;
+}
+
+const isPointRef = (item) => item?.type === 'pointRef';
+
+/** Rally items with each point reference replaced by a copy of its gate; throws on an unknown id. */
+export function resolvePointRefs(items) {
+  const byId = new Map(items.filter((item) => item.id && POINT_TYPES[item.type]?.gate).map((item) => [item.id, item]));
+  return items.map((item) => {
+    if (!isPointRef(item)) return item;
+    const target = byId.get(item.ref);
+    if (!target) throw new Error(`Point "${item.ref}" is not in this rally`);
+    return { ...target };
+  });
 }
 
 const isRoutePoint = (p) => Number.isFinite(p?.lat) && Number.isFinite(p.lon) && Number.isFinite(p.s);
@@ -186,6 +202,8 @@ export const rallyFormat = {
       points: RALLY_POINTS,
       // Itinerary entries referencing files of this kind.
       refKind: 'stage',
+      // Gates can be driven again later: `id` on the gate, { point: id } entries.
+      pointRefs: true,
       toFile(doc) {
         const base = doc.items.find((item) => item.type === 'base');
         return {
@@ -194,7 +212,9 @@ export const rallyFormat = {
           base: base ? { name: base.name ?? '', lat: round(base.lat), lon: round(base.lon) } : null,
           itinerary: doc.items
             .filter((item) => item.type !== 'base')
-            .map((item) => (item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : gate(item))),
+            .map((item) =>
+              item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : isPointRef(item) ? { point: item.ref } : gate(item)
+            ),
         };
       },
       fromFile(json) {
@@ -204,6 +224,7 @@ export const rallyFormat = {
         }
         for (const entry of json.itinerary ?? []) {
           if (typeof entry?.stage === 'string') items.push({ type: 'ref', ref: entry.stage, name: entry.name ?? '' });
+          else if (typeof entry?.point === 'string') items.push({ type: 'pointRef', ref: entry.point });
           else {
             const point = readGate(entry);
             if (point) items.push(point);
@@ -215,6 +236,16 @@ export const rallyFormat = {
         const problems = [];
         validateCommon(doc, problems);
         if (!doc.items.some((item) => item.type === 'ref')) problems.push('A rally needs at least one stage');
+        const ids = new Set();
+        for (const item of doc.items) {
+          if (!item.id) continue;
+          if (!ID_RE.test(item.id)) problems.push(`Point ID "${item.id}": lowercase letters, digits and dashes only`);
+          else if (ids.has(item.id)) problems.push(`Point ID "${item.id}" is used twice`);
+          ids.add(item.id);
+        }
+        for (const item of doc.items) {
+          if (isPointRef(item) && !ids.has(item.ref)) problems.push(`Repeat of "${item.ref}": no point has that ID`);
+        }
         return problems;
       },
     },

@@ -114,12 +114,29 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     point.roadless ? { text: 'No road nearby: placed at the car, facing its way (snap and road orientation off)', error: true } : { text: '', error: false };
 
   const isPoint = (item) => !!format.pointTypes[item?.type];
+  const isPointRef = (item) => item?.type === 'pointRef';
+  /** The point an item stands for: itself, or the gate a repeat drives again; null for stages / unknown IDs. */
+  const pointOf = (item) => (isPointRef(item) ? state.doc.items.find((it) => it.id === item.ref && isPoint(it)) ?? null : isPoint(item) ? item : null);
+  /** 1-based list positions of an item's repeats. */
+  const repeatNumbers = (item) => (item.id ? state.doc.items.flatMap((it, j) => (isPointRef(it) && it.ref === item.id ? [j + 1] : [])) : []);
+
+  /** A free point ID from the type's short label, e.g. 'sp-in', then 'sp-in-2'. */
+  function freePointId(type) {
+    const base = format.pointTypes[type].short.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'point';
+    const taken = new Set(state.doc.items.map((it) => it.id).filter(Boolean));
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    return id;
+  }
 
   /** Item i's travel direction and board spots, as the game will place them; null while its road isn't loaded. */
   function resolveFrame(i, x, z) {
     const { items } = state.doc;
     const item = items[i];
-    const neighbour = (j) => (isPoint(items[j]) ? viewFrame.fromLatLon(items[j].lat, items[j].lon) : null);
+    const neighbour = (j) => {
+      const point = pointOf(items[j]);
+      return point ? viewFrame.fromLatLon(point.lat, point.lon) : null;
+    };
     const frame = controlFrame(streets, x, z, item, neighbour(i - 1), neighbour(i + 1), EDITOR_SNAP_RADIUS_M);
     if (!frame) return null;
     const half = (frame.roadWidth ?? item.width ?? 0) / 2;
@@ -229,7 +246,7 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
     },
     moveSelectedToCar() {
       const item = state.doc.items[state.selected];
-      if (!item || item.type === 'ref') return;
+      if (!isPoint(item)) return;
       const point = pointAtCar(item.type, { snap: item.snap !== false, manual: Number.isFinite(item.heading) });
       if (!point) return;
       if (format.pointTypes[item.type].gate) putAt(item, point);
@@ -273,14 +290,47 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       changed();
     },
     deleteSelected() {
-      if (state.selected < 0) return;
-      state.doc.items.splice(state.selected, 1);
+      const item = state.doc.items[state.selected];
+      if (!item) return;
+      // Repeats of a deleted gate would point at nothing.
+      const repeats = item.id ? state.doc.items.filter((it) => isPointRef(it) && it.ref === item.id) : [];
+      if (repeats.length && !window.confirm(`Delete this point and its ${repeats.length} repeat${repeats.length === 1 ? '' : 's'}?`)) return;
+      state.doc.items = state.doc.items.filter((it) => it !== item && !repeats.includes(it));
       state.selected = Math.min(state.selected, state.doc.items.length - 1);
       changed();
     },
+    /** The selected gate (or the one a selected repeat drives) again, right after the selection; gives it an ID if it has none. */
+    repeatSelected() {
+      const target = pointOf(state.doc.items[state.selected]);
+      if (!kind().pointRefs || !format.pointTypes[target?.type]?.gate) return;
+      target.id ||= freePointId(target.type);
+      insertItem({ type: 'pointRef', ref: target.id });
+      changed();
+    },
+    /** Renames the selected gate's ID, its repeats along; refused when taken, or when cleared while repeated. */
+    setPointId(value) {
+      const item = state.doc.items[state.selected];
+      if (!format.pointTypes[item?.type]?.gate) return;
+      const repeats = item.id ? state.doc.items.filter((it) => isPointRef(it) && it.ref === item.id) : [];
+      if (value && state.doc.items.some((it) => it !== item && it.id === value)) return setStatus(`Point ID "${value}" is already used`, true);
+      if (!value && repeats.length) return setStatus('A repeated point needs an ID', true);
+      if (value) item.id = value;
+      else delete item.id;
+      for (const ref of repeats) ref.ref = value;
+      state.status = { text: '', error: false };
+      changed();
+    },
+    /** Selected repeat: selects the gate it drives again. */
+    selectOriginal() {
+      const target = pointOf(state.doc.items[state.selected]);
+      if (target) editor.select(state.doc.items.indexOf(target));
+    },
+    /** The gate item i drives again (a repeat), or null. */
+    repeatTarget: (i) => (isPointRef(state.doc.items[i]) ? pointOf(state.doc.items[i]) : null),
+    repeatNumbers,
     goToSelected() {
-      const item = state.doc.items[state.selected] ?? state.doc.items.find((it) => it.type !== 'ref');
-      if (!item || item.type === 'ref') return;
+      const item = pointOf(state.doc.items[state.selected]) ?? state.doc.items.find(isPoint);
+      if (!item) return;
       addressSearch.teleport(item.lat, item.lon, format.pointTypes[item.type].label);
     },
 
@@ -412,7 +462,10 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
       state.doc.items.forEach((item, i) => {
         const def = format.pointTypes[item.type];
         if (!def || item.lat == null) return;
-        points.push({ lat: item.lat, lon: item.lon, color: def.color, label: String(i + 1), gate: !!def.gate, selected: i === state.selected });
+        // Repeats share the gate's icon, numbered with it.
+        const label = [i + 1, ...repeatNumbers(item)].join('·');
+        const selected = i === state.selected || editor.repeatTarget(state.selected) === item;
+        points.push({ lat: item.lat, lon: item.lon, color: def.color, label, gate: !!def.gate, selected });
       });
       const note = state.doc.pacenotes?.notes[state.selectedNote];
       if (note) points.push({ lat: note.lat, lon: note.lon, color: NOTE_COLOR, label: noteLabel(note), gate: false, selected: true });
@@ -432,7 +485,10 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
         let dir = frames.get(item);
         if (def.gate) {
           // Facing depends on the neighbours: recomputed when any of them moves.
-          const at = (it) => (isPoint(it) ? `${it.lat},${it.lon}` : '');
+          const at = (it) => {
+            const point = pointOf(it);
+            return point ? `${point.lat},${point.lon}` : '';
+          };
           const signature = `${at(item)},${item.heading},${item.snap}|${at(items[i - 1])}|${at(items[i + 1])}`;
           if (dir?.signature !== signature || (dir.failedAt != null && now - dir.failedAt > DIR_RETRY_MS)) {
             dir = { signature, ...(resolveFrame(i, x, z) ?? { failedAt: now }) };
@@ -454,8 +510,8 @@ export function createScenarioEditor({ format, scene, terrain, streets, viewFram
           gate: !!def.gate,
           width: item.width ?? 0,
           color: def.color,
-          label: `${i + 1} ${def.short}`,
-          selected: i === state.selected,
+          label: `${[i + 1, ...repeatNumbers(item)].join('·')} ${def.short}`,
+          selected: i === state.selected || editor.repeatTarget(state.selected) === item,
           x,
           y,
           z,

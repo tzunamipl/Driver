@@ -10,8 +10,12 @@ import { wheelSide } from '../lib/wheelContact.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
-/** initialFuel / initialTyres / initialHeat / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them. */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null }) {
+/**
+ * initialFuel / initialTyres / initialHeat / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
+ * repairOnReset false: a reset or teleport leaves the damage and worn tyres as they are.
+ * refillWhenEmpty false: an empty tank stays empty (no power) until refuelled.
+ */
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -59,6 +63,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
 
   function hookCar(nextVehicle, mesh) {
     carVehicleId = currentVehicleId;
+    if ('repairOnReset' in nextVehicle) nextVehicle.repairOnReset = repairOnReset;
+    if (nextVehicle.fuel) nextVehicle.fuel.refillWhenEmpty = refillWhenEmpty;
     if (nextVehicle.fuel && carriedFuel?.vehicleId === carVehicleId && Number.isFinite(carriedFuel.litres)) {
       nextVehicle.fuel.setLitres(carriedFuel.litres);
     }
@@ -236,11 +242,15 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     return list;
   }
 
-  /** Local body meshes + remote cars, for the contact shadows. */
+  /** Local + remote body and wheel meshes, for the contact shadows. */
   function getShadowCasters() {
-    const list = vehicle ? [...bodyMeshes] : [];
-    for (const remote of remotes.values()) list.push(remote.mesh);
-    return list;
+    const bodies = vehicle ? [...bodyMeshes] : [];
+    const wheels = vehicle ? [...wheelMeshes] : [];
+    for (const remote of remotes.values()) {
+      bodies.push(remote.mesh);
+      if (remote.wheelMeshes) wheels.push(...remote.wheelMeshes);
+    }
+    return { bodies, wheels };
   }
 
   function addScore(delta) {

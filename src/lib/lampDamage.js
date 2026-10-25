@@ -23,7 +23,12 @@ export function createLampDamage() {
     lamps[localX >= 0 ? 0 : 1] = true;
   }
 
-  function repair() {
+  /** Every lamp, or only `kind` ('head' | 'tail') on `side`. */
+  function repair(kind, side) {
+    if (kind) {
+      broken[kind][side] = false;
+      return;
+    }
     broken.head.fill(false);
     broken.tail.fill(false);
   }

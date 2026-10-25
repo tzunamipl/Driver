@@ -11,7 +11,7 @@ import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
 import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
-import { rallyFormat } from '../../lib/scenarios/rally.js';
+import { rallyFormat, resolvePointRefs } from '../../lib/scenarios/rally.js';
 import { filePath } from '../../lib/scenarios/paths.js';
 import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
@@ -64,7 +64,7 @@ async function buildPlan(kind, source, opened, key, json) {
   const rally = rallyKind.fromFile(json);
   const stages = new Map();
   const items = [];
-  for (const item of rally.items) {
+  for (const item of resolvePointRefs(rally.items)) {
     if (item.type === 'base') continue;
     if (item.type !== 'ref') {
       items.push({ type: 'point', point: item });
@@ -119,6 +119,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {string} deps.playerId - for the online leaderboard.
  * @param {() => string | null} deps.getPlayerName
  * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
+ * @param {() => void} [deps.onRepair] - sound when a spare wheel is fitted.
  * @param {(speed: number, spec: object) => void} [deps.onPropHit] - sound when the car knocks a flag / board / light over.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  * @param {() => number} [deps.getTimeOfDayMs] - simulated clock (epoch ms) for the control clocks.
@@ -126,7 +127,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
@@ -182,6 +183,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         getVehicle: () => carManager.getVehicle(),
         isEnabled: () => !!plan && !busy && !finished,
         getRun: () => run,
+        onRepair,
         onFitted(penaltyMs) {
           flash = { text: `Spare wheel fitted${penaltyMs ? `  +${formatTime(penaltyMs)}` : ''}`, until: simTime + SPLIT_SHOW_S };
           saveProgress();

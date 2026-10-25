@@ -7,6 +7,8 @@
 // Strike speed (m/s) a shock shrugs off, and the one that takes all its health in one hit.
 export const HIT_MIN_MS = 4.0;
 const HIT_FULL_MS = 11;
+// Damage grows with this power of the strike over HIT_MIN_MS, so light strikes barely wear.
+const HIT_CURVE = 3;
 // Share of the stock damping / spring rate left at 0 health.
 const DAMPING_FLOOR = 0.25;
 const SPRING_FLOOR = 0.7;
@@ -39,7 +41,7 @@ export function strikeShock(wheel, speed) {
     endShockStrike(wheel);
     return;
   }
-  const severity = clamp01((speed - HIT_MIN_MS) / (HIT_FULL_MS - HIT_MIN_MS));
+  const severity = clamp01((speed - HIT_MIN_MS) / (HIT_FULL_MS - HIT_MIN_MS)) ** HIT_CURVE;
   if (severity <= wheel.shockHitPeak) return;
   setShockHealth(wheel, wheel.shockHealth - (severity - wheel.shockHitPeak));
   wheel.shockHitPeak = severity;

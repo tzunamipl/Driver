@@ -3,7 +3,7 @@
 // running loss that grows with rpm, both scaled by engine.throttle. Off throttle
 // the injectors cut to the idle flow. The fuel's mass rides on the chassis body
 // on top of the descriptor's dry mass, with any cargo (spare wheels). Empty refills
-// to full for now.
+// to full unless `refillWhenEmpty` is off; then it stays dry (car.js cuts the power).
 
 const W_PER_HP = 745.7;
 const FUELS = {
@@ -40,6 +40,7 @@ export function createFuelTank(descriptor, chassisBody) {
   const tank = {
     capacityL,
     litres: capacityL,
+    refillWhenEmpty: true,
     get fraction() {
       return tank.litres / capacityL;
     },
@@ -85,7 +86,7 @@ export function createFuelTank(descriptor, chassisBody) {
     const runningLps = idleLps * Math.max(1, (engine.rpm / idleRpm) * throttle);
     const burnt = (engine.loadFraction * ratedW * litresPerJoule + runningLps) * dt;
     tank.litres -= burnt;
-    if (tank.litres <= 0) tank.litres = capacityL;
+    if (tank.litres <= 0) tank.litres = tank.refillWhenEmpty ? capacityL : 0;
     applyMass();
 
     current.litres += burnt;

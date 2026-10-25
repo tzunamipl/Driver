@@ -114,6 +114,7 @@ export function createMainLoop({
   isJoined,
   scenarioEditor,
   rallySession,
+  roadsideRepair,
 }) {
   let lastTime = performance.now();
   let accumulator = 0;
@@ -339,7 +340,8 @@ export function createMainLoop({
       damage: currentVehicle?.lamps?.broken,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
-    carShadows.update(carManager.getShadowCasters());
+    const shadowCasters = carManager.getShadowCasters();
+    carShadows.update(shadowCasters.bodies, shadowCasters.wheels);
     const debugVisualsEnabled = debugVisuals.isEnabled();
     terrainStatsHud.updateTerrainStats(frameDelta, {
       terrain,
@@ -457,6 +459,7 @@ export function createMainLoop({
     }
     scenarioEditor?.update();
     rallySession?.update(frameDelta);
+    roadsideRepair?.update();
     profiler.mark('misc');
 
     renderView();

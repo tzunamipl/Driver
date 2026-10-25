@@ -232,10 +232,17 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     URL.revokeObjectURL(link.href);
   }
 
-  function itemLabel(item) {
+  /** Point type of an item: its own, or for a repeat the type of the gate it drives again. */
+  const typeDef = (item, i) => format.pointTypes[item.type === 'pointRef' ? editor.repeatTarget(i)?.type : item.type];
+
+  function itemLabel(item, i) {
     if (item.type === 'ref') return `Stage: ${item.ref}${item.name ? ` (${item.name})` : ''}`;
+    if (item.type === 'pointRef') {
+      const target = editor.repeatTarget(i);
+      return target ? `↻ ${format.pointTypes[target.type].label} · ${item.ref} (${state.doc.items.indexOf(target) + 1})` : `↻ Missing point "${item.ref}"`;
+    }
     const def = format.pointTypes[item.type];
-    if (def.gate) return `${def.label} · ${item.width} m${Number.isFinite(item.heading) ? ` · ${Math.round(item.heading)}°` : ''}`;
+    if (def.gate) return `${def.label}${item.id ? ` · ${item.id}` : ''} · ${item.width} m${Number.isFinite(item.heading) ? ` · ${Math.round(item.heading)}°` : ''}`;
     return item.name ? `${def.label}: ${item.name}` : def.label;
   }
 
@@ -264,12 +271,36 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     return { input, row };
   }
 
+  const orderButtons = () => [
+    button('▲', () => editor.shiftSelected(-1), { title: 'Earlier' }),
+    button('▼', () => editor.shiftSelected(1), { title: 'Later' }),
+    button('Delete', () => editor.deleteSelected()),
+  ];
+
   function renderSelected(item) {
     dial = null;
     gateChecks = null;
     if (!item) return selectedEl.replaceChildren();
+    if (item.type === 'pointRef') {
+      const note = el('p', {
+        className: 'editor-note',
+        textContent: 'Drives the same gate again here. Its position, width and heading are edited on the original.',
+      });
+      return selectedEl.replaceChildren(
+        note,
+        el('div', { className: 'editor-buttons' }, [button('Select original', () => editor.selectOriginal()), button('Repeat', () => editor.repeatSelected()), ...orderButtons()])
+      );
+    }
     const fields = [];
     const isRef = item.type === 'ref';
+    const repeatable = !isRef && editor.kind().pointRefs && format.pointTypes[item.type].gate;
+    if (repeatable) {
+      const id = el('input', { type: 'text', value: item.id ?? '', placeholder: 'set by Repeat', spellcheck: false });
+      id.addEventListener('input', () => editor.setPointId(id.value.trim()));
+      const label = el('label', { textContent: 'Point ID' });
+      setTip(label, 'Point ID', 'Names this gate in the file so later itinerary entries can drive it again (Repeat). Lowercase letters, digits and dashes.');
+      fields.push(label, id);
+    }
     if (!isRef && format.pointTypes[item.type].gate) {
       const width = el('input', { type: 'number', min: 1, max: 60, step: 0.5, value: item.width });
       width.addEventListener('input', () => {
@@ -291,9 +322,8 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       ...fields,
       el('div', { className: 'editor-buttons' }, [
         ...(isRef ? [] : [button('Move to car', () => editor.moveSelectedToCar())]),
-        button('▲', () => editor.shiftSelected(-1), { title: 'Earlier' }),
-        button('▼', () => editor.shiftSelected(1), { title: 'Later' }),
-        button('Delete', () => editor.deleteSelected()),
+        ...(repeatable ? [button('Repeat', () => editor.repeatSelected(), { title: 'Drive this gate again: adds a linked copy after the selection' })] : []),
+        ...orderButtons(),
       ])
     );
   }
@@ -323,9 +353,10 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
 
     itemsEl.replaceChildren(
       ...state.doc.items.map((item, i) => {
-        const def = format.pointTypes[item.type];
-        const li = el('li', { textContent: itemLabel(item), onclick: () => editor.select(i) });
-        setTip(li, `${i + 1}. ${itemLabel(item)}`, def?.description ?? 'A stage driven at this point of the rally.');
+        const def = typeDef(item, i);
+        const li = el('li', { textContent: itemLabel(item, i), onclick: () => editor.select(i) });
+        const tip = item.type === 'pointRef' ? 'The same gate as the one numbered in brackets, driven again here.' : def?.description;
+        setTip(li, `${i + 1}. ${itemLabel(item, i)}`, tip ?? 'A stage driven at this point of the rally.');
         li.classList.toggle('selected', i === state.selected);
         if (def) li.style.setProperty('--editor-swatch', hex(def.color));
         return li;
