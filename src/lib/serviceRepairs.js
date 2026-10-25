@@ -9,6 +9,7 @@ import { getTyreCompound } from './tyres/compounds.js';
 import { repairPlan, applyRepair } from './partRepair.js';
 import { SPARE_FIT_PENALTY_MS } from './spareTyres.js';
 import { CAN_L, SUPPLY_KEYS, fullSupplies } from './supplies.js';
+import { RESERVE_FRACTION } from './fuel.js';
 
 export const SERVICE_ZONES = {
   service: { label: 'Service', budgetMin: 30, replace: true },
@@ -246,7 +247,7 @@ export function carParts(vehicle) {
       anchor: 'filler',
       actions: [
         ...(add >= 0.5 ? [{ kind: 'fix', label: `Add ${Math.round(add)} L`, minutes: TOP_UP_MIN, remote: true, apply: () => fuel.setLitres(fuel.litres + add) }] : []),
-        ...(fuel.fraction < GOOD ? [pourCan(vehicle, 'fuelL', room, (l) => fuel.setLitres(fuel.litres + l))].filter(Boolean) : []),
+        ...(fuel.fraction < RESERVE_FRACTION ? [pourCan(vehicle, 'fuelL', room, (l) => fuel.setLitres(fuel.litres + l))].filter(Boolean) : []),
       ],
     });
   }

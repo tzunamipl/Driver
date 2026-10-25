@@ -809,7 +809,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const phase = run?.state.phase;
     const pos = carPosition();
     if (!pacenoteRun || !pos || busy || (phase !== 'countdown' && phase !== 'running')) return null;
-    pacenoteRun.update(pos, phase === 'countdown');
+    const speed = carManager.getVehicle()?.chassisBody.velocity.length() ?? 0;
+    pacenoteRun.update(pos, phase === 'countdown', speed);
     return { pacenotes: currentItem().stage.pacenotes, indices: pacenoteRun.shown() };
   }
 

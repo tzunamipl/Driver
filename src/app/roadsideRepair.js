@@ -1,9 +1,10 @@
 // Free roam: with the car nearly stopped, a floating button points at each damaged part
 // (flat or worn tyre, worn shock, leaking radiator / low coolant, cracked sump / low oil,
-// broken lamp, worn gearbox, low fuel) and fixes that part on a click (app/partCallouts.js).
+// broken lamp, worn gearbox, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
 // Resets and teleports don't fix the car.
 
 import { createPartCallouts } from './partCallouts.js';
+import { RESERVE_FRACTION } from '../lib/fuel.js';
 
 // Tread below this offers a fresh tyre (the tyre service dialog's "Worn").
 const WORN_TREAD = 0.35;
@@ -12,7 +13,6 @@ const WORN_SHOCK = 0.95;
 const WORN_GEARBOX = 0.95;
 const LOW_COOLANT = 0.95;
 const LOW_OIL = 0.95;
-const LOW_FUEL = 0.125; // the low-fuel warning lamp's
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 
 const pct = (v) => `${Math.round(v * 100)}%`;
@@ -40,7 +40,7 @@ function damagedParts(vehicle) {
     parts.push({ label: leaking ? 'Fix sump' : 'Top up oil', note: `${leaking ? 'Leaking · ' : ''}oil ${pct(heat.oilLevel)}`, anchor: leaking ? 'under' : 'engine', fix: () => heat.repairSump() });
   }
   const fuel = vehicle.fuel;
-  if (fuel && fuel.fraction < LOW_FUEL) {
+  if (fuel && fuel.fraction < RESERVE_FRACTION) {
     parts.push({ label: 'Refuel', note: fuel.litres > 0 ? `Low · ${fuel.litres.toFixed(1)} L` : 'Empty', anchor: 'filler', fix: () => fuel.setLitres(fuel.capacityL) });
   }
   const lamps = vehicle.lamps;

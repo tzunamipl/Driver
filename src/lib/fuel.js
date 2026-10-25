@@ -11,6 +11,8 @@ const FUELS = {
   petrol: { density: 0.745, bsfc: 250 },
   diesel: { density: 0.832, bsfc: 210 },
 };
+// Below this tank fraction the gauge reads E and the field fixes offer fuel.
+export const RESERVE_FRACTION = 0.05;
 const DEFAULT_FUEL_TYPE = 'petrol';
 const DEFAULT_TANK_L = 50;
 // Idle flow (L/h) per rated kW when the descriptor sets no idleFuelLph.

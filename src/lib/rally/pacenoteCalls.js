@@ -1,7 +1,7 @@
 // Pacenote wording shared by the editor and the HUD. A note is { lat, lon, s, len, dir, grade,
 // junction, show, apex }: s / len = metres along the stage where the corner starts and how long it is,
 // dir 'L' | 'R' | 'S' (straight on at a junction, no grade), grade 1 (slowest) .. 6 (fastest),
-// show / apex = { lat, lon, s }: where the HUD starts and stops showing the note.
+// show / apex = { lat, lon, s }: a point before the corner and the apex, where the HUD stops showing the note.
 // What follows a note (distance, "into", "and") comes from the gap to the next one.
 
 export const DIRS = ['L', 'R', 'S'];

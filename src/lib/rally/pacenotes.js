@@ -2,7 +2,7 @@
 // smoothed, corners found where curvature stays up, each graded by an effective radius -
 // the tightest radius plus what cutting across the road's width gains over the corner's angle,
 // so shallow kinks come out fast. Junctions where the stage leaves the obvious road are marked.
-// Each note carries where the HUD shows it (SHOW_M before the corner) and hides it (its apex).
+// Each note carries a point SHOW_M before the corner and its apex (where the HUD hides it).
 // Note format: pacenoteCalls.js.
 
 import { localToLatLon, latLonToLocal } from '../geo.js';
@@ -24,7 +24,7 @@ const OBVIOUS_MAX = (60 * Math.PI) / 180; // a branch this far off straight on i
 const STRAIGHT_MAX = (25 * Math.PI) / 180; // taking a branch within this of straight on: 'Straight'
 const JUNCTION_CORNER_M = 20; // a corner this close to a junction gets its 'at junction'
 const JUNCTION_GRADE = 6; // a turn off at a junction with no corner of its own
-const SHOW_M = 100; // a note is shown this far along the road before its corner starts
+const SHOW_M = 100; // a note's show point is this far along the road before its corner starts
 const ADD_SNAP_M = 30; // an added note's spot (the car) this close to the stage road
 const ADD_LOOK_M = 60; // an added note's corner: the first one starting within this past the spot
 
