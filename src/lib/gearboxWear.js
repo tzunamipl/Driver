@@ -24,6 +24,7 @@ export function createGearboxWear() {
 
   const gearbox = {
     health: 1,
+    repairRecord: null, // lib/partRepair.js record, cleared by a new gearbox
     /** Multiplier on the stock shift time (and manual synchro time). */
     get shiftFactor() {
       return 1 + (SLOWEST_SHIFT_FACTOR - 1) * (1 - gearbox.health);
@@ -63,6 +64,7 @@ export function createGearboxWear() {
 
   function repair() {
     gearbox.health = 1;
+    gearbox.repairRecord = null;
     hitSeverity = 0;
   }
 

@@ -2,8 +2,8 @@
 // order. A stage item is a stageRun.js; a point item (service park, regroup, ...) is a
 // liaison checkpoint to drive through, routed by the Navigation tab. Teleport and
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
-// A flat tyre can be swapped for a carried spare once stopped (spareTyreFix.js), and a stopped
-// car can be inspected. Service points open a repair menu against a time budget per visit
+// Once stopped the crew can do field fixes (spare wheel, patches, the carried cans; fieldRepair.js),
+// at a penalty on a live stage, and the car can be inspected. Service points open a repair menu against a time budget per visit
 // (lib/serviceRepairs.js); going over it adds a late penalty to the rally total.
 // Progress (item, results, the live stage's clock and controls) lives in the game's save slot,
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
@@ -25,10 +25,11 @@ import { createPacenoteRun } from './pacenoteRun.js';
 import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { createZonePicking } from './zonePicking.js';
-import { createSpareTyreFix } from './spareTyreFix.js';
+import { createFieldRepair } from './fieldRepair.js';
 import { getVehicle, vehicleLabel } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
+import { fullSupplies } from '../../lib/supplies.js';
 import { sameTyreSetup } from '../../lib/tyres/setup.js';
 import { SERVICE_ZONES, latePenaltyMs } from '../../lib/serviceRepairs.js';
 
@@ -123,7 +124,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(opts?: {fitted?: boolean}) => void} [deps.onTyreService] - a tyre service point was passed (default: fresh tyres), or its props clicked ({ fitted: false }).
  * @param {() => void} [deps.onRefuel] - a refuel point was passed or its bowser clicked.
  * @param {(zone: object, usedMin: number) => Promise<number>} [deps.onService] - a service visit's menu (SERVICE_ZONES entry, minutes already spent): resolves with the minutes the repairs took.
- * @param {() => void} [deps.onInspect] - Inspect car (stopped).
+ * @param {(opts: { fieldFix: (action: object, part: object) => void, penaltyApplies: () => boolean }) => void} [deps.onInspect] - Inspect car (stopped), with its field fixes.
  * @param {(info: object) => void} [deps.onRallyInfo] - the base tents were clicked: ui/rallyInfoDialog.js open() data.
  * @param {HTMLCanvasElement} [deps.canvas] - with `camera`: service props answer the mouse (zonePicking.js).
  * @param {import('three').Camera} [deps.camera]
@@ -131,7 +132,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {string} deps.playerId - for the online leaderboard.
  * @param {() => string | null} deps.getPlayerName
  * @param {() => void} [deps.onSparkle] - sound when a control throws sparkles.
- * @param {() => void} [deps.onRepair] - sound when a spare wheel is fitted.
+ * @param {() => void} [deps.onRepair] - sound of a field fix.
  * @param {(speed: number, spec: object) => void} [deps.onPropHit] - sound when the car knocks a flag / board / light over.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  * @param {() => number} [deps.getTimeOfDayMs] - simulated clock (epoch ms) for the control clocks.
@@ -169,7 +170,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
-    inspect: () => onInspect?.(),
+    inspect: () => onInspect?.(fieldFix && plan && !finished ? { fieldFix: fieldFix.apply, penaltyApplies: fieldFix.penaltyApplies } : {}),
     restart: () => restartStage(),
     pick: () => choose(),
     newRally: () => choose(),
@@ -197,16 +198,16 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         },
       })
     : null;
-  const spareFix = canvas
-    ? createSpareTyreFix({
+  const fieldFix = canvas
+    ? createFieldRepair({
         canvas,
         camera,
         getVehicle: () => carManager.getVehicle(),
         isEnabled: () => !!plan && !busy && !finished,
         getRun: () => run,
         onRepair,
-        onFitted(penaltyMs) {
-          flash = { text: `Spare wheel fitted${penaltyMs ? `  +${formatTime(penaltyMs)}` : ''}`, until: simTime + SPLIT_SHOW_S };
+        onDone(text, penaltyMs) {
+          flash = { text: `${text} ✓${penaltyMs ? `  +${formatTime(penaltyMs)}` : ''}`, until: simTime + SPLIT_SHOW_S };
           saveProgress();
         },
       })
@@ -483,11 +484,12 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     routeToItem();
   }
 
-  /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares on board. */
+  /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares and full cans on board. */
   function newCar() {
     const vehicle = carManager.getVehicle();
     vehicle?.makeNew?.();
     vehicle?.setSpareTyres?.(getSpareTyres(getVehicleId()));
+    vehicle?.setSupplies?.(fullSupplies());
   }
 
   async function choose() {
@@ -837,7 +839,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     update(dt) {
       scenery.update(dt, carPosition());
       picking?.update();
-      spareFix?.update();
+      fieldFix?.update();
       const speed = carManager.getVehicle()?.chassisBody.velocity.length() ?? Infinity;
       stopped = !busy && speed < (stopped ? INSPECT_HIDE_SPEED : INSPECT_SHOW_SPEED);
       // A liaison item is its one point: index 0.

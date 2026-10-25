@@ -1,5 +1,5 @@
 // Floating repair buttons, each with a leader line down to its part on screen
-// (app/rally/spareTyreFix.js: the flat wheel; app/roadsideRepair.js: every damaged part).
+// (placed on the car by app/partCallouts.js).
 // Cards on the same side of the screen stack instead of overlapping.
 
 const SVG_NS = 'http://www.w3.org/2000/svg';

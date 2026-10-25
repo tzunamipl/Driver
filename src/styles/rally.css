@@ -266,6 +266,8 @@
 .service-inspect .tyre-setup-bar.poor { background: linear-gradient(90deg, #e03030 var(--fill), var(--empty) var(--fill)); }
 .service-inspect .menu-footer { justify-content: center; }
 .service-inspect .menu-footer button { color: #000; font-weight: bold; }
+.service-inspect .service-action { color: #000; font-weight: bold; }
+.service-inspect .tyre-service-hint { color: #ffd7a0; text-align: center; }
 /* Garage (ui/garageDialog.js): the rally picker's car row on its own. */
 .garage-window { width: min(720px, 100%); max-height: 100%; overflow-y: auto; }
 .garage-window .rally-car-pick .tyre-setup { margin-top: 6px; }

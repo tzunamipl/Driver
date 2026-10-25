@@ -22,6 +22,7 @@ export function initShock(wheel) {
   wheel.stockDampingRelaxation = wheel.dampingRelaxation;
   wheel.shockHitPeak = 0; // hardest severity of the current strike episode
   wheel.shockStrikeMax = 0; // debug HUD: hardest strike speed (m/s) since it last read it
+  wheel.shockRepair = null; // lib/partRepair.js record, cleared by a new shock
   setShockHealth(wheel, 1);
 }
 
@@ -54,5 +55,6 @@ export function endShockStrike(wheel) {
 
 export function repairShock(wheel) {
   wheel.shockHitPeak = 0;
+  wheel.shockRepair = null;
   setShockHealth(wheel, 1);
 }

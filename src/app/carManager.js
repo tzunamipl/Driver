@@ -42,7 +42,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }], spares? }
   let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
-  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health }
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, repairs: car.js getRepairState(), supplies }
   let carVehicleId = null; // vehicle id the current car was built as
 
   function getFuelState() {
@@ -54,7 +54,9 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   }
 
   function getDamageState() {
-    return vehicle?.lamps ? { vehicleId: carVehicleId, shocks: vehicle.getShockState(), lamps: vehicle.lamps.getState(), gearbox: vehicle.engine.gearbox.getState() } : null;
+    if (!vehicle?.lamps) return null;
+    const { getShockState, lamps, engine, getRepairState, supplies } = vehicle;
+    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), repairs: getRepairState(), supplies };
   }
 
   function getTyreState() {
@@ -85,6 +87,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       nextVehicle.setShockState(carriedDamage.shocks);
       nextVehicle.lamps.setState(carriedDamage.lamps);
       nextVehicle.engine.gearbox.setState(carriedDamage.gearbox);
+      nextVehicle.setRepairState(carriedDamage.repairs);
+      nextVehicle.setSupplies(carriedDamage.supplies);
     }
     nextVehicle.onTyrePop = (i) => {
       tyrePopSound?.play(wheelSide(nextVehicle.wheelInfos[i]));
@@ -95,6 +99,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       if (body === nextVehicle.chassisBody && nextVehicle.heat && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
         const hit = endImpact(body, event.contact);
         if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
+        if (hit.under) nextVehicle.heat.hitSump(hit.speed);
         nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
         nextVehicle.engine.gearbox.hit(hit.speed);
       }

@@ -52,7 +52,7 @@ const LAMPS = [
     svg: '<path d="M5 10v6M5 13h3M8 9h4l2-2h5v2h3l2 2h2v-2h2v9h-2v-2h-2l-2 3H11l-3-3z"/><path d="M14 4h7M17.5 4v3"/>',
   },
   {
-    id: 'oil', title: 'Oil pressure', color: 'red', has: hasEngine,
+    id: 'oil', title: 'Oil pressure', color: 'red', has: hasEngine, on: (v) => !!v.heat?.oilWarning,
     svg: '<path d="M4 10l4 1 3-2h7l9-3-7 10H11l-3-3-4-1z"/><path d="M27.5 13v2.5"/>',
   },
   {

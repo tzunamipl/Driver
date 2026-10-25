@@ -659,20 +659,20 @@ async function onRefuel() {
   if (add && carManager.getVehicle() === vehicle) vehicle.fuel.setLitres(vehicle.fuel.litres + add);
 }
 // Service points / a click on their props: repairs picked against the visit's time budget.
-// Inspect car (stopped): the same list, read only.
+// Inspect car (stopped): the same list with the field fixes.
 const serviceDialog = isRallyGame ? createServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
 async function onService(zone, usedMin) {
   const vehicle = carManager.getVehicle();
   if (!vehicle) return 0;
-  const actions = await serviceDialog.open(carParts(vehicle), { zone, usedMin });
+  const actions = await serviceDialog.open(() => carParts(vehicle), { zone, usedMin });
   if (carManager.getVehicle() !== vehicle || !actions.length) return 0;
   for (const action of actions) action.apply();
   repairTool.play();
   return actions.reduce((sum, a) => sum + a.minutes, 0);
 }
-function onInspect() {
+function onInspect({ fieldFix, penaltyApplies } = {}) {
   const vehicle = carManager.getVehicle();
-  if (vehicle) serviceDialog.open(carParts(vehicle));
+  if (vehicle) serviceDialog.open(() => carParts(vehicle), { fieldFix, penaltyApplies });
 }
 // A click on the rally base's tents.
 const rallyInfoDialog = isRallyGame ? createRallyInfoDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;

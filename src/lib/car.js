@@ -40,6 +40,8 @@ import { applyTyreSetup } from './tyres/setup.js';
 import { getTyreCompound } from './tyres/compounds.js';
 import { repairTyre } from './tyres.js';
 import { SPARE_TYRE_KG, clampSpareTyres } from './spareTyres.js';
+import { emptySupplies, readSupplies, suppliesKg } from './supplies.js';
+import { readRepairRecord } from './partRepair.js';
 
 export { CHASSIS_MATERIAL, createNameTag };
 
@@ -285,9 +287,15 @@ export function createCar(
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
   Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.powerFactor : 0) });
   vehicle.spareTyres = 0; // rally only (lib/spareTyres.js); their mass rides with the fuel
+  vehicle.supplies = emptySupplies(); // rally cans (lib/supplies.js), mass with the spares
+  const updateCargo = () => vehicle.fuel.setCargoKg(vehicle.spareTyres * SPARE_TYRE_KG + suppliesKg(vehicle.supplies));
   vehicle.setSpareTyres = (n) => {
     vehicle.spareTyres = clampSpareTyres(n);
-    vehicle.fuel.setCargoKg(vehicle.spareTyres * SPARE_TYRE_KG);
+    updateCargo();
+  };
+  vehicle.setSupplies = (supplies) => {
+    vehicle.supplies = readSupplies(supplies);
+    updateCargo();
   };
   /** Swaps a spare (fresh, same tyre) in for wheel i's flat; false without one. */
   vehicle.fitSpareTyre = (i) => {
@@ -299,7 +307,22 @@ export function createCar(
   };
   vehicle.repairOnReset = true; // off: resets and teleports keep the damage (carManager)
   vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
-  /** Fixed radiator (topped up), fresh shocks, working lamps, mended gearbox. */
+  /** Partial repair records (lib/partRepair.js) of every part, for the save. */
+  vehicle.getRepairState = () => ({
+    shocks: vehicle.wheelInfos.map((w) => w.shockRepair),
+    gearbox: vehicle.engine.gearbox.repairRecord,
+    radiator: vehicle.heat.radiatorRepair,
+    sump: vehicle.heat.sumpRepair,
+  });
+  vehicle.setRepairState = (state) => {
+    if (Array.isArray(state?.shocks) && state.shocks.length === vehicle.wheelInfos.length) {
+      state.shocks.forEach((r, i) => (vehicle.wheelInfos[i].shockRepair = readRepairRecord(r)));
+    }
+    vehicle.engine.gearbox.repairRecord = readRepairRecord(state?.gearbox);
+    vehicle.heat.radiatorRepair = readRepairRecord(state?.radiator);
+    vehicle.heat.sumpRepair = readRepairRecord(state?.sump);
+  };
+  /** New radiator and sump (topped up), fresh shocks, working lamps, mended gearbox. */
   vehicle.repairDamage = () => {
     vehicle.heat.repair();
     vehicle.repairShocks();
