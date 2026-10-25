@@ -259,8 +259,6 @@
 #vehicle-debug-color {
   margin-top: 6px;
 }
-/* Compact: no traits table in the narrow panel. */
-#vehicle-debug-tyres .tyre-setup-traits { display: none; }
 /* Ground surface under the mouse (hud/surfaceHover.js). */
 #surface-hover,
 #road-bed-inspect {

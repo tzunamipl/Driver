@@ -166,8 +166,6 @@
 .tyre-service-removed,
 .tyre-service-choice { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .tyre-service-choice .tyre-setup { margin-top: 4px; }
-.tyre-service-window .tyre-setup-traits { font-size: 13px; gap: 2px 8px; }
-.tyre-service-window .tyre-setup-traits .tyre-setup-bar { height: 8px; }
 .tyre-service-window .tyre-setup-val { min-width: 44px; }
 .tyre-service-window .tyre-setup-size { font-size: 12px; }
 .tyre-service-sub { margin-bottom: 4px; color: #444; font-size: 12px; }

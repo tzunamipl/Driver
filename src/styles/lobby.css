@@ -68,7 +68,7 @@
   margin: 4px 0 0;
   white-space: nowrap;
 }
-/* Tyre widget (ui/tyreSetupPicker.js): type, size selects, size + Stock, traits. */
+/* Tyre widget (ui/tyreSetupPicker.js): type, size selects, size + Stock. */
 .tyre-setup[hidden] { display: none; }
 .tyre-setup { margin: 8px 0 0; }
 .tyre-setup-title { font-weight: bold; margin-bottom: 4px; }
@@ -97,20 +97,6 @@
 }
 .tyre-setup-size { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tyre-setup-stock { flex: none; min-width: 60px; }
-.tyre-setup-traits {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 1px 6px;
-  margin: 4px 0 0;
-  font-size: 10px;
-}
-.tyre-setup-traits dt { margin: 0; }
-.tyre-setup-traits dd {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-}
 .tyre-setup-bar {
   flex: 1;
   height: 6px;
