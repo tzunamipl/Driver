@@ -458,7 +458,15 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       // Builders put +x away from the road: turned round on the left side.
       const s = def.propsLeft ? -1 : 1;
       const q = side(frame.x, frame.z, s * (halfSpan + PROPS_GAP_M));
-      const propsObject = anchor(bakeProps(def.props()), q.x, q.z, s * dirX, s * dirZ);
+      const built = def.props();
+      const propsObject = anchor(bakeProps(built), q.x, q.z, s * dirX, s * dirZ);
+      const cos = Math.cos(propsObject.yaw);
+      const sin = Math.sin(propsObject.yaw);
+      for (const part of built.userData.loose ?? []) {
+        const { x: lx, z: lz } = part.position;
+        part.position.x = part.position.z = 0;
+        objects.push(anchor(bakeProps(part), q.x + lx * cos + lz * sin, q.z - lx * sin + lz * cos, s * dirX, s * dirZ));
+      }
       if (def.action) {
         propsObject.action = def.action;
         propsObject.pointIndex = entry.index;

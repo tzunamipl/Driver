@@ -2,6 +2,7 @@
 // tyre stacks, barriers, cones, chairs. Each builder returns a Group in the control's frame:
 // local +z faces back along travel, local +x points away from the road. Visual only.
 // bakeProps merges a set into one vertex-coloured, shadow-casting mesh, like the roadside kinds.
+// Parts spread far along the road go in userData.loose instead: each is placed on the terrain under it.
 
 import { BoxGeometry, BufferAttribute, ConeGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -276,7 +277,8 @@ export function makeServiceGate() {
   boom.position.set(0.3, 1.0, 0);
   boom.rotation.x = -Math.PI / 12;
   group.add(boom);
-  for (let i = 0; i < 5; i++) group.add(cone(0.1, 1.5 + i * 1.6), cone(0.1, -1.5 - i * 1.6));
+  group.userData.loose = [];
+  for (let i = 0; i < 5; i++) group.userData.loose.push(cone(0.1, 1.5 + i * 1.6), cone(0.1, -1.5 - i * 1.6));
   return group;
 }
 
