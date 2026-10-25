@@ -18,7 +18,7 @@ import { latLonToLocal } from './geo.js';
 import { createTrigger, launchDebris, settleDebris } from './knockable.js';
 import { ROADSIDE_DRAW_DISTANCE_M } from '../config.js';
 
-export const ROADSIDE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary']);
+export const ROADSIDE_CLASSES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary']);
 const SKIP_BRUNNELS = new Set(['bridge', 'tunnel']); // not on the terrain surface
 
 /** True if roadside objects go along this segment's road (class and on the terrain). */
