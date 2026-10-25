@@ -5,10 +5,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { localToLatLon } from './geo.js';
-import { edgeSpots, builtUpReady } from './roadPosts.js';
+import { edgeSpots, builtUpReady, EDGE_OFFSET_M } from './roadPosts.js';
 import { GUARD_RAIL_DROP_M, GUARD_RAIL_DROP_DISTANCE_M } from '../config.js';
 
-const EDGE_OFFSET_M = -0.8; // from the stripe edge; negative = inside the road, where the posts stand
 const SECTION_LENGTH_M = 4;
 const SECTION_SPACING_M = 16; // centre to centre, so a gap of spacing - length between sections
 const POST_XS = [-1, 1]; // posts every 2 m along the rail

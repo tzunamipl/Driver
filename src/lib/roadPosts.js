@@ -11,7 +11,7 @@ import { hairpinSpans } from './roadSigns.js';
 import { createDropOffCheck } from './guardRails.js';
 import { ROAD_POST_SPACING_M, ROAD_POST_HAIRPIN_DENSITY } from '../config.js';
 
-const EDGE_OFFSET_M = 0.55; // outside the stripe edge; negative = inside the road
+export const EDGE_OFFSET_M = 0.55; // outside the stripe edge; negative = inside the road
 const JUNCTION_CHECK_M = 0.1; // just past the edge: another road there drops the post, wherever it stands
 const POST_HEIGHT_M = 1;
 const POST_WIDTH_M = 0.12;
