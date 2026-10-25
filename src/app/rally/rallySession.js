@@ -2,7 +2,9 @@
 // order. A stage item is a stageRun.js; a point item (service park, regroup, ...) is a
 // liaison checkpoint to drive through, routed by the Navigation tab. Teleport and
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
-// A flat tyre can be swapped for a carried spare once stopped (spareTyreFix.js).
+// A flat tyre can be swapped for a carried spare once stopped (spareTyreFix.js), and a stopped
+// car can be inspected. Service points open a repair menu against a time budget per visit
+// (lib/serviceRepairs.js); going over it adds a late penalty to the rally total.
 // Progress (item, results, the live stage's clock and controls) lives in the game's save slot,
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
@@ -28,6 +30,7 @@ import { getVehicle, vehicleLabel } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
 import { sameTyreSetup } from '../../lib/tyres/setup.js';
+import { SERVICE_ZONES, latePenaltyMs } from '../../lib/serviceRepairs.js';
 
 const SPAWN_BACK_M = 120; // spawn this far before a stage's first point, along the road
 const SPAWN_DROP_M = 1.5;
@@ -44,6 +47,9 @@ const STAGE_DONE_SHOW_S = 10; // rally: a finished stage's time + world rank ove
 const GO_SHOW_S = 1.5;
 const NEAR_ZONE_M = 80;
 const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the car state
+// m/s: Inspect car shows once this slow, kept until faster than the second.
+const INSPECT_SHOW_SPEED = 0.8;
+const INSPECT_HIDE_SPEED = 1.5;
 
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
@@ -113,6 +119,8 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {() => void} deps.parkCar - pulls the handbrake once the car is placed at a stage.
  * @param {(opts?: {fitted?: boolean}) => void} [deps.onTyreService] - a tyre service point was passed (default: fresh tyres), or its props clicked ({ fitted: false }).
  * @param {() => void} [deps.onRefuel] - a refuel point was passed or its bowser clicked.
+ * @param {(zone: object, usedMin: number) => Promise<number>} [deps.onService] - a service visit's menu (SERVICE_ZONES entry, minutes already spent): resolves with the minutes the repairs took.
+ * @param {() => void} [deps.onInspect] - Inspect car (stopped).
  * @param {HTMLCanvasElement} [deps.canvas] - with `camera`: service props answer the mouse (zonePicking.js).
  * @param {import('three').Camera} [deps.camera]
  * @param {boolean} deps.keepsProgress - false: nothing but the car pick survives a reload.
@@ -127,12 +135,15 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu }) {
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
   const rocking = createCarRocking();
   let plan = null;
   let itemIndex = 0;
   let results = []; // { name, ms | null (DNF) }
+  let services = {}; // item index -> { usedMin, penaltyMs }: service visits so far
+  let serviceOpen = false;
+  let stopped = false; // slow enough to inspect the car
   let run = null;
   let pacenoteRun = null; // the current stage's, when it has pacenotes
   let finished = false;
@@ -154,6 +165,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
 
   const hud = createRallyHud({
     retire: () => run?.retire(),
+    inspect: () => onInspect?.(),
     restart: () => restartStage(),
     pick: () => choose(),
     newRally: () => choose(),
@@ -173,7 +185,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         scenery,
         getVehicle: () => carManager.getVehicle(),
         isEnabled: () => !!plan && !busy && !isLive(),
-        onAction: (action) => (action === 'tyres' ? onTyreService?.({ fitted: false }) : onRefuel?.()),
+        onAction: (action, picked) => {
+          if (action === 'tyres') onTyreService?.({ fitted: false });
+          else if (action === 'refuel') onRefuel?.();
+          else serviceAtProps(picked.index);
+        },
       })
     : null;
   const spareFix = canvas
@@ -200,7 +216,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     writeSaveField('status', plan ? progressStatus() : null);
     writeSaveField('done', !!plan && finished);
     if (!plan) return writeSaveField('rallyProgress', null);
-    writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, run: finished ? null : run?.snapshot() ?? null });
+    writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, services, run: finished ? null : run?.snapshot() ?? null });
   }
 
   /** Where the game stands, for the main menu's mode card. */
@@ -209,7 +225,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const stages = plan.items.filter((i) => i.type === 'stage').length;
     if (finished) {
       const dnf = results.some((r) => r.ms == null);
-      return `${head}\nFinished · ${dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0))}`;
+      return `${head}\nFinished · ${dnf ? 'DNF' : formatTime(rallyTotalMs())}`;
     }
     const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
     const item = currentItem();
@@ -217,6 +233,61 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const { phase } = run.state;
     const where = phase === 'running' ? `${formatTime(run.elapsedMs())} on the clock` : phase === 'afterFinish' ? 'past the finish' : 'before the start';
     return `${head}\nSS${ss}/${stages} ${item.stage.name} · ${where}`;
+  }
+
+  const servicePenaltyMs = () => Object.values(services).reduce((sum, v) => sum + (v.penaltyMs ?? 0), 0);
+  /** Stage times plus late-from-service penalties. */
+  const rallyTotalMs = () => results.reduce((sum, r) => sum + r.ms, 0) + servicePenaltyMs();
+  const serviceZone = (item) => (item?.type === 'point' ? SERVICE_ZONES[rallyFormat.pointTypes[item.point.type]?.service] ?? null : null);
+
+  /** Service visit at itinerary item i: the repair menu against what's left of its budget. */
+  async function openService(i) {
+    const zone = serviceZone(plan.items[i]);
+    if (!zone || !onService || serviceOpen) return;
+    serviceOpen = true;
+    const forPlan = plan;
+    try {
+      const before = services[i] ?? { usedMin: 0, penaltyMs: 0 };
+      const minutes = await onService(zone, before.usedMin);
+      if (!minutes || plan !== forPlan) return;
+      const usedMin = before.usedMin + minutes;
+      const penaltyMs = latePenaltyMs(usedMin, zone.budgetMin);
+      services = { ...services, [i]: { usedMin, penaltyMs } };
+      const extra = penaltyMs - before.penaltyMs;
+      flash = { text: `${zone.label}: ${minutes} min${extra ? `  late +${formatTime(extra)}` : ''}`, until: simTime + SPLIT_SHOW_S };
+      resultRows = null;
+      saveProgress();
+    } finally {
+      serviceOpen = false;
+    }
+  }
+
+  /**
+   * Service props clicked (point `flatIndex` of the plan): the latest visit to that spot, checking
+   * in first when it is the current item. A spot not reached yet has no visit.
+   */
+  function serviceAtProps(flatIndex) {
+    let n = 0;
+    const at = plan?.items.findIndex((item) => (n += itemPoints(item).length) > flatIndex) ?? -1;
+    const point = at >= 0 ? plan.items[at].point : null;
+    if (!point) return;
+    const same = (item) => item.type === 'point' && item.point.type === point.type && item.point.lat === point.lat && item.point.lon === point.lon;
+    for (let i = Math.min(itemIndex, plan.items.length) - 1; i >= 0; i--) {
+      if (same(plan.items[i])) return openService(i);
+    }
+    if (!finished && same(currentItem())) return checkIn(currentItem());
+    flash = { text: `${pointLabel(point.type)} opens when you reach it`, until: simTime + SPLIT_SHOW_S };
+  }
+
+  /** A liaison point reached: its service, if any, then on to the next item. */
+  function checkIn(item) {
+    const pointType = rallyFormat.pointTypes[item.point.type];
+    flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
+    if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
+    if (pointType?.refuel) refuelWaitM = 0;
+    const i = itemIndex;
+    itemDone(null);
+    if (pointType?.service) openService(i);
   }
 
   function carPosition() {
@@ -383,8 +454,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
    * @param {'teleport' | 'place' | null} spawn - how to bring the car to the item, if at all.
    * @param {object | null} [savedRun] - the current stage's run as saved.
    */
-  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null) {
+  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null, savedServices = {}) {
     plan = newPlan;
+    services = Object.fromEntries(Object.entries(savedServices ?? {}).filter(([i]) => Number(i) < index));
     scenery.setPoints(plan.items.flatMap(itemPoints));
     scenery.setBase(plan.base);
     itemIndex = index;
@@ -438,7 +510,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     try {
       // Single stage: a fresh run; rally: the current stage again.
       const index = plan.kind === 'stage' ? 0 : itemIndex;
-      await startPlan(plan, index, plan.kind === 'stage' ? [] : results);
+      await startPlan(plan, index, plan.kind === 'stage' ? [] : results, 'teleport', null, services);
       if (plan.kind === 'stage') newCar();
     } finally {
       busy = false;
@@ -467,7 +539,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       status,
       next: next && dist != null && state.phase !== 'countdown' ? `Next: ${pointLabel(next.type)} · ${Math.round(dist)} m` : '',
       penaltyMs: run.penaltyMs(),
-      buttons: run.isLive() ? ['retire'] : [],
+      buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(run.isLive() ? ['retire'] : [])],
     };
   }
 
@@ -487,7 +559,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         else if (r?.ms != null) rows.push(['Your best', 'New best!']);
       } else {
         const dnf = results.some((r) => r.ms == null);
-        rows.push(['Rally time', dnf ? 'DNF' : formatTime(results.reduce((sum, r) => sum + r.ms, 0)), 'total']);
+        const late = servicePenaltyMs();
+        if (late) rows.push(['Late from service', `+${formatTime(late)}`]);
+        rows.push(['Rally time', dnf ? 'DNF' : formatTime(rallyTotalMs()), 'total']);
       }
       rows.push(...worldRows());
       resultRows = rows;
@@ -537,7 +611,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     plan.items.forEach((item, i) => {
       const state = itemState(i);
       if (item.type !== 'stage') {
-        rows.push({ label: pointLabel(item.point.type), state });
+        const visit = services[i];
+        const value = !visit ? '' : visit.penaltyMs ? `+${formatTime(visit.penaltyMs)}` : `${visit.usedMin} min`;
+        rows.push({ label: pointLabel(item.point.type), value, state });
         return;
       }
       // Results hold one entry per stage driven, in itinerary order.
@@ -572,7 +648,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   }
 
   function syncProgress() {
-    const key = plan ? `${itemIndex}|${run?.state.next}|${finished}|${results.length}` : '';
+    const key = plan ? `${itemIndex}|${run?.state.next}|${finished}|${results.length}|${JSON.stringify(services)}` : '';
     if (shownProgress && key === shownProgress.key && plan === shownProgress.plan) return;
     shownProgress = { key, plan };
     planHud.render(plan?.kind === 'rally' ? planView() : null);
@@ -593,6 +669,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       title: plan.name,
       status: flash && simTime < flash.until ? flash.text : liaisonStatus(item.point.type, dist),
       next: dist == null ? '' : `${pointLabel(item.point.type)} · ${dist} m`,
+      buttons: stopped && onInspect ? ['inspect'] : [],
     };
   }
 
@@ -641,7 +718,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         if (!json) throw new Error(`${progress.id} is gone from ${progress.source}`);
         const saved = await buildPlan(progress.kind, progress.source, opened, progress.id, json);
         // The car resumes where it was saved (lib/carState.js), so it needs no spawn.
-        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], null, progress.run ?? null);
+        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], null, progress.run ?? null, progress.services);
         resumed = true;
       } catch (err) {
         console.warn('Rally: could not resume', err);
@@ -687,12 +764,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         const done = pointType?.stop
           ? dist < LIAISON_STOP_ZONE_M && carManager.getVehicle().chassisBody.velocity.length() < LIAISON_STOP_SPEED
           : dist < gate?.halfWidth + LIAISON_PASS_PAD_M;
-        if (done) {
-          flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
-          if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
-          if (pointType?.refuel) refuelWaitM = 0;
-          itemDone(null);
-        }
+        if (done) checkIn(item);
       }
       prev.x = step.x;
       prev.z = step.z;
@@ -703,6 +775,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       scenery.update(dt, carPosition());
       picking?.update();
       spareFix?.update();
+      const speed = carManager.getVehicle()?.chassisBody.velocity.length() ?? Infinity;
+      stopped = !busy && speed < (stopped ? INSPECT_HIDE_SPEED : INSPECT_SHOW_SPEED);
       // A liaison item is its one point: index 0.
       const next = run ? (run.state.phase !== 'done' && run.state.phase !== 'retired' ? run.state.next : -1) : plan && !finished && currentItem() ? 0 : -1;
       scenery.setNext(next);

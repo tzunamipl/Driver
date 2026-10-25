@@ -288,6 +288,20 @@ export function makeRegroupProps() {
   return group;
 }
 
+/** Service park bay: a big team awning over a workbench and tool chest, jack, spare wheels and cones. */
+export function makeServiceProps() {
+  const group = new Group();
+  const awning = popUpTent(5, mat.red, mat.white);
+  awning.position.x = 2.8;
+  group.add(awning);
+  group.add(box(2.0, 0.9, 0.7, mat.steel, 4.6, 0.45, 0)); // workbench
+  group.add(box(0.7, 1.1, 0.5, mat.red, 4.6, 0.55, 1.7), box(0.6, 0.45, 0.35, mat.black, 4.6, 1.33, -1.6)); // tool chest, toolbox
+  group.add(box(0.8, 0.15, 0.3, mat.steel, 1.6, 0.075, 0.9), box(0.1, 0.12, 0.25, mat.black, 1.25, 0.2, 0.9)); // trolley jack
+  group.add(uprightTyre(3.4, 2.0), uprightTyre(3.4, 2.25), uprightTyre(3.8, 2.0), tyreStack(3.8, -2.0, 3));
+  group.add(cone(0.4, -2.6), cone(0.4, 2.6));
+  return group;
+}
+
 /** Remote service: canopy over a toolbox, a jack and two spare tyres. */
 export function makeRemoteServiceProps() {
   const group = new Group();

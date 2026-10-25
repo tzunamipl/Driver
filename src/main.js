@@ -124,6 +124,8 @@ import { createRallyPicker } from './ui/rallyPicker.js';
 import { createTyreServiceDialog } from './ui/tyreServiceDialog.js';
 import { createRoadsideRepair } from './app/roadsideRepair.js';
 import { createRefuelDialog } from './ui/refuelDialog.js';
+import { createServiceDialog } from './ui/serviceDialog.js';
+import { carParts } from './lib/serviceRepairs.js';
 import { createGarageDialog } from './ui/garageDialog.js';
 import { sameTyreSetup } from './lib/tyres/setup.js';
 import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
@@ -505,9 +507,6 @@ const shots = createShots({
 const horn = createHorn();
 const jump = createJump({ world });
 const fireAndJump = !isEditorSession() && getGameMode(getActiveModeId())?.fireAndJump === true;
-if (!fireAndJump) {
-  for (const code of ['KeyJ', 'KeyF']) document.querySelector(`#touch-controls button[data-code="${code}"]`)?.remove();
-}
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
@@ -652,6 +651,22 @@ async function onRefuel() {
   const add = await refuelDialog.open({ litres: vehicle.fuel.litres, capacityL: vehicle.fuel.capacityL, fuelType: getVehicleDescriptor(carManager.getVehicleId()).fuelType });
   if (add && carManager.getVehicle() === vehicle) vehicle.fuel.setLitres(vehicle.fuel.litres + add);
 }
+// Service points / a click on their props: repairs picked against the visit's time budget.
+// Inspect car (stopped): the same list, read only.
+const serviceDialog = isRallyGame ? createServiceDialog({ onOpen: () => menuPark.onOpen(), onClose: () => menuPark.onClose({ releaseHandbrake: true }) }) : null;
+async function onService(zone, usedMin) {
+  const vehicle = carManager.getVehicle();
+  if (!vehicle) return 0;
+  const actions = await serviceDialog.open(carParts(vehicle), { zone, usedMin });
+  if (carManager.getVehicle() !== vehicle || !actions.length) return 0;
+  for (const action of actions) action.apply();
+  repairTool.play();
+  return actions.reduce((sum, a) => sum + a.minutes, 0);
+}
+function onInspect() {
+  const vehicle = carManager.getVehicle();
+  if (vehicle) serviceDialog.open(carParts(vehicle));
+}
 const rallySession =
   getActiveModeId() === 'rally' && !isEditorSession()
     ? createRallySession({
@@ -670,6 +685,8 @@ const rallySession =
         parkCar: input.latchHandbrake,
         onTyreService,
         onRefuel,
+        onService,
+        onInspect,
         canvas: renderer.domElement,
         camera,
         keepsProgress,

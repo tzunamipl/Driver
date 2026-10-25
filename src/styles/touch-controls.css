@@ -34,19 +34,9 @@
   flex-direction: column;
   gap: 10px;
 }
-.touch-actions-main {
-  display: flex;
-  gap: 10px;
-}
 .touch-actions button {
   width: 88px;
   height: 72px;
-}
-#touch-controls button[data-code="KeyJ"] {
-  box-shadow: inset 0 calc(var(--charge, 0) * -72px) 0 rgba(0, 0, 128, 0.55), var(--w95-raised);
-}
-#touch-controls button[data-code="KeyJ"]:active {
-  box-shadow: inset 0 calc(var(--charge, 0) * -72px) 0 rgba(0, 0, 128, 0.55), var(--w95-pressed);
 }
 @media (pointer: coarse), (max-width: 800px) {
   #touch-controls { display: block; }

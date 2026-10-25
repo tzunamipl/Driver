@@ -6,7 +6,7 @@
 // repositioned every frame, so teleports and origin shifts need nothing special.
 // Flags, board posts and start lights knock over like road posts (knockable.js) and stand
 // again once the car is far from where they fell; nothing else collides. Props with an
-// `action` (tyre fitting, refuel) answer pickAction() and take a hover outline.
+// `action` (tyre fitting, refuel, service) answer pickAction() and take a hover outline.
 
 import {
   BackSide,
@@ -81,7 +81,7 @@ const OUTLINE_FAR = 0xffffff; // the car has to come closer
 // in colour only while it's the next point to pass, grey otherwise;
 // props: zoneProps.js builder set beside the road (right of travel, or left with propsLeft);
 // clock: time-of-day clock on the marshal tent's table ('table'), else on the start lights or the props-side red board ('pole');
-// action: the props can be clicked for this service ('tyres' | 'refuel').
+// action: the props can be clicked for this service ('tyres' | 'refuel' | 'service' | 'remoteService').
 const SCENERY = {
   timeControl: { boards: 'clock', props: props.makeMarshalTent, propsLeft: true, clock: 'table' },
   start: { arch: 'START', archColor: '#1d4fd8', lights: true, line: true, props: props.makeTimingHut, propsLeft: true, clock: 'pole' },
@@ -94,7 +94,8 @@ const SCENERY = {
   regroup: { boards: 'clock', props: props.makeRegroupProps, clock: 'pole' },
   refuel: { boards: 'FUEL', bothWays: true, props: props.makeRefuelProps, action: 'refuel' },
   tyreFitting: { boards: 'TYRES', bothWays: true, props: props.makeTyreProps, action: 'tyres' },
-  remoteService: { boards: 'RSZ', props: props.makeRemoteServiceProps },
+  service: { boards: 'SERVICE', bothWays: true, props: props.makeServiceProps, action: 'service' },
+  remoteService: { boards: 'RSZ', bothWays: true, props: props.makeRemoteServiceProps, action: 'remoteService' },
   parcFerme: { boards: 'PARC FERMÉ', props: props.makeParcFermeProps },
   podium: { arch: 'PODIUM', archColor: '#c08a10', line: true, props: props.makePodiumProps },
   base: { props: props.makeBaseTent, propsLeft: true },
@@ -458,7 +459,10 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       const s = def.propsLeft ? -1 : 1;
       const q = side(frame.x, frame.z, s * (halfSpan + PROPS_GAP_M));
       const propsObject = anchor(bakeProps(def.props()), q.x, q.z, s * dirX, s * dirZ);
-      if (def.action) propsObject.action = def.action;
+      if (def.action) {
+        propsObject.action = def.action;
+        propsObject.pointIndex = entry.index;
+      }
       objects.push(propsObject);
       if (def.clock === 'table') {
         // Same frame as the props; approaching cars are at local +z on the right side, -z on the left.
@@ -561,14 +565,14 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
 
   return {
     /**
-     * The nearest clickable props under the ray: { action, x, z } (props position), or null.
+     * The nearest clickable props under the ray: { action, x, z (props position), index (its point in setPoints order, none for the base) }, or null.
      * @param {import('three').Raycaster} raycaster
      */
     pickAction(raycaster) {
       const objects = actionObjects();
       const hit = raycaster.intersectObjects(objects.map((o) => o.group), false)[0];
       const object = hit && objects.find((o) => o.group === hit.object);
-      return object ? { action: object.action, x: object.group.position.x, z: object.group.position.z, object } : null;
+      return object ? { action: object.action, x: object.group.position.x, z: object.group.position.z, index: object.pointIndex, object } : null;
     },
 
     /** Outlines a pickAction() result's props: state 'ready' | 'far', or none for null. */

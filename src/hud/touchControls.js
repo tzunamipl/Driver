@@ -1,8 +1,8 @@
 // On-screen hold buttons for a phone. They share the keyboard set, so gas
-// is W, steer is A/D, and shoot is F (including the shot cooldown).
+// is W and steer is A/D.
 
 export function setupTouchControls(keys) {
-  // A finger on "Gas" or "Shoot" would otherwise select that label and
+  // A finger on "Gas" would otherwise select that label and
   // the selection handles steal the rest of the touch. Typing fields stay
   // selectable.
   document.addEventListener('selectstart', (event) => {

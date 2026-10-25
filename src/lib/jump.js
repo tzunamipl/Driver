@@ -7,7 +7,6 @@ import { JUMP_CHARGE_S, JUMP_MIN_SPEED, JUMP_MAX_SPEED } from '../config.js';
 // ground, so a hold in the air does not become a second jump.
 
 export function createJump({ world }) {
-  const button = document.querySelector('#touch-controls button[data-code="KeyJ"]');
   let charge = 0;
   let wasHeld = false;
 
@@ -29,7 +28,6 @@ export function createJump({ world }) {
     }
     if (!held) charge = 0;
     wasHeld = held;
-    if (button) button.style.setProperty('--charge', held ? String(charge) : '0');
     return charge;
   }
 

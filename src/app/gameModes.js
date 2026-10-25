@@ -4,7 +4,7 @@
 // "Resume <name>"; other starts keep nothing but `keepOnNewGame` fields and start over after a reload.
 // `keepOnNewGame`: save fields a new game keeps (e.g. the last picked car).
 // `cameraView`: camera view until the player picks one (C), else the global default.
-// `fireAndJump`: F shoots and J jumps (touch buttons too); off unless set.
+// `fireAndJump`: F shoots and J jumps (keyboard only); off unless set.
 // `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
 // `editor`: the mode gets an Editor button; `editorAvailable` enables it (needs a format in lib/scenarios/formats.js).
 

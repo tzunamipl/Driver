@@ -20,6 +20,7 @@ const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
 // stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; refuel: passing it offers fuel;
+// service: passing it opens that lib/serviceRepairs.js SERVICE_ZONES repair menu;
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
   timeControl: {
@@ -70,9 +71,13 @@ const POINT_TYPES = {
     label: 'Tyre fitting', short: 'TYRES', color: 0x404040, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, stop: true, tyres: true,
     description: 'Liaison checkpoint at a tyre fitting zone: stop in its zone (15 m), from either direction, then drive on.',
   },
+  service: {
+    label: 'Service', short: 'SERVICE', color: 0x00b0c0, gate: true, defaultWidth: NARROW_GATE_WIDTH_M, stop: true, service: 'service',
+    description: 'Service bay in the service park (between SP IN and SP OUT): stop in its zone (15 m), from either direction, and repair the car within a 30 min time budget; going over costs 10 s per started minute.',
+  },
   remoteService: {
-    label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true,
-    description: 'Liaison checkpoint at a remote service zone away from the base: drive through it.',
+    label: 'Remote service', short: 'RSZ', color: 0x008a70, gate: true, stop: true, service: 'remoteService',
+    description: 'Remote service zone away from the base: stop in its zone (15 m), from either direction, and let the small crew fix the car within a 15 min time budget (no new parts); going over costs 10 s per started minute.',
   },
   parcFerme: {
     label: 'Parc fermé', short: 'PARC', color: 0xf0f0f0, gate: true,
@@ -85,7 +90,7 @@ const POINT_TYPES = {
 };
 
 const STAGE_POINTS = ['timeControl', 'start', 'split', 'passageControl', 'finish', 'stop'];
-const RALLY_POINTS = ['base', 'serviceParkIn', 'serviceParkOut', 'regroup', 'refuel', 'tyreFitting', 'remoteService', 'parcFerme', 'podium'];
+const RALLY_POINTS = ['base', 'serviceParkIn', 'service', 'serviceParkOut', 'regroup', 'refuel', 'tyreFitting', 'remoteService', 'parcFerme', 'podium'];
 
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
