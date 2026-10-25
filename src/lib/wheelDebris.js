@@ -20,16 +20,16 @@ const SAND = [0xc2a66b, 0xb09460];
 
 // perM = bits per metre of patch slip; leaf = share that are flat bits; size = chunk size range (m).
 const SURFACE_DEBRIS = {
-  normal: { perM: 3, leaf: 0.65, leafColors: GRASS, chunkColors: SOIL, size: [0.03, 0.07] },
-  forest: { perM: 3.5, leaf: 0.8, leafColors: LEAVES, chunkColors: DARK_SOIL, size: [0.03, 0.07] },
-  scrub: { perM: 2.5, leaf: 0.55, leafColors: SCRUB, chunkColors: SOIL, size: [0.03, 0.06] },
-  unpaved: { perM: 3, leaf: 0, chunkColors: GRAVEL, size: [0.015, 0.04] },
-  rock: { perM: 2, leaf: 0, chunkColors: STONE, size: [0.02, 0.06] },
-  sand: { perM: 1.5, leaf: 0, chunkColors: SAND, size: [0.02, 0.05] },
+  normal: { perM: 1.2, leaf: 0.65, leafColors: GRASS, chunkColors: SOIL, size: [0.03, 0.07] },
+  forest: { perM: 1.4, leaf: 0.8, leafColors: LEAVES, chunkColors: DARK_SOIL, size: [0.03, 0.07] },
+  scrub: { perM: 1, leaf: 0.55, leafColors: SCRUB, chunkColors: SOIL, size: [0.03, 0.06] },
+  unpaved: { perM: 1.2, leaf: 0, chunkColors: GRAVEL, size: [0.015, 0.04] },
+  rock: { perM: 0.8, leaf: 0, chunkColors: STONE, size: [0.02, 0.06] },
+  sand: { perM: 0.6, leaf: 0, chunkColors: SAND, size: [0.02, 0.05] },
 };
 
-const MIN_SLIP_SPEED = 1.5; // m/s
-const MAX_PER_S = 90; // per wheel
+const MIN_SLIP_SPEED = 2; // m/s
+const MAX_PER_S = 35; // per wheel
 const THROW_FRACTION = [0.35, 0.8]; // share of the patch slip velocity a bit leaves with
 const MAX_THROW_SPEED = 12;
 const SPREAD = 1.5; // m/s random sideways scatter
