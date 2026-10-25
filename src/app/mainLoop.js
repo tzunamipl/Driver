@@ -76,6 +76,7 @@ export function createMainLoop({
   jump,
   splash,
   waterImmersion,
+  carDirtEnabled,
   tireSmoke,
   exhaustFlames,
   coolantSteam,
@@ -340,6 +341,7 @@ export function createMainLoop({
       damage: currentVehicle?.lamps?.broken,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
+    if (currentChassisMesh) streets.setSurfaceCenter(currentChassisMesh.position.x, currentChassisMesh.position.z);
     const shadowCasters = carManager.getShadowCasters();
     carShadows.update(shadowCasters.bodies, shadowCasters.wheels);
     const debugVisualsEnabled = debugVisuals.isEnabled();
@@ -381,6 +383,7 @@ export function createMainLoop({
     }
     // Water depth for the next physics steps' hull drag + visual sink (next frame's syncMeshes).
     waterImmersion.update(frameDelta, currentVehicle);
+    currentVehicle?.bodyDirt?.update(frameDelta, currentVehicle, carDirtEnabled());
     suspensionHud.updateSuspensionHud(currentVehicle, debugVisualsEnabled, scoring.isLanded(), world, {
       streets,
       waterAreas,

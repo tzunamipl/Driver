@@ -24,6 +24,7 @@ import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
 import { createGameplaySettings } from './ui/gameplaySettings.js';
+import { createGraphicsToggles } from './ui/graphicsToggles.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
 import { createWaterWadeSound } from './lib/audio/waterWade.js';
@@ -180,6 +181,7 @@ try {
 createVolumeSliders();
 const graphicsDetailPicker = createGraphicsDetailPicker();
 const gameplaySettings = createGameplaySettings();
+const graphicsToggles = createGraphicsToggles();
 // Picks the game mode, and so the save slot everything below resumes from.
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();
@@ -366,6 +368,10 @@ const debugVisuals = createDebugVisualsToggle(
     layersHudEl: document.getElementById('debug-layers-hud'),
     roadside,
     directionSignHud,
+    settingToggles: [
+      { label: 'Road surface (Settings)', toggle: graphicsToggles.roadSurface },
+      { label: 'Car dirt (Settings)', toggle: graphicsToggles.carDirt },
+    ],
   },
   IS_DEV_MODE
 );
@@ -790,6 +796,7 @@ const mainLoop = createMainLoop({
   jump,
   splash,
   waterImmersion,
+  carDirtEnabled: graphicsToggles.carDirt.get,
   tireSmoke,
   exhaustFlames,
   coolantSteam,
@@ -831,6 +838,7 @@ const mainLoop = createMainLoop({
   roadsideRepair: isFreeRoam ? createRoadsideRepair({ canvas: renderer.domElement, camera, getVehicle: () => carManager.getVehicle(), onRepair: repairTool.play }) : null,
 });
 graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
+graphicsToggles.bind({ streets });
 
 function startLoopOnce() {
   if (loopStarted) return;

@@ -43,7 +43,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }], spares? }
   let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
-  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, repairs: car.js getRepairState(), supplies }
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level }
   let carVehicleId = null; // vehicle id the current car was built as
 
   function getFuelState() {
@@ -57,7 +57,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   function getDamageState() {
     if (!vehicle?.lamps) return null;
     const { getShockState, lamps, engine, getRepairState, supplies } = vehicle;
-    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), repairs: getRepairState(), supplies };
+    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), repairs: getRepairState(), supplies, dirt: vehicle.bodyDirt.getState() };
   }
 
   function getTyreState() {
@@ -90,6 +90,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       nextVehicle.engine.gearbox.setState(carriedDamage.gearbox);
       nextVehicle.setRepairState(carriedDamage.repairs);
       nextVehicle.setSupplies(carriedDamage.supplies);
+      nextVehicle.bodyDirt.setState(carriedDamage.dirt);
     }
     if (noDamage) nextVehicle.setNoDamage?.();
     nextVehicle.onTyrePop = (i) => {

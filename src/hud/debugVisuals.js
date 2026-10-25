@@ -13,6 +13,7 @@ const LAYERS = [
   { id: 'hitboxes', label: 'Hitboxes', group: 'debug' },
   { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
   { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height; dots = moved vertices (legend)
+  { id: 'roadPolygons', label: 'Road polygons', group: 'debug', on: false }, // triangles of the road stripes (grip / road surface view)
   { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
   { id: 'dissolve', label: 'Teleport dissolve', group: 'debug', on: false }, // on teleport, tiles, buildings & near trees burst into particles
   // Gameplay objects, not overlays: shown while the debug view is off.
@@ -98,6 +99,8 @@ function saveEnabled(enabled) {
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
  * @param {ReturnType<import('../lib/roadside.js').createRoadside>} [deps.roadside]
  * @param {ReturnType<import('./directionSignHud.js').createDirectionSignHud>} [deps.directionSignHud]
+ * @param {{ label: string, toggle: { get(): boolean, set(on: boolean): void, onChange(fn: (on: boolean) => void): void } }[]} [deps.settingToggles]
+ *   Settings checkboxes mirrored in the Graphics group (saved by Settings, not with the layers).
  * @param {boolean} initialEnabled - default when nothing is saved: on in dev, off in prod
  */
 export function createDebugVisualsToggle(
@@ -125,6 +128,7 @@ export function createDebugVisualsToggle(
     layersHudEl,
     roadside,
     directionSignHud,
+    settingToggles = [],
   },
   initialEnabled
 ) {
@@ -155,7 +159,10 @@ export function createDebugVisualsToggle(
     if (roadside) for (const group of ROADSIDE_GROUPS) roadside.setGroupVisible(group, kept(group));
     if (directionSignHud) directionSignHud.setEnabled(kept('directionSignHud'));
     buildings.setHitboxesVisible(shown('hitboxes'));
-    if (streets) streets.setVisible(shown('roads'));
+    if (streets) {
+      streets.setVisible(shown('roads'));
+      streets.setPolygonsVisible(shown('roadPolygons'));
+    }
     if (rivers) rivers.setVisible(shown('water'));
     if (waterAreas) waterAreas.setVisible(shown('water'));
     if (builtUpAreas) builtUpAreas.setVisible(shown('builtUp'));
@@ -202,11 +209,27 @@ export function createDebugVisualsToggle(
         row.append(box, label);
         grid.append(row);
       }
+      if (group.id === 'graphics') for (const setting of settingToggles) grid.append(settingRow(setting));
       if (group.id === 'debug') {
         roadProfileLegend = buildRoadProfileLegend();
         list.append(roadProfileLegend);
       }
     }
+  }
+
+  function settingRow({ label, toggle }) {
+    const row = document.createElement('label');
+    row.className = 'debug-layer';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = toggle.get();
+    box.addEventListener('change', () => {
+      toggle.set(box.checked);
+      box.blur(); // keep keyboard driving working after a click
+    });
+    toggle.onChange((on) => (box.checked = on));
+    row.append(box, label);
+    return row;
   }
 
   function buildRoadProfileLegend() {
