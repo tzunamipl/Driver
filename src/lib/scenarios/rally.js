@@ -1,7 +1,8 @@
 // Rally scenario files (format in the scenarios repo README): stages are ordered gates
 // (plus optional pacenotes, lib/rally/pacenoteCalls.js),
 // rallies are a base plus an itinerary of gates, stage references (stage file keys,
-// lib/scenarios/paths.js) and point references ({ point: id } = the gate with that `id` again).
+// lib/scenarios/paths.js) and point references ({ point: id } = the gate with that `id` again;
+// a repeated parc fermé can carry its own `nextStart`).
 // Either can carry course `objects` (hay bales, tapes, warning signs: lib/rally/courseProps.js).
 // Both sit in a country / region-or-theme folder. Also the editor's
 // definition for the mode: file kinds, point types and their fields.
@@ -167,16 +168,18 @@ const readObjects = (json) => (Array.isArray(json.objects) ? json.objects.map(re
 
 const isPointRef = (item) => item?.type === 'pointRef';
 
-/** Rally items with each point reference replaced by a copy of its gate; throws on an unknown id. */
+/** Rally items with each point reference replaced by a copy of its gate (own `nextStart` wins); throws on an unknown id. */
 export function resolvePointRefs(items) {
   const byId = new Map(items.filter((item) => item.id && POINT_TYPES[item.type]?.gate).map((item) => [item.id, item]));
   return items.map((item) => {
     if (!isPointRef(item)) return item;
     const target = byId.get(item.ref);
     if (!target) throw new Error(`Point "${item.ref}" is not in this rally`);
-    return { ...target };
+    return { ...target, ...(POINT_TYPES[target.type].endsDay && parseClockTime(item.nextStart) != null ? { nextStart: item.nextStart.trim() } : {}) };
   });
 }
+
+const writePointRef = ({ ref, nextStart }) => ({ point: ref, ...(parseClockTime(nextStart) != null ? { nextStart: nextStart.trim() } : {}) });
 
 const isRoutePoint = (p) => Number.isFinite(p?.lat) && Number.isFinite(p.lon) && Number.isFinite(p.s);
 const readRoutePoint = (p) => ({ lat: p.lat, lon: p.lon, s: p.s });
@@ -281,7 +284,7 @@ export const rallyFormat = {
           itinerary: doc.items
             .filter((item) => item.type !== 'base')
             .map((item) =>
-              item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : isPointRef(item) ? { point: item.ref } : gate(item)
+              item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : isPointRef(item) ? writePointRef(item) : gate(item)
             ),
           ...writeObjects(doc.objects),
         };
@@ -293,7 +296,7 @@ export const rallyFormat = {
         }
         for (const entry of json.itinerary ?? []) {
           if (typeof entry?.stage === 'string') items.push({ type: 'ref', ref: entry.stage, name: entry.name ?? '' });
-          else if (typeof entry?.point === 'string') items.push({ type: 'pointRef', ref: entry.point });
+          else if (typeof entry?.point === 'string') items.push({ type: 'pointRef', ref: entry.point, ...(parseClockTime(entry.nextStart) != null ? { nextStart: entry.nextStart } : {}) });
           else {
             const point = readGate(entry);
             if (point) items.push(point);
@@ -307,7 +310,7 @@ export const rallyFormat = {
         if (!doc.items.some((item) => item.type === 'ref')) problems.push('A rally needs at least one stage');
         if (doc.startTime?.trim() && parseClockTime(doc.startTime) == null) problems.push('Start time: HH:MM, e.g. 08:00');
         for (const item of doc.items) {
-          if (item.nextStart?.trim() && parseClockTime(item.nextStart) == null) problems.push(`${POINT_TYPES[item.type]?.label}: next day start HH:MM, e.g. 08:30`);
+          if (item.nextStart?.trim() && parseClockTime(item.nextStart) == null) problems.push(`${POINT_TYPES[item.type]?.label ?? `Repeat of "${item.ref}"`}: next day start HH:MM, e.g. 08:30`);
         }
         const ids = new Set();
         for (const item of doc.items) {

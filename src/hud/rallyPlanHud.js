@@ -9,6 +9,9 @@ const MARKS = { done: '✓', current: '▶' };
 export function createRallyPlanHud() {
   const root = document.getElementById('rally-plan');
   const toggle = Object.assign(el('button', 'rally-plan-title'), { type: 'button' });
+  const name = el('span', 'rally-plan-name');
+  const clock = el('span', 'rally-plan-clock');
+  toggle.append(name, clock);
   const list = el('div', 'rally-plan-list');
   root.append(toggle, list);
   if (window.matchMedia(NARROW).matches) root.classList.add('collapsed');
@@ -22,7 +25,7 @@ export function createRallyPlanHud() {
     render(view) {
       root.hidden = !view;
       if (!view) return;
-      toggle.textContent = view.title;
+      name.textContent = view.title;
       list.replaceChildren(
         ...view.rows.map(({ label, value, state }) => {
           const row = el('div', `rally-plan-row${state ? ` ${state}` : ''}`);
@@ -33,6 +36,12 @@ export function createRallyPlanHud() {
       // Keep the current row in view.
       const current = list.querySelector('.current');
       if (current) list.scrollTop = current.offsetTop - list.clientHeight / 2;
+    },
+
+    /** @param {string} text - rally clock, e.g. 'Day 2 · 14:35'; '' hides it. Cheap to call every frame. */
+    setClock(text) {
+      if (clock.textContent !== text) clock.textContent = text;
+      clock.hidden = !text;
     },
   };
 }

@@ -3,6 +3,7 @@
 // country and region / theme. Folders load when first opened. Shared by the rally picker and the editor.
 
 import { listSources, openListed } from '../lib/scenarios/catalog.js';
+import { formatSource } from '../lib/scenarios/source.js';
 import { filePath, indexPath, splitKey, slugLabel } from '../lib/scenarios/paths.js';
 
 function el(tag, props = {}, children = []) {
@@ -20,11 +21,23 @@ const note = (text) => el('p', { className: 'scenario-tree-note', textContent: t
  * @param {(pick: {source: object, opened: object, kindId: string, key: string, json: object}) => void} opts.onPick
  * @param {(pick: object) => void} [opts.onActivate] - double-click, same argument as onPick.
  * @param {() => string | null} [opts.ownBranch] - player's branch: opened instead of Official when listed.
+ * @param {{source: string, kindId: string, key: string} | null} [opts.initialFile] - file to open the folders down to
+ *   and pick (source as 'owner/repo@branch'); skipped when gone or something else was picked first.
  * @returns {{el: HTMLElement, reload: () => void}}
  */
-export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranch = () => null }) {
+export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranch = () => null, initialFile = null }) {
   const root = el('div', { className: 'scenario-tree' });
   let selectedButton = null;
+  const isInitialSource = (listed) => !!initialFile && formatSource(listed.source) === initialFile.source;
+
+  function restore(button) {
+    if (selectedButton) return;
+    for (let node = button.parentElement; node && node !== root; node = node.parentElement) {
+      if (node.tagName === 'DETAILS') node.open = true;
+    }
+    button.click();
+    button.scrollIntoView({ block: 'nearest' });
+  }
 
   function fileButton(listed, opened, kind, key) {
     const { id } = splitKey(key);
@@ -43,6 +56,7 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranc
           onPick(picked);
         };
         if (onActivate) button.ondblclick = () => onActivate(picked);
+        if (isInitialSource(listed) && initialFile.kindId === kind.id && initialFile.key === key) restore(button);
       },
       () => {}
     );
@@ -119,8 +133,8 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranc
       const sources = await listSources();
       const branch = ownBranch();
       const own = sources.find((s) => !s.official && s.source.ref === branch);
-      const official = sources.filter((s) => s.official).map((s) => sourceNode(s, !own));
-      const players = sources.filter((s) => !s.official).map((s) => sourceNode(s, s === own));
+      const official = sources.filter((s) => s.official).map((s) => sourceNode(s, !own || isInitialSource(s)));
+      const players = sources.filter((s) => !s.official).map((s) => sourceNode(s, s === own || isInitialSource(s)));
       const playersBody = el('div', { className: 'scenario-tree-body' }, players.length ? players : [note('No player scenarios yet')]);
       root.replaceChildren(...official, el('details', { open: !!own }, [el('summary', { textContent: 'Players' }), playersBody]));
     } catch (err) {

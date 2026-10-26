@@ -1,4 +1,4 @@
-// Rally info (a click on the rally base's tents): conditions, then the itinerary with stage
+// Rally info (a click on the rally base's tents): conditions, the rally's forecast, then the itinerary with stage
 // lengths, splits, your best and this run's times / service visits, and the totals so far. Read only.
 
 import { longDistanceUnit } from '../lib/units.js';
@@ -36,7 +36,8 @@ export function createRallyInfoDialog({ onOpen, onClose } = {}) {
 
   return {
     /**
-     * @param {{title: string, vehicle: string, conditions: [string, string][], rows: {state: string, label: string, km: string,
+     * @param {{title: string, vehicle: string, conditions: [string, string][],
+     *   forecast: {state: string, label: string, sky: string, temp: string, rain: string, wind: string}[], rows: {state: string, label: string, km: string,
      *   splits: string, best: string, value: string}[], totals: [string, string][]}} info
      */
     open(info) {
@@ -50,6 +51,14 @@ export function createRallyInfoDialog({ onOpen, onClose } = {}) {
       );
       const totals = table(['Totals', ''], info.totals.map((cells) => ({ cells })));
       const scroll = el('div', 'rally-info-scroll');
+      if (info.forecast.length) {
+        scroll.append(
+          table(
+            ['', 'Forecast', 'Sky', 'Temp', 'Rain', 'Wind'],
+            info.forecast.map((f) => ({ cells: [MARKS[f.state] ?? '', f.label, f.sky, f.temp, f.rain, f.wind], className: f.state }))
+          )
+        );
+      }
       scroll.append(itinerary, totals);
       const footer = el('div', 'menu-footer');
       footer.append(Object.assign(el('button', '', 'Close'), { type: 'button', onclick: close }));

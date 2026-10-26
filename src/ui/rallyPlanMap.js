@@ -19,6 +19,8 @@ const INSET_ZOOM = 2;
 const INSET_W = 128;
 const INSET_H = 96;
 const INSET_MARGIN = 6;
+// The plan fits right of the world inset, unless that leaves it narrower than this.
+const MIN_PLAN_W = 160;
 
 const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
@@ -147,9 +149,13 @@ export function createRallyPlanMap() {
     };
     for (const w of waypoints) add(toMercX(w.lon), toMercY(w.lat));
     if (route) for (let i = 0; i < route.mx.length; i++) add(route.mx[i], route.my[i]);
-    const span = Math.max((maxX - minX) / Math.max(1, widthCss - 2 * FIT_PAD_PX), (maxY - minY) / Math.max(1, heightCss - 2 * FIT_PAD_PX));
+    const besideInset = INSET_MARGIN * 2 + INSET_W;
+    const padLeft = widthCss - besideInset - FIT_PAD_PX >= MIN_PLAN_W ? besideInset : FIT_PAD_PX;
+    const fitW = widthCss - padLeft - FIT_PAD_PX;
+    const span = Math.max((maxX - minX) / Math.max(1, fitW), (maxY - minY) / Math.max(1, heightCss - 2 * FIT_PAD_PX));
     const zoom = span > 0 ? Math.floor(Math.log2(1 / (span * TILE_SIZE))) : MAX_ZOOM;
-    return { zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+    // screenX: where the plan's centre sits, mid-way across the free area.
+    return { zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, screenX: padLeft + fitW / 2 };
   }
 
   function strokeLine(points, ss) {
@@ -279,9 +285,9 @@ export function createRallyPlanMap() {
     ctx.fillRect(0, 0, widthCss, heightCss);
     if (!waypoints.length) return;
 
-    const { zoom, cx, cy } = fit();
+    const { zoom, cx, cy, screenX } = fit();
     const world = TILE_SIZE * 2 ** zoom;
-    const left = cx * world - widthCss / 2;
+    const left = cx * world - screenX;
     const top = cy * world - heightCss / 2;
     const x0 = Math.floor(left / TILE_SIZE);
     const y0 = Math.floor(top / TILE_SIZE);

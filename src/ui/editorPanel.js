@@ -306,6 +306,15 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     button('Delete', () => editor.deleteSelected()),
   ];
 
+  /** Parc fermé `nextStart` label + input; repeats have their own. */
+  function nextStartFields(item, placeholder, emptyTip) {
+    const nextStart = el('input', { type: 'text', value: item.nextStart ?? '', placeholder, spellcheck: false });
+    nextStart.addEventListener('input', () => editor.setField('nextStart', nextStart.value.trim()));
+    const label = el('label', { textContent: 'Next day start' });
+    setTip(label, 'Next day start', `Local time (HH:MM) the next rally day starts at after this parc fermé. ${emptyTip}`);
+    return [label, nextStart];
+  }
+
   function renderSelected(item) {
     dial = null;
     gateChecks = null;
@@ -315,8 +324,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
         className: 'editor-note',
         textContent: 'Drives the same gate again here. Its position, width and heading are edited on the original.',
       });
+      const original = editor.repeatTarget(state.selected);
+      const fields = format.pointTypes[original?.type]?.endsDay ? nextStartFields(item, original.nextStart || state.doc.startTime || editor.kind().startTime, 'Empty: the original\'s time.') : [];
       return selectedEl.replaceChildren(
         note,
+        ...fields,
         el('div', { className: 'editor-buttons' }, [button('Select original', () => editor.selectOriginal()), button('Repeat', () => editor.repeatSelected()), ...orderButtons()])
       );
     }
@@ -342,13 +354,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       gateChecks = { snap: snap.input, road: road.input };
       dial = createHeadingDial((degrees) => editor.setHeading(degrees));
       fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row])]));
-      if (format.pointTypes[item.type].endsDay) {
-        const nextStart = el('input', { type: 'text', value: item.nextStart ?? '', placeholder: state.doc.startTime || editor.kind().startTime, spellcheck: false });
-        nextStart.addEventListener('input', () => editor.setField('nextStart', nextStart.value.trim()));
-        const label = el('label', { textContent: 'Next day start' });
-        setTip(label, 'Next day start', 'Local time (HH:MM) the next rally day starts at after this parc fermé. Empty: the rally start time.');
-        fields.push(label, nextStart);
-      }
+      if (format.pointTypes[item.type].endsDay) fields.push(...nextStartFields(item, state.doc.startTime || editor.kind().startTime, 'Empty: the rally start time.'));
     } else {
       const name = el('input', { type: 'text', value: item.name ?? '', placeholder: isRef ? 'Name for this pass (optional)' : 'Name' });
       name.addEventListener('input', () => editor.setField('name', name.value));

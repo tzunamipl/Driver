@@ -85,7 +85,8 @@
 #rally-plan[hidden] { display: none; }
 .rally-plan-title {
   pointer-events: auto;
-  display: block;
+  display: flex;
+  gap: 8px;
   width: 100%;
   margin: 0 0 4px;
   padding: 0 6px;
@@ -95,9 +96,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rally-plan-title::before { content: '▾ '; }
+.rally-plan-title::before { content: '▾'; }
+.rally-plan-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rally-plan-clock { flex: 0 0 auto; font-family: monospace; }
 #rally-plan.collapsed .rally-plan-title { margin-bottom: 0; }
-#rally-plan.collapsed .rally-plan-title::before { content: '▸ '; }
+#rally-plan.collapsed .rally-plan-title::before { content: '▸'; }
 #rally-plan.collapsed .rally-plan-list { display: none; }
 .rally-plan-list {
   position: relative;

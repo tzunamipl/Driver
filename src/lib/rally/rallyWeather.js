@@ -117,6 +117,19 @@ function toSnapshots(hourly, offsetSec) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+/** Short sky wording for a snapshot (sampleWeather shape): the WMO code, else the cloud cover. */
+export function skyLabel({ code, cover }) {
+  if (code >= 95) return 'Thunderstorm';
+  if (code >= 85) return 'Snow showers';
+  if (code >= 80) return 'Showers';
+  if (code >= 71) return 'Snow';
+  if (code >= 61) return 'Rain';
+  if (code >= 56) return 'Freezing drizzle';
+  if (code >= 51) return 'Drizzle';
+  if (code >= 45) return 'Fog';
+  return cover.total < 20 ? 'Clear' : cover.total < 60 ? 'Partly cloudy' : cover.total < 90 ? 'Cloudy' : 'Overcast';
+}
+
 /** Weather at `ms` between the snapshots (held at the ends), or null without any. */
 export function sampleWeather(snapshots, ms) {
   if (!snapshots?.length) return null;

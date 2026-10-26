@@ -154,6 +154,21 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
       return state.day;
     },
 
+    /**
+     * Rally forecast snapshots from day 1 to day `days` (or today, if later), each with its rally `day`
+     * and `state`: 'done' (passed), 'current' (the one in force now) or ''. Empty for a single stage or offline.
+     */
+    forecast(days) {
+      if (state?.kind !== 'rally') return [];
+      const lastDay = Math.max(days, state.day);
+      const rows = state.snapshots
+        .map((s) => ({ ...s, day: Math.floor((s.ms - state.firstDayMs) / MS_PER_DAY) + 1, state: '' }))
+        .filter((s) => s.day >= 1 && s.day <= lastDay);
+      const now = rows.findLastIndex((s) => s.ms <= state.timeMs);
+      rows.forEach((s, i) => (s.state = i < now ? 'done' : i === now ? 'current' : ''));
+      return rows;
+    },
+
     getDay: () => state?.day ?? 1,
     isRunning: () => !!state,
     /**

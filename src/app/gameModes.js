@@ -2,7 +2,7 @@
 // `starts`: kinds of game in place of the single "Start new"/"Continue", each with its own save slot
 // (`available: false` greys one out). The menu labels them "New <name>" and, for `saves` starts,
 // "Resume <name>"; other starts keep nothing but `keepOnNewGame` fields and start over after a reload.
-// `keepOnNewGame`: save fields a new game keeps (e.g. the last picked car).
+// `keepOnNewGame`: save fields a new game keeps (e.g. the last picked car, the last stage / rally file opened).
 // `cameraView`: camera view until the player picks one (C), else the global default.
 // `fireAndJump`: F shoots and J jumps (keyboard only); off unless set.
 // `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
@@ -26,7 +26,7 @@ export const GAME_MODES = [
       { id: 'rally', name: 'Single rally', saves: true },
       { id: 'career', name: 'Career', saves: true, available: false },
     ],
-    keepOnNewGame: ['vehicle'],
+    keepOnNewGame: ['vehicle', 'lastFile'],
     cameraView: 'close',
     directionSignHud: false,
     editor: true,

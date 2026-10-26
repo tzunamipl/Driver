@@ -15,7 +15,8 @@
 import * as CANNON from 'cannon-es';
 import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
 import { getAirTempC, getWetness, getRainMmH } from '../../lib/weather.js';
-import { formatDistance, formatVolume, formatTemp, longDistanceValue, longDistanceUnit } from '../../lib/units.js';
+import { formatDistance, formatVolume, formatTemp, formatRain, formatSpeed, longDistanceValue, longDistanceUnit } from '../../lib/units.js';
+import { skyLabel } from '../../lib/rally/rallyWeather.js';
 import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
@@ -65,6 +66,7 @@ const SKIP_SPEED_KMH = 50; // a skipped liaison's average speed, for the clock
 const TYRE_FITTING_MIN = 10; // clock minutes at a tyre fitting zone
 const REFUEL_MIN = 5; // ...and at a refuel zone
 const NIGHT_CAPTION_MS = 1500; // end of a rally day: the black screen holds this long
+const RAIN_SHOWN_MM_H = 0.1; // forecast rain below this reads as none
 
 const formatClock = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 const minutesText = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
@@ -128,6 +130,8 @@ export async function pickPlan(picker, { vehicleId } = {}) {
     kind: def,
     loadPlan: ({ source, opened, key, json }) => buildPlan(kind, source, opened, key, json),
     vehicleId,
+    lastFile: readSaveField('lastFile'),
+    onFilePick: (file) => writeSaveField('lastFile', file),
   });
 }
 
@@ -589,9 +593,10 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const at = plan.base ?? planStart(plan);
     if (!at) return;
     if (plan.kind === 'stage') return conditions.startStage({ lat: at.lat, lon: at.lon, ...DEFAULT_STAGE_CONDITIONS, ...plan.conditions });
-    const days = 1 + plan.items.filter((item) => item.type === 'point' && rallyFormat.pointTypes[item.point.type]?.endsDay).length;
-    await conditions.startRally({ lat: at.lat, lon: at.lon, startMin: parseClockTime(plan.startTime) ?? DEFAULT_START_MIN, days });
+    await conditions.startRally({ lat: at.lat, lon: at.lon, startMin: parseClockTime(plan.startTime) ?? DEFAULT_START_MIN, days: rallyDays() });
   }
+
+  const rallyDays = () => 1 + plan.items.filter((item) => item.type === 'point' && rallyFormat.pointTypes[item.point.type]?.endsDay).length;
 
   /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares and full cans on board. */
   function newCar() {
@@ -844,6 +849,17 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         ['Air temperature', formatTemp(getAirTempC())],
         ['Surface', surface],
       ],
+      forecast: conditions.forecast(rallyDays()).map((s) => {
+        const date = new Date(conditions.displayMs(s.ms));
+        return {
+          state: s.state,
+          label: `Day ${s.day} ${date.toLocaleDateString(undefined, { weekday: 'short' })} ${formatClock(date)}`,
+          sky: skyLabel(s),
+          temp: formatTemp(s.tempC),
+          rain: s.precipMmH >= RAIN_SHOWN_MM_H ? formatRain(s.precipMmH) : '',
+          wind: formatSpeed(s.windMs * 3.6),
+        };
+      }),
       rows,
       totals: [
         ['Stages', `${results.length} / ${ss} driven`],
@@ -1037,6 +1053,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       hud.render(view());
       pacenoteHud.render(pacenoteView());
       syncProgress();
+      planHud.setClock(plan?.kind === 'rally' && conditions.isRunning() ? `Day ${conditions.getDay()} · ${formatClock(new Date(clockMs()))}` : '');
     },
 
     shiftOrigin(dx, dz) {
