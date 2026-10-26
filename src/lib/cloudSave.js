@@ -105,27 +105,40 @@ export async function restoreCloudSave(playerId) {
   }
 }
 
-/** Starts the periodic backup; returns { push } for a push now (throttled by CLOUD_SAVE_MIN_GAP_MS). */
+/**
+ * Starts the periodic backup; returns { push } for a push now (throttled by CLOUD_SAVE_MIN_GAP_MS)
+ * and { pushNow } for an unthrottled one resolving to 'sent' | 'unchanged' | 'failed' | 'off'.
+ */
 export function createCloudSave(playerId) {
-  if (!enabled) return { push() {} };
+  if (!enabled) return { push() {}, pushNow: async () => 'off' };
   let lastPush = 0;
-  let sending = false;
+  let sending = null; // promise of the push in flight
 
   async function push(force = false) {
     const now = Date.now();
-    if (sending || (!force && now - lastPush < CLOUD_SAVE_MIN_GAP_MS)) return;
+    if (sending || (!force && now - lastPush < CLOUD_SAVE_MIN_GAP_MS)) return sending;
     const { data, meta } = look();
-    if (meta.pushedAt >= meta.updatedAt) return;
+    if (meta.pushedAt >= meta.updatedAt) return 'unchanged';
     lastPush = now;
-    sending = true;
-    try {
-      await api('/player/save', { playerId, updatedAt: meta.updatedAt, data });
-      writeMeta({ ...readMeta(), pushedAt: meta.updatedAt });
-    } catch (err) {
-      console.warn('Cloud save:', err.message);
-    } finally {
-      sending = false;
-    }
+    sending = (async () => {
+      try {
+        await api('/player/save', { playerId, updatedAt: meta.updatedAt, data });
+        writeMeta({ ...readMeta(), pushedAt: meta.updatedAt });
+        return 'sent';
+      } catch (err) {
+        console.warn('Cloud save:', err.message);
+        return 'failed';
+      } finally {
+        sending = null;
+      }
+    })();
+    return sending;
+  }
+
+  /** Waits out a push in flight (it may hold older data), then pushes whatever changed since. */
+  async function pushNow() {
+    if (sending) await sending;
+    return push(true);
   }
 
   /** Page going away: a beacon, as fetch may be cut off. text/plain keeps it a simple CORS request. */
@@ -140,5 +153,5 @@ export function createCloudSave(playerId) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') pushBeacon();
   });
-  return { push: () => push() };
+  return { push: () => push(), pushNow };
 }

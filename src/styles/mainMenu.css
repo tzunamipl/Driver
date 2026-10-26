@@ -51,7 +51,8 @@
   min-height: 34px;
   font-size: 22px;
 }
-.menu-continue-mode:not(:empty) {
+.menu-continue-mode:not(:empty),
+.menu-save-status:not(:empty) {
   display: block;
   font-size: 11px;
   line-height: 13px;

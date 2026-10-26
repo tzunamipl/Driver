@@ -25,6 +25,7 @@ const mat = {
   black: paint(0x161616),
   rubber: paint(0x1c1c1c),
   steel: paint(0x9a9a9a),
+  barrier: paint(0xd0d0d0),
   white: paint(0xf2f2f2),
   yellow: paint(0xf2c200),
   orange: paint(0xff6a00),
@@ -135,9 +136,9 @@ function cone(x, z) {
 /** Steel crowd barrier section along local z, `length` long. */
 function crowdBarrier(x, z, length = 2.2) {
   const group = new Group();
-  group.add(box(0.04, 0.04, length, mat.steel, 0, 1.05, 0), box(0.04, 0.04, length, mat.steel, 0, 0.2, 0));
-  for (let i = 0; i <= 8; i++) group.add(box(0.02, 0.85, 0.02, mat.steel, 0, 0.62, -length / 2 + (i * length) / 8));
-  for (const end of [-1, 1]) group.add(box(0.6, 0.04, 0.05, mat.steel, 0, 0.02, (end * length) / 2));
+  group.add(box(0.04, 0.04, length, mat.barrier, 0, 1.05, 0), box(0.04, 0.04, length, mat.barrier, 0, 0.2, 0));
+  for (let i = 0; i <= 8; i++) group.add(box(0.02, 0.85, 0.02, mat.barrier, 0, 0.62, -length / 2 + (i * length) / 8));
+  for (const end of [-1, 1]) group.add(box(0.6, 0.04, 0.05, mat.barrier, 0, 0.02, (end * length) / 2));
   return at(group, x, 0, z);
 }
 

@@ -887,7 +887,10 @@ terrain.init().then(async () => {
     initialViewOrigin.lon
   );
   loadingScreen.hide();
-  mainMenu.setInGame(menuPark);
+  mainMenu.setInGame(menuPark, () => {
+    mainLoop.flushSaves();
+    return cloudSave.pushNow();
+  });
   if (IS_DEV_MODE) {
     // Dev: no profile; join with the rally's car (just picked or resumed), else the saved debug pick.
     const rallyVehicle = isRallyGame ? readSaveField('vehicle') : null;

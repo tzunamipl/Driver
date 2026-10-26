@@ -50,6 +50,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   const screens = [...menuEl.querySelectorAll('.menu-screen')];
   const continueBtn = menuEl.querySelector('[data-action="continue"]');
   const continueLabel = menuEl.querySelector('.menu-continue-mode');
+  const saveBtn = menuEl.querySelector('[data-action="save"]');
+  const saveStatus = menuEl.querySelector('.menu-save-status');
   const modesEl = document.getElementById('menu-modes');
   const settingsEl = document.getElementById('menu-settings');
   const settingsHome = { parent: settingsBodyEl.parentElement, next: settingsBodyEl.nextSibling };
@@ -57,6 +59,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   let inGame = false;
   let resolveLaunch = null;
   let hooks = {}; // in game: { onOpen, onClose }
+  let saveNow = null; // in game: () => Promise<'sent' | 'unchanged' | 'failed' | 'off'>
 
   function showScreen(name) {
     for (const el of screens) el.hidden = el.dataset.screen !== name;
@@ -89,6 +92,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     const playable = inGame || (mode?.available && info && !info.done);
     const name = getStart(mode, startId)?.name;
     continueBtn.disabled = !playable;
+    saveBtn.hidden = !saveNow;
+    if (!saveBtn.disabled) saveStatus.textContent = '';
     continueLabel.textContent = !playable ? '' : editor ? `${mode.label} editor` : name ? `${mode.label} · ${name}` : mode.label;
   }
 
@@ -158,12 +163,25 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     resolveLaunch?.();
   }
 
+  const SAVE_STATUS = { sent: 'Saved and backed up', unchanged: 'Saved, backup up to date', failed: 'Saved here, backup failed', off: 'Saved (no cloud backup)' };
+
+  async function save() {
+    saveBtn.disabled = true;
+    saveStatus.textContent = 'Saving…';
+    try {
+      saveStatus.textContent = SAVE_STATUS[await saveNow()] ?? SAVE_STATUS.failed;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
   menuEl.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
     if (action === 'continue') {
       const { modeId, startId, editor } = continueTarget();
       launch(modeId, startId, false, editor);
     }
+    else if (action === 'save') save();
     else if (action === 'modes' || action === 'settings') showScreen(action);
     else if (action === 'back') showScreen('root');
   });
@@ -210,9 +228,12 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /**
      * From now on Esc toggles the menu and Continue resumes.
      * @param {{onOpen?: () => void, onClose?: () => void}} [inGameHooks] - run as the menu covers / uncovers the game.
+     * @param {() => Promise<string>} [onSave] - Save button: writes every save now and pushes the cloud backup.
      */
-    setInGame(inGameHooks = {}) {
+    setInGame(inGameHooks = {}, onSave = null) {
       hooks = inGameHooks;
+      saveNow = onSave;
+      renderRoot();
       inGame = true;
       menuEl.classList.add('in-game');
     },

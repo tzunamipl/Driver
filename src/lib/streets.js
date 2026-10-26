@@ -23,7 +23,7 @@ const STREET_LIFT = 0.2;
 // Depth bias: drawn this much nearer the camera than they are (metres, plus a share of the distance),
 // so the bed bulging between height samples doesn't poke through. Not polygonOffset: three
 // flips only its factor for the reversed depth buffer, and log depth ignores it.
-const DEPTH_BIAS_PER_M = 0.003;
+const DEPTH_BIAS_PER_M = 0.05;
 // Overlapping stripes (junctions): each class up the hierarchy is this much nearer, so the higher class is drawn on top.
 const DEPTH_BIAS_PER_RANK = 0.015;
 // Classes on the road bed, highest first: the only ones in the surface view.

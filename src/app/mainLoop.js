@@ -133,10 +133,11 @@ export function createMainLoop({
   const saveOdometer = () => {
     if (odometerVehicleId) setVehicleOdometerKm(odometerVehicleId, gaugesHud.getOdometerKm());
   };
-  window.addEventListener('pagehide', () => {
+  const flushSaves = () => {
     if (pendingCarState) saveCarState(pendingCarState);
     saveOdometer();
-  });
+  };
+  window.addEventListener('pagehide', flushSaves);
   const poseForward = new THREE.Vector3();
   const terrainHeading = new THREE.Vector3();
 
@@ -477,5 +478,5 @@ export function createMainLoop({
     profiler.end();
   }
 
-  return { animate, setStreamingBudgetMs: streaming.setBudgetMs };
+  return { animate, setStreamingBudgetMs: streaming.setBudgetMs, flushSaves };
 }
