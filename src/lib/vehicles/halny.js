@@ -7,6 +7,7 @@ export default {
   category: 'cars',
   defaultColor: 0x0c0c0e, // Black Magic pearl
   rimColor: 0xb8bcc2,
+  rims: { default: 'hubcap', loose: 'steel4', winter: 'steel4' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 15,
   tyre: 195,

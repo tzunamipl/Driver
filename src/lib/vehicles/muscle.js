@@ -8,6 +8,7 @@ export default {
   category: 'cars',
   defaultColor: 0x8a1414, // deep red
   rimColor: 0xc8ccd2,
+  rims: { default: 'spoke4' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 15,
   tyre: 235,

@@ -8,6 +8,7 @@ export default {
   category: 'rally',
   defaultColor: 0xf4f4f2, // white
   rimColor: 0xd0d2d4,
+  rims: { default: 'rally6', tarmac: 'rally8' }, // car/rims.js, per tyre compound group
   buildBody: buildRallyBody,
   rimSize: 15,
   tyre: 195,

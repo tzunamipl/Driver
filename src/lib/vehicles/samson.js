@@ -9,6 +9,7 @@ export default {
   category: 'trucks',
   defaultColor: 0xf2f2f0,
   rimColor: 0xb8bcc0,
+  rims: { default: 'truck' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 22.5,
   tyre: 315,

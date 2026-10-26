@@ -1,9 +1,9 @@
 import { DEFAULT_BODY_COLOR, VEHICLE_COLORS_STORAGE_KEY, DEFAULT_PAINT_STORAGE_KEY } from '../config.js';
-import { getVehicle } from './vehicles/index.js';
+import { getVehicle, VEHICLES } from './vehicles/index.js';
 import { getGarageColor, setGarageColor } from './garage.js';
 
 // Player's paint per vehicle id (0xRRGGBB): the active game mode's (lib/garage.js), else the one
-// picked outside any mode; unset vehicles, or every vehicle while the default-paint toggle is on,
+// picked outside any mode; unset vehicles, or vehicles with their default-paint toggle on,
 // use the descriptor's defaultColor.
 
 function load() {
@@ -39,20 +39,32 @@ export function getCustomVehicleColor(vehicleId) {
 
 /** The paint the vehicle drives in. */
 export function getVehicleColor(vehicleId) {
-  return usesDefaultPaint() ? defaultVehicleColor(vehicleId) : getCustomVehicleColor(vehicleId);
+  return usesDefaultPaint(vehicleId) ? defaultVehicleColor(vehicleId) : getCustomVehicleColor(vehicleId);
 }
 
-export function usesDefaultPaint() {
+// Vehicle ids with the default-paint toggle on; the legacy '1' meant every car.
+function loadDefaultPaintIds() {
   try {
-    return localStorage.getItem(DEFAULT_PAINT_STORAGE_KEY) === '1';
+    const raw = localStorage.getItem(DEFAULT_PAINT_STORAGE_KEY);
+    if (raw === '1') return new Set(VEHICLES.map((v) => v.id));
+    const parsed = JSON.parse(raw ?? '[]');
+    return new Set(Array.isArray(parsed) ? parsed : []);
   } catch {
-    return false;
+    return new Set();
   }
 }
 
-export function setUseDefaultPaint(on) {
+export function usesDefaultPaint(vehicleId) {
+  return loadDefaultPaintIds().has(getVehicle(vehicleId).id);
+}
+
+export function setUseDefaultPaint(vehicleId, on) {
+  const ids = loadDefaultPaintIds();
+  const id = getVehicle(vehicleId).id;
+  if (on) ids.add(id);
+  else ids.delete(id);
   try {
-    if (on) localStorage.setItem(DEFAULT_PAINT_STORAGE_KEY, '1');
+    if (ids.size) localStorage.setItem(DEFAULT_PAINT_STORAGE_KEY, JSON.stringify([...ids]));
     else localStorage.removeItem(DEFAULT_PAINT_STORAGE_KEY);
   } catch {
     // Storage unavailable: just don't persist.

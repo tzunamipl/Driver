@@ -1,6 +1,8 @@
 // Rally info (a click on the rally base's tents): conditions, then the itinerary with stage
 // lengths, splits, your best and this run's times / service visits, and the totals so far. Read only.
 
+import { longDistanceUnit } from '../lib/units.js';
+
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text != null ? { textContent: text } : {}) });
 const MARKS = { done: '✓', current: '▶' };
 
@@ -43,7 +45,7 @@ export function createRallyInfoDialog({ onOpen, onClose } = {}) {
       const conditions = el('dl', 'rally-info-conditions');
       for (const [label, value] of info.conditions) conditions.append(el('dt', '', label), el('dd', '', value));
       const itinerary = table(
-        ['', 'Itinerary', 'km', 'Splits', 'Your best', 'This rally'],
+        ['', 'Itinerary', longDistanceUnit(), 'Splits', 'Your best', 'This rally'],
         info.rows.map((r) => ({ cells: [MARKS[r.state] ?? '', r.label, r.km, r.splits, r.best, r.value], className: r.state }))
       );
       const totals = table(['Totals', ''], info.totals.map((cells) => ({ cells })));

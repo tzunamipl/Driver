@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SKY_COLOR } from '../lib/terrain.js';
 import { createStars } from '../lib/stars.js';
 import { REVERSED_DEPTH } from '../config.js';
+import { createColorGrade } from './colorGrade.js';
 
 // Renderer, scene, camera and lights.
 
@@ -28,7 +29,7 @@ function patchShadowFarPlane() {
 }
 
 /**
- * Scene -> multisampled target with a reversed float depth buffer -> canvas.
+ * Scene -> multisampled target with a reversed float depth buffer -> canvas (colour graded on the way).
  * The canvas's own depth buffer is 24-bit fixed point, too coarse for the view's range even reversed.
  */
 function createReversedDepthView(renderer) {
@@ -39,15 +40,14 @@ function createReversedDepthView(renderer) {
     depthTexture: new THREE.DepthTexture(size.x, size.y, THREE.FloatType),
   });
   target.resolveDepthBuffer = false; // depth is only needed while drawing
+  const grade = createColorGrade(target.texture);
   const blitScene = new THREE.Scene();
-  blitScene.add(
-    new THREE.Mesh(
-      new THREE.PlaneGeometry(2, 2),
-      new THREE.MeshBasicMaterial({ map: target.texture, depthTest: false, depthWrite: false, toneMapped: false })
-    )
-  );
+  const blit = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), grade.material);
+  blit.frustumCulled = false;
+  blitScene.add(blit);
   const blitCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   return {
+    grade,
     resize() {
       renderer.getDrawingBufferSize(size);
       target.setSize(size.x, size.y);
@@ -56,12 +56,16 @@ function createReversedDepthView(renderer) {
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
       renderer.setRenderTarget(null);
+      grade.update();
       renderer.render(blitScene, blitCamera);
     },
   };
 }
 
-/** Builds renderer/scene/camera, mounts the canvas in #app; returns them plus renderView() for the frame. */
+/**
+ * Builds renderer/scene/camera, mounts the canvas in #app; returns them plus renderView() for the frame
+ * and the colour grade (null without the reversed depth target: the canvas is drawn directly then).
+ */
 export function createSceneEnvironment() {
   const app = document.getElementById('app');
 
@@ -105,7 +109,7 @@ export function createSceneEnvironment() {
   });
 
   const renderView = view ? () => view.render(scene, camera) : () => renderer.render(scene, camera);
-  return { renderer, scene, camera, renderView };
+  return { renderer, scene, camera, renderView, colorGrade: view?.grade ?? null };
 }
 
 /** Ambient + one directional light (sun by day, moon by night); daylight.js drives them each frame. */

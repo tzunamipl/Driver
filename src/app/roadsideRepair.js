@@ -1,16 +1,18 @@
 // Free roam: with the car nearly stopped, a floating button points at each damaged part
-// (flat or worn tyre, worn shock, leaking radiator / low coolant, cracked sump / low oil,
+// (flat or worn tyre, worn shock, leaking radiator / low coolant, cracked sump / low oil, worn engine,
 // broken lamp, worn gearbox, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
 // Resets and teleports don't fix the car.
 
 import { createPartCallouts } from './partCallouts.js';
 import { RESERVE_FRACTION } from '../lib/fuel.js';
+import { formatVolume } from '../lib/units.js';
 
 // Tread below this offers a fresh tyre (the tyre service dialog's "Worn").
 const WORN_TREAD = 0.35;
 // Shock / gearbox health and coolant / oil level below these offer a fix.
 const WORN_SHOCK = 0.95;
 const WORN_GEARBOX = 0.95;
+const WORN_ENGINE = 0.95;
 const LOW_COOLANT = 0.95;
 const LOW_OIL = 0.95;
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
@@ -39,9 +41,12 @@ function damagedParts(vehicle) {
     const leaking = heat.oilLeakLps > 0;
     parts.push({ label: leaking ? 'Fix sump' : 'Top up oil', note: `${leaking ? 'Leaking · ' : ''}oil ${pct(heat.oilLevel)}`, anchor: leaking ? 'under' : 'engine', fix: () => heat.repairSump() });
   }
+  if (heat && heat.engineHealth < WORN_ENGINE) {
+    parts.push({ label: 'Rebuild engine', note: `Worn by low oil pressure · ${pct(heat.engineHealth)}`, anchor: 'engine', fix: () => heat.repairEngine() });
+  }
   const fuel = vehicle.fuel;
   if (fuel && fuel.fraction < RESERVE_FRACTION) {
-    parts.push({ label: 'Refuel', note: fuel.litres > 0 ? `Low · ${fuel.litres.toFixed(1)} L` : 'Empty', anchor: 'filler', fix: () => fuel.setLitres(fuel.capacityL) });
+    parts.push({ label: 'Refuel', note: fuel.litres > 0 ? `Low · ${formatVolume(fuel.litres)}` : 'Empty', anchor: 'filler', fix: () => fuel.setLitres(fuel.capacityL) });
   }
   const lamps = vehicle.lamps;
   for (const kind of ['head', 'tail']) {

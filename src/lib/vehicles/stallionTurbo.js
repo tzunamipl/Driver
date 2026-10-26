@@ -8,6 +8,7 @@ export default {
   category: 'rally',
   defaultColor: 0xf4f4f2, // Martini white
   rimColor: 0xe8e8e8,
+  rims: { default: 'rally8', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 18,
   tyre: 225,

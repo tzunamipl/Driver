@@ -10,6 +10,7 @@ export default {
   category: 'postapo',
   defaultColor: 0x1f1c1a,
   rimColor: 0x3a2c22,
+  rims: { default: 'truck' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 22.5,
   tyre: 315,

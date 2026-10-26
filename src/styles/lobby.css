@@ -77,7 +77,7 @@
   margin: 4px 0 0;
   white-space: nowrap;
 }
-/* Tyre widget (ui/tyreSetupPicker.js): type, size selects, size + Stock. */
+/* Tyre widget (ui/tyreSetupPicker.js): type, size selects, rim style + colour, size + Stock. */
 .tyre-setup[hidden] { display: none; }
 .tyre-setup { margin: 8px 0 0; }
 .tyre-setup-title { font-weight: bold; margin-bottom: 4px; }
@@ -97,6 +97,15 @@
   gap: 4px;
   margin-top: 4px;
 }
+.tyre-setup-rims {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+.tyre-setup-rims .tyre-setup-field { flex: 1; }
+.tyre-setup-rim-color { flex: none; width: 32px; height: 22px; padding: 0; }
+.tyre-setup-rim-reset { flex: none; }
 .tyre-setup-summary {
   display: flex;
   align-items: center;
@@ -115,12 +124,14 @@
 .tyre-setup-bar.good { background: linear-gradient(90deg, #008000 var(--fill), #fff var(--fill)); }
 .tyre-setup-bar.poor { background: linear-gradient(90deg, #a00000 var(--fill), #fff var(--fill)); }
 .tyre-setup-val { min-width: 34px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#lobby-body {
+#lobby-body,
+.rally-car {
   display: flex;
   gap: 16px;
   margin: 0 0 14px;
 }
-#lobby-fields {
+#lobby-fields,
+.rally-car-pick {
   flex: 1 1 0;
   min-width: 0;
 }
@@ -165,6 +176,8 @@
 .rally-vehicle-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-auto-rows: max-content; /* rows keep their height and the list scrolls, never squeezed */
+  align-content: start;
   gap: 2px;
   max-height: 140px;
   overflow-y: auto;
@@ -196,14 +209,16 @@
   color: var(--w95-shadow);
   font-size: 11px;
 }
-#vehicle-showcase {
+#vehicle-showcase,
+.rally-car-showcase {
   flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-#vehicle-preview {
+#vehicle-preview,
+.rally-vehicle-preview {
   width: 100%;
   height: 220px;
   display: block;
@@ -212,7 +227,8 @@
   background: var(--w95-desktop);
   box-shadow: var(--w95-sunken);
 }
-#vehicle-stats {
+#vehicle-stats,
+.rally-vehicle-stats {
   margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -222,11 +238,13 @@
   background: #fff;
   box-shadow: var(--w95-sunken);
 }
-#vehicle-stats dt {
+#vehicle-stats dt,
+.rally-vehicle-stats dt {
   white-space: nowrap;
   color: #444;
 }
-#vehicle-stats dd {
+#vehicle-stats dd,
+.rally-vehicle-stats dd {
   margin: 0;
   white-space: nowrap;
   font-weight: bold;
@@ -258,6 +276,8 @@
   box-shadow: var(--w95-field);
 }
 @media (max-width: 640px) {
-  #lobby-body { flex-direction: column; }
-  #vehicle-preview { height: 160px; }
+  #lobby-body,
+  .rally-car { flex-direction: column; }
+  #vehicle-preview,
+  .rally-vehicle-preview { height: 160px; }
 }

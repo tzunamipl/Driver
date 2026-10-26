@@ -22,6 +22,14 @@ const JUNCTION_DEGREE = 3;
 const MAX_CLEARANCE_M = 1000;
 // Stripe joints are mitred unless the line turns sharper than this (cos of the half angle).
 const MITER_MIN_COS = 0.5;
+// A line ending on (or up to END_EXTEND_MAX_M short of) a higher-ranked road is cut back / stretched to that
+// road's edge, this far inside it (no seam; the higher road draws on top). Geometric, as tile ends often miss its vertices.
+const END_CUT_OVERLAP_M = 0.3;
+const END_EXTEND_MAX_M = 2;
+const END_GRID_M = 32;
+// Not cut when it meets that road at a shallower angle than this (sin): the cut would run far along it.
+const END_CUT_MIN_SIN = 0.35;
+const NO_CUTS = [];
 
 /**
  * Builds a manager class (call `new Cls(scene, world, originLat, originLon, terrain)`).
@@ -34,6 +42,8 @@ const MITER_MIN_COS = 0.5;
  *   with `markings` (a number) its stripes get a `stripe` attribute (metres across from the
  *   centreline, along the line, clear of the nearest junction past its widest road's half
  *   width; half width) and `stripeMarkings` (= `markings`), for road marking shaders.
+ *   With `rank` (default: `linewidth`), a flat line ending on a higher-ranked one stops at its edge.
+ *   With `depthRank` (a number) its stripes get a `depthRank` attribute (= `depthRank`).
  * @param {number} [options.lift] - metres above ground, avoids z-fighting.
  * @param {boolean} [options.flat] - draw `linewidth` as a real-metre ground-hugging stripe
  *   instead of a screen-space LineMaterial fat line. Required for containsPoint().
@@ -81,6 +91,8 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
         const vertexKey = (pt) => `${pt.x},${pt.y}`;
         items.vertexKeys = line.map(vertexKey); // tile coords: lines meeting at a node share it exactly
         items.vertexDists = [];
+        items.vertexPoints = points;
+        items.endsInTile = [line[0], line[line.length - 1]].map((pt) => inTile(pt.x, pt.y));
         let dist = 0;
         for (let p = 0; p < points.length - 1; p++) {
           items.vertexDists.push(dist);
@@ -127,8 +139,13 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
           const node = junctions.get(key);
           if (node.degree >= JUNCTION_DEGREE) line.junctions.push(line.vertexDists[i], node.halfWidth);
         });
+      }
+      assignEndCuts(lines);
+      for (const line of lines) {
         delete line.vertexKeys;
         delete line.vertexDists;
+        delete line.vertexPoints;
+        delete line.endsInTile;
       }
     }
 
@@ -154,9 +171,11 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       const styleLift = seg.style.lift ?? lift;
       const ay = this._groundHeightAt(a.x, a.z) + styleLift;
       const by = this._groundHeightAt(b.x, b.z) + styleLift;
-      const { positions, stripe, stripeMarkings } = this._bucket(byStyleKey, seg.style, () =>
-        seg.style.markings == null ? { positions: [] } : { positions: [], stripe: [], stripeMarkings: [] }
-      );
+      const { positions, stripe, stripeMarkings, depthRank } = this._bucket(byStyleKey, seg.style, () => ({
+        positions: [],
+        ...(seg.style.markings != null && { stripe: [], stripeMarkings: [] }),
+        ...(seg.style.depthRank != null && { depthRank: [] }),
+      }));
       if (!flat) {
         positions.push(a.x, ay, a.z, b.x, by, b.z);
         return;
@@ -169,28 +188,68 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       const next = seg.line?.[seg.index + 1];
       const [oax, oaz] = prev ? miter(sideNormal(this._toLocal(prev.a), a), n, hw) : [n[0] * hw, n[1] * hw];
       const [obx, obz] = next ? miter(n, sideNormal(b, this._toLocal(next.b)), hw) : [n[0] * hw, n[1] * hw];
-      positions.push(
-        a.x - oax, ay, a.z - oaz,
-        a.x + oax, ay, a.z + oaz,
-        b.x + obx, by, b.z + obz,
-        a.x - oax, ay, a.z - oaz,
-        b.x + obx, by, b.z + obz,
-        b.x - obx, by, b.z - obz,
-      );
-      if (!stripe) return;
       const da = seg.dist;
       const db = seg.dist + seg.len;
-      const ca = junctionClearance(seg.line.junctions, da);
-      const cb = junctionClearance(seg.line.junctions, db);
-      stripe.push(
-        -hw, da, ca, hw,
-        hw, da, ca, hw,
-        hw, db, cb, hw,
-        -hw, da, ca, hw,
-        hw, db, cb, hw,
-        -hw, db, cb, hw,
-      );
-      for (let i = 0; i < 6; i++) stripeMarkings.push(seg.style.markings);
+      const ca = stripe ? junctionClearance(seg.line.junctions, da) : 0;
+      const cb = stripe ? junctionClearance(seg.line.junctions, db) : 0;
+      // Corners [x, y, z, across, along, clearance], fanned from the first.
+      let poly = [
+        [a.x - oax, ay, a.z - oaz, -hw, da, ca],
+        [a.x + oax, ay, a.z + oaz, hw, da, ca],
+        [b.x + obx, by, b.z + obz, hw, db, cb],
+        [b.x - obx, by, b.z - obz, -hw, db, cb],
+      ];
+      for (const cut of this._endCutsOf(seg)) {
+        if (seg.index === (cut.atStart ? 0 : seg.line.length - 1)) poly = stretchEnd(poly, cut);
+        poly = clipPolygon(poly, cut);
+      }
+      for (let i = 1; i < poly.length - 1; i++) {
+        for (const v of [poly[0], poly[i], poly[i + 1]]) {
+          positions.push(v[0], v[1], v[2]);
+          if (depthRank) depthRank.push(seg.style.depthRank);
+          if (stripe) {
+            stripe.push(v[3], v[4], v[5], hw);
+            stripeMarkings.push(seg.style.markings);
+          }
+        }
+      }
+    }
+
+    /** End cut half-planes (local frame) of the line's cut ends `seg` lies near. */
+    _endCutsOf(seg) {
+      const line = seg.line;
+      if (!line?.cuts) return NO_CUTS;
+      if (line.cutFrame !== this._frame) {
+        line.cutFrame = this._frame;
+        line.cutPlanes = line.cuts.map((cut) => this._endCutPlane(line, cut)).filter(Boolean);
+      }
+      const end = line[line.length - 1];
+      const total = end.dist + end.len;
+      return line.cutPlanes.filter((p) => (p.atStart ? seg.dist : total - seg.dist - seg.len) < p.reach);
+    }
+
+    /** Half-plane beyond the higher road's edge on this line's side, or null if it meets that road too shallow. */
+    _endCutPlane(line, { atStart, a, b, back, halfWidth }) {
+      const pa = this._toLocal(a);
+      const pb = this._toLocal(b);
+      const ul = Math.hypot(pb.x - pa.x, pb.z - pa.z);
+      if (ul < 1e-6) return null;
+      const mx = -(pb.z - pa.z) / ul;
+      const mz = (pb.x - pa.x) / ul;
+      const e = this._toLocal(atStart ? line[0].a : line[line.length - 1].b);
+      const q = this._toLocal(back);
+      const sin = ((q.x - e.x) * mx + (q.z - e.z) * mz) / Math.hypot(q.x - e.x, q.z - e.z);
+      if (!(Math.abs(sin) >= END_CUT_MIN_SIN)) return null;
+      const s = Math.sign((q.x - pa.x) * mx + (q.z - pa.z) * mz) || Math.sign(sin);
+      return {
+        atStart,
+        px: pa.x,
+        pz: pa.z,
+        nx: s * mx,
+        nz: s * mz,
+        offset: halfWidth - END_CUT_OVERLAP_M,
+        reach: (halfWidth + END_EXTEND_MAX_M) / Math.abs(sin) + SEGMENT_MAX_METERS,
+      };
     }
 
     _toLocal({ lat, lon }) {
@@ -212,6 +271,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
           geometry.setAttribute('stripe', new Float32BufferAttribute(bucket.stripe, 4));
           geometry.setAttribute('stripeMarkings', new Float32BufferAttribute(bucket.stripeMarkings, 1));
         }
+        if (bucket.depthRank) geometry.setAttribute('depthRank', new Float32BufferAttribute(bucket.depthRank, 1));
         if (bucket.style.lit) {
           // Mitred joints share their vertices: merged, the normals blend along the road, so highlights don't facet.
           geometry = mergeVertices(geometry);
@@ -316,6 +376,100 @@ function miter(n0, n1, hw) {
   if (cos < MITER_MIN_COS) return [n1[0] * hw, n1[1] * hw];
   const scale = hw / (len * cos);
   return [mx * scale, mz * scale];
+}
+
+/**
+ * Sets `line.cuts` = [{ atStart, a, b (the higher road's segment under the end), back (the line's vertex before
+ * the end), halfWidth (the higher road's) }] for ends inside or just short of a higher-ranked line's stripe.
+ */
+function assignEndCuts(lines) {
+  const rankOf = (line) => line[0].style.rank ?? line[0].style.linewidth;
+  const first = [...lines][0]?.vertexPoints[0];
+  if (!first) return;
+  const kx = METERS_PER_DEGREE * Math.cos((first.lat * Math.PI) / 180);
+  const cell = (x, y) => `${Math.floor(x / END_GRID_M)},${Math.floor(y / END_GRID_M)}`;
+  const grid = new Map(); // cell -> [{ line, k }]: segment from vertex k to k + 1, in every cell its reach box touches
+  for (const line of lines) {
+    line.xy = line.vertexPoints.map((p) => [p.lon * kx, p.lat * METERS_PER_DEGREE]);
+    const reach = line[0].style.linewidth / 2 + END_EXTEND_MAX_M;
+    for (let k = 0; k < line.xy.length - 1; k++) {
+      const [ax, ay] = line.xy[k];
+      const [bx, by] = line.xy[k + 1];
+      for (let cx = Math.floor((Math.min(ax, bx) - reach) / END_GRID_M); cx <= Math.floor((Math.max(ax, bx) + reach) / END_GRID_M); cx++) {
+        for (let cy = Math.floor((Math.min(ay, by) - reach) / END_GRID_M); cy <= Math.floor((Math.max(ay, by) + reach) / END_GRID_M); cy++) {
+          const key = `${cx},${cy}`;
+          const list = grid.get(key);
+          if (list) list.push({ line, k });
+          else grid.set(key, [{ line, k }]);
+        }
+      }
+    }
+  }
+  for (const line of lines) {
+    const n = line.xy.length;
+    const cuts = [];
+    for (const atStart of [true, false]) {
+      if (!line.endsInTile[atStart ? 0 : 1]) continue; // cut at the tile edge: not a real end
+      const [ex, ey] = line.xy[atStart ? 0 : n - 1];
+      let best = null;
+      for (const { line: other, k } of grid.get(cell(ex, ey)) ?? []) {
+        const rank = rankOf(other);
+        if (other === line || rank <= rankOf(line)) continue;
+        const halfWidth = other[0].style.linewidth / 2;
+        const d = pointSegmentDist(ex, ey, other.xy[k], other.xy[k + 1]);
+        if (d > halfWidth + END_EXTEND_MAX_M) continue;
+        if (best && (rank < best.rank || (rank === best.rank && d >= best.d))) continue;
+        best = { rank, d, other, k, halfWidth };
+      }
+      if (!best) continue;
+      const pts = best.other.vertexPoints;
+      const back = line.vertexPoints[atStart ? 1 : n - 2];
+      cuts.push({ atStart, a: pts[best.k], b: pts[best.k + 1], back, halfWidth: best.halfWidth });
+    }
+    if (cuts.length) line.cuts = cuts;
+  }
+  for (const line of lines) delete line.xy;
+}
+
+function pointSegmentDist(x, y, [ax, ay], [bx, by]) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  const t = lenSq > 1e-12 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / lenSq)) : 0;
+  return Math.hypot(x - ax - dx * t, y - ay - dy * t);
+}
+
+/** Moves the end corners of a line's last quad (fanned [x, y, z, ...] corners) out onto `cut`'s plane when they stop short of it. */
+function stretchEnd(poly, cut) {
+  const side = (v) => (v[0] - cut.px) * cut.nx + (v[2] - cut.pz) * cut.nz - cut.offset;
+  const out = poly.slice();
+  for (const [c, o] of cut.atStart ? [[0, 3], [1, 2]] : [[2, 1], [3, 0]]) {
+    const sc = side(poly[c]);
+    const so = side(poly[o]);
+    if (!(sc > 0 && so > sc)) continue;
+    const len = Math.hypot(poly[c][0] - poly[o][0], poly[c][2] - poly[o][2]);
+    const k = Math.min(so / (so - sc), 1 + (END_EXTEND_MAX_M + END_CUT_OVERLAP_M) / len);
+    out[c] = poly[o].map((x, i) => x + (poly[c][i] - x) * k);
+  }
+  return out;
+}
+
+/** Clips a convex polygon of [x, y, z, ...attributes] to the side of `cut` away from its road (attributes interpolated). */
+function clipPolygon(poly, { px, pz, nx, nz, offset }) {
+  const side = (v) => (v[0] - px) * nx + (v[2] - pz) * nz - offset;
+  const out = [];
+  for (let k = 0; k < poly.length; k++) {
+    const v = poly[k];
+    const w = poly[(k + 1) % poly.length];
+    const sv = side(v);
+    const sw = side(w);
+    if (sv >= 0) out.push(v);
+    if (sv >= 0 !== sw >= 0) {
+      const t = sv / (sv - sw);
+      out.push(v.map((x, c) => x + (w[c] - x) * t));
+    }
+  }
+  return out;
 }
 
 /** Metres from `dist` along a line to the nearest of its `junctions`, past that junction's widest half width. */

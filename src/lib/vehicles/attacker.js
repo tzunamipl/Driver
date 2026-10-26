@@ -9,6 +9,7 @@ export default {
   category: 'cars',
   defaultColor: 0x1b3f8f | METALLIC_PAINT, // deep blue
   rimColor: 0xb8bcc2,
+  rims: { default: 'spoke5', loose: 'rally6', winter: 'steel6' }, // car/rims.js, per tyre compound group
   buildBody: buildRoadBody,
   rimSize: 17,
   tyre: 235,

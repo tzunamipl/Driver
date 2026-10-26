@@ -160,6 +160,13 @@
               </div>
               <div class="hud-section" id="hud-gameplay">
                 <div>Gameplay</div>
+                <label>
+                  Units
+                  <select id="units-select" aria-label="Units">
+                    <option value="metric">Metric (km/h, °C, L)</option>
+                    <option value="imperial">Imperial (mph, °F, gal)</option>
+                  </select>
+                </label>
                 <div class="hud-subsection-title">Rally</div>
                 <label>
                   <input id="rally-handbrake-hold-input" type="checkbox" />
@@ -217,17 +224,28 @@
                   <div>Fuel 1 min: <span id="susp-fuel-perhour">&mdash;</span> L/h</div>
                   <div>Tank: <span id="susp-fuel-tank">&mdash;</span> L</div>
                 </div>
-                <div class="susp-landed" id="susp-heat" title="Engine heat model (lib/engineHeat.js); outside air is a placeholder">
-                  <div>Eng/Clt/Oil: <span id="susp-heat-block">&mdash;</span>/<span id="susp-heat-coolant">&mdash;</span>/<span id="susp-heat-oil">&mdash;</span> &deg;C</div>
+                <div class="susp-landed" id="susp-heat" title="Cooling system (lib/engineHeat.js); outside air is a placeholder">
+                  <div>Eng/Clt: <span id="susp-heat-block">&mdash;</span>/<span id="susp-heat-coolant">&mdash;</span> &deg;C</div>
                   <div>Outside: <span id="susp-heat-ambient">&mdash;</span> &deg;C</div>
                   <div>Thermostat: <span id="susp-heat-thermostat">&mdash;</span>%<span id="susp-heat-fan"></span></div>
                   <div>Heat/rad: <span id="susp-heat-in">&mdash;</span>/<span id="susp-heat-rad">&mdash;</span> kW</div>
                   <div>Power: <span id="susp-heat-power">&mdash;</span>%</div>
                   <div>Coolant: <span id="susp-heat-level">&mdash;</span> L</div>
                   <div>Loss: <span id="susp-heat-loss">&mdash;</span> L/min</div>
+                  <div>Radiator: <span id="susp-heat-radiator">&mdash;</span>%</div>
                   <div class="susp-heat-actions">
                     <button type="button" id="susp-heat-leak" title="Debug: start a coolant leak">Leak</button>
                     <button type="button" id="susp-heat-fix" title="Debug: fix the radiator and top up">Fix</button>
+                  </div>
+                </div>
+                <div class="susp-landed" id="susp-oil" title="Oil system (lib/engineHeat.js): burns at high rpm, leaks from a cracked sump">
+                  <div>Oil: <span id="susp-oil-temp">&mdash;</span> &deg;C, <span id="susp-oil-pressure">&mdash;</span> bar</div>
+                  <div>Level: <span id="susp-oil-level">&mdash;</span> L (<span id="susp-oil-pct">&mdash;</span>%)</div>
+                  <div>Loss: <span id="susp-oil-loss">&mdash;</span> L/min (leak <span id="susp-oil-leak-rate">&mdash;</span>)</div>
+                  <div>Sump/engine: <span id="susp-oil-sump">&mdash;</span>/<span id="susp-oil-engine">&mdash;</span>%</div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="susp-oil-leak" title="Debug: crack the sump">Leak</button>
+                    <button type="button" id="susp-oil-fix" title="Debug: fix the sump and engine, top up">Fix</button>
                   </div>
                 </div>
                 <div class="susp-landed" id="susp-gearbox" title="Gearbox wear (lib/gearboxWear.js): over-rev downshifts and hits slow the shifts">
@@ -252,6 +270,12 @@
                 <div class="debug-layers-list"></div>
                 <div class="susp-title debug-time-title">TIME</div>
                 <div class="debug-time-list"></div>
+                <div class="susp-title debug-time-title">WEATHER</div>
+                <div class="debug-weather-readout"></div>
+                <div class="debug-time-list debug-weather-road"></div>
+                <div class="debug-time-list debug-weather-clouds"></div>
+                <div class="debug-time-list debug-weather-rain"></div>
+                <div class="debug-time-list debug-weather-temp"></div>
               </div>
             </div>
           </div>
@@ -340,7 +364,7 @@
         <span id="minimap-scale-label"></span>
       </div>
       <canvas id="minimap-arrows-canvas"></canvas>
-      <div id="ground-speed" hidden title="Actual speed over ground"><span id="ground-speed-value">0</span> km/h</div>
+      <div id="ground-speed" hidden title="Actual speed over ground"><span id="ground-speed-value">0</span> <span id="ground-speed-unit">km/h</span></div>
     </div>
     <div id="touch-controls">
       <div class="touch-steer">
@@ -372,12 +396,13 @@
           <div class="dial-ticks" id="speedo-ticks"></div>
           <div class="gauge-needle" id="speedo-needle"></div>
           <div class="gauge-hub"></div>
-          <div class="gauge-label">km/h</div>
+          <div class="gauge-label" id="speedo-unit">km/h</div>
+          <div id="outside-temp" hidden title="Outside temperature"></div>
           <div id="odometer" aria-label="Licznik 0.0 kilometrów">
             <div class="odo-bezel">
               <div class="odo-row">
                 <div class="odo-wheels" id="odo-wheels"></div>
-                <span class="odo-unit">km</span>
+                <span class="odo-unit" id="odo-unit">km</span>
               </div>
               <div class="odo-row odo-trip" title="Distance driven in this save">
                 <div class="odo-wheels" id="odo-trip-wheels"></div>

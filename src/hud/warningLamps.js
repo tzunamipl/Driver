@@ -48,7 +48,7 @@ const LAMPS = [
     svg: '<path d="M8 13l2.5-5h11l2.5 5v3H8z"/><path d="M7 21q2-2.5 4 0t4 0M17 21q2-2.5 4 0t4 0"/>',
   },
   {
-    id: 'check-engine', title: 'Check engine (overheating: reduced power)', color: 'amber', has: hasEngine, on: (v) => (v.heat?.powerFactor ?? 1) < 1,
+    id: 'check-engine', title: 'Check engine (overheating or worn engine: reduced power)', color: 'amber', has: hasEngine, on: (v) => (v.heat?.powerFactor ?? 1) < 1,
     svg: '<path d="M5 10v6M5 13h3M8 9h4l2-2h5v2h3l2 2h2v-2h2v9h-2v-2h-2l-2 3H11l-3-3z"/><path d="M14 4h7M17.5 4v3"/>',
   },
   {

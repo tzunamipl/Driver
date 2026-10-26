@@ -16,7 +16,7 @@ export const CAN_USE_NETWORK = !IS_DEV_MODE;
 export const ORIGIN_LAT = 51.1079;
 export const ORIGIN_LON = 17.0385;
 
-// Day-night cycle speed: 1 = real time. Faster cycles wrap within today's
+// Day-night cycle speed outside free roam (real time) and rally (own clock): 1 = real time. Faster cycles wrap within today's
 // real date, so the sun's seasonal path always matches the actual date.
 export const TIME_SCALE = 24;
 // Sun / moon disc colour by the body's own elevation above the horizon (deg),
@@ -196,8 +196,10 @@ export const DIRECTION_SIGN_JUNCTIONS = {
 export const DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL = ['trunk', 'primary'];
 
 // ---------- Weather ----------
-export const AMBIENT_TEMP_C = 15; // outside air (°C); placeholder until weather drives it
-export const WEATHER_WETNESS = 0; // 0 dry .. 1 soaked surfaces (tyre wet grip); placeholder until rain drives it
+export const AMBIENT_TEMP_C = 15; // outside air (°C) until the forecast arrives (lib/weather.js)
+export const WEATHER_WETNESS = 0; // 0 dry .. 1 soaked surfaces (tyre wet grip); start value of lib/weather.js
+export const WEATHER_REFETCH_KM = 25; // forecast refetched once the car is this far from the last fetch
+export const WEATHER_REFETCH_MIN = 60; // ... or this many real minutes old
 
 // ---------- Gauges HUD ----------
 export const MAX_GAUGE_SPEED = 180; // km/h speedo scale for rigs without an engine (wheeled cars use their gearing top speed)
@@ -291,7 +293,7 @@ export const CAR_STATE_STORAGE_KEY = 'driver.carState.v1'; // legacy, migrated i
 export const SAVES_STORAGE_KEY = 'driver.saves.v1'; // per-game-mode save slots (lib/saves.js)
 export const LAUNCH_STORAGE_KEY = 'driver.launch'; // sessionStorage: mode to start after a menu reload
 export const VEHICLE_COLORS_STORAGE_KEY = 'driver.vehicleColors.v1'; // per-vehicle paint
-export const DEFAULT_PAINT_STORAGE_KEY = 'driver.defaultPaint.v1'; // '1' = every car in its default paint
+export const DEFAULT_PAINT_STORAGE_KEY = 'driver.defaultPaint.v1'; // JSON array of vehicle ids shown in their default paint
 export const VEHICLE_ODOMETERS_STORAGE_KEY = 'driver.vehicleOdometers.v1'; // per-vehicle km, shared by all modes
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
@@ -302,11 +304,13 @@ export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
+export const WEATHER_DEBUG_STORAGE_KEY = 'driver.weatherDebug.v1'; // debug weather overrides: { wetness, clouds }
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort/eco gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
 export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old editor saves; wiped on start
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
+export const UNITS_STORAGE_KEY = 'driver.units.v1'; // Settings > Gameplay: 'metric' | 'imperial' (lib/units.js)
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
 
 // ---------- Scenarios ----------

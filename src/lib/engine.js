@@ -93,6 +93,17 @@ export function rangeGearbox(mainRatios, rangeRatios) {
   };
 }
 
+/** Range stages of a descriptor's box (1 = no range change). */
+export function gearRangesOf(descriptor) {
+  const gearCount = (descriptor.gearRatios ?? DEFAULT_ENGINE_PROFILE.gearRatios).length;
+  return descriptor.gearRanges ?? Math.ceil(gearCount / MAX_GATE_SLOTS);
+}
+
+/** Range lever labels, lowest first, e.g. ['L', 'H']. */
+export function rangeLetters(ranges) {
+  return RANGE_LETTERS[ranges] ?? Array.from({ length: ranges }, (_, i) => String(i + 1));
+}
+
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
@@ -180,7 +191,7 @@ export function createEngineState(descriptor, wheelRadius) {
     },
   };
   // Range-change box: forward gear g = range * gearSlots + main gear.
-  engine.gearRanges = descriptor.gearRanges ?? Math.ceil(engine.gearCount / MAX_GATE_SLOTS);
+  engine.gearRanges = gearRangesOf(descriptor);
   engine.gearSlots = Math.ceil(engine.gearCount / engine.gearRanges);
   engine.range = 0; // range stage engaged (or preselected in N/R), 0 = lowest
 

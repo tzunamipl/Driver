@@ -3,17 +3,19 @@ import { MAX_GAUGE_SPEED } from '../config.js';
 import { createWarningLamps } from './warningLamps.js';
 import { createAuxGauge } from './auxGauge.js';
 import { createBoostGauge } from './boostGauge.js';
+import { createOutsideTempLcd } from './outsideTempLcd.js';
 import { buildDialScale, valueToDeg } from './dialScale.js';
+import { speedValue, speedUnit, longDistanceValue, longDistanceUnit, onUnitsChange, isImperial } from '../lib/units.js';
 
 // Speedometer HUD, driven straight off the vehicle's physics state each
 // frame. The speedo reads driven-wheel speed like a real one (wheelspin shows);
 // true speed over ground goes to the readout beside the minimap. Self-contained (owns its own DOM refs + smoothing state) so it can
 // be wired in/out of the main loop independently of the other HUD widgets.
 
-// Whole kilometres plus a tenths drum (index 0 is the tenths place).
+// Whole kilometres (miles in imperial units) plus a tenths drum (index 0 is the tenths place).
 const ODO_PLACES = 7;
 const TRIP_PLACES = 5;
-// Speedo label steps (km/h), smallest that keeps the dial under SPEEDO_MAX_LABELS intervals.
+// Speedo label steps (km/h or mph), smallest that keeps the dial under SPEEDO_MAX_LABELS intervals.
 const SPEEDO_STEPS = [20, 40, 50, 100];
 const SPEEDO_MAX_LABELS = 8;
 // Sun intensity giving the needle hubs their full highlight (noon in app/daylight.js).
@@ -41,13 +43,25 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
   const speedoTicks = document.getElementById('speedo-ticks');
   let speedoScale = null;
   let speedoScaleTop = -1; // topSpeedKmh the scale was last built for
+  const speedoUnitEl = document.getElementById('speedo-unit');
+  const groundSpeedUnit = document.getElementById('ground-speed-unit');
   const odometer = createOdometer(document.getElementById('odometer'), document.getElementById('odo-wheels'), document.getElementById('odo-trip-wheels'), initialTripKm);
+  function showUnits() {
+    speedoScaleTop = -1; // rebuilt on the next frame
+    groundSpeedShown = null;
+    if (speedoUnitEl) speedoUnitEl.textContent = speedUnit();
+    if (groundSpeedUnit) groundSpeedUnit.textContent = speedUnit();
+    odometer.repaint();
+  }
+  showUnits();
+  onUnitsChange(showUnits);
   const tachEl = document.getElementById('tach');
   const tachNeedle = document.getElementById('tach-needle');
   const tachTicks = document.getElementById('tach-ticks');
   let tachTicksRedline = -1; // redlineRpm the ticks were last built for
   const auxGauge = createAuxGauge(document.getElementById('aux-gauge'));
   const boostGauge = createBoostGauge(document.getElementById('boost-gauge'));
+  const outsideTemp = createOutsideTempLcd(document.getElementById('outside-temp'));
   const lamps = createWarningLamps(document.getElementById('warning-lamps'), { onLightsClick, onHandbrakeClick });
   let lightsShown = null;
   const gaugesEl = document.getElementById('gauges');
@@ -79,13 +93,14 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
       groundSpeedShown = null;
       tachEl?.classList.remove('visible');
       auxGauge.update(null);
+      outsideTemp.update(false);
       return;
     }
     odometer.addTravel(chassisMesh);
 
     // Ground speed: physics velocity magnitude (m/s) -> km/h.
     const v = vehicle.chassisBody.velocity;
-    const groundKmh = Math.round(Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6);
+    const groundKmh = Math.round(speedValue(Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) * 3.6));
     if (groundSpeedEl && groundKmh !== groundSpeedShown) {
       groundSpeedShown = groundKmh;
       groundSpeedEl.hidden = false;
@@ -97,10 +112,10 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     const topSpeedKmh = vehicle.engine?.topSpeedKmh ?? MAX_GAUGE_SPEED;
     if (topSpeedKmh !== speedoScaleTop) {
       speedoScaleTop = topSpeedKmh;
-      speedoScale = speedoScaleFor(topSpeedKmh);
+      speedoScale = speedoScaleFor(speedValue(topSpeedKmh));
       buildDialScale(speedoTicks, { ...speedoScale, labelRadiusPct: 35 });
     }
-    const needleDeg = valueToDeg(Math.min(speedKmh, speedoScale.max), speedoScale.max);
+    const needleDeg = valueToDeg(Math.min(speedValue(speedKmh), speedoScale.max), speedoScale.max);
     speedoNeedle.style.transform = `translate(-50%, -100%) rotate(${needleDeg}deg)`;
 
     // Tachometer + gear indicator (lib/engine.js's rpm/gearbox simulation)
@@ -109,6 +124,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     const engine = vehicle.engine;
     auxGauge.update(engine ?? null);
     boostGauge.update(engine ?? null);
+    outsideTemp.update(!!vehicle.outsideTempGauge);
     if (!engine) {
       tachEl?.classList.remove('visible');
       return;
@@ -182,13 +198,14 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
 const RED_ZONE_FRACTION = 152 / 180;
 
 /** Speedo scale reaching the car's gearing top speed, rounded up to a whole label step. */
-function speedoScaleFor(topSpeedKmh) {
-  const step = SPEEDO_STEPS.find((s) => Math.ceil(topSpeedKmh / s) <= SPEEDO_MAX_LABELS) ?? SPEEDO_STEPS.at(-1);
-  return { max: Math.max(step, Math.ceil(topSpeedKmh / step) * step), step, minorStep: step / 2 };
+function speedoScaleFor(topSpeed) {
+  const step = SPEEDO_STEPS.find((s) => Math.ceil(topSpeed / s) <= SPEEDO_MAX_LABELS) ?? SPEEDO_STEPS.at(-1);
+  return { max: Math.max(step, Math.ceil(topSpeed / step) * step), step, minorStep: step / 2 };
 }
 
-// Car odometer (km, set per car) over the save's trip meter (tripKm); both wind with the same travel.
+// Car odometer (km, set per car) over the save's trip meter (tripKm); both wind with the same travel, shown in km or miles.
 function createOdometer(root, wheelsEl, tripWheelsEl, initialTripKm = 0) {
+  const unitEl = document.getElementById('odo-unit');
   const paintOdo = createDrums(wheelsEl, ODO_PLACES);
   const paintTrip = createDrums(tripWheelsEl, TRIP_PLACES);
 
@@ -222,9 +239,10 @@ function createOdometer(root, wheelsEl, tripWheelsEl, initialTripKm = 0) {
   }
 
   function paint() {
-    paintOdo(km);
-    paintTrip(tripKm);
-    const label = `Licznik ${km.toFixed(1)} kilometrów, trip ${tripKm.toFixed(1)} kilometrów`;
+    paintOdo(longDistanceValue(km));
+    paintTrip(longDistanceValue(tripKm));
+    const unit = isImperial() ? 'miles' : 'kilometres';
+    const label = `Odometer ${longDistanceValue(km).toFixed(1)} ${unit}, trip ${longDistanceValue(tripKm).toFixed(1)} ${unit}`;
     if (root && label !== shownLabel) {
       shownLabel = label;
       root.setAttribute('aria-label', label);
@@ -243,7 +261,12 @@ function createOdometer(root, wheelsEl, tripWheelsEl, initialTripKm = 0) {
     paint();
   }
 
-  return { addTravel, disarm, shiftOrigin, setKm, getKm: () => km, getTripKm: () => tripKm };
+  function repaint() {
+    if (unitEl) unitEl.textContent = longDistanceUnit();
+    paint();
+  }
+
+  return { addTravel, disarm, shiftOrigin, setKm, repaint, getKm: () => km, getTripKm: () => tripKm };
 }
 
 /** Builds a row of number drums in `wheelsEl`; returns paint(km). */

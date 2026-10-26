@@ -6,8 +6,10 @@ import { METALLIC_PAINT } from './geometry/paint.js';
 export default {
   id: 'C018', // display name in ./names.js
   category: 'cars',
+  outsideTempGauge: true, // dash LCD: outside temperature
   defaultColor: 0x15181f | METALLIC_PAINT, // midnight black
   rimColor: 0xc8ccd2,
+  rims: { default: 'mesh10', winter: 'steel6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 18,
   tyre: 245,

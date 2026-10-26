@@ -8,7 +8,9 @@
 // Starts at the outside temperature. Coolant can leak (radiator hits, boiling
 // over); a low level starves the pump, and an overheating engine loses power.
 // Oil (descriptor `oilL`) burns slowly at high rpm and leaks from a sump cracked by
-// underbody hits; a low level starves the oil flow, so the oil overheats and derates too.
+// underbody hits; a low level starves the oil flow, so the oil overheats. Low oil pressure
+// wears the engine for good: power stays down until repairEngine().
+// Oil pressure follows pump speed (rpm), thick cold oil and the level, up to the relief valve.
 
 const W_PER_HP = 745.7;
 // Heat into the cooling system per watt of brake power (roughly one third of the fuel energy).
@@ -59,6 +61,8 @@ const LEAK_MAX_LPS = 0.08;
 const DEBUG_LEAK_LPS = 0.02;
 // One crash fires contacts over several steps: within this window only the hardest one counts.
 const HIT_WINDOW_S = 0.5;
+// Share of the max leak rate the hardest single hit opens (repeated hits still add up to the max).
+const HIT_LEAK_SHARE = 0.5;
 const COLD_PRESSURE = 0.3;
 // Pressure cap: above this the coolant boils over and vents, L/s per kelvin over.
 const BOIL_C = 124;
@@ -69,7 +73,7 @@ const LOW_LEVEL = 0.6;
 // Limp mode: power falls from 1 at this coolant temperature to the floor at the second.
 const DERATE_FROM_C = 118;
 const DERATE_FULL_C = 135;
-const DERATE_FLOOR = 0.4;
+const DERATE_FLOOR = 0.7;
 // Parked engine cooling toward the outside air, time constant (s), for a restored save.
 const PARKED_COOL_TAU_S = 45 * 60;
 // Oil system volume: litres + litres per rated kW (~5 L for 100 kW); heat mass floor (L).
@@ -86,10 +90,21 @@ const OIL_DRY_CONTACT = 0.15;
 const SUMP_MIN_HIT_MS = 4;
 const SUMP_MAX_HIT_MS = 14;
 const SUMP_MAX_LPS = 0.02;
-// Oil lamp from this temperature or below OIL_FULL_FLOW_LEVEL; limp mode from / at the floor.
+const DEBUG_SUMP_LEAK_LPS = 0.005;
+// Oil lamp from this temperature or below OIL_FULL_FLOW_LEVEL.
 const OIL_HOT_C = 140;
-const OIL_DERATE_FROM_C = 140;
-const OIL_DERATE_FULL_C = 165;
+// Oil pressure (bar): pump output per 1000 rpm with warm oil, relief valve cap; thick cold oil
+// raises it, thin hot oil lowers it (x e per this many kelvin from warm).
+const OIL_BAR_PER_KRPM = 1.5;
+const OIL_RELIEF_BAR = 5;
+const OIL_VISCOSITY_K = 60;
+// Engine wear from low oil pressure: starts below this share of a healthy warm engine's pressure
+// at the same rpm; health lost per s fully starved at redline (idle wears ENGINE_IDLE_WEAR of that).
+const STARVED_PRESSURE = 0.5;
+const ENGINE_WEAR_PER_S = 1 / 480;
+const ENGINE_IDLE_WEAR = 0.25;
+// Power of a worn-out engine (health 0); it falls linearly with health.
+const WORN_ENGINE_POWER = 0.3;
 // Integration step cap (s); the stiffest pair (block-coolant) settles in ~8 s.
 const MAX_STEP_S = 0.05;
 
@@ -126,6 +141,9 @@ export function createEngineHeat(descriptor, ambientC) {
     radiatorRepair: null, // lib/partRepair.js records, cleared by a new part
     sumpRepair: null,
     lossLps: 0, // last step: leak + boil-over, for the debug HUD
+    oilLossLps: 0, // last update: burn + sump leak, for the debug HUD
+    oilPressureBar: 0, // last update, read by the aux gauge
+    engineHealth: 1, // 1 new .. 0 worn out by low oil pressure
     heatInW: 0,
     radiatorW: 0,
     thermostat: 0, // opening 0..1
@@ -145,11 +163,11 @@ export function createEngineHeat(descriptor, ambientC) {
     get oilWarning() {
       return heat.oilTempC >= OIL_HOT_C || heat.oilLevel < OIL_FULL_FLOW_LEVEL;
     },
-    /** Engine torque multiplier, below 1 in limp mode. */
+    /** Engine torque multiplier, below 1 in limp mode or with a worn engine. */
     get powerFactor() {
       const coolant = clamp01((heat.coolantTempC - DERATE_FROM_C) / (DERATE_FULL_C - DERATE_FROM_C));
-      const oil = clamp01((heat.oilTempC - OIL_DERATE_FROM_C) / (OIL_DERATE_FULL_C - OIL_DERATE_FROM_C));
-      return 1 - (1 - DERATE_FLOOR) * Math.max(coolant, oil);
+      const limp = 1 - (1 - DERATE_FLOOR) * coolant;
+      return Math.min(limp, WORN_ENGINE_POWER + (1 - WORN_ENGINE_POWER) * heat.engineHealth);
     },
     /** 1 sealed .. 0 leaking at the worst rate. */
     get radiatorHealth() {
@@ -168,9 +186,11 @@ export function createEngineHeat(descriptor, ambientC) {
     hitRadiator,
     hitSump,
     startLeak,
+    startOilLeak,
     repair,
     repairRadiator,
     repairSump,
+    repairEngine,
     warmUp,
     getState,
     setState,
@@ -186,9 +206,22 @@ export function createEngineHeat(descriptor, ambientC) {
     const steps = Math.ceil(dt / MAX_STEP_S);
     const h = dt / steps;
     for (let i = 0; i < steps; i++) step(h, speedMs, ambient);
-    if (heat.sealed) return;
+    const thickness = Math.exp((WARM_OIL_C - heat.oilTempC) / OIL_VISCOSITY_K);
+    const pickup = clamp01((heat.oilLevel - OIL_DRY_LEVEL) / (OIL_FULL_FLOW_LEVEL - OIL_DRY_LEVEL));
+    heat.oilPressureBar = Math.min(OIL_RELIEF_BAR, OIL_BAR_PER_KRPM * (engine.rpm / 1000) * thickness) * pickup;
+    if (heat.sealed) {
+      heat.oilLossLps = 0;
+      return;
+    }
+    const healthyBar = Math.min(OIL_RELIEF_BAR, OIL_BAR_PER_KRPM * (engine.rpm / 1000));
+    if (healthyBar > 0) {
+      const starved = clamp01((STARVED_PRESSURE - heat.oilPressureBar / healthyBar) / STARVED_PRESSURE);
+      const rpmWear = ENGINE_IDLE_WEAR + (1 - ENGINE_IDLE_WEAR) * Math.min(1, engine.rpm / redlineRpm);
+      heat.engineHealth = Math.max(0, heat.engineHealth - ENGINE_WEAR_PER_S * starved * rpmWear * dt);
+    }
     const burnLps = (OIL_BURN_LPH / 3600) * Math.min(1, engine.rpm / redlineRpm) ** 2;
-    heat.oilL = Math.max(0, heat.oilL - (burnLps + heat.oilLeakLps) * dt);
+    heat.oilLossLps = heat.oilL > 0 ? burnLps + heat.oilLeakLps : 0;
+    heat.oilL = Math.max(0, heat.oilL - heat.oilLossLps * dt);
   }
 
   function step(h, speedMs, ambient) {
@@ -235,18 +268,23 @@ export function createEngineHeat(descriptor, ambientC) {
   /** Front impact at `speedMs` (along the contact normal): cracks the radiator above LEAK_MIN_HIT_MS. */
   function hitRadiator(speedMs) {
     const extra = newSeverity(radiatorHits, clamp01((speedMs - LEAK_MIN_HIT_MS) / (LEAK_MAX_HIT_MS - LEAK_MIN_HIT_MS)));
-    heat.leakLps = Math.min(LEAK_MAX_LPS, heat.leakLps + extra * LEAK_MAX_LPS);
+    heat.leakLps = Math.min(LEAK_MAX_LPS, heat.leakLps + extra * HIT_LEAK_SHARE * LEAK_MAX_LPS);
   }
 
   /** Underbody impact at `speedMs`: cracks the sump above SUMP_MIN_HIT_MS. */
   function hitSump(speedMs) {
     const extra = newSeverity(sumpHits, clamp01((speedMs - SUMP_MIN_HIT_MS) / (SUMP_MAX_HIT_MS - SUMP_MIN_HIT_MS)));
-    heat.oilLeakLps = Math.min(SUMP_MAX_LPS, heat.oilLeakLps + extra * SUMP_MAX_LPS);
+    heat.oilLeakLps = Math.min(SUMP_MAX_LPS, heat.oilLeakLps + extra * HIT_LEAK_SHARE * SUMP_MAX_LPS);
   }
 
   /** Debug: a moderate leak. */
   function startLeak() {
     heat.leakLps = Math.min(LEAK_MAX_LPS, heat.leakLps + DEBUG_LEAK_LPS);
+  }
+
+  /** Debug: a moderate sump leak. */
+  function startOilLeak() {
+    heat.oilLeakLps = Math.min(SUMP_MAX_LPS, heat.oilLeakLps + DEBUG_SUMP_LEAK_LPS);
   }
 
   /** New radiator, topped up. */
@@ -263,10 +301,16 @@ export function createEngineHeat(descriptor, ambientC) {
     heat.oilL = oilCapacityL;
   }
 
-  /** Fixed radiator and sump, both topped up (temperatures stay). */
+  /** Rebuilt engine (bearings worn by low oil pressure). */
+  function repairEngine() {
+    heat.engineHealth = 1;
+  }
+
+  /** Fixed radiator, sump and engine, topped up (temperatures stay). */
   function repair() {
     repairRadiator();
     repairSump();
+    repairEngine();
   }
 
   /** Repaired and at working temperature, as if warmed up before a start. */
@@ -286,6 +330,7 @@ export function createEngineHeat(descriptor, ambientC) {
       leakLps: heat.leakLps,
       oilL: heat.oilL,
       oilLeakLps: heat.oilLeakLps,
+      engineHealth: heat.engineHealth,
     };
   }
 
@@ -299,6 +344,7 @@ export function createEngineHeat(descriptor, ambientC) {
     if (Number.isFinite(state?.leakLps)) heat.leakLps = Math.min(LEAK_MAX_LPS, Math.max(0, state.leakLps));
     if (Number.isFinite(state?.oilL)) heat.oilL = Math.min(oilCapacityL, Math.max(0, state.oilL));
     if (Number.isFinite(state?.oilLeakLps)) heat.oilLeakLps = Math.min(SUMP_MAX_LPS, Math.max(0, state.oilLeakLps));
+    if (Number.isFinite(state?.engineHealth)) heat.engineHealth = clamp01(state.engineHealth);
   }
 
   return heat;

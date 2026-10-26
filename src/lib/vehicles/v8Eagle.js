@@ -7,6 +7,7 @@ export default {
   category: 'postapo',
   defaultColor: 0x111111,
   rimColor: 0x1c1c1c,
+  rims: { default: 'deepDish' }, // car/rims.js, per tyre compound group
   gloss: 0.3, // dusty black
   buildBody,
   rimSize: 15,

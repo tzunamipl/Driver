@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { tyreOffsets } from './axles.js';
 import { panoramaEnv, paintReflection } from '../vehicles/geometry/paint.js';
+import { buildRim, disposeRim } from './rimMesh.js';
+import { resolveRim } from './rims.js';
 
 const DEFAULT_WHEEL_RADIUS = 0.4;
 const TYRE_COLOR = new THREE.Color(0x1a1a1a);
@@ -23,8 +25,11 @@ export function wheelRadiusOf(d) {
 
 const DEFAULT_SEGMENTS = 8;
 
-/** Tyre (torus sidewalls + tread cylinder) and rim, added to `parent`; `segments` around (low-poly in game). */
-export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent, segments = DEFAULT_SEGMENTS) {
+/**
+ * Tyre (torus sidewalls + tread cylinder) and rim (`rimStyle` from ./rims.js), added to `parent`;
+ * `segments` around (low-poly in game), rim face outboard by `side` (+1 left, -1 right).
+ */
+export function buildWheelMesh({ rimSize, tyre, profile, rimStyle, rimColor }, parent, segments = DEFAULT_SEGMENTS, side = 1) {
   const tyreWallScale = 0.3;
   const group = new THREE.Group();
   const rimDiameter = rimSize * 2.54 / 100;
@@ -66,15 +71,31 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimColor }, parent, seg
   tire.castShadow = true;
   group.add(tire);
 
-  const rimGeo = new THREE.CylinderGeometry(rimDiameter / 2, rimDiameter / 2, rimWidth, segments);
-  rimGeo.rotateZ(Math.PI / 2);
-  const rim = new THREE.Mesh(rimGeo, new THREE.MeshStandardMaterial({ color: rimColor, metalness: 0.8, roughness: 0.35, flatShading: true }));
-  rim.castShadow = true;
-  group.add(rim);
+  const rim = { radius: rimDiameter / 2, width: rimWidth, segments, side, group: null };
+  group.userData.rim = rim;
+  setRim(group, rimStyle, rimColor);
 
   group.userData.tyreMats = { side: [sideMat], tread: [treadMat] };
   parent.add(group);
   return group;
+}
+
+function setRim(wheel, rimStyle, rimColor) {
+  const rim = wheel.userData.rim;
+  if (rim.group) {
+    wheel.remove(rim.group);
+    disposeRim(rim.group);
+  }
+  rim.group = buildRim(rimStyle, rimColor, rim.radius, rim.width, rim.segments, rim.side);
+  wheel.add(rim.group);
+}
+
+/** Swaps the rims of a wheel set (one wheel or a dual set) for `spec`'s (rims.js resolveRim). */
+export function setWheelSetRims(wheelSet, spec) {
+  const { rimStyle, rimColor } = resolveRim(spec);
+  wheelSet.traverse((obj) => {
+    if (obj.userData.rim) setRim(obj, rimStyle, rimColor);
+  });
 }
 
 /** Browns a wheel set's tyres: the tread up to TREAD_BROWN_AT dirt, then the sidewalls. */
@@ -105,15 +126,16 @@ export function setTyreWetness(wheelSet, wetness) {
   }
 }
 
-/** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set. */
-export function buildWheelSet(descriptor, parent, dual = false) {
+/** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set; `side` +1 left, -1 right. */
+export function buildWheelSet(descriptor, parent, dual = false, side = 1) {
   const tyreWidth = (descriptor.tyre ?? 225) / 1000;
   const offsets = tyreOffsets(tyreWidth, dual);
-  if (offsets.length === 1) return buildWheelMesh(descriptor, parent);
+  const spec = { ...descriptor, ...resolveRim(descriptor) };
+  if (offsets.length === 1) return buildWheelMesh(spec, parent, DEFAULT_SEGMENTS, side);
   const set = new THREE.Group();
   const tyreMats = { side: [], tread: [] };
   for (const x of offsets) {
-    const wheel = buildWheelMesh(descriptor, set);
+    const wheel = buildWheelMesh(spec, set, DEFAULT_SEGMENTS, side);
     wheel.position.x = x;
     tyreMats.side.push(...wheel.userData.tyreMats.side);
     tyreMats.tread.push(...wheel.userData.tyreMats.tread);

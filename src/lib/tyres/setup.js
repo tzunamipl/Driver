@@ -1,9 +1,11 @@
 // Tyre setup a player fits to a wheeled vehicle: { compound, rimSize, width, profile } for the
-// descriptor's main tyre. Axles (and trailers) with their own `wheel` keep their stock ratio
+// descriptor's main tyre, plus the look of its rims: `rim` (car/rims.js id, or AUTO_RIM = the car's
+// rim for the compound) and `rimColor` (0xRRGGBB, null = the rim's / car's own). Axles (and trailers) with their own `wheel` keep their stock ratio
 // to it: same rim change, width and profile scaled alike. Size ranges sit around the stock
 // size; a descriptor can set its own `tyreSizes: { rim: [min, max], width: [...], profile: [...] }`
 // and its stock compound as `tyreCompound`.
 import { DEFAULT_TYRE_COMPOUND, TYRE_COMPOUNDS } from './compounds.js';
+import { AUTO_RIM, RIMS } from '../car/rims.js';
 
 const DEFAULT_RIM_IN = 15;
 const DEFAULT_WIDTH_MM = 225;
@@ -27,6 +29,8 @@ export function stockTyreSetup(descriptor) {
     rimSize: descriptor.rimSize ?? DEFAULT_RIM_IN,
     width: descriptor.tyre ?? DEFAULT_WIDTH_MM,
     profile: descriptor.profile ?? DEFAULT_PROFILE,
+    rim: AUTO_RIM,
+    rimColor: null,
   };
 }
 
@@ -68,10 +72,16 @@ export function sanitizeTyreSetup(descriptor, setup) {
     rimSize: pick(options.rim, setup.rimSize, stock.rimSize),
     width: pick(options.width, setup.width, stock.width),
     profile: pick(options.profile, setup.profile, stock.profile),
+    rim: RIMS[setup.rim] ? setup.rim : AUTO_RIM,
+    rimColor: Number.isInteger(setup.rimColor) && setup.rimColor >= 0 && setup.rimColor <= 0xffffff ? setup.rimColor : null,
   };
 }
 
+/** Same tyres (compound + sizes); the rim look doesn't count, see sameRims. */
 export const sameTyreSetup = (a, b) => !!a && !!b && a.compound === b.compound && a.rimSize === b.rimSize && a.width === b.width && a.profile === b.profile;
+
+/** Same rim style + colour (missing fields = stock). */
+export const sameRims = (a, b) => !!a && !!b && (a.rim ?? AUTO_RIM) === (b.rim ?? AUTO_RIM) && (a.rimColor ?? null) === (b.rimColor ?? null);
 
 /** '225/40 R18' */
 export const tyreSizeLabel = ({ width, profile, rimSize }) => `${width}/${profile} R${rimSize}`;

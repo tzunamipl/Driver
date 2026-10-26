@@ -269,12 +269,12 @@
 .service-inspect .service-action { color: #000; font-weight: bold; }
 .service-inspect .tyre-service-hint { color: #ffd7a0; text-align: center; }
 /* Garage (ui/garageDialog.js): the rally picker's car row on its own. */
-.garage-window { width: min(720px, 100%); max-height: 100%; overflow-y: auto; }
+.garage-window { width: min(760px, 100%); max-height: 100%; overflow-y: auto; }
 .garage-window .rally-car-pick .tyre-setup { margin-top: 6px; }
 @media (max-width: 560px) {
   .tyre-service-body-grid { flex-direction: column; }
 }
-.rally-picker-window { width: min(900px, 100%); gap: 4px; }
+.rally-picker-window { width: min(900px, 100%); gap: 4px; overflow-y: auto; }
 /* Stage / rally tree beside its plan map (ui/rallyPlanMap.js). */
 .rally-plan { display: flex; gap: 10px; }
 .rally-plan .scenario-tree { flex: 1 1 0; min-width: 0; height: min(240px, 30dvh); overflow-y: auto; }
@@ -322,41 +322,19 @@
 .rally-best-message { padding: 4px 2px; color: #444; }
 .rally-best-local { min-height: 13px; font-variant-numeric: tabular-nums; }
 .rally-picker-heading { margin: 6px 0 2px; font-weight: bold; }
-/* Car: tabs + list beside the lobby-style turning model and stats. */
-.rally-car { display: flex; gap: 10px; }
-.rally-car-pick,
-.rally-car-showcase { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.rally-car-showcase { gap: 6px; }
+/* Car: tabs + list beside the turning model and stats, laid out by lobby.css. */
+.rally-car-pick { display: flex; flex-direction: column; }
 .rally-car-pick .vehicle-color { margin-top: 6px; }
 /* Spare wheels pick (ui/spareTyresPicker.js), in the rally picker and the tyre service. */
 .spare-tyres-field { margin-top: 6px; }
 .spare-tyres-field[hidden] { display: none; }
-.rally-vehicle-preview {
-  width: 100%;
-  height: 160px;
-  display: block;
-  box-sizing: border-box;
-  background: var(--w95-desktop);
-  box-shadow: var(--w95-sunken);
-}
-.rally-vehicle-stats {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 10px;
-  padding: 6px 8px;
-  background: #fff;
-  box-shadow: var(--w95-sunken);
-}
-.rally-vehicle-stats dt { white-space: nowrap; color: #444; }
-.rally-vehicle-stats dd { margin: 0; white-space: nowrap; font-weight: bold; font-variant-numeric: tabular-nums; }
+/* Single stage time of day + weather (ui/stageConditionsPicker.js), side by side. */
+.stage-conditions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
 @media (max-width: 600px) {
-  .rally-car,
   .rally-plan { flex-direction: column; }
   .rally-plan .scenario-tree { height: auto; max-height: 25dvh; }
   .rally-plan-map-view { height: 180px; }
   .rally-best-box { height: auto; max-height: 30dvh; }
-  .rally-vehicle-preview { height: 120px; }
 }
 /* Menus over a parked car (main.js menuPark): left of centre, the car in view on the right.
    Spacers split the free width 1 : 2.4, so wide windows only shrink the gaps, never overflow. */

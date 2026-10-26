@@ -10,7 +10,7 @@ import { resolveAxles, layoutWheels, createSteeringGeometry } from './axles.js';
 function addWheelMeshes(spec, parent, axles, attachY) {
   return layoutWheels(axles, attachY).map((w) => {
     const wheelSpec = w.axle.wheel ? { ...spec, ...w.axle.wheel } : spec;
-    const mesh = buildWheelSet(wheelSpec, parent, w.axle.dual);
+    const mesh = buildWheelSet(wheelSpec, parent, w.axle.dual, w.side);
     mesh.position.set(w.x, w.y, w.z);
     mesh.rotation.order = 'YXZ';
     return { ...w, mesh, radius: wheelRadiusOf(wheelSpec) };

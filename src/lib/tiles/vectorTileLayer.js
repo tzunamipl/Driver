@@ -88,6 +88,7 @@ export class VectorTileLayer {
     this._buildQueue = []; // [{ tx, ty, key }]
     this._queuedKeys = new Set();
     this._inProgressBuilds = new Map(); // key -> build descriptor paused mid-tile
+    this._groundWaits = 0; // tiles in mesh range waiting for their terrain tile
 
     this._region = null; // { minTx, maxTx, minTy, maxTy }
     this._itemsByTile = new Map(); // detail tile key -> items
@@ -363,6 +364,7 @@ export class VectorTileLayer {
   setVisible(visible) {
     this._visible = visible;
     if (visible) return;
+    this._groundWaits = 0;
     for (const key of Array.from(this.chunks.keys())) this._unloadChunk(key);
     this.pendingRemoval.clear();
     this._buildQueue = [];
@@ -417,6 +419,7 @@ export class VectorTileLayer {
     const meshRadius = this._meshRadius();
     const keepRadius = meshRadius + UNLOAD_MARGIN;
 
+    this._groundWaits = 0;
     if (this._regionCovers(centerTx, centerTy)) {
       for (const { dx, dy } of this._loadOffsets) {
         if (!inSquare(dx, dy, meshRadius)) continue;
@@ -424,7 +427,10 @@ export class VectorTileLayer {
         const ty = centerTy + dy;
         const key = this._key(tx, ty);
         if (this.chunks.has(key) || this._inProgressBuilds.has(key) || this._queuedKeys.has(key)) continue;
-        if (!this._groundReady(tx, ty)) continue;
+        if (!this._groundReady(tx, ty)) {
+          this._groundWaits++;
+          continue;
+        }
         this._queuedKeys.add(key);
         this._buildQueue.push({ tx, ty, key });
       }

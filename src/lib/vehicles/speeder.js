@@ -6,6 +6,7 @@ export default {
   category: 'dumb',
   defaultColor: 0x1c1c1c, // black
   rimColor: 0xFF0000,
+  rims: { default: 'spoke3' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 20,
   tyre: 355,

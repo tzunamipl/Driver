@@ -21,6 +21,13 @@ const MOON_TAKEOVER_ELEVATION_DEG = -1;
 const MOON_LIGHT_COLOR = new THREE.Color(0x9fb4e0);
 const MS_PER_HOUR = 3_600_000;
 const SUNSET_ELEVATION_DEG = 1.5; // low enough for the orange palette, disc still above the horizon
+const MORNING_ELEVATION_DEG = 12; // rising sun, a couple of hours after sunrise
+// Full overcast (clouds.js deck): sky and fog towards grey of their own brightness, sun / moon
+// dimmed to this share, ambient raised by this share (light scattered by the cloud).
+const OVERCAST_GREY = new THREE.Color(0x8a9098);
+const OVERCAST_SKY_GREY_SHARE = 0.85;
+const OVERCAST_SUN_SHARE = 0.2;
+const OVERCAST_AMBIENT_BOOST = 0.5;
 
 // Palette by sun elevation (deg), linearly interpolated. Night keeps a
 // bluish ambient floor so the map stays drivable; moonI is the moonlight.
@@ -68,10 +75,12 @@ function elevationAt(timeMs, lat, lon) {
   return Math.asin(THREE.MathUtils.clamp(sunDirection(timeMs, lat, lon).up, -1, 1)) / (Math.PI / 180);
 }
 
-/** Fixed simulated instant on the current simulated day for a debug preset ('noon' | 'sunset' | 'night'). */
-function presetTimeMs(preset, lat, lon) {
-  const now = simulatedTimeMs(Date.now());
-  const dayStart = now - (now % MS_PER_DAY);
+/**
+ * Instant of a preset ('morning' | 'noon' | 'sunset' | 'night') at lat/lon on the UTC day of `dayMs`
+ * (default: the current simulated day).
+ */
+export function presetTimeMs(preset, lat, lon, dayMs = simulatedTimeMs(Date.now())) {
+  const dayStart = dayMs - (dayMs % MS_PER_DAY);
   // Solar noon ignoring the equation of time, then refined by a ternary search for peak elevation.
   let lo = dayStart + (12 - lon / 15) * MS_PER_HOUR - 2 * MS_PER_HOUR;
   let hi = lo + 4 * MS_PER_HOUR;
@@ -84,6 +93,18 @@ function presetTimeMs(preset, lat, lon) {
   const noon = (lo + hi) / 2;
   if (preset === 'noon') return noon;
   if (preset === 'night') return noon + 12 * MS_PER_HOUR;
+  if (preset === 'morning') {
+    // Elevation rises monotonically from midnight to noon; polar days without the target fall back to 3 h before noon.
+    lo = noon - 12 * MS_PER_HOUR;
+    hi = noon;
+    if (elevationAt(hi, lat, lon) < MORNING_ELEVATION_DEG || elevationAt(lo, lat, lon) > MORNING_ELEVATION_DEG) return noon - 3 * MS_PER_HOUR;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (elevationAt(mid, lat, lon) < MORNING_ELEVATION_DEG) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  }
   // Sunset: elevation falls monotonically from noon to midnight; bisect for the target.
   lo = noon;
   hi = noon + 12 * MS_PER_HOUR;
@@ -102,8 +123,20 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
   // Debug time override: null = live cycle; otherwise a preset frozen at its instant.
   let preset = null;
   let presetMs = null;
+  let clock = null; // () => epoch ms of a game mode's own clock (rally), else the global cycle
   let sunElevationDeg = 90;
   let timeMs = simulatedTimeMs(Date.now());
+  let overcast = 0;
+  const grey = new THREE.Color();
+
+  /** Pulls `color` towards OVERCAST_GREY at a little under its own brightness, by the overcast share. */
+  function greyOut(color) {
+    if (overcast <= 0) return;
+    const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+    const greyLuma = OVERCAST_GREY.r * 0.2126 + OVERCAST_GREY.g * 0.7152 + OVERCAST_GREY.b * 0.0722;
+    grey.copy(OVERCAST_GREY).multiplyScalar((luma / greyLuma) * 0.85);
+    color.lerp(grey, overcast * OVERCAST_SKY_GREY_SHARE);
+  }
 
   function applyPalette(elevationDeg) {
     let i = 0;
@@ -113,10 +146,12 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     const t = THREE.MathUtils.clamp((elevationDeg - a.el) / (b.el - a.el), 0, 1);
 
     sky.lerpColors(a.sky, b.sky, t);
+    greyOut(sky);
     scene.background.copy(sky);
     setHazeColor(sky);
     setPaintReflection(sky);
     scene.fog.color.lerpColors(a.fog, b.fog, t);
+    greyOut(scene.fog.color);
     if (elevationDeg < MOON_TAKEOVER_ELEVATION_DEG) {
       sun.color.copy(MOON_LIGHT_COLOR);
       sun.intensity = THREE.MathUtils.lerp(a.moonI, b.moonI, t);
@@ -124,8 +159,9 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
       sun.color.lerpColors(a.sun, b.sun, t);
       sun.intensity = THREE.MathUtils.lerp(a.sunI, b.sunI, t);
     }
+    sun.intensity *= 1 - overcast * (1 - OVERCAST_SUN_SHARE);
     ambient.color.lerpColors(a.amb, b.amb, t);
-    ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t);
+    ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t) * (1 + overcast * OVERCAST_AMBIENT_BOOST);
     setPuffTint(ambient.color);
     sampleRamp(SUN_DISC_RAMP, elevationDeg, sunDisc.material.color);
     sampleRamp(MOON_DISC_RAMP, -elevationDeg, moonDisc.material.color);
@@ -134,7 +170,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
   /** Call once per frame with the car's world position and lat/lon. */
   function update(position, lat, lon) {
     if (preset && presetMs === null) presetMs = presetTimeMs(preset, lat, lon);
-    timeMs = preset ? presetMs : simulatedTimeMs(Date.now());
+    timeMs = preset ? presetMs : clock ? clock() : simulatedTimeMs(Date.now());
     const { east, north, up } = sunDirection(timeMs, lat, lon);
     // World axes: x = east, y = up, z = south.
     sunDir.set(east, up, -north);
@@ -162,5 +198,15 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     presetMs = null; // resolved on the next update, where lat/lon are known
   }
 
-  return { update, setTimePreset, getTimePreset: () => preset, getSunElevation: () => sunElevationDeg, getTimeMs: () => timeMs, getLight: () => sun };
+  /** A game mode's clock (() => epoch ms) instead of the global cycle, or null to go back to it. */
+  function setClock(next) {
+    clock = next;
+  }
+
+  /** Cloud deck cover 0..1 (clouds.js), applied on the next update. */
+  function setOvercast(share) {
+    overcast = share;
+  }
+
+  return { update, setTimePreset, setClock, setOvercast, getTimePreset: () => preset, getSunElevation: () => sunElevationDeg, getTimeMs: () => timeMs, getLight: () => sun };
 }

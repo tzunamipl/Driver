@@ -22,6 +22,7 @@ export default {
   category: 'cars',
   defaultColor: 0xf2f0ea, // white
   rimColor: 0x2a2a2a,
+  rims: { default: 'mesh10', loose: 'rally6' }, // car/rims.js, per tyre compound group
   gloss: 0.6,
   buildBody,
   rimSize: 15,

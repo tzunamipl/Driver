@@ -1,8 +1,11 @@
 // Rally refuel zone (points with `refuel: true`, or a click on the fuel bowser): how many
-// litres to add, up to a full tank, or Cancel.
+// litres to add, up to a full tank, or Cancel. Picked in litres or gallons (lib/units.js).
+
+import { isImperial, volumeValue, volumeUnit, litresFromVolume } from '../lib/units.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 const STEP_L = 1;
+const STEP_GAL = 0.5;
 
 /**
  * @param {object} [opts]
@@ -17,27 +20,29 @@ export function createRefuelDialog({ onOpen, onClose } = {}) {
   function open({ litres, capacityL, fuelType = 'petrol' }) {
     if (pending) return pending;
     pending = new Promise((resolve) => {
-      const room = Math.max(0, Math.floor((capacityL - litres) / STEP_L) * STEP_L);
+      // Slider and box in the shown unit; litres go back out.
+      const step = isImperial() ? STEP_GAL : STEP_L;
+      const room = Math.max(0, Math.floor(volumeValue(capacityL - litres) / step) * step);
       const finish = (add) => {
         root.hidden = true;
         pending = null;
         onClose?.();
-        resolve(add > 0 ? add : null);
+        resolve(add > 0 ? Math.min(capacityL - litres, litresFromVolume(add)) : null);
       };
       const gauge = el('span', 'tyre-setup-bar refuel-gauge');
       const after = el('span', 'tyre-setup-val');
-      const slider = Object.assign(el('input', 'refuel-slider'), { type: 'range', min: 0, max: room, step: STEP_L, value: room });
-      const amount = Object.assign(el('input', 'refuel-amount'), { type: 'number', min: 0, max: room, step: STEP_L, value: room });
+      const slider = Object.assign(el('input', 'refuel-slider'), { type: 'range', min: 0, max: room, step, value: room });
+      const amount = Object.assign(el('input', 'refuel-amount'), { type: 'number', min: 0, max: room, step, value: room });
       const add = Object.assign(el('button', '', 'Add fuel'), { type: 'button' });
       const render = (value) => {
-        const v = Math.min(room, Math.max(0, Math.round(Number(value) || 0)));
+        const v = Math.min(room, Math.max(0, Math.round((Number(value) || 0) / step) * step));
         slider.value = String(v);
         amount.value = String(v);
-        const total = litres + v;
+        const total = Math.min(capacityL, litres + litresFromVolume(v));
         // Current fuel dark, the added share lighter.
         gauge.style.setProperty('--fill', `${(litres / capacityL) * 100}%`);
         gauge.style.setProperty('--add', `${(total / capacityL) * 100}%`);
-        after.textContent = `${Math.round(total)} / ${Math.round(capacityL)} L`;
+        after.textContent = `${Math.round(volumeValue(total))} / ${Math.round(volumeValue(capacityL))} ${volumeUnit()}`;
         add.disabled = v <= 0;
         return v;
       };
@@ -50,7 +55,7 @@ export function createRefuelDialog({ onOpen, onClose } = {}) {
       tank.append(el('span', '', 'Tank'), gauge, after);
       const pick = el('div', 'refuel-row');
       const unit = el('label', 'refuel-unit');
-      unit.append(amount, el('span', '', 'L'));
+      unit.append(amount, el('span', '', volumeUnit()));
       pick.append(el('span', '', 'Add'), slider, unit);
       const footer = el('div', 'menu-footer');
       footer.append(add, cancel);

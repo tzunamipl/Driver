@@ -294,7 +294,7 @@
 }
 #debug-layers-hud .debug-layer-group {
   margin-top: 4px;
-  color: var(--w95-shadow);
+  font-weight: bold;
 }
 #debug-layers-hud .debug-layer-group:first-child {
   margin-top: 0;
@@ -314,6 +314,9 @@
 #debug-layers-hud .debug-layer input {
   margin: 0;
   cursor: pointer;
+}
+#debug-layers-hud .debug-layer-grid.off {
+  color: var(--w95-shadow);
 }
 #debug-layers-hud .debug-legend {
   display: grid;
@@ -352,6 +355,30 @@
 #debug-layers-hud .debug-time-btn {
   flex: 1;
   padding: 0 4px;
+}
+#debug-layers-hud .debug-weather-readout {
+  margin-bottom: 3px;
+  white-space: pre;
+}
+#debug-layers-hud .debug-weather-road,
+#debug-layers-hud .debug-weather-clouds,
+#debug-layers-hud .debug-weather-temp {
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+#debug-layers-hud .debug-weather-temp {
+  align-items: center;
+}
+#debug-layers-hud .debug-weather-temp .debug-time-btn {
+  flex: 0 0 auto;
+}
+#debug-layers-hud .debug-weather-temp input {
+  flex: 1;
+  min-width: 0;
+}
+#debug-layers-hud .debug-weather-temp-value {
+  width: 4.5em;
+  text-align: right;
 }
 #debug-layers-hud .debug-time-btn.active {
   background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;

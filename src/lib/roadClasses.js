@@ -21,8 +21,8 @@ function lerpColor(a, b, t) {
 // road; fillSlope / cutSlope = their rise over run; maxGrade = steepest
 // rise over run along the road, cut / filled into the terrain (0 = none).
 const ROAD_CLASS_DEFS = {
-  motorway: { widthMeters: 14, smoothMeters: 70, maxGrade: 0.2, rampMeters: 60, bankMeters: 40 },
-  trunk: { widthMeters: 13, smoothMeters: 60, maxGrade: 0.3, rampMeters: 50, bankMeters: 30 },
+  motorway: { widthMeters: 10, smoothMeters: 70, maxGrade: 0.2, rampMeters: 60, bankMeters: 40 },
+  trunk: { widthMeters: 10, smoothMeters: 60, maxGrade: 0.3, rampMeters: 50, bankMeters: 30 },
   primary: { widthMeters: 10, smoothMeters: 40, maxGrade: 0.5, rampMeters: 40, bankMeters: 25 },
   secondary: { widthMeters: 8, smoothMeters: 20, maxGrade: 0.6, rampMeters: 25, bankMeters: 18 },
   tertiary: { widthMeters: 8, rampMeters: 25 },

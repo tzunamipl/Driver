@@ -6,7 +6,7 @@
 //     surface's dirtLevel (higher when wet: mud); tyres fling it off faster with speed.
 //   wheel.wetness 0 dry .. 1 soaked: soaked in water, dries as it rolls; never
 //     below the weather's wetness.
-import { AMBIENT_TEMP_C, WEATHER_WETNESS } from '../../config.js';
+import { getAirTempC, getWetness } from '../weather.js';
 import { getTyreCompound } from './compounds.js';
 import { getSurfaceCompound } from '../surfaceCompounds.js';
 
@@ -56,9 +56,9 @@ export function initCondition(wheel) {
 
 /** New, clean, dry tyre at outside temperature (the weather's wetness). */
 export function freshCondition(wheel) {
-  wheel.tempC = AMBIENT_TEMP_C;
+  wheel.tempC = getAirTempC();
   wheel.dirt = 0;
-  wheel.wetness = WEATHER_WETNESS;
+  wheel.wetness = getWetness();
 }
 
 /** Tread warmed to just under the compound's optimum (tyre blankets before a start). */
@@ -110,12 +110,12 @@ export function updateCondition(wheel, surfaceKey, frictionForceN, slipSpeed, ro
   const cooling = (COOL_STILL_W_PER_K_M2 + COOL_PER_MS_W_PER_K_M2 * airSpeed) * wheel.treadBandM2 * (inWater ? WATER_COOLING : 1 + (WET_COOLING - 1) * wheel.wetness);
   const capacity = wheel.treadHeatCapacity;
   // Implicit in the cooling term, so big steps / strong cooling never overshoot ambient.
-  wheel.tempC = (wheel.tempC * capacity + (heatW + cooling * AMBIENT_TEMP_C) * dt) / (capacity + cooling * dt);
+  wheel.tempC = (wheel.tempC * capacity + (heatW + cooling * getAirTempC()) * dt) / (capacity + cooling * dt);
 
   // Water.
   const rolledM = speed * dt;
   if (inWater) wheel.wetness = Math.min(1, wheel.wetness + SOAK_PER_S * dt);
-  else wheel.wetness = Math.max(WEATHER_WETNESS, wheel.wetness - rolledM * DRY_PER_M - dt * DRY_PER_S);
+  else wheel.wetness = Math.max(getWetness(), wheel.wetness - rolledM * DRY_PER_M - dt * DRY_PER_S);
 
   // Dirt.
   if (!surface) return;
@@ -140,8 +140,8 @@ export function setConditionState(wheel, s, parkedS = 0) {
   const tempC = num(s?.tempC, -50, 300);
   if (tempC !== null) {
     const still = COOL_STILL_W_PER_K_M2 * wheel.treadBandM2;
-    wheel.tempC = AMBIENT_TEMP_C + (tempC - AMBIENT_TEMP_C) * Math.exp((-still * Math.max(0, parkedS)) / wheel.treadHeatCapacity);
+    wheel.tempC = getAirTempC() + (tempC - getAirTempC()) * Math.exp((-still * Math.max(0, parkedS)) / wheel.treadHeatCapacity);
   }
   wheel.dirt = num(s?.dirt, 0, 1) ?? wheel.dirt;
-  wheel.wetness = Math.max(WEATHER_WETNESS, num(s?.wetness, 0, 1) ?? wheel.wetness);
+  wheel.wetness = Math.max(getWetness(), num(s?.wetness, 0, 1) ?? wheel.wetness);
 }

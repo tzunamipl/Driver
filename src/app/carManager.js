@@ -46,6 +46,15 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level }
   let carVehicleId = null; // vehicle id the current car was built as
 
+  /** Takes no damage for `seconds` (a teleport drop landing), unless already noDamage for good. */
+  function protectFromDamage(seconds) {
+    const protectedVehicle = vehicle;
+    if (!protectedVehicle || noDamage) return;
+    protectedVehicle.noDamage = true;
+    clearTimeout(protectedVehicle.damageGraceTimer);
+    protectedVehicle.damageGraceTimer = setTimeout(() => (protectedVehicle.noDamage = false), seconds * 1000);
+  }
+
   function getFuelState() {
     return vehicle?.fuel ? { vehicleId: carVehicleId, litres: vehicle.fuel.litres } : null;
   }
@@ -199,10 +208,17 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     currentTyreSetup = setup;
     if (!vehicle) return;
     if (sameTyreSetup(setup, vehicle.tyreSetup)) {
+      vehicle.setRims?.(setup);
       vehicle.repairTyres?.();
       return;
     }
     rebuildInPlace(); // the old tyres' state doesn't match the new setup, so they start fresh
+  }
+
+  /** Fits only the setup's rim style + colour; the tyres keep their wear. */
+  function setRims(setup) {
+    currentTyreSetup = setup;
+    vehicle?.setRims?.(setup);
   }
 
   // `poses` are already remapped into the view frame by mainLoop.
@@ -275,6 +291,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     setVehicleKind,
     setColor,
     setTyreSetup,
+    setRims,
     updateRemotes,
     getRemoteLights,
     getShadowCasters,
@@ -296,6 +313,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     getSyncMeshes: () => syncMeshes,
     getSnapshotPhysics: () => snapshotPhysics,
     getReset: () => reset,
+    protectFromDamage,
     getUpdateReset: () => updateReset,
     // True while a reset/teleport eases the car into place.
     isResetting: () => !!isResetting?.(),

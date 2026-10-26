@@ -1,5 +1,5 @@
 // Paint widget beside every vehicle picker (lobby, stage / rally picker, debug view): the shown
-// car's colour + Metallic + Default, and the global "default paint on every car" toggle. Edits are drafts
+// car's colour + Metallic + Default, and its "default paint" toggle (kept per car). Edits are drafts
 // until commit(), so a cancelled picker leaves the stored paint alone.
 
 import { DEFAULT_BODY_COLOR } from '../config.js';
@@ -25,14 +25,14 @@ export function createVehicleColorPicker({ onChange } = {}) {
   row.append(input, metallicLabel, reset);
   const toggleLabel = el('label', 'vehicle-color-toggle');
   const toggle = Object.assign(document.createElement('input'), { type: 'checkbox' });
-  toggleLabel.append(toggle, ' Default paint on every car');
+  toggleLabel.append(toggle, ' Use default paint');
   root.append(row, toggleLabel);
 
   const drafts = new Map(); // vehicle id -> colour
-  let draftDefaultPaint = null; // null: unchanged
+  const draftDefaultPaint = new Map(); // vehicle id -> toggle
   let vehicleId = null;
 
-  const defaultPaint = () => draftDefaultPaint ?? usesDefaultPaint();
+  const defaultPaint = () => draftDefaultPaint.get(vehicleId) ?? usesDefaultPaint(vehicleId);
   const customColor = (id) => drafts.get(id) ?? getCustomVehicleColor(id);
   const color = () => (defaultPaint() ? defaultVehicleColor(vehicleId) : customColor(vehicleId));
 
@@ -67,7 +67,7 @@ export function createVehicleColorPicker({ onChange } = {}) {
     changed();
   });
   toggle.addEventListener('change', () => {
-    draftDefaultPaint = toggle.checked;
+    draftDefaultPaint.set(vehicleId, toggle.checked);
     changed();
   });
 
@@ -83,15 +83,15 @@ export function createVehicleColorPicker({ onChange } = {}) {
     /** Stores the drafts. */
     commit() {
       for (const [id, c] of drafts) setVehicleColor(id, c);
-      if (draftDefaultPaint != null) setUseDefaultPaint(draftDefaultPaint);
+      for (const [id, on] of draftDefaultPaint) setUseDefaultPaint(id, on);
       drafts.clear();
-      draftDefaultPaint = null;
+      draftDefaultPaint.clear();
       render();
     },
     /** Drops the drafts. */
     discard() {
       drafts.clear();
-      draftDefaultPaint = null;
+      draftDefaultPaint.clear();
       render();
     },
   };

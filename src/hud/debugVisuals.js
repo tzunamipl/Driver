@@ -9,13 +9,12 @@ const LAYERS = [
   { id: 'water', label: 'Water', group: 'map' },
   { id: 'builtUp', label: 'Built-up areas', group: 'map' },
   { id: 'forest', label: 'Landcover', group: 'map' }, // id kept: saved layer choices
+  { id: 'roadBed', label: 'Road bed', group: 'terrain' }, // terrain deformation, not an overlay: off rebuilds detail tiles
   { id: 'tileBorders', label: 'Tile borders', group: 'debug' },
   { id: 'hitboxes', label: 'Hitboxes', group: 'debug' },
   { id: 'terrainGrid', label: 'Terrain polygons', group: 'debug' },
   { id: 'roadProfile', label: 'Road profile', group: 'debug' }, // red = terrain under the centreline, cyan = road height; dots = moved vertices (legend)
   { id: 'roadPolygons', label: 'Road polygons', group: 'debug', on: false }, // triangles of the road stripes (grip / road surface view)
-  { id: 'roadBed', label: 'Road bed', group: 'debug' }, // terrain deformation, not an overlay: off rebuilds detail tiles
-  { id: 'dissolve', label: 'Teleport dissolve', group: 'debug', on: false }, // on teleport, tiles, buildings & near trees burst into particles
   // Gameplay objects, not overlays: shown while the debug view is off.
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
   { id: 'guardRails', label: 'Guard rails', group: 'graphics' },
@@ -28,20 +27,28 @@ const LAYERS = [
   { id: 'rocks', label: 'Rocks', group: 'graphics' },
   { id: 'wheelDust', label: 'Wheel dust', group: 'graphics' },
   { id: 'wheelDebris', label: 'Wheel debris (leaves, stones)', group: 'graphics' },
+  { id: 'wetSpray', label: 'Wet road spray', group: 'graphics' },
   { id: 'treeShadows', label: 'Tree, bush & rock shadows', group: 'graphics', on: false }, // debug view only: costly with thousands of trees
+  { id: 'dissolve', label: 'Teleport dissolve', group: 'graphics', on: false }, // debug view only: on teleport, tiles, buildings & near trees burst into particles
 ];
 const LAYER_GROUPS = [
   { id: 'map', label: 'Map' },
+  { id: 'terrain', label: 'Terrain' },
   { id: 'debug', label: 'Debug' },
   { id: 'graphics', label: 'Graphics' },
 ];
 const ROADSIDE_GROUPS = ['roadPosts', 'guardRails', 'streetLamps', 'curveSigns', 'directionSigns'];
 
+const groupKey = (groupId) => `group:${groupId}`;
+// What a Settings toggle in a switched-off group gets back when the group is on again.
+const settingKey = (label) => `setting:${label}`;
+
 function loadLayers() {
   const layers = Object.fromEntries(LAYERS.map(({ id, on = true }) => [id, on]));
+  for (const { id } of LAYER_GROUPS) layers[groupKey(id)] = true;
   try {
     const saved = JSON.parse(localStorage.getItem(DEBUG_LAYERS_STORAGE_KEY) || '{}');
-    for (const { id } of LAYERS) if (typeof saved[id] === 'boolean') layers[id] = saved[id];
+    for (const [key, value] of Object.entries(saved)) if (typeof value === 'boolean') layers[key] = value;
   } catch {
     // Corrupt/unavailable storage: defaults.
   }
@@ -89,6 +96,7 @@ function saveEnabled(enabled) {
  * @param {ReturnType<import('../lib/dissolve.js').createDissolve>} [deps.dissolve]
  * @param {ReturnType<import('../lib/terrainDust.js').createTerrainDust>} [deps.terrainDust]
  * @param {ReturnType<import('../lib/wheelDebris.js').createWheelDebris>} [deps.wheelDebris]
+ * @param {ReturnType<import('../lib/wetSpray.js').createWetSpray>} [deps.wetSpray]
  * @param {HTMLElement} deps.terrainStatsEl
  * @param {HTMLElement} [deps.fpsGraphEl]
  * @param {HTMLElement} deps.suspensionHudEl
@@ -118,6 +126,7 @@ export function createDebugVisualsToggle(
     dissolve,
     terrainDust,
     wheelDebris,
+    wetSpray,
     terrainStatsEl,
     fpsGraphEl,
     suspensionHudEl,
@@ -138,8 +147,11 @@ export function createDebugVisualsToggle(
   let setCarHitboxVisible = null;
   let roadProfileLegend = null;
 
-  const shown = (id) => debugVisualsEnabled && layers[id];
-  const kept = (id) => !debugVisualsEnabled || layers[id];
+  // A switched-off group hides its layers but keeps their own choices.
+  const groupOf = Object.fromEntries(LAYERS.map(({ id, group }) => [id, group]));
+  const isOn = (id) => layers[id] && layers[groupKey(groupOf[id])];
+  const shown = (id) => debugVisualsEnabled && isOn(id);
+  const kept = (id) => !debugVisualsEnabled || isOn(id);
 
   function apply() {
     const display = debugVisualsEnabled ? '' : 'none';
@@ -154,7 +166,7 @@ export function createDebugVisualsToggle(
     terrain.setBordersVisible(shown('tileBorders'));
     terrain.setWireframeVisible(shown('terrainGrid'));
     terrain.setRoadProfileVisible(shown('roadProfile'));
-    if (roadProfileLegend) roadProfileLegend.style.display = layers.roadProfile ? '' : 'none';
+    if (roadProfileLegend) roadProfileLegend.style.display = isOn('roadProfile') ? '' : 'none';
     terrain.setRoadBedEnabled(kept('roadBed'));
     if (roadside) for (const group of ROADSIDE_GROUPS) roadside.setGroupVisible(group, kept(group));
     if (directionSignHud) directionSignHud.setEnabled(kept('directionSignHud'));
@@ -182,34 +194,69 @@ export function createDebugVisualsToggle(
     if (dissolve) dissolve.setEnabled(shown('dissolve'));
     if (terrainDust) terrainDust.setEnabled(kept('wheelDust'));
     if (wheelDebris) wheelDebris.setEnabled(kept('wheelDebris'));
+    if (wetSpray) wetSpray.setEnabled(kept('wetSpray'));
     if (setCarHitboxVisible) setCarHitboxVisible(shown('hitboxes'));
   }
 
   function buildLayersPanel() {
     const list = layersHudEl.querySelector('.debug-layers-list') || layersHudEl;
     for (const group of LAYER_GROUPS) {
-      const title = document.createElement('div');
-      title.className = 'debug-layer-group';
-      title.textContent = group.label;
+      const key = groupKey(group.id);
+      const { title, groupBox } = groupTitle(group.label);
+      groupBox.checked = layers[key];
       const grid = document.createElement('div');
       grid.className = 'debug-layer-grid';
       list.append(title, grid);
+      const boxes = [];
+      const groupSwitches = []; // Settings toggles follow the group: off with it, back to their box on
+      const syncRows = () => {
+        grid.classList.toggle('off', !layers[key]);
+        for (const box of boxes) box.disabled = !layers[key];
+      };
       for (const { id, label } of LAYERS.filter((layer) => layer.group === group.id)) {
-        const row = document.createElement('label');
-        row.className = 'debug-layer';
-        const box = document.createElement('input');
-        box.type = 'checkbox';
-        box.checked = layers[id];
-        box.addEventListener('change', () => {
-          layers[id] = box.checked;
-          saveLayers(layers);
-          apply();
-          box.blur(); // keep keyboard driving working after a click
-        });
-        row.append(box, label);
-        grid.append(row);
+        boxes.push(
+          layerRow(grid, label, layers[id], (on) => {
+            layers[id] = on;
+            saveLayers(layers);
+            apply();
+          })
+        );
       }
-      if (group.id === 'graphics') for (const setting of settingToggles) grid.append(settingRow(setting));
+      if (group.id === 'graphics') {
+        for (const { label, toggle } of settingToggles) {
+          const memory = settingKey(label);
+          if (layers[key]) layers[memory] = toggle.get();
+          let muted = false; // our own switch-off while the group is off
+          const setSetting = (on) => {
+            muted = true;
+            toggle.set(on);
+            muted = false;
+          };
+          const box = layerRow(grid, label, layers[memory] ?? toggle.get(), (on) => {
+            layers[memory] = on;
+            saveLayers(layers);
+            setSetting(on);
+          });
+          toggle.onChange((on) => {
+            if (muted) return;
+            box.checked = on;
+            layers[memory] = on;
+            saveLayers(layers);
+          });
+          boxes.push(box);
+          groupSwitches.push((groupOn) => setSetting(groupOn && box.checked));
+          if (!layers[key] && toggle.get()) setSetting(false);
+        }
+      }
+      groupBox.addEventListener('change', () => {
+        layers[key] = groupBox.checked;
+        saveLayers(layers);
+        for (const switchSetting of groupSwitches) switchSetting(groupBox.checked);
+        apply();
+        syncRows();
+        groupBox.blur(); // keep keyboard driving working after a click
+      });
+      syncRows();
       if (group.id === 'debug') {
         roadProfileLegend = buildRoadProfileLegend();
         list.append(roadProfileLegend);
@@ -217,19 +264,28 @@ export function createDebugVisualsToggle(
     }
   }
 
-  function settingRow({ label, toggle }) {
+  function groupTitle(label) {
+    const title = document.createElement('label');
+    title.className = 'debug-layer debug-layer-group';
+    const groupBox = document.createElement('input');
+    groupBox.type = 'checkbox';
+    title.append(groupBox, label);
+    return { title, groupBox };
+  }
+
+  function layerRow(grid, label, checked, set) {
     const row = document.createElement('label');
     row.className = 'debug-layer';
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.checked = toggle.get();
+    box.checked = checked;
     box.addEventListener('change', () => {
-      toggle.set(box.checked);
+      set(box.checked);
       box.blur(); // keep keyboard driving working after a click
     });
-    toggle.onChange((on) => (box.checked = on));
     row.append(box, label);
-    return row;
+    grid.append(row);
+    return box;
   }
 
   function buildRoadProfileLegend() {

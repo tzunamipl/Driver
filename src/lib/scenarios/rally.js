@@ -18,10 +18,18 @@ const COORD_DECIMALS = 6; // ~0.1 m
 const HEADING_DECIMALS = 1;
 
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// Rally day start (local to the rally): the file's `startTime` for day 1, a parc fermé's `nextStart` for the day after it.
+export const DEFAULT_START_TIME = '08:00';
+
+/** 'HH:MM' -> minutes after midnight, or null. */
+export function parseClockTime(text) {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(typeof text === 'string' ? text.trim() : '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
 // stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; refuel: passing it offers fuel;
-// service: passing it opens that lib/serviceRepairs.js SERVICE_ZONES repair menu;
+// service: passing it opens that lib/serviceRepairs.js SERVICE_ZONES repair menu; endsDay: passing it ends the rally day (`nextStart` field);
 // description: what the point does in the game (editor tooltips).
 const POINT_TYPES = {
   timeControl: {
@@ -81,8 +89,8 @@ const POINT_TYPES = {
     description: 'Remote service zone away from the base: stop in its zone (15 m), from either direction, and let the small crew fix the car within a 15 min time budget (no new parts); going over costs 10 s per started minute.',
   },
   parcFerme: {
-    label: 'Parc fermé', short: 'PARC', color: 0xf0f0f0, gate: true,
-    description: 'Closed park at the end of a leg or the rally: drive through it.',
+    label: 'Parc fermé', short: 'PARC', color: 0xf0f0f0, gate: true, endsDay: true,
+    description: 'Closed park at the end of a day (leg) or the rally: drive through it. The night passes and the next day starts at its Next day start time (else the rally start time).',
   },
   podium: {
     label: 'Podium', short: 'PODIUM', color: 0xd4a017, gate: true,
@@ -114,7 +122,7 @@ const RALLY_POINTS = ['base', 'serviceParkIn', 'service', 'serviceParkOut', 'reg
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
 const normalHeading = (deg) => Number((((deg % 360) + 360) % 360).toFixed(HEADING_DECIMALS)) % 360;
-const gate = ({ type, id, lat, lon, width, heading, snap }) => ({
+const gate = ({ type, id, lat, lon, width, heading, snap, nextStart }) => ({
   type,
   ...(id ? { id } : {}),
   lat: round(lat),
@@ -122,6 +130,7 @@ const gate = ({ type, id, lat, lon, width, heading, snap }) => ({
   width: round(width ?? defaultWidth(type)),
   ...(Number.isFinite(heading) ? { heading: normalHeading(heading) } : {}),
   ...(snap === false ? { snap: false } : {}),
+  ...(POINT_TYPES[type].endsDay && parseClockTime(nextStart) != null ? { nextStart: nextStart.trim() } : {}),
 });
 
 function readGate(entry) {
@@ -130,6 +139,7 @@ function readGate(entry) {
   if (Number.isFinite(entry.heading)) point.heading = normalHeading(entry.heading);
   if (entry.snap === false) point.snap = false;
   if (typeof entry.id === 'string' && entry.id) point.id = entry.id;
+  if (POINT_TYPES[entry.type].endsDay && parseClockTime(entry.nextStart) != null) point.nextStart = entry.nextStart;
   return point;
 }
 
@@ -214,7 +224,7 @@ function validateCommon(doc, problems) {
   }
 }
 
-/** Editor/loader definition of the rally mode. Documents: { kind, country, region, id, name, items }. */
+/** Editor/loader definition of the rally mode. Documents: { kind, country, region, id, name, items } (+ rally `startTime`). */
 export const rallyFormat = {
   folder: 'rally',
   defaultGateWidth: defaultWidth,
@@ -259,11 +269,14 @@ export const rallyFormat = {
       refKind: 'stage',
       // Gates can be driven again later: `id` on the gate, { point: id } entries.
       pointRefs: true,
+      // Day 1 start when the file has no `startTime`.
+      startTime: DEFAULT_START_TIME,
       toFile(doc) {
         const base = doc.items.find((item) => item.type === 'base');
         return {
           format: SCENARIO_FORMAT,
           ...fileMeta(doc),
+          ...(parseClockTime(doc.startTime) != null ? { startTime: doc.startTime.trim() } : {}),
           base: base ? { name: base.name ?? '', lat: round(base.lat), lon: round(base.lon) } : null,
           itinerary: doc.items
             .filter((item) => item.type !== 'base')
@@ -286,12 +299,16 @@ export const rallyFormat = {
             if (point) items.push(point);
           }
         }
-        return { ...docMeta(json), items, objects: readObjects(json) };
+        return { ...docMeta(json), startTime: parseClockTime(json.startTime) != null ? json.startTime : '', items, objects: readObjects(json) };
       },
       validate(doc) {
         const problems = [];
         validateCommon(doc, problems);
         if (!doc.items.some((item) => item.type === 'ref')) problems.push('A rally needs at least one stage');
+        if (doc.startTime?.trim() && parseClockTime(doc.startTime) == null) problems.push('Start time: HH:MM, e.g. 08:00');
+        for (const item of doc.items) {
+          if (item.nextStart?.trim() && parseClockTime(item.nextStart) == null) problems.push(`${POINT_TYPES[item.type]?.label}: next day start HH:MM, e.g. 08:30`);
+        }
         const ids = new Set();
         for (const item of doc.items) {
           if (!item.id) continue;

@@ -14,6 +14,7 @@ const NOMINATIM_REVERSE_URL = (lat, lon) =>
 
 // Drop-in height above the destination ground (same as the initial spawn).
 const TELEPORT_DROP_HEIGHT = 3;
+const TELEPORT_DAMAGE_GRACE_S = 3; // after the ease ends: the drop lands and the car settles
 const TELEPORT_PROGRESS_INTERVAL_MS = 250;
 
 async function fetchJson(url) {
@@ -104,10 +105,12 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       // shared origin's elevation, so drop relative to the ground here.
       const groundY = findGroundY(world, 0, 0) ?? 0;
       const reset = carManager.getReset();
+      carManager.protectFromDamage(TELEPORT_DAMAGE_GRACE_S);
       if (reset) reset({ x: 0, y: groundY + TELEPORT_DROP_HEIGHT, z: 0 });
       // Stay "teleporting" until the ease lands: it starts at the old spot's
       // stale coordinates, and streaming around it would drop the new ground.
       while (carManager.isResetting()) await new Promise(requestAnimationFrame);
+      carManager.protectFromDamage(TELEPORT_DAMAGE_GRACE_S);
       if (!hidden) {
         setAddressStatus(`Teleported to ${label}`);
         setTimeout(() => setAddressStatus(''), 3000);

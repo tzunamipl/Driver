@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { buildWheelMesh } from '../lib/car/wheelMesh.js';
 import { getVehicle } from '../lib/vehicles/index.js';
-import { stockTyreSetup, sameTyreSetup } from '../lib/tyres/setup.js';
+import { stockTyreSetup, sameTyreSetup, sameRims } from '../lib/tyres/setup.js';
+import { resolveRim } from '../lib/car/rims.js';
 
 const SPIN_RAD_PER_S = 0.7;
 const CAMERA_FOV_DEG = 30;
@@ -173,7 +174,8 @@ export function createTyrePreview(canvas) {
   function build(vehicleId, setup, condition) {
     disposeWheel();
     const descriptor = getVehicle(vehicleId);
-    wheel = buildWheelMesh({ rimSize: setup.rimSize, tyre: setup.width, profile: setup.profile, rimColor: descriptor.rimColor ?? 0xc0c0c0 }, holder, WHEEL_SEGMENTS);
+    const rim = resolveRim({ ...descriptor, tyreCompound: setup.compound, tyreSetup: setup });
+    wheel = buildWheelMesh({ rimSize: setup.rimSize, tyre: setup.width, profile: setup.profile, ...rim }, holder, WHEEL_SEGMENTS);
     const map = treadTexture(setup.compound, condition);
     if (condition) usedTexture = map;
     for (const m of wheel.userData.tyreMats.tread) {
@@ -213,7 +215,7 @@ export function createTyrePreview(canvas) {
      */
     show(vehicleId, setup, condition = null) {
       const key = condition ? `${condition.tread.toFixed(2)}|${condition.dirt.toFixed(2)}` : '';
-      if (shown && shown.vehicleId === vehicleId && shown.key === key && sameTyreSetup(shown.setup, setup)) return;
+      if (shown && shown.vehicleId === vehicleId && shown.key === key && sameTyreSetup(shown.setup, setup) && sameRims(shown.setup, setup)) return;
       shown = { vehicleId, setup, key };
       build(vehicleId, setup, condition);
     },

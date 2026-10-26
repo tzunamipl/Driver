@@ -22,7 +22,8 @@ import { createFuelTank } from './fuel.js';
 import { createEngineHeat } from './engineHeat.js';
 import { createLampDamage } from './lampDamage.js';
 import { createBodyDirt } from './bodyDirt.js';
-import { MAX_STEER, AMBIENT_TEMP_C } from '../config.js';
+import { MAX_STEER } from '../config.js';
+import { getAirTempC } from './weather.js';
 import { GRAVITY } from './physicsConstants.js';
 import {
   CHASSIS_WIDTH,
@@ -33,7 +34,7 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness, setWheelSetRims } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
@@ -51,7 +52,7 @@ const DEFAULT_BODY_COLOR = 0xffffff;
 const DEFAULT_CHASSIS_MASS = 1500; // kg
 const DEFAULT_TRAILER_MASS = 5000; // kg
 const DEFAULT_BRAKE_FORCE = 100;
-const DEFAULT_ABS = true;
+export const DEFAULT_ABS = true;
 // Front axles' share of the pedal brake: the rear unloads under braking, so an
 // even split locks it first and swaps the car's ends.
 const DEFAULT_BRAKE_BIAS = 0.70;
@@ -199,8 +200,8 @@ function pedalBiasScales(wheels, bias) {
 
 /** Trailer spec: tyre/suspension/brake fields fall back to the tractor's. */
 function trailerSpecOf(descriptor) {
-  const { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound } = descriptor;
-  return { rimSize, tyre, profile, rimColor, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, ...descriptor.trailer };
+  const { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound } = descriptor;
+  return { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, ...descriptor.trailer };
 }
 
 /**
@@ -277,14 +278,15 @@ export function createCar(
 
   const wheelRadius = (tractorWheels.find((w) => w.axle.driven) ?? tractorWheels[0]).options.radius;
   vehicle.vehicleType = descriptor.vehicleType;
-  vehicle.tyreSetup = descriptor.tyreSetup; // fitted { compound, rimSize, width, profile }
+  vehicle.tyreSetup = descriptor.tyreSetup; // fitted { compound, rimSize, width, profile, rim, rimColor }
   vehicle.wheelLabels = allWheels.map((w) => w.label);
+  vehicle.outsideTempGauge = !!descriptor.outsideTempGauge; // outside temp LCD in the speedo (hud/outsideTempLcd.js)
   vehicle.engineForce = descriptor.enginePowerHp * FORCE_PER_HP;
   vehicle.engine = createEngineState(descriptor, wheelRadius); // rpm/gearbox, driven by input.js
   vehicle.fuel = createFuelTank(descriptor, chassisBody); // burnt by mainLoop, adds its mass to the chassis
   Object.defineProperty(vehicle.engine, 'fuelFraction', { get: () => vehicle.fuel.fraction });
-  vehicle.heat = createEngineHeat(descriptor, AMBIENT_TEMP_C); // warmed by mainLoop, read by the aux gauge
-  Object.defineProperty(vehicle.engine, 'oilTempC', { get: () => vehicle.heat.oilTempC });
+  vehicle.heat = createEngineHeat(descriptor, getAirTempC()); // warmed by mainLoop, read by the aux gauge
+  Object.defineProperty(vehicle.engine, 'oilPressureBar', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.oilPressureBar : 0) });
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
   Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.powerFactor : 0) });
   vehicle.spareTyres = 0; // rally only (lib/spareTyres.js); their mass rides with the fuel
@@ -450,7 +452,12 @@ export function createCar(
   function setHitboxVisible(visible) {
     for (const m of hitboxMeshes) m.visible = visible;
   }
-  const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual));
+  const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual, w.side));
+  /** Fits the setup's rim style + colour (cosmetic, tyres untouched); the trailer keeps its own. */
+  vehicle.setRims = (setup) => {
+    vehicle.tyreSetup = { ...vehicle.tyreSetup, rim: setup.rim, rimColor: setup.rimColor };
+    tractorWheels.forEach((w, i) => setWheelSetRims(wheelMeshes[i], { ...w.spec, tyreSetup: vehicle.tyreSetup }));
+  };
 
   // --- Render interpolation ---
   // Physics runs at a fixed step; render lerps between the last two steps

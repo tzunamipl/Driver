@@ -4,6 +4,8 @@
 // navigation are blocked while a stage is live; R rocks the car instead of resetting it.
 // A rally's liaison leg longer than SKIP_LIAISON_M can be skipped: fade to black, the car moved
 // before the next point, fade back in.
+// The rally clock and weather (rallyConditions.js) run at real speed from the rally's start time,
+// time jumps add to them and each parc fermé ends the day; a single stage runs from its picked time and weather.
 // Once stopped the crew can do field fixes (spare wheel, patches, the carried cans; fieldRepair.js),
 // at a penalty on a live stage, and the car can be inspected. Service points open a repair menu against a time budget per visit
 // (lib/serviceRepairs.js); going over it adds a late penalty to the rally total.
@@ -11,11 +13,13 @@
 // so a game left mid-stage resumes there with the car where it stood (lib/carState.js).
 
 import * as CANNON from 'cannon-es';
-import { OFFICIAL_SCENARIO_SOURCE, AMBIENT_TEMP_C, WEATHER_WETNESS } from '../../config.js';
+import { OFFICIAL_SCENARIO_SOURCE } from '../../config.js';
+import { getAirTempC, getWetness, getRainMmH } from '../../lib/weather.js';
+import { formatDistance, formatVolume, formatTemp, longDistanceValue, longDistanceUnit } from '../../lib/units.js';
 import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
-import { rallyFormat, resolvePointRefs } from '../../lib/scenarios/rally.js';
+import { rallyFormat, resolvePointRefs, parseClockTime, DEFAULT_START_TIME } from '../../lib/scenarios/rally.js';
 import { filePath } from '../../lib/scenarios/paths.js';
 import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
@@ -28,6 +32,7 @@ import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { createZonePicking } from './zonePicking.js';
 import { createFieldRepair } from './fieldRepair.js';
+import { createRallyConditions, DEFAULT_STAGE_CONDITIONS } from './rallyConditions.js';
 import { getVehicle, vehicleLabel } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
@@ -56,9 +61,15 @@ const INSPECT_HIDE_SPEED = 1.5;
 const SKIP_LIAISON_M = 3000; // straight line to the next point
 const SKIP_ROAD_FACTOR = 1.3; // road distance per straight-line metre, for a skip's fuel
 const SKIP_MIN_PART_LEVEL = 0.3; // any part (tyre tread, shock, gearbox, fluids...) below this blocks a skip
+const SKIP_SPEED_KMH = 50; // a skipped liaison's average speed, for the clock
+const TYRE_FITTING_MIN = 10; // clock minutes at a tyre fitting zone
+const REFUEL_MIN = 5; // ...and at a refuel zone
+const NIGHT_CAPTION_MS = 1500; // end of a rally day: the black screen holds this long
 
-/** HUD distance: metres, km past 1 km. */
-const formatDistance = (m) => (m > 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+const formatClock = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+const minutesText = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+const DEFAULT_START_MIN = parseClockTime(DEFAULT_START_TIME);
+
 
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
@@ -94,7 +105,7 @@ async function buildPlan(kind, source, opened, key, json) {
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
   const base = rally.items.find((item) => item.type === 'base') ?? null;
-  return { kind, source, sha: opened.sha, id: key, name: rally.name, base, items, objects: rally.objects };
+  return { kind, source, sha: opened.sha, id: key, name: rally.name, startTime: rally.startTime, base, items, objects: rally.objects };
 }
 
 /** The plan's course objects: the rally's own and each stage's once, however often it's driven. */
@@ -144,19 +155,24 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(speed: number, spec: object) => void} [deps.onPropHit] - sound when the car knocks a flag / board / light over.
  * @param {(long: boolean) => void} [deps.onStartBeep] - timing beep: short (countdown light, check-in), long (GO, finish).
  * @param {() => number} [deps.getTimeOfDayMs] - simulated clock (epoch ms) for the control clocks.
+ * @param {(clock: (() => number) | null) => void} deps.setClock - daylight.js: the rally clock drives the sun.
+ * @param {(on: boolean) => void} deps.setLiveWeather - the free-roam forecast feed, off while a plan sets the weather.
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  * @param {ReturnType<import('../../ui/screenFade.js').createScreenFade>} [deps.screenFade] - liaison skips need it.
  * @param {() => void} [deps.snapCamera] - the camera jumps to the car (after a skip).
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
-  const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs });
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, setClock, setLiveWeather, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
+  const conditions = createRallyConditions({ setClock, setLiveWeather });
+  const clockMs = () => conditions.displayMs(getTimeOfDayMs?.() ?? Date.now());
+  const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs: clockMs });
   const rocking = createCarRocking();
   let plan = null;
   let itemIndex = 0;
   let results = []; // { name, ms | null (DNF) }
   let services = {}; // item index -> { usedMin, penaltyMs }: service visits so far
+  let itemMark = null; // the clock and weather when the current item began: a restarted stage goes back to it
   let serviceOpen = false;
   let stopped = false; // slow enough to inspect the car
   let run = null;
@@ -217,7 +233,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         isEnabled: () => !!plan && !busy && !finished,
         getRun: () => run,
         onRepair,
-        onDone(text, penaltyMs) {
+        onDone(text, penaltyMs, clockMin) {
+          conditions.advance(clockMin * 60_000);
           flash = { text: `${text} ✓${penaltyMs ? `  +${formatTime(penaltyMs)}` : ''}`, until: simTime + SPLIT_SHOW_S };
           saveProgress();
         },
@@ -233,7 +250,17 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     writeSaveField('status', plan ? progressStatus() : null);
     writeSaveField('done', !!plan && finished);
     if (!plan) return writeSaveField('rallyProgress', null);
-    writeSaveField('rallyProgress', { kind: plan.kind, source: plan.source, id: plan.id, itemIndex, results, services, run: finished ? null : run?.snapshot() ?? null });
+    writeSaveField('rallyProgress', {
+      kind: plan.kind,
+      source: plan.source,
+      id: plan.id,
+      itemIndex,
+      results,
+      services,
+      run: finished ? null : run?.snapshot() ?? null,
+      conditions: conditions.snapshot(),
+      mark: itemMark,
+    });
   }
 
   /** Where the game stands, for the main menu's mode card. */
@@ -270,6 +297,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       const usedMin = before.usedMin + minutes;
       const penaltyMs = latePenaltyMs(usedMin, zone.budgetMin);
       services = { ...services, [i]: { usedMin, penaltyMs } };
+      conditions.advance(minutes * 60_000);
       const extra = penaltyMs - before.penaltyMs;
       flash = { text: `${zone.label}: ${minutes} min${extra ? `  late +${formatTime(extra)}` : ''}`, until: simTime + SPLIT_SHOW_S };
       resultRows = null;
@@ -300,11 +328,45 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   function checkIn(item) {
     const pointType = rallyFormat.pointTypes[item.point.type];
     flash = { text: `${pointLabel(item.point.type)} ✓`, until: simTime + SPLIT_SHOW_S };
-    if (pointType?.tyres) (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
-    if (pointType?.refuel) refuelWaitM = 0;
+    if (pointType?.tyres) {
+      (onTyreService ?? (() => carManager.getVehicle()?.repairTyres?.()))();
+      conditions.advance(TYRE_FITTING_MIN * 60_000);
+    }
+    if (pointType?.refuel) {
+      refuelWaitM = 0;
+      conditions.advance(REFUEL_MIN * 60_000);
+    }
     const i = itemIndex;
     itemDone(null);
     if (pointType?.service) openService(i);
+    // The rally's last parc fermé just ends it.
+    if (pointType?.endsDay && !finished) endOfDay(item.point);
+  }
+
+  /** Parc fermé: fade to black over the night, the clock moved to the next day's start. */
+  async function endOfDay(point) {
+    const startMin = parseClockTime(point.nextStart) ?? parseClockTime(plan.startTime) ?? DEFAULT_START_MIN;
+    const day = conditions.getDay();
+    if (!screenFade) {
+      conditions.endDay(startMin);
+      itemMark = conditions.snapshot();
+      flash = { text: `Day ${conditions.getDay()} · ${minutesText(startMin)}`, until: simTime + SPLIT_SHOW_S };
+      return saveProgress();
+    }
+    busy = true;
+    try {
+      parkCar();
+      await screenFade.out(`End of day ${day}\nDay ${day + 1} starts at ${minutesText(startMin)}`);
+      conditions.endDay(startMin);
+      // The next item begins in the new day.
+      itemMark = conditions.snapshot();
+      saveProgress();
+      await new Promise((resolve) => setTimeout(resolve, NIGHT_CAPTION_MS));
+    } finally {
+      busy = false;
+      screenFade.in();
+    }
+    flash = { text: `Day ${conditions.getDay()} · ${minutesText(startMin)}`, until: simTime + SPLIT_SHOW_S };
   }
 
   function carPosition() {
@@ -317,6 +379,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
    */
   function showItem(savedRun = null) {
     const item = currentItem();
+    itemMark = conditions.snapshot();
     scenery.setActive(plan.items.slice(0, itemIndex).reduce((n, it) => n + itemPoints(it).length, 0));
     hideOtherRuns();
     run = null;
@@ -498,9 +561,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   /**
    * @param {'teleport' | 'place' | null} spawn - how to bring the car to the item, if at all.
    * @param {object | null} [savedRun] - the current stage's run as saved.
+   * @param {object | null} [savedConditions] - the clock and weather to carry on with (rallyConditions.js snapshot()), else they start anew.
    */
-  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null, savedServices = {}) {
+  async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null, savedServices = {}, savedConditions = null) {
     plan = newPlan;
+    await startConditions(savedConditions);
     services = Object.fromEntries(Object.entries(savedServices ?? {}).filter(([i]) => Number(i) < index));
     scenery.setPoints(plan.items.flatMap(itemPoints));
     scenery.setBase(plan.base);
@@ -516,6 +581,16 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     saveProgress();
     if (spawn) await spawnAt(itemIndex, { teleport: spawn === 'teleport' });
     routeToItem();
+  }
+
+  /** The plan's clock and weather: as saved, else a rally from its start time, a single stage from its picked conditions. */
+  async function startConditions(saved) {
+    if (saved && conditions.restore(saved)) return;
+    const at = plan.base ?? planStart(plan);
+    if (!at) return;
+    if (plan.kind === 'stage') return conditions.startStage({ lat: at.lat, lon: at.lon, ...DEFAULT_STAGE_CONDITIONS, ...plan.conditions });
+    const days = 1 + plan.items.filter((item) => item.type === 'point' && rallyFormat.pointTypes[item.point.type]?.endsDay).length;
+    await conditions.startRally({ lat: at.lat, lon: at.lon, startMin: parseClockTime(plan.startTime) ?? DEFAULT_START_MIN, days });
   }
 
   /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares and full cans on board. */
@@ -538,6 +613,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       run = null;
       finished = false;
       saveProgress();
+      picked.plan.conditions = picked.conditions;
       if (picked.vehicleId !== getVehicleId() || getVehicleColor(picked.vehicleId) !== carManager.getColor()) switchVehicle(picked.vehicleId);
       else if (!sameTyreSetup(getTyreSetup(picked.vehicleId), carManager.getVehicle()?.tyreSetup)) carManager.setTyreSetup(getTyreSetup(picked.vehicleId));
       await startPlan(picked.plan);
@@ -556,9 +632,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (busy || !plan) return;
     busy = true;
     try {
-      // Single stage: a fresh run; rally: the current stage again.
+      // Single stage: a fresh run (from its picked time again); rally: the current stage again, the clock back to when it began.
       const index = plan.kind === 'stage' ? 0 : itemIndex;
-      await startPlan(plan, index, plan.kind === 'stage' ? [] : results, 'teleport', null, services);
+      await startPlan(plan, index, plan.kind === 'stage' ? [] : results, 'teleport', null, services, plan.kind === 'stage' ? null : itemMark);
       if (plan.kind === 'stage') newCar();
     } finally {
       busy = false;
@@ -592,7 +668,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const fuel = vehicle?.fuel;
     const litres = fuel?.skippedDriveLitres(skip.metres * SKIP_ROAD_FACTOR) ?? 0;
     if (fuel && litres > fuel.litres) {
-      flash = { text: `Not enough fuel to skip: ${litres.toFixed(1)} L needed`, until: simTime + SPLIT_SHOW_S };
+      flash = { text: `Not enough fuel to skip: ${formatVolume(litres)} needed`, until: simTime + SPLIT_SHOW_S };
       return;
     }
     busy = true;
@@ -600,12 +676,13 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       const item = currentItem();
       const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
       const to = item.type === 'stage' ? `SS${ss} · ${item.stage.name}` : pointLabel(item.point.type).toLowerCase();
-      const used = `${formatDistance(skip.metres * SKIP_ROAD_FACTOR)} · ${litres.toFixed(1)} L fuel`;
+      const used = `${formatDistance(skip.metres * SKIP_ROAD_FACTOR)} · ${formatVolume(litres)} fuel`;
       routeGuidance.stop();
       await screenFade.out(`Liaison to ${to}\n${used}`);
       if (await spawnAt(itemIndex, { quiet: true, fromBase: false })) {
         while (carManager.isResetting()) await new Promise(requestAnimationFrame);
         fuel?.setLitres(fuel.litres - litres);
+        conditions.advance(((skip.metres * SKIP_ROAD_FACTOR) / (SKIP_SPEED_KMH / 3.6)) * 1000);
         flash = { text: `Liaison skipped: ${used}`, until: simTime + SPLIT_SHOW_S };
         snapCamera?.();
       }
@@ -706,12 +783,14 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   function planView() {
     const rows = [];
     let ss = 0;
+    let day = 0;
     plan.items.forEach((item, i) => {
       const state = itemState(i);
       if (item.type !== 'stage') {
         const visit = services[i];
         const value = !visit ? '' : visit.penaltyMs ? `+${formatTime(visit.penaltyMs)}` : `${visit.usedMin} min`;
         rows.push({ label: pointLabel(item.point.type), value, state });
+        if (rallyFormat.pointTypes[item.point.type]?.endsDay && i < plan.items.length - 1) rows.push({ label: `End of day ${++day}`, value: '', state });
         return;
       }
       // Results hold one entry per stage driven, in itinerary order.
@@ -744,7 +823,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       return {
         state,
         label: `SS${ss} ${stage.name}`,
-        km: length ? (length / 1000).toFixed(2) : '–',
+        km: length ? longDistanceValue(length / 1000).toFixed(2) : '–',
         splits: String(stage.points.filter((p) => p.type === 'split').length),
         best: best ? formatTime(best.totalMs) : '',
         value: result ? (result.ms == null ? 'DNF' : `${formatTime(result.ms)}${result.penaltyMs ? ` (+${formatTime(result.penaltyMs)})` : ''}`) : '',
@@ -752,20 +831,23 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     });
     const dnf = results.some((r) => r.ms == null);
     const stageMs = results.reduce((sum, r) => sum + (r.ms ?? 0), 0);
-    const time = new Date(getTimeOfDayMs?.() ?? Date.now());
-    const surface = WEATHER_WETNESS <= 0 ? 'Dry' : WEATHER_WETNESS < 0.4 ? 'Damp' : 'Wet';
+    const wetness = getWetness();
+    const surface = wetness <= 0.05 ? 'Dry' : wetness < 0.4 ? 'Damp' : 'Wet';
+    const rain = getRainMmH();
     return {
       title: plan.name,
       vehicle: getVehicle(getVehicleId()).name,
       conditions: [
-        ['Time of day', time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
-        ['Air temperature', `${AMBIENT_TEMP_C} °C`],
+        ...(plan.kind === 'rally' ? [['Day', String(conditions.getDay())]] : []),
+        ['Time of day', formatClock(new Date(clockMs()))],
+        ...(rain ? [['Rain', rain < 1 ? 'Light' : rain < 4 ? 'Moderate' : 'Heavy']] : []),
+        ['Air temperature', formatTemp(getAirTempC())],
         ['Surface', surface],
       ],
       rows,
       totals: [
         ['Stages', `${results.length} / ${ss} driven`],
-        ['Stage distance', km ? `${km.toFixed(2)} km` : '–'],
+        ['Stage distance', km ? `${longDistanceValue(km).toFixed(2)} ${longDistanceUnit()}` : '–'],
         ['Stage times', results.length ? (dnf ? 'DNF' : formatTime(stageMs)) : '–'],
         ['Service penalties', servicePenaltyMs() ? `+${formatTime(servicePenaltyMs())}` : 'none'],
         ['Rally time', results.length ? (dnf ? 'DNF' : formatTime(rallyTotalMs())) : '–'],
@@ -805,6 +887,12 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   }
 
   function view() {
+    const v = baseView();
+    if (plan?.kind === 'rally' && !finished && conditions.isRunning()) v.title = `${v.title}  ·  Day ${conditions.getDay()} ${formatClock(new Date(clockMs()))}`;
+    return v;
+  }
+
+  function baseView() {
     if (!plan && busy) return { title: 'Rally', status: 'Choose a stage or rally' };
     // Loading failed: say why, and offer the picker again.
     if (!plan) return { title: 'Rally', status: flash?.text ?? '', buttons: ['pickAgain'] };
@@ -849,6 +937,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (initialPick) {
         busy = true;
         try {
+          initialPick.plan.conditions = initialPick.conditions;
           await startPlan(initialPick.plan, 0, [], 'place');
           newCar();
         } finally {
@@ -868,7 +957,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         if (!json) throw new Error(`${progress.id} is gone from ${progress.source}`);
         const saved = await buildPlan(progress.kind, progress.source, opened, progress.id, json);
         // The car resumes where it was saved (lib/carState.js), so it needs no spawn.
-        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], null, progress.run ?? null, progress.services);
+        await startPlan(saved, progress.itemIndex ?? 0, progress.results ?? [], null, progress.run ?? null, progress.services, progress.conditions ?? null);
+        itemMark = progress.mark ?? itemMark;
         resumed = true;
       } catch (err) {
         console.warn('Rally: could not resume', err);
@@ -886,6 +976,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     /** Per physics step: timing and checkpoints. */
     afterStep(dt) {
       simTime += dt;
+      if (plan && !busy) conditions.tick(dt);
       const pos = carPosition();
       if (!pos || !plan || finished || busy) return;
       step.x = pos.x;

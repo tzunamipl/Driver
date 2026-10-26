@@ -2,13 +2,16 @@
 // junction, show, apex }: s / len = metres along the stage where the corner starts and how long it is,
 // dir 'L' | 'R' | 'S' (straight on at a junction, no grade), grade 1 (slowest) .. 6 (fastest),
 // show / apex = { lat, lon, s }: a point before the corner and the apex, where the HUD stops showing the note.
-// What follows a note (distance, "into", "and") comes from the gap to the next one.
+// What follows a note (distance, "into", "and") comes from the gap to the next one, called in
+// metres or yards (lib/units.js).
+
+import { shortDistanceValue } from '../units.js';
 
 export const DIRS = ['L', 'R', 'S'];
 export const GRADES = [1, 2, 3, 4, 5, 6];
 const INTO_M = 15;
 const AND_M = 35;
-// Called distances, rounded down to one of these (shorter is the safe side).
+// Called distances (metres or yards), rounded down to one of these (shorter is the safe side).
 const CALLED_DISTANCES = [30, 40, 50, 60, 70, 80, 100, 120, 150, 200, 250, 300, 400, 500];
 const LONG_STEP_M = 100;
 
@@ -30,10 +33,10 @@ export function gapAfter(pacenotes, i) {
 export function gapLabel(pacenotes, i) {
   const gap = gapAfter(pacenotes, i);
   const last = i === pacenotes.notes.length - 1;
-  if (last) return gap < AND_M ? 'finish' : `${calledDistance(gap)} finish`;
+  if (last) return gap < AND_M ? 'finish' : `${calledDistance(shortDistanceValue(gap))} finish`;
   if (gap < INTO_M) return 'into';
   if (gap < AND_M) return 'and';
-  return String(calledDistance(gap));
+  return String(calledDistance(shortDistanceValue(gap)));
 }
 
 /** One line, e.g. 'L4 at junction 100'. */

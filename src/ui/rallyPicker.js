@@ -1,6 +1,6 @@
 // Stage / rally picker: the car to drive (ui/vehiclePicker.js, with the lobby's turning
 // model + stats, ui/vehiclePreview.js, its paint, ui/vehicleColorPicker.js, spare wheels, ui/spareTyresPicker.js,
-// and for a single stage tyres, ui/tyreSetupPicker.js) and a folding tree of the official scenarios and
+// and for a single stage tyres, ui/tyreSetupPicker.js, and its time of day + weather, ui/stageConditionsPicker.js) and a folding tree of the official scenarios and
 // every player's branch (ui/scenarioTree.js); picking a file shows its plan on a map
 // (ui/rallyPlanMap.js) with its best times (ui/rallyBestTimes.js), Start (or a double-click) drives it.
 
@@ -13,6 +13,7 @@ import { createRallyBestTimes } from './rallyBestTimes.js';
 import { createVehicleColorPicker } from './vehicleColorPicker.js';
 import { createTyreSetupPicker } from './tyreSetupPicker.js';
 import { createSpareTyresPicker } from './spareTyresPicker.js';
+import { createStageConditionsPicker } from './stageConditionsPicker.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 
@@ -34,6 +35,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
   const colors = createVehicleColorPicker({ onChange: (color) => preview.setColor(color) });
   const tyres = createTyreSetupPicker({ onChange: (setup) => preview.setTyreSetup(setup) });
   const spares = createSpareTyresPicker();
+  const stageConditions = createStageConditionsPicker();
 
   function showVehicle(vehicleId) {
     preview.setVehicle(vehicleId);
@@ -43,7 +45,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
   }
 
   /**
-   * Resolves with { plan, vehicleId }, or null on Back.
+   * Resolves with { plan, vehicleId, conditions (a single stage's { timeOfDay, weather }) }, or null on Back.
    * @param {object} opts
    * @param {string} opts.title
    * @param {string} opts.folder - mode folder, e.g. 'rally'.
@@ -60,11 +62,15 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
         if (result) {
           colors.commit();
           spares.commit();
-          if (pickTyres) tyres.commit();
+          if (pickTyres) {
+            tyres.commit();
+            stageConditions.commit();
+          }
         } else {
           colors.discard();
           tyres.discard();
           spares.discard();
+          stageConditions.discard();
         }
         root.hidden = true;
         preview.stop();
@@ -75,7 +81,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
       let selected = null; // { opened, key, plan (null while loading) }
       let startWhenLoaded = false;
       const start = Object.assign(el('button', '', 'Start'), { type: 'button', disabled: true });
-      const startSelected = () => finish({ plan: selected.plan, vehicleId: vehicles.getSelectedId() });
+      const startSelected = () => finish({ plan: selected.plan, vehicleId: vehicles.getSelectedId(), ...(pickTyres ? { conditions: stageConditions.get() } : {}) });
       start.onclick = startSelected;
       map.show(null, `Pick a ${kind.label.toLowerCase()} to see its map`);
       times.show(null);
@@ -119,7 +125,7 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
       });
       const win = el('div', 'menu-window rally-picker-window');
       const carPick = el('div', 'rally-car-pick');
-      carPick.append(tabs, list, colors.el, ...(pickTyres ? [tyres.el] : []), spares.el);
+      carPick.append(tabs, list, colors.el, ...(pickTyres ? [tyres.el] : []), spares.el, ...(pickTyres ? [stageConditions.el] : []));
       const showcase = el('div', 'rally-car-showcase');
       showcase.append(canvas, stats);
       const car = el('div', 'rally-car');

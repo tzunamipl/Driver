@@ -155,6 +155,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   idInput.addEventListener('input', () => editor.setMeta('id', idInput.value.trim()));
   const nameInput = el('input', { type: 'text', placeholder: 'Name' });
   nameInput.addEventListener('input', () => editor.setMeta('name', nameInput.value));
+  // Kinds with a day clock (`startTime` = its default) take a start time.
+  const startTimeInput = el('input', { type: 'text', spellcheck: false });
+  startTimeInput.addEventListener('input', () => editor.setMeta('startTime', startTimeInput.value.trim()));
+  const startTimeLabel = el('label', { textContent: 'Start time' });
+  setTip(startTimeLabel, 'Start time', 'Local time at the rally when day 1 starts (HH:MM). The clock then runs at real speed; service, field fixes and skipped liaisons add their time, and each parc fermé ends a day.');
 
   const placeEl = el('div', { className: 'editor-place' });
   // Stage picker: country, then region / theme, then the stage.
@@ -236,6 +241,8 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       idInput,
       el('label', { textContent: 'Name' }),
       nameInput,
+      startTimeLabel,
+      startTimeInput,
       el('div', { className: 'editor-heading', textContent: 'Place at car' }),
       placeEl,
       refRow,
@@ -335,6 +342,13 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       gateChecks = { snap: snap.input, road: road.input };
       dial = createHeadingDial((degrees) => editor.setHeading(degrees));
       fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row])]));
+      if (format.pointTypes[item.type].endsDay) {
+        const nextStart = el('input', { type: 'text', value: item.nextStart ?? '', placeholder: state.doc.startTime || editor.kind().startTime, spellcheck: false });
+        nextStart.addEventListener('input', () => editor.setField('nextStart', nextStart.value.trim()));
+        const label = el('label', { textContent: 'Next day start' });
+        setTip(label, 'Next day start', 'Local time (HH:MM) the next rally day starts at after this parc fermé. Empty: the rally start time.');
+        fields.push(label, nextStart);
+      }
     } else {
       const name = el('input', { type: 'text', value: item.name ?? '', placeholder: isRef ? 'Name for this pass (optional)' : 'Name' });
       name.addEventListener('input', () => editor.setField('name', name.value));
@@ -386,6 +400,9 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     patchValue(regionInput, state.doc.region);
     patchValue(idInput, state.doc.id);
     patchValue(nameInput, state.doc.name);
+    patchValue(startTimeInput, state.doc.startTime ?? '');
+    startTimeLabel.hidden = startTimeInput.hidden = !kind.startTime;
+    startTimeInput.placeholder = kind.startTime ?? '';
     sourceNote.textContent = `Stages are added from ${state.source}, the branch Publish goes to.`;
     if (renderedKind !== kind.id) {
       renderedKind = kind.id;

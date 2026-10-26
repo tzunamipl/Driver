@@ -7,6 +7,7 @@ export default {
   category: 'dumb',
   defaultColor: 0x3f8f5a, // green
   rimColor: 0xb8bcc2,
+  rims: { default: 'hubcap', winter: 'steel4' }, // car/rims.js, per tyre compound group
   gloss: 0.5,
   buildBody,
   rimSize: 15,

@@ -7,6 +7,7 @@ export default {
   category: 'cars',
   defaultColor: 0x7e5e25 | METALLIC_PAINT, // dusky bronze, metallic
   rimColor: 0xcda434,
+  rims: { default: 'spoke5', loose: 'rally6', winter: 'steelBlack' }, // car/rims.js, per tyre compound group
   buildBody,
   wheelRadius: 0.35,
   rimSize: 17,

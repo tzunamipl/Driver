@@ -9,8 +9,10 @@ const REAR_ATTACH_Y = -0.3 + 0.019;
 export default {
   id: 'C026', // display name in ./names.js
   category: 'cars',
+  outsideTempGauge: true, // dash LCD: outside temperature
   defaultColor: 0xe8b400, // yellow
   rimColor: 0x1e1e20,
+  rims: { default: 'spoke5Twist', loose: 'rally6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 19,
   tyre: 245,

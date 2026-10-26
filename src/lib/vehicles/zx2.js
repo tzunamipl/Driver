@@ -6,8 +6,10 @@ import { METALLIC_PAINT } from './geometry/paint.js';
 export default {
   id: 'C019', // display name in ./names.js
   category: 'cars',
+  outsideTempGauge: true, // dash LCD: outside temperature
   defaultColor: 0xc0c5ca | METALLIC_PAINT, // titanium silver
   rimColor: 0x8a8e94,
+  rims: { default: 'spoke5Twist', loose: 'rally6', winter: 'steel6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 17,
   tyre: 225,

@@ -28,5 +28,12 @@ export const VEHICLE_NAMES = {
   C025: 'Halny R',
   C026: 'Ultra',
   C027: 'Muscle',
+  C028: 'Malaise',
+  C029: 'Urban',
+  C030: 'Worker',
+  C031: 'Kostka',
+  C032: 'Majster',
+  C033: 'Hummel',
+  C034: 'Sheriff',
   S001: 'Chariot of Fire',
 };

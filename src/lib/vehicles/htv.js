@@ -8,6 +8,7 @@ export default {
   category: 'trucks',
   defaultColor: 0x4b5320, // olive drab
   rimColor: 0x2f3324,
+  rims: { default: 'steel8' }, // car/rims.js, per tyre compound group
   buildBody,
   gloss: 0.15,
   rimSize: 20,

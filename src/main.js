@@ -18,6 +18,8 @@ import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
 import { createCarShadows } from './lib/carShadow.js';
 import { createWheelDebris } from './lib/wheelDebris.js';
+import { createWetSpray } from './lib/wetSpray.js';
+import { createRain } from './lib/rain.js';
 import { createDissolve } from './lib/dissolve.js';
 import { createClouds } from './lib/clouds.js';
 import { createMusic } from './lib/audio/music.js';
@@ -47,7 +49,7 @@ import { createStartBeep } from './lib/audio/startBeep.js';
 import { createHeadlights } from './lib/headlights.js';
 import { createHeadlightSwitch } from './app/headlightSwitch.js';
 import { BuildingsManager } from './lib/buildings.js';
-import { StreetsManager } from './lib/streets.js';
+import { StreetsManager, setRoadOvercast } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
 import { createRoadside } from './lib/roadside.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
@@ -99,6 +101,9 @@ import { setupDebugHudWrap } from './hud/debugHudWrap.js';
 import { setupTouchControls } from './hud/touchControls.js';
 import { createDebugVisualsToggle } from './hud/debugVisuals.js';
 import { createTimeOfDayPicker } from './hud/timeOfDayPicker.js';
+import { createWeatherDebug } from './hud/weatherDebug.js';
+import { createWeatherFeed } from './app/weatherFeed.js';
+import { getCloudPreset, onWeatherChange } from './lib/weather.js';
 import { createSurfaceHover } from './hud/surfaceHover.js';
 import { createRoadBedInspect } from './hud/roadBedInspect.js';
 import { createVehicleDebugPicker, loadDevCarChoice } from './hud/vehicleDebugPicker.js';
@@ -132,7 +137,7 @@ import { createRallyInfoDialog } from './ui/rallyInfoDialog.js';
 import { createServiceDialog } from './ui/serviceDialog.js';
 import { carParts } from './lib/serviceRepairs.js';
 import { createGarageDialog } from './ui/garageDialog.js';
-import { sameTyreSetup } from './lib/tyres/setup.js';
+import { sameTyreSetup, sameRims } from './lib/tyres/setup.js';
 import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
 
 // ---------- Composition root ----------
@@ -217,8 +222,11 @@ if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
 const rallyStart = planStart(rallyInitialPick?.plan);
 
 // ---------- Rendering environment ----------
-const { renderer, scene, camera, renderView } = createSceneEnvironment();
+const { renderer, scene, camera, renderView, colorGrade } = createSceneEnvironment();
 const daylight = createDaylight({ scene, ...createLighting(scene) });
+// Free roam runs on the real time of day; other modes keep the fast cycle (or their own clock, rally).
+if (isFreeRoam) daylight.setClock(Date.now);
+const weatherFeed = createWeatherFeed();
 
 // ---------- View frame ----------
 // Resume where the previous session left off (lib/carState.js).
@@ -341,6 +349,8 @@ function playerSpawnQuat() {
 // Wheel effects the layers panel can switch off.
 const terrainDust = createTerrainDust(scene);
 const wheelDebris = createWheelDebris(scene);
+const wetSpray = createWetSpray(scene);
+const rain = createRain(scene);
 
 // ---------- Debug visuals (tile HUD, hitboxes) ----------
 const debugVisuals = createDebugVisualsToggle(
@@ -358,6 +368,7 @@ const debugVisuals = createDebugVisualsToggle(
     dissolve,
     terrainDust,
     wheelDebris,
+    wetSpray,
     terrainStatsEl: document.getElementById('terrain-stats'),
     fpsGraphEl: document.getElementById('fps-graph-panel'),
     suspensionHudEl: document.getElementById('suspension-hud'),
@@ -376,6 +387,7 @@ const debugVisuals = createDebugVisualsToggle(
   IS_DEV_MODE
 );
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
+createWeatherDebug(document.getElementById('debug-layers-hud'), weatherFeed);
 setupDebugFolds(
   ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
 );
@@ -527,7 +539,18 @@ const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
 const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play });
 const coolantSteam = createCoolantSteam(scene, { onLeak: createCoolantHissSound().update });
-const clouds = createClouds(scene);
+const clouds = createClouds(scene, {
+  onOvercast: (share) => {
+    daylight.setOvercast(share);
+    setRoadOvercast(share);
+    colorGrade?.setOvercast(share);
+  },
+});
+let cloudPreset = getCloudPreset();
+clouds.setPreset(cloudPreset);
+onWeatherChange(({ clouds: preset }) => {
+  if (preset !== cloudPreset) clouds.setPreset((cloudPreset = preset));
+});
 createMusic();
 setupGameplayProps({
   pedestrians,
@@ -633,6 +656,7 @@ if (!isRallyGame) {
     } else {
       if (color !== carManager.getColor()) carManager.setColor(color);
       if (vehicle.tyreSetup && !sameTyreSetup(setup, vehicle.tyreSetup)) carManager.setTyreSetup(setup);
+      else if (vehicle.tyreSetup && !sameRims(setup, vehicle.tyreSetup)) carManager.setRims(setup);
     }
     net.setVehicleId(vehicleId);
     net.setColor(color);
@@ -717,6 +741,8 @@ const rallySession =
         onPropHit: postHitSound.play,
         onStartBeep: createStartBeep().play,
         getTimeOfDayMs: daylight.getTimeMs,
+        setClock: daylight.setClock,
+        setLiveWeather: weatherFeed.setEnabled,
         onMapPoints: (points) => {
           minimapHud.setScenarioPoints(points);
           navigationPanel.setScenarioPoints(points);
@@ -756,7 +782,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, wetSpray, rain, streetLights, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
 });
 
 // ---------- Main loop ----------
@@ -803,10 +829,13 @@ const mainLoop = createMainLoop({
   rimSparks,
   terrainDust,
   wheelDebris,
+  wetSpray,
   bodyDust,
   carShadows,
   dissolve,
   clouds,
+  rain,
+  weatherFeed,
   remoteCollisions,
   net,
   input,

@@ -8,6 +8,7 @@ import { createTyrePreview } from './tyrePreview.js';
 import { createSpareTyresPicker } from './spareTyresPicker.js';
 import { getTyreCompound } from '../lib/tyres/compounds.js';
 import { tyreSizeLabel } from '../lib/tyres/setup.js';
+import { formatTemp } from '../lib/units.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 // Tread below this reads as bald, below the second as worn.
@@ -34,7 +35,7 @@ function wheelCard(label, w, compound) {
   const tempC = Number.isFinite(w.tempC) ? Math.round(w.tempC) : null;
   const temp = el('div', 'tyre-service-row');
   const tempClass = tempC == null ? '' : tempC < lo ? 'cold' : tempC > hi ? 'hot' : 'good';
-  temp.append(el('span', '', 'Temp'), el('span', `tyre-service-temp ${tempClass}`, tempC == null ? '–' : `${tempC} °C`));
+  temp.append(el('span', '', 'Temp'), el('span', `tyre-service-temp ${tempClass}`, tempC == null ? '–' : formatTemp(tempC)));
   const notes = [];
   if (w.dirt >= SHOW_DIRT) notes.push(`dirt ${Math.round(w.dirt * 100)}%`);
   if (w.wetness >= SHOW_WET) notes.push(`wet ${Math.round(w.wetness * 100)}%`);

@@ -2,10 +2,12 @@
 // its own small renderer, plus a short stats table read from the descriptor.
 
 import * as THREE from 'three';
-import { createRemoteCar } from '../lib/car.js';
+import { createRemoteCar, DEFAULT_ABS } from '../lib/car.js';
 import { getVehicle } from '../lib/vehicles/index.js';
 import { driveLabel } from '../lib/car/axles.js';
-import { sameTyreSetup } from '../lib/tyres/setup.js';
+import { gearRangesOf, rangeLetters } from '../lib/engine.js';
+import { sameTyreSetup, sameRims } from '../lib/tyres/setup.js';
+import { isImperial, formatMass, massValue, torqueValue, torqueUnit } from '../lib/units.js';
 
 const SPIN_RAD_PER_S = 0.6;
 const CAMERA_FOV_DEG = 30;
@@ -20,16 +22,21 @@ export function vehicleStats(d) {
     return [
       ['Engines', String(engines)],
       ['Thrust', `${Math.round(totalThrustN / 1000)} kN`],
-      ['Mass', `${d.mass} kg`],
+      ['Mass', formatMass(d.mass)],
       ['Thrust/wt', (totalThrustN / (d.mass * G)).toFixed(1)],
     ];
   }
+  const ranges = gearRangesOf(d);
+  const mass = d.mass + (d.trailer?.mass ?? 0);
   return [
     ['Power', `${d.enginePowerHp} hp`],
-    ['Torque', `${d.peakTorqueNm} Nm`],
-    ['Mass', `${d.mass + (d.trailer?.mass ?? 0)} kg`],
-    ['Power/wt', `${Math.round(d.enginePowerHp / ((d.mass + (d.trailer?.mass ?? 0)) / 1000))} hp/t`],
+    ['Torque', `${Math.round(torqueValue(d.peakTorqueNm))} ${torqueUnit()}`],
+    ['Mass', formatMass(mass)],
+    isImperial() ? ['Weight/power', `${(massValue(mass) / d.enginePowerHp).toFixed(1)} lb/hp`] : ['Power/wt', `${Math.round(d.enginePowerHp / (mass / 1000))} hp/t`],
     ['Drive', `${driveLabel(d)} · ${d.gearRatios?.length ?? '?'} gears`],
+    ['ABS', (d.abs ?? DEFAULT_ABS) ? 'Yes' : 'No'],
+    ['Traction ctrl', d.tractionControl ? 'Yes' : 'No'],
+    ['Range box', ranges > 1 ? rangeLetters(ranges).join('/') : 'No'],
   ];
 }
 
@@ -129,9 +136,9 @@ export function createVehiclePreview({ canvas, statsEl }) {
       buildModel();
       renderStats();
     },
-    /** Shows these wheel sizes (tyres/setup.js) on the current vehicle. */
+    /** Shows these wheel sizes + rims (tyres/setup.js) on the current vehicle. */
     setTyreSetup(next) {
-      if (sameTyreSetup(next, tyreSetup) || !vehicleId) return;
+      if ((sameTyreSetup(next, tyreSetup) && sameRims(next, tyreSetup)) || !vehicleId) return;
       tyreSetup = next;
       model?.dispose();
       buildModel();

@@ -7,6 +7,7 @@ import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { fetchRouteVia } from '../lib/routing.js';
 import { rallyFormat } from '../lib/scenarios/rally.js';
 import { TILE_SIZE, createMapTileCache } from '../hud/mapTiles.js';
+import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 16;
@@ -21,7 +22,7 @@ const INSET_MARGIN = 6;
 
 const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
-const km = (m) => `${(m / 1000).toFixed(1)} km`;
+const km = (m) => `${longDistanceValue(m / 1000).toFixed(1)} ${longDistanceUnit()}`;
 const hex = (color) => `#${(color & 0xffffff).toString(16).padStart(6, '0')}`;
 const typeColor = (type) => hex(rallyFormat.pointTypes[type]?.color ?? 0x808080);
 

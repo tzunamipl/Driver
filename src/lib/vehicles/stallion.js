@@ -8,6 +8,7 @@ export default {
   category: 'cars',
   defaultColor: 0x7a8c96, // grey blue
   rimColor: 0xb8bcc2,
+  rims: { default: 'hubcap', loose: 'steel4', winter: 'steel4' }, // car/rims.js, per tyre compound group
   buildBody: buildRoadBody,
   rimSize: 16,
   tyre: 205,

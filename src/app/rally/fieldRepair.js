@@ -16,7 +16,7 @@ export const penaltyText = (ms) => `+${formatTime(ms).replace(/\.0$/, '')}`;
  * @param {() => object | null} deps.getVehicle
  * @param {() => boolean} deps.isEnabled
  * @param {() => object | null} deps.getRun - the current stage's stageRun.js, if any.
- * @param {(text: string, penaltyMs: number) => void} [deps.onDone] - `text`: what was done.
+ * @param {(text: string, penaltyMs: number, clockMin: number) => void} [deps.onDone] - `text`: what was done; `clockMin`: rally clock minutes it took.
  * @param {() => void} [deps.onRepair] - sound of the repair.
  */
 export function createFieldRepair({ canvas, camera, getVehicle, isEnabled, getRun, onDone, onRepair }) {
@@ -34,7 +34,7 @@ export function createFieldRepair({ canvas, camera, getVehicle, isEnabled, getRu
     const penaltyMs = penaltyApplies() ? action.penaltyMs ?? 0 : 0;
     if (penaltyMs) getRun().addPenalty(penaltyMs);
     onRepair?.();
-    onDone?.(`${action.label} · ${part.label}`, penaltyMs);
+    onDone?.(`${action.label} · ${part.label}`, penaltyMs, action.clockMin ?? 0);
   }
 
   function items(vehicle) {

@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY, tileX2lon, tileY2lat } from './geo.js';
 import { ROAD_HIERARCHY } from './roadClasses.js';
 import { DIRECTION_SIGN_JUNCTIONS, DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL } from '../config.js';
+import { longDistanceValue, longDistanceUnit } from './units.js';
 
 const DEG = Math.PI / 180;
 const SIGNED_CLASSES = new Set(Object.entries(DIRECTION_SIGN_JUNCTIONS).flat(2));
@@ -308,7 +309,8 @@ function textWidthM(text) {
   return measureCtx.measureText(text).width / PX_PER_M;
 }
 
-export const kmText = (board) => `${board.km} km`;
+/** Board distance: whole km or miles (lib/units.js), at least 1. */
+export const kmText = (board) => `${Math.max(1, Math.round(longDistanceValue(board.km)))} ${longDistanceUnit()}`;
 
 /** Board width fitting every board's name + distance. */
 function signWidth(boards) {
@@ -487,7 +489,7 @@ export function createDirectionSignKind({ streets, builtUpAreas, places }) {
       boards.push({
         dir: o === ahead && Math.abs(o.rel) < STRAIGHT_MAX ? 'straight' : o.rel > 0 ? 'right' : 'left',
         name: dest.name,
-        km: Math.max(1, Math.round(dest.dist / 1000)),
+        km: dest.dist / 1000,
         cls: o.b.cls,
       });
     }

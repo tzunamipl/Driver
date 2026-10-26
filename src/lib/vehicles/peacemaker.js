@@ -14,6 +14,7 @@ export default {
   category: 'postapo',
   defaultColor: 0x15120f,
   rimColor: 0x2a2724,
+  rims: { default: 'steel8' }, // car/rims.js, per tyre compound group
   gloss: 0.8,
   buildBody,
   ...FRONT_WHEEL,

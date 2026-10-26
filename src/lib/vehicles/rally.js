@@ -6,6 +6,7 @@ export default {
   category: 'dumb',
   defaultColor: 0xf2c230, // yellow
   rimColor: 0xF5F5F5,
+  rims: { default: 'rally8', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 17,
   tyre: 305,

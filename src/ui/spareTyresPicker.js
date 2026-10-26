@@ -4,6 +4,7 @@
 import { getVehicle } from '../lib/vehicles/index.js';
 import { getSpareTyres, setSpareTyres } from '../lib/garage.js';
 import { MAX_SPARE_TYRES, SPARE_TYRE_KG } from '../lib/spareTyres.js';
+import { formatMass } from '../lib/units.js';
 
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 
@@ -11,7 +12,7 @@ export function createSpareTyresPicker() {
   const root = el('label', 'tyre-setup-field spare-tyres-field');
   const input = el('select', 'tyre-setup-select');
   for (let n = 0; n <= MAX_SPARE_TYRES; n++) {
-    input.append(Object.assign(document.createElement('option'), { value: String(n), textContent: n ? `${n} · +${n * SPARE_TYRE_KG} kg` : 'None' }));
+    input.append(Object.assign(document.createElement('option'), { value: String(n), textContent: n ? `${n} · +${formatMass(n * SPARE_TYRE_KG)}` : 'None' }));
   }
   root.append(el('span', '', 'Spare wheels'), input);
 

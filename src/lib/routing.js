@@ -1,4 +1,5 @@
 import { lon2tileX, lat2tileY } from './geo.js';
+import { isImperial, longDistanceValue, FT_PER_M } from './units.js';
 
 // Road routes from the public OSRM demo server (keyless, CORS, fair-use),
 // flattened into one polyline with per-vertex distance/time so the car's
@@ -195,6 +196,11 @@ export function describeStep(step) {
 }
 
 export function formatRouteDistance(meters) {
+  if (isImperial()) {
+    const miles = longDistanceValue(meters / 1000);
+    if (miles < 0.1) return `${Math.max(0, Math.round((meters * FT_PER_M) / 50) * 50)} ft`;
+    return `${miles.toFixed(miles < 10 ? 1 : 0)} mi`;
+  }
   if (meters < 1000) return `${Math.max(0, Math.round(meters / 10) * 10)} m`;
   return `${(meters / 1000).toFixed(meters < 10_000 ? 1 : 0)} km`;
 }

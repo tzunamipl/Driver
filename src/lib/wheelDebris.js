@@ -23,7 +23,7 @@ const SURFACE_DEBRIS = {
   normal: { perM: 1.2, leaf: 0.65, leafColors: GRASS, chunkColors: SOIL, size: [0.03, 0.07] },
   forest: { perM: 1.4, leaf: 0.8, leafColors: LEAVES, chunkColors: DARK_SOIL, size: [0.03, 0.07] },
   scrub: { perM: 1, leaf: 0.55, leafColors: SCRUB, chunkColors: SOIL, size: [0.03, 0.06] },
-  unpaved: { perM: 1.2, leaf: 0, chunkColors: GRAVEL, size: [0.015, 0.04] },
+  unpaved: { perM: 3, leaf: 0, chunkColors: GRAVEL, size: [0.015, 0.045] },
   rock: { perM: 0.8, leaf: 0, chunkColors: STONE, size: [0.02, 0.06] },
   sand: { perM: 0.6, leaf: 0, chunkColors: SAND, size: [0.02, 0.05] },
 };

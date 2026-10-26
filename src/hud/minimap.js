@@ -4,6 +4,7 @@ import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
 import { strokeRoute } from './routeLine.js';
 import { drawScenarioPoints } from './scenarioPointIcon.js';
 import { formatRouteDistance, formatRouteDuration } from '../lib/routing.js';
+import { isImperial, longDistanceValue, longDistanceUnit, FT_PER_M, M_PER_MILE } from '../lib/units.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
 // Round, north-up street-map minimap (OSM tiles, see mapTiles.js). The
@@ -23,6 +24,10 @@ function loadStoredZoom(storageKey, defaultZoom) {
 // "Nice" round distances (meters) considered for the scale bar.
 const SCALE_STEPS_M = [
   5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10_000, 20_000, 25_000, 50_000, 100_000, 200_000,
+].map((m) => ({ m, label: m >= 1000 ? `${m / 1000} km` : `${m} m` }));
+const SCALE_STEPS_IMPERIAL = [
+  ...[20, 50, 100, 200, 500, 1000, 2000].map((ft) => ({ m: ft / FT_PER_M, label: `${ft} ft` })),
+  ...[0.5, 1, 2, 5, 10, 20, 50, 100].map((mi) => ({ m: mi * M_PER_MILE, label: `${mi} mi` })),
 ];
 
 // Place-name lookups: only after moving this far, and at most this often.
@@ -48,15 +53,16 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-// Peer distance labels: km, then "kkkm" (teleported peers may be continents away).
+// Peer distance labels: km (miles), then "kkkm" / "k mi" (teleported peers may be continents away).
 function formatDistance(meters) {
-  const km = meters / 1000;
-  if (km >= 1000) {
-    const kkm = km / 1000;
-    return `${kkm.toFixed(kkm >= 10 ? 0 : 1)} kkkm`;
+  const d = longDistanceValue(meters / 1000);
+  const unit = longDistanceUnit();
+  if (d >= 1000) {
+    const k = d / 1000;
+    return `${k.toFixed(k >= 10 ? 0 : 1)} ${isImperial() ? 'k mi' : 'kkkm'}`;
   }
-  if (km >= 10) return `${Math.round(km)} km`;
-  return `${km.toFixed(1)} km`;
+  if (d >= 10) return `${Math.round(d)} ${unit}`;
+  return `${d.toFixed(1)} ${unit}`;
 }
 
 // Text nodes only touched when their content changes.
@@ -189,14 +195,15 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
   function updateScaleBar(metersPerPx) {
     if (!scaleBarEl || !scaleLabelEl) return;
     const targetPx = 56;
-    let chosen = SCALE_STEPS_M[0];
-    for (const step of SCALE_STEPS_M) {
-      if (step / metersPerPx <= targetPx) chosen = step;
+    const steps = isImperial() ? SCALE_STEPS_IMPERIAL : SCALE_STEPS_M;
+    let chosen = steps[0];
+    for (const step of steps) {
+      if (step.m / metersPerPx <= targetPx) chosen = step;
       else break;
     }
-    const barPx = Math.max(4, chosen / metersPerPx);
+    const barPx = Math.max(4, chosen.m / metersPerPx);
     scaleBarEl.style.width = `${barPx}px`;
-    scaleLabelEl.textContent = chosen >= 1000 ? `${chosen / 1000} km` : `${chosen} m`;
+    scaleLabelEl.textContent = chosen.label;
   }
 
   // Teardrop pin with its tip on (x, y).

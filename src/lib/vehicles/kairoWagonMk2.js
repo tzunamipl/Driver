@@ -5,8 +5,10 @@ import { METALLIC_PAINT } from './geometry/paint.js';
 export default {
   id: 'C003', // display name in ./names.js
   category: 'cars',
+  outsideTempGauge: true, // dash LCD: outside temperature
   defaultColor: 0xb8740f | METALLIC_PAINT, // burnt ochre, metallic
   rimColor: 0xcda434,
+  rims: { default: 'spoke5Twist', loose: 'rally6', winter: 'steelBlack' }, // car/rims.js, per tyre compound group
   buildBody,
   wheelRadius: 0.4,
   rimSize: 18,

@@ -7,6 +7,7 @@ export default {
   category: 'cars',
   defaultColor: 0xb3141c, // Rosso Corsa-ish solid red
   rimColor: 0x9a9ea3,
+  rims: { default: 'steel4' }, // car/rims.js, per tyre compound group
   gloss: 0.55,
   buildBody,
   rimSize: 13,

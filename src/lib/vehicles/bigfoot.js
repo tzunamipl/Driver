@@ -56,6 +56,7 @@ export default {
   category: 'dumb',
   defaultColor: DEFAULT_BODY_COLOR,
   rimColor: 0x404040,
+  rims: { default: 'beadlock' }, // car/rims.js, per tyre compound group
   buildBody,
   wheelRadius: WHEEL_RADIUS,
   rimSize: 18,

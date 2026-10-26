@@ -20,6 +20,7 @@ const VELOCITY_INHERIT_FRACTION = 0.1;
 const SURFACE_DUST = {
   normal: { amount: 1, colors: [0x5c3f23, 0x8a5a2e] },
   sand: { amount: 2.5, colors: [0xd8c08a, 0xc2a66b] },
+  unpaved: { amount: 0.7, colors: [0xa59d90, 0x8f877a] },
   scrub: { amount: 0.6, colors: [0x7a5f3c, 0x9a7f55] },
   rock: { amount: 0.6, colors: [0x8d8a84, 0xa8a49c] },
 };

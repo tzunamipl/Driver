@@ -10,6 +10,7 @@ import { repairPlan, applyRepair } from './partRepair.js';
 import { SPARE_FIT_PENALTY_MS } from './spareTyres.js';
 import { CAN_L, SUPPLY_KEYS, fullSupplies } from './supplies.js';
 import { RESERVE_FRACTION } from './fuel.js';
+import { formatVolume, formatTemp, volumeValue, volumeUnit } from './units.js';
 
 export const SERVICE_ZONES = {
   service: { label: 'Service', budgetMin: 30, replace: true },
@@ -18,6 +19,10 @@ export const SERVICE_ZONES = {
 // Late out of service: this per started minute over the budget.
 export const LATE_PENALTY_MS_PER_MIN = 10_000;
 export const FIELD_FIX_PENALTY_MS = 30_000;
+// Rally clock minutes a field action takes (app/rally/rallyConditions.js).
+const FIELD_FIX_MIN = 3;
+const POUR_CAN_MIN = 2;
+const SPARE_FIT_MIN = 5;
 
 const TYRE_MIN = 4;
 const SHOCK_FIX_MIN = 5;
@@ -26,6 +31,7 @@ const RADIATOR_FIX_MIN = 4;
 const RADIATOR_REPLACE_MIN = 12;
 const SUMP_FIX_MIN = 4;
 const SUMP_REPLACE_MIN = 10;
+const ENGINE_REBUILD_MIN = 30;
 const TOP_UP_MIN = 1;
 const LAMP_TAPE_MIN = 1;
 const LAMP_REPLACE_MIN = 3;
@@ -46,7 +52,8 @@ const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 export const latePenaltyMs = (usedMin, budgetMin) => Math.ceil(Math.max(0, usedMin - budgetMin)) * LATE_PENALTY_MS_PER_MIN;
 
 const pct = (v) => `${Math.round(v * 100)}%`;
-const litres = (v) => `${v.toFixed(1)} L`;
+const litres = (v) => formatVolume(v);
+const perMin = (lps, digits) => `${volumeValue(lps * 60).toFixed(digits)} ${volumeUnit()}/min`;
 const verdictOf = (v) => (v >= GOOD ? 'good' : v >= POOR ? 'warn' : 'bad');
 const repairNote = (record) => (record?.fixAt != null ? 'fixed' : record?.at != null ? 'field fixed' : '');
 
@@ -64,7 +71,7 @@ function tieredActions(part, { fixLabel = 'Fix', fieldLabel = 'Field fix', fixMi
       part.setHealth(done.health);
       part.setRecord(done.record);
     };
-    actions.push(kind === 'fix' ? { kind, label: fixLabel, minutes: fixMin, remote: true, hint: FIX_HINT.fix, apply } : { kind, label: fieldLabel, penaltyMs: FIELD_FIX_PENALTY_MS, hint: FIX_HINT.field, apply });
+    actions.push(kind === 'fix' ? { kind, label: fixLabel, minutes: fixMin, remote: true, hint: FIX_HINT.fix, apply } : { kind, label: fieldLabel, penaltyMs: FIELD_FIX_PENALTY_MS, clockMin: FIELD_FIX_MIN, hint: FIX_HINT.field, apply });
   }
   return actions;
 }
@@ -79,6 +86,7 @@ function pourCan(vehicle, key, room, pour) {
     label: 'Pour can',
     note: `${litres(add)} from the can`,
     penaltyMs: FIELD_FIX_PENALTY_MS,
+    clockMin: POUR_CAN_MIN,
     apply: () => {
       pour(add);
       vehicle.setSupplies({ ...vehicle.supplies, [key]: can - add });
@@ -89,7 +97,7 @@ function pourCan(vehicle, key, room, pour) {
 /**
  * Every part of the car, grouped for the dialog:
  * [{ group, label, level (0..1 bar) | null, note, verdict 'good' | 'warn' | 'bad' | '', anchor (app/partCallouts.js) | null,
- *    actions: [{ kind 'fix' | 'replace' | 'field', label, minutes (service), remote, penaltyMs (field), note?, hint?, disabled?, apply }] }].
+ *    actions: [{ kind 'fix' | 'replace' | 'field', label, minutes (service), remote, penaltyMs + clockMin (field), note?, hint?, disabled?, apply }] }].
  */
 export function carParts(vehicle) {
   const parts = [];
@@ -100,7 +108,7 @@ export function carParts(vehicle) {
   const hi = compound.optimalTempC + compound.windowC;
 
   vehicle.wheelInfos?.forEach((w, i) => {
-    const temp = Number.isFinite(w.tempC) ? `${Math.round(w.tempC)} °C${w.tempC < lo ? ' cold' : w.tempC > hi ? ' hot' : ''}` : '';
+    const temp = Number.isFinite(w.tempC) ? `${formatTemp(w.tempC)}${w.tempC < lo ? ' cold' : w.tempC > hi ? ' hot' : ''}` : '';
     const state = w.punctured ? 'Flat' : w.tread < BALD_TREAD ? 'Bald' : w.tread < WORN_TREAD ? 'Worn' : '';
     const actions = w.punctured || w.tread < GOOD ? [{ kind: 'replace', label: 'New tyre', minutes: TYRE_MIN, remote: true, apply: () => vehicle.repairTyres(i) }] : [];
     if (w.punctured && vehicle.fitSpareTyre) {
@@ -110,6 +118,7 @@ export function carParts(vehicle) {
         label: spares ? 'Fit spare' : 'No spare wheel',
         note: spares ? `${spares} spare${spares > 1 ? 's' : ''} left` : '',
         penaltyMs: SPARE_FIT_PENALTY_MS,
+        clockMin: SPARE_FIT_MIN,
         disabled: !spares,
         apply: () => vehicle.fitSpareTyre(i),
       });
@@ -147,7 +156,7 @@ export function carParts(vehicle) {
       group: 'Cooling',
       label: 'Radiator',
       level: null,
-      note: [leaking ? `leaking ${(heat.leakLps * 60).toFixed(1)} L/min` : 'sealed', repairNote(heat.radiatorRepair)].filter(Boolean).join(' · '),
+      note: [leaking ? `leaking ${perMin(heat.leakLps, 1)}` : 'sealed', repairNote(heat.radiatorRepair)].filter(Boolean).join(' · '),
       verdict: leaking ? 'bad' : 'good',
       anchor: 'front',
       actions: leaking
@@ -159,7 +168,7 @@ export function carParts(vehicle) {
       group: 'Cooling',
       label: 'Coolant',
       level: heat.level,
-      note: `${pct(heat.level)} · ${Math.round(heat.coolantTempC)} °C`,
+      note: `${pct(heat.level)} · ${formatTemp(heat.coolantTempC)}`,
       verdict: verdictOf(heat.level),
       anchor: 'front',
       actions:
@@ -173,7 +182,7 @@ export function carParts(vehicle) {
       group: 'Engine',
       label: 'Oil',
       level: heat.oilLevel,
-      note: `${litres(heat.oilL)} · ${Math.round(heat.oilTempC)} °C`,
+      note: `${litres(heat.oilL)} · ${formatTemp(heat.oilTempC)}`,
       verdict: heat.oilWarning ? 'bad' : verdictOf(heat.oilLevel),
       anchor: 'engine',
       actions:
@@ -187,13 +196,24 @@ export function carParts(vehicle) {
       group: 'Engine',
       label: 'Sump',
       level: null,
-      note: [sumpLeaking ? `leaking ${(heat.oilLeakLps * 60).toFixed(2)} L/min` : 'sealed', repairNote(heat.sumpRepair)].filter(Boolean).join(' · '),
+      note: [sumpLeaking ? `leaking ${perMin(heat.oilLeakLps, 2)}` : 'sealed', repairNote(heat.sumpRepair)].filter(Boolean).join(' · '),
       verdict: sumpLeaking ? 'bad' : 'good',
       anchor: 'under',
       actions: sumpLeaking
         ? [...tieredActions(sump, { fixLabel: 'Patch', fieldLabel: 'Patch', fixMin: SUMP_FIX_MIN }), { kind: 'replace', label: 'New sump', minutes: SUMP_REPLACE_MIN, remote: false, apply: () => heat.repairSump() }]
         : [],
     });
+    if (heat.engineHealth < 1) {
+      parts.push({
+        group: 'Engine',
+        label: 'Bearings',
+        level: heat.engineHealth,
+        note: `worn by low oil pressure · ${pct(heat.engineHealth)}`,
+        verdict: verdictOf(heat.engineHealth),
+        anchor: 'engine',
+        actions: heat.engineHealth < GOOD ? [{ kind: 'replace', label: 'Rebuild engine', minutes: ENGINE_REBUILD_MIN, remote: false, apply: () => heat.repairEngine() }] : [],
+      });
+    }
     if (heat.powerFactor < 1) parts.push({ group: 'Engine', label: 'Power', level: heat.powerFactor, note: `limp mode · ${pct(heat.powerFactor)}`, verdict: 'bad', anchor: null, actions: [] });
   }
 
@@ -211,7 +231,7 @@ export function carParts(vehicle) {
           verdict: broken ? 'bad' : taped ? 'warn' : 'good',
           anchor: { lamp: kind, side },
           actions: [
-            ...(broken ? [{ kind: 'fix', label: 'Tape up', minutes: LAMP_TAPE_MIN, remote: true, apply: tape }, { kind: 'field', label: 'Tape up', penaltyMs: FIELD_FIX_PENALTY_MS, apply: tape }] : []),
+            ...(broken ? [{ kind: 'fix', label: 'Tape up', minutes: LAMP_TAPE_MIN, remote: true, apply: tape }, { kind: 'field', label: 'Tape up', penaltyMs: FIELD_FIX_PENALTY_MS, clockMin: FIELD_FIX_MIN, apply: tape }] : []),
             ...(broken || taped ? [{ kind: 'replace', label: 'New lamp', minutes: LAMP_REPLACE_MIN, remote: false, apply: () => lamps.repair(kind, side) }] : []),
           ],
         });
@@ -242,11 +262,11 @@ export function carParts(vehicle) {
       group: 'Fuel & spares',
       label: 'Tank',
       level: fuel.fraction,
-      note: `${fuel.litres.toFixed(1)} / ${Math.round(fuel.capacityL)} L`,
+      note: `${volumeValue(fuel.litres).toFixed(1)} / ${Math.round(volumeValue(fuel.capacityL))} ${volumeUnit()}`,
       verdict: fuel.fraction < LOW_FUEL ? 'bad' : 'good',
       anchor: 'filler',
       actions: [
-        ...(add >= 0.5 ? [{ kind: 'fix', label: `Add ${Math.round(add)} L`, minutes: TOP_UP_MIN, remote: true, apply: () => fuel.setLitres(fuel.litres + add) }] : []),
+        ...(add >= 0.5 ? [{ kind: 'fix', label: `Add ${formatVolume(add, 0)}`, minutes: TOP_UP_MIN, remote: true, apply: () => fuel.setLitres(fuel.litres + add) }] : []),
         ...(fuel.fraction < RESERVE_FRACTION ? [pourCan(vehicle, 'fuelL', room, (l) => fuel.setLitres(fuel.litres + l))].filter(Boolean) : []),
       ],
     });
@@ -259,7 +279,7 @@ export function carParts(vehicle) {
       group: 'Fuel & spares',
       label: 'Cans',
       level: total / full,
-      note: `oil ${s.oilL.toFixed(1)} · fuel ${s.fuelL.toFixed(1)} · coolant ${s.coolantL.toFixed(1)} L`,
+      note: `oil ${volumeValue(s.oilL).toFixed(1)} · fuel ${volumeValue(s.fuelL).toFixed(1)} · coolant ${volumeValue(s.coolantL).toFixed(1)} ${volumeUnit()}`,
       verdict: '',
       anchor: null,
       actions: total < full - 0.05 ? [{ kind: 'fix', label: 'Refill', minutes: TOP_UP_MIN, remote: true, apply: () => vehicle.setSupplies(fullSupplies()) }] : [],

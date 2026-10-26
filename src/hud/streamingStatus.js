@@ -67,8 +67,9 @@ export function createStreamingStatus() {
     ].map(([name, parts]) => [name, parts.map((part) => part.pendingWork())]);
     const sum = (works, key) => works.reduce((total, work) => total + work[key], 0);
 
+    const renderName = (name) => (name === 'roads' && streets.surfaceShown ? 'road surface' : name);
     const downloadShown = downloads(step, groups.map(([name, works]) => [name, sum(works, 'downloads')]));
-    const renderShown = renders(step, groups.map(([name, works]) => [name, sum(works, 'builds')]));
+    const renderShown = renders(step, groups.map(([name, works]) => [renderName(name), sum(works, 'builds')]));
     root.hidden = !downloadShown && !renderShown;
   }
 

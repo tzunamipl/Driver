@@ -2,26 +2,29 @@ import { buildDialScale, valueToDeg } from './dialScale.js';
 import { lampIconSvg } from './warningLamps.js';
 import { RESERVE_FRACTION } from '../lib/fuel.js';
 
-// Combo gauge between the lamp panel and the tach: oil temp (upper left), coolant
-// temp (upper right), both hot at the top, and fuel along the bottom. Each needle
+// Combo gauge between the lamp panel and the tach: oil pressure (upper left), coolant
+// temp (upper right), both high at the top, and fuel along the bottom. Each needle
 // pivots on its own hub, set out from the dial centre into its sector, and is aimed
 // at its value's tick on the centred scale. Missing fields (no engine heat model)
 // read as healthy placeholders. The fuel needle reads like a real tank sender: F holds over
 // the top of the tank, E is reached with the reserve left, and the needle is damped, so it
 // sweeps up after a refuel or a new car (from E, as at ignition) instead of jumping.
+// The oil needle is lightly damped too, so it rises from 0 when the car appears.
 
-const PLACEHOLDER = { oilTempC: 100, coolantTempC: 90, fuelFraction: 1 };
+const PLACEHOLDER = { oilPressureBar: 3, coolantTempC: 90, fuelFraction: 1 };
 // Tank fraction the fuel needle leaves F at.
 const FUEL_FULL_READING = 0.92;
 const FUEL_LAG_S = 3;
+const OIL_LAG_S = 0.3;
 // Needle moves smaller than this share of the scale aren't redrawn.
 const REDRAW_EPS = 0.001;
 
 const SECTORS = [
   {
-    key: 'oil', field: 'oilTempC', icon: 'oil', title: 'Oil temperature',
-    min: 50, max: 150, startDeg: -100, endDeg: -20, redFrom: 130,
-    label: (v, s) => (v === s.min ? 'C' : 'H'),
+    key: 'oil', field: 'oilPressureBar', icon: 'oil', title: 'Oil pressure (bar)',
+    min: 0, max: 6, startDeg: -100, endDeg: -20, redBelow: 0.5,
+    label: (v) => String(v),
+    lagS: OIL_LAG_S,
   },
   {
     key: 'coolant', field: 'coolantTempC', icon: 'coolant', title: 'Coolant temperature',

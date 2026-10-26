@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS, AMBIENT_TEMP_C } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
+import { getAirTempC } from '../lib/weather.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
@@ -83,10 +84,13 @@ export function createMainLoop({
   rimSparks,
   terrainDust,
   wheelDebris,
+  wetSpray,
   bodyDust,
   carShadows,
   dissolve,
   clouds,
+  rain,
+  weatherFeed,
   remoteCollisions,
   net,
   input,
@@ -180,7 +184,7 @@ export function createMainLoop({
     // Rally: R rocks the car instead of resetting it.
     input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
     if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
-    if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), AMBIENT_TEMP_C);
+    if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), getAirTempC());
     jump.update(frameDelta, fireAndJump && !!vehicle && !input.isTyping() && !input.isLocked() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
@@ -408,6 +412,7 @@ export function createMainLoop({
     engineSound.update(currentVehicle, getVehicleDescriptor(carManager.getVehicleId()), input.getThrottle());
     terrainDust.update(frameDelta, currentVehicle, world);
     wheelDebris.update(frameDelta, currentVehicle, world);
+    wetSpray.update(frameDelta, currentVehicle, world);
     // Body dust is spawned by collide events; this only ages puffs.
     bodyDust.update(frameDelta);
     dissolve.update(frameDelta);
@@ -423,6 +428,8 @@ export function createMainLoop({
         currentChassisMesh.position.z
       );
       daylight.update(currentChassisMesh.position, carLat, carLon);
+      weatherFeed.update(carLat, carLon, daylight.getTimeMs());
+      rain.update(frameDelta, camera.position, daylight.getSunElevation());
       streetLights.update(frameDelta, currentChassisMesh.position, daylight.getSunElevation());
       routeGuidance.update(carLat, carLon);
 

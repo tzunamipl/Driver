@@ -8,6 +8,7 @@ export default {
   category: 'rally',
   defaultColor: 0xe67e00, // tangerine orange
   rimColor: 0xcda434,
+  rims: { default: 'spoke5', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
   buildBody,
   rimSize: 17,
   tyre: 235,

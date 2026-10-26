@@ -6,8 +6,10 @@ import { rangeGearbox } from '../engine.js';
 export default {
   id: 'C021', // display name in ./names.js
   category: 'cars',
+  outsideTempGauge: true, // dash LCD: outside temperature
   defaultColor: 0x5a6248, // olive
   rimColor: 0x2c2c2c,
+  rims: { default: 'steel6', tarmac: 'spoke5' }, // car/rims.js, per tyre compound group
   gloss: 0.3,
   buildBody,
   rimSize: 16,

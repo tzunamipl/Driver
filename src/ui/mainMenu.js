@@ -1,6 +1,7 @@
 import { IS_DEV_MODE, LAUNCH_STORAGE_KEY } from '../config.js';
 import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode, getStart, keepsProgress } from '../app/gameModes.js';
 import { getLatest, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, getActiveStartId, isEditorSession } from '../lib/saves.js';
+import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
 // Main menu: Continue / Game mode / Settings. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
@@ -31,7 +32,7 @@ const formatDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium'
 
 /** Menu text for a save: the game's own status (e.g. rally progress), else the distance driven. */
 const describeSave = (info) =>
-  `${info.status ?? `${info.odoKm.toFixed(1)} km driven`}${info.savedAt ? `\nLast played ${formatDate(info.savedAt)}` : ''}`;
+  `${info.status ?? `${longDistanceValue(info.odoKm).toFixed(1)} ${longDistanceUnit()} driven`}${info.savedAt ? `\nLast played ${formatDate(info.savedAt)}` : ''}`;
 
 const button = (label, disabled, onClick) => {
   const el = Object.assign(document.createElement('button'), { type: 'button', textContent: label, disabled });

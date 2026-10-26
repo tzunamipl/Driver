@@ -3,6 +3,7 @@
 // by clicking their tiles in the world (app/editorNotePicking.js). Patched on every editor change.
 
 import { DIRS, GRADES, callText } from '../lib/rally/pacenoteCalls.js';
+import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
 const DIR_LABELS = { L: 'Left', R: 'Right', S: 'Straight' };
 
@@ -58,7 +59,7 @@ export function createPacenotePanel(editor) {
     const notes = pacenotes?.notes ?? [];
     hintEl.textContent = state.showNoteBoards ? 'Click a note here or its board on the road.' : 'Click a note to select it.';
     toggle.textContent = notes.length ? `Pacenotes (${notes.length})` : 'Pacenotes';
-    summaryEl.textContent = notes.length ? `${(pacenotes.length / 1000).toFixed(1)} km, start to finish` : 'None yet: place the start and finish, then Generate.';
+    summaryEl.textContent = notes.length ? `${longDistanceValue(pacenotes.length / 1000).toFixed(1)} ${longDistanceUnit()}, start to finish` : 'None yet: place the start and finish, then Generate.';
     listEl.replaceChildren(
       ...notes.map((_, i) => {
         const li = el('li', { textContent: callText(pacenotes, i), onclick: () => editor.selectNote(i) });

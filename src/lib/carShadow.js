@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GROUND_COLLISION_GROUP } from './terrain.js';
+import { SURFACE_DEPTH_BIAS, applyDepthBias } from './streets.js';
 
 // fadeStart/fadeEnd = bottom clearance where fading starts / the patch is gone;
 // spread = patch growth per metre of clearance; edgeSoftness = fraction of the
@@ -29,8 +30,8 @@ const WHEEL = {
   edgeSoftness: 0.8,
   heading: 'axle', // local x stays put while the wheel spins
 };
-const LIFT_M = 0.1; // above the hit point, over the road surface stripes (streets.js)
-const WHEEL_LIFT_M = 0.1; // drawn over the body patch
+// On the ground, kept in front of it and the road surface by depth bias (metres toward the camera).
+const DEPTH_BIAS_M = SURFACE_DEPTH_BIAS + 0.03;
 const RAY_UP_M = 1;
 const RAY_DOWN_M = BODY.fadeEnd + 5;
 const TEXTURE_SIZE = 128;
@@ -101,6 +102,7 @@ export function createCarShadows(world, scene) {
     if (!box) return null;
     const alphaMap = alphaMaps.get(profile);
     const material = new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap, transparent: true, depthWrite: false });
+    material.onBeforeCompile = (shader) => applyDepthBias(shader, DEPTH_BIAS_M);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.matrixAutoUpdate = false;
     mesh.renderOrder = -1; // under other transparent effects (dust, smoke)
@@ -151,8 +153,7 @@ export function createCarShadows(world, scene) {
       normal,
       forward.multiplyScalar((box.max.z - box.min.z) * profile.scaleZ * spread)
     );
-    const lift = profile === WHEEL ? WHEEL_LIFT_M : LIFT_M;
-    basis.setPosition(hit.x + normal.x * lift, hit.y + normal.y * lift, hit.z + normal.z * lift);
+    basis.setPosition(hit.x, hit.y, hit.z);
     mesh.matrix.copy(basis);
     mesh.matrixWorldNeedsUpdate = true;
     // Spread thins it out, so a bigger patch isn't darker overall.

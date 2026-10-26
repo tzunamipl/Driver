@@ -179,6 +179,27 @@
 #speedo .gauge-needle {
   height: 74px;
 }
+/* Outside temperature LCD (hud/outsideTempLcd.js) between the km/h label and the odometer. */
+#outside-temp {
+  position: absolute;
+  left: 50%;
+  top: 59%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: #1a2418;
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
+  font: bold 10px/14px monospace;
+  color: #9fe870;
+  text-shadow: 0 0 3px rgba(159, 232, 112, 0.6);
+  pointer-events: none;
+}
+#outside-temp[hidden] { display: none; }
+.outside-temp-frost { color: rgba(159, 232, 112, 0.15); text-shadow: none; }
+.outside-temp-frost.lit { color: #7fd0ff; text-shadow: 0 0 3px rgba(127, 208, 255, 0.7); }
 /* Mechanical odometer in the speedo's lower face: odometer over trip meter,
    same drum size, right-aligned so both decimal points line up. */
 #odometer {

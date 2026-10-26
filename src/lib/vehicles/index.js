@@ -36,6 +36,13 @@ import stallion from './stallion.js';
 import halnyR from './halnyR.js';
 import superCar from './super.js';
 import muscle from './muscle.js';
+import malaise from './malaise.js';
+import urban from './urban.js';
+import worker from './worker.js';
+import majster from './majster.js';
+import hummel from './hummel.js';
+import sheriff from './sheriff.js';
+import kostka from './kostka.js';
 
 
 // Fixed set of tabs shown in the lobby's vehicle picker, in display order.
@@ -51,7 +58,7 @@ export const CATEGORIES = [
 // Every selectable vehicle, regardless of category - add new ones here
 // once their own file exists. Empty categories are still shown as tabs
 // with an empty list (see CATEGORIES above).
-export const VEHICLES = [kairoS, kairoWagon, kairoWagonMk2, klikKlak, halny, stallion, attacker, president, zx2, seagul, muscle, superCar, explorer, chariotOfFire, bigfoot, speeder, rally, spring, attackerRS, kairoR, stallionTurbo, halnyR, htv, samson, uranus, deathTanker, peacemaker, v8Eagle];
+export const VEHICLES = [kairoS, kairoWagon, kairoWagonMk2, klikKlak, halny, stallion, attacker, president, zx2, seagul, muscle, malaise, kostka, urban, majster, superCar, explorer, sheriff, chariotOfFire, bigfoot, speeder, rally, spring, worker, attackerRS, kairoR, stallionTurbo, halnyR, hummel, htv, samson, uranus, deathTanker, peacemaker, v8Eagle];
 
 // Optional descriptor `gloss` (0 matte .. 1 full clearcoat, default) for the body paint;
 // a trailer may set its own `gloss`, otherwise it inherits the tractor's.
