@@ -517,6 +517,7 @@ const navigationPanel = createNavigationPanel({
   addressSearch,
   getCarLatLon,
   routeGuidance,
+  allowTeleport: isEditorSession() || getGameMode(getActiveModeId())?.teleport !== false,
   onSelectionChange: (selection) => minimapHud.setDestination(selection),
 });
 

@@ -16,6 +16,7 @@ import {
   conditionState,
   setConditionState,
 } from './tyres.js';
+import { KNOCKABLE_COLLISION_GROUP } from './knockable.js';
 import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } from './shocks.js';
 
 // Raycast vehicle replacing CANNON.RaycastVehicle, with the same public
@@ -36,6 +37,8 @@ import { initShock, strikeShock, endShockStrike, repairShock, setShockHealth } f
 //  6. Tyres wear and puncture (tyres.js); a flat runs on its rim. Their compound,
 //     temperature, dirt and water scale grip (tyres/).
 const UP_LOCAL = new CANNON.Vec3(0, 1, 0);
+// Knocked-over props tumble through the car; only the first contact (their trigger) counts.
+const WHEEL_RAY_OPTIONS = { collisionFilterMask: ~KNOCKABLE_COLLISION_GROUP };
 
 const DEFAULT_WHEEL_OPTIONS = {
   directionLocal: new CANNON.Vec3(0, -1, 0),
@@ -349,7 +352,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
     const selfBodies = [chassisBody, ...vehicle.ignoreBodies];
     const oldResponses = selfBodies.map((b) => b.collisionResponse);
     for (const b of selfBodies) b.collisionResponse = false;
-    vehicle.world.raycastClosest(rayFrom, rayTo, {}, rayResult);
+    vehicle.world.raycastClosest(rayFrom, rayTo, WHEEL_RAY_OPTIONS, rayResult);
     selfBodies.forEach((b, i) => (b.collisionResponse = oldResponses[i]));
 
     const minLength = wheel.suspensionRestLength - wheel.maxSuspensionTravel;

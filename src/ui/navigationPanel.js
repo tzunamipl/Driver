@@ -36,9 +36,10 @@ function saveSelection(selection) {
  * @param {ReturnType<import('./addressSearch.js').createAddressSearch>} deps.addressSearch
  * @param {() => ({ lat: number, lon: number } | null)} deps.getCarLatLon
  * @param {ReturnType<import('../app/routeGuidance.js').createRouteGuidance>} deps.routeGuidance
+ * @param {boolean} [deps.allowTeleport] - false hides the Teleport button (game mode rule).
  * @param {(selection: { lat: number, lon: number, label: string | null }) => void} [deps.onSelectionChange]
  */
-export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidance, onSelectionChange }) {
+export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidance, allowTeleport = true, onSelectionChange }) {
   const panel = document.getElementById('nav-panel');
   const toggle = document.getElementById('nav-toggle');
   const form = document.getElementById('nav-search');
@@ -255,12 +256,13 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   zoomInBtn.addEventListener('click', () => zoomBy(1));
   zoomOutBtn.addEventListener('click', () => zoomBy(-1));
   centerCarBtn.addEventListener('click', centreOnCar);
+  teleportBtn.hidden = !allowTeleport;
 
   // ---------- Actions ----------
   teleportBtn.addEventListener('click', async () => {
     // Drop focus so Space (handbrake) doesn't re-press the button.
     teleportBtn.blur();
-    if (!selection) return;
+    if (!selection || !allowTeleport) return;
     const { lat, lon, label } = selection;
     setOpen(false);
     await addressSearch.teleport(lat, lon, label ?? formatCoords(lat, lon));
