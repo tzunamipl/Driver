@@ -34,7 +34,7 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimStyle, rimColor }, p
   const group = new THREE.Group();
   const rimDiameter = rimSize * 2.54 / 100;
   const tyreWidth = tyre / 1000;
-  const rimWidth = tyreWidth * 0.95;
+  const rimWidth = tyreWidth * 1.05; // belt pokes just past the sidewalls
   const tyreHeight = tyreWidth * profile / 100;
   const wheelSize = rimDiameter / 2 + tyreHeight;
 
