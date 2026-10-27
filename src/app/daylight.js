@@ -4,9 +4,11 @@ import { setHazeColor } from '../lib/terrain.js';
 import { setPaintReflection } from '../lib/vehicles/geometry/paint.js';
 import { setPuffTint } from '../lib/particles/puffPool.js';
 import { TIME_SCALE, SUN_DISC_COLORS, MOON_DISC_COLORS } from '../config.js';
+import { createWeatherFog } from './weatherFog.js';
 
 // Day-night cycle: sun direction from the simulated clock and the car's
 // lat/lon, with sky, fog, haze and light colours keyed to sun elevation.
+// Weather fog (weatherFog.js) greys and dims like the overcast deck.
 // The moon is kept exactly opposite the sun, so it is up whenever the sun
 // is down; one directional light (one shadow map) serves both.
 
@@ -26,7 +28,7 @@ const MORNING_ELEVATION_DEG = 12; // rising sun, a couple of hours after sunrise
 // dimmed to this share, ambient raised by this share (light scattered by the cloud).
 const OVERCAST_GREY = new THREE.Color(0x8a9098);
 const OVERCAST_SKY_GREY_SHARE = 0.85;
-const OVERCAST_SUN_SHARE = 0.2;
+const OVERCAST_SUN_SHARE = 0.05;
 const OVERCAST_AMBIENT_BOOST = 0.5;
 
 // Palette by sun elevation (deg), linearly interpolated. Night keeps a
@@ -36,8 +38,8 @@ const PALETTE = [
   { el: -6, sky: 0x1c2848, fog: 0x141c30, sun: 0xff6a30, sunI: 0, moonI: 0.45, amb: 0x8a8fb8, ambI: 0.45 },
   { el: -1, sky: 0x9a7088, fog: 0x4a4050, sun: 0xff6a30, sunI: 0, moonI: 0, amb: 0xa898b0, ambI: 0.45 },
   { el: 2, sky: 0xe8a07a, fog: 0x7a6050, sun: 0xff8844, sunI: 1.4, moonI: 0, amb: 0xe0c0b0, ambI: 0.4 },
-  { el: 8, sky: 0xa8c8e0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.4 },
-  { el: 20, sky: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 3.2, moonI: 0, amb: 0xffffff, ambI: 0.4 },
+  { el: 8, sky: 0xa8c8e0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.3 },
+  { el: 20, sky: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 4.2, moonI: 0, amb: 0xffffff, ambI: 0.1 },
 ].map((k) => ({
   ...k,
   sky: new THREE.Color(k.sky),
@@ -116,7 +118,8 @@ export function presetTimeMs(preset, lat, lon, dayMs = simulatedTimeMs(Date.now(
   return lo;
 }
 
-export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }) {
+/** `onFog(dim)`: the fog's grey share (0..1) for the colour grade, each frame. */
+export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars, onFog }) {
   const sunDir = new THREE.Vector3();
   const lightDir = new THREE.Vector3();
   const sky = new THREE.Color();
@@ -127,15 +130,18 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
   let sunElevationDeg = 90;
   let timeMs = simulatedTimeMs(Date.now());
   let overcast = 0;
+  const weatherFog = createWeatherFog(scene.fog);
+  let fog = { dim: 0, tint: 0 };
   const grey = new THREE.Color();
 
-  /** Pulls `color` towards OVERCAST_GREY at a little under its own brightness, by the overcast share. */
+  /** Pulls `color` towards OVERCAST_GREY at a little under its own brightness, by the overcast / fog share. */
   function greyOut(color) {
-    if (overcast <= 0) return;
+    const share = Math.max(overcast, fog.dim);
+    if (share <= 0) return;
     const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
     const greyLuma = OVERCAST_GREY.r * 0.2126 + OVERCAST_GREY.g * 0.7152 + OVERCAST_GREY.b * 0.0722;
     grey.copy(OVERCAST_GREY).multiplyScalar((luma / greyLuma) * 0.85);
-    color.lerp(grey, overcast * OVERCAST_SKY_GREY_SHARE);
+    color.lerp(grey, share * OVERCAST_SKY_GREY_SHARE);
   }
 
   function applyPalette(elevationDeg) {
@@ -152,6 +158,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     setPaintReflection(sky);
     scene.fog.color.lerpColors(a.fog, b.fog, t);
     greyOut(scene.fog.color);
+    scene.fog.color.lerp(sky, fog.tint); // objects vanish into the same colour as the ground
     if (elevationDeg < MOON_TAKEOVER_ELEVATION_DEG) {
       sun.color.copy(MOON_LIGHT_COLOR);
       sun.intensity = THREE.MathUtils.lerp(a.moonI, b.moonI, t);
@@ -159,12 +166,16 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
       sun.color.lerpColors(a.sun, b.sun, t);
       sun.intensity = THREE.MathUtils.lerp(a.sunI, b.sunI, t);
     }
-    sun.intensity *= 1 - overcast * (1 - OVERCAST_SUN_SHARE);
+    const dim = Math.max(overcast, fog.dim);
+    sun.intensity *= 1 - dim * (1 - OVERCAST_SUN_SHARE);
     ambient.color.lerpColors(a.amb, b.amb, t);
-    ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t) * (1 + overcast * OVERCAST_AMBIENT_BOOST);
+    ambient.intensity = THREE.MathUtils.lerp(a.ambI, b.ambI, t) * (1 + dim * OVERCAST_AMBIENT_BOOST);
     setPuffTint(ambient.color);
     sampleRamp(SUN_DISC_RAMP, elevationDeg, sunDisc.material.color);
     sampleRamp(MOON_DISC_RAMP, -elevationDeg, moonDisc.material.color);
+    // A pale disc through thin fog, none through thick.
+    sunDisc.material.color.lerp(sky, fog.dim);
+    moonDisc.material.color.lerp(sky, fog.dim);
   }
 
   /** Call once per frame with the car's world position and lat/lon. */
@@ -177,6 +188,8 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     const elevationDeg = Math.asin(THREE.MathUtils.clamp(up, -1, 1)) / (Math.PI / 180);
     sunElevationDeg = elevationDeg;
 
+    fog = weatherFog.update();
+    onFog?.(fog.dim);
     applyPalette(elevationDeg);
 
     // Keep the light and its shadow frustum centred on the car.
@@ -189,7 +202,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars }
     sunDisc.visible = elevationDeg > SUN_DISC_MIN_ELEVATION_DEG;
     moonDisc.position.copy(sunDir).multiplyScalar(-SUN_DISC_DISTANCE_M).add(position);
     moonDisc.visible = -elevationDeg > SUN_DISC_MIN_ELEVATION_DEG;
-    stars.update(timeMs, lat, lon, position, elevationDeg);
+    stars.update(timeMs, lat, lon, position, elevationDeg, fog.dim);
   }
 
   /** Debug: freeze the clock at 'noon' | 'sunset' | 'night' for the current location, or null for the live cycle. */

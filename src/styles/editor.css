@@ -172,12 +172,34 @@
 }
 #pacenote-panel[hidden],
 #pacenote-panel.collapsed .pacenote-body,
-.pacenote-selected[hidden] { display: none; }
+.pacenote-selected[hidden],
+.pacenote-corner[hidden] { display: none; }
+.pacenote-corner { display: flex; flex-direction: column; gap: 3px; }
 .pacenote-body { min-height: 0; display: flex; flex-direction: column; gap: 3px; padding: 4px 2px 0; }
 .editor-notes { flex: 1 1 auto; min-height: 60px; max-height: none; padding-left: 30px; font-family: monospace; }
 .editor-notes li::before { display: none; }
 
-/* Course objects window, left side under the pacenotes. */
+/* Surfaces window, left side under the pacenotes. */
+#surface-panel {
+  pointer-events: auto;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 4px;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  color: #000;
+  font-size: 11px;
+  line-height: 1.4;
+}
+#surface-panel[hidden],
+#surface-panel.collapsed .pacenote-body,
+#surface-panel .editor-selected[hidden],
+#surface-panel button[hidden] { display: none; }
+.surface-list { max-height: 140px; }
+
+/* Course objects window, left side under the surfaces. */
 #course-objects-panel {
   pointer-events: auto;
   width: 220px;

@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { FAR_RADIUS_METERS, applyGroundHaze } from './terrain.js';
+import { FAR_RADIUS_METERS, applyFogVeil, applyGroundHaze } from './terrain.js';
 
 // Clouds per layer, deck 0..1 and the cumulus style, per preset.
 const PRESETS = {
@@ -137,6 +137,7 @@ function dissolveShading(material, { hazed = false, world = false, cellsPerUnit 
   const dissolve = { value: 1 };
   material.onBeforeCompile = (shader) => {
     if (hazed) applyGroundHaze(shader);
+    else applyFogVeil(shader);
     shader.uniforms.dissolve = dissolve;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vDissolvePos;')

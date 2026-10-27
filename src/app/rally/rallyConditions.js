@@ -3,12 +3,13 @@
 // liaisons, tyres, refuel) add to it, and each parc fermé ends the day: the next one starts
 // at that point's `nextStart`. Weather comes from forecast snapshots taken when the rally
 // starts (lib/rally/rallyWeather.js), with road wetness carried through every jump.
-// A single stage instead runs from a picked time of day in fixed weather.
+// A single stage instead runs from a picked time of day (or now) in fixed weather, or in the
+// forecast weather like a rally.
 // Drives daylight.js (setClock) and lib/weather.js while a plan is up.
 
 import { presetTimeMs } from '../daylight.js';
 import { classifyClouds } from '../weatherFeed.js';
-import { setAirTempC, setCloudPreset, setWetness, setRainMmH } from '../../lib/weather.js';
+import { setAirTempC, setCloudPreset, setWetness, setRainMmH, setVisibilityM, NO_FOG_VISIBILITY_M } from '../../lib/weather.js';
 import { MS_PER_DAY, localDayStart, guessUtcOffsetSec, fetchUtcOffsetSec, fetchRallyWeather, sampleWeather, integrateWetness } from '../../lib/rally/rallyWeather.js';
 import { AMBIENT_TEMP_C, WEATHER_WETNESS } from '../../config.js';
 
@@ -18,17 +19,30 @@ const SHOWN_RAIN_MM_H = 0.1; // less is too little to draw
 const OFFLINE_CLOUDS = 'fair';
 
 export const STAGE_TIMES = [
+  { id: 'live', label: 'Live (now)' },
   { id: 'morning', label: 'Morning', tempC: -4 },
   { id: 'noon', label: 'Noon', tempC: 0 },
   { id: 'sunset', label: 'Sunset', tempC: -3 },
   { id: 'night', label: 'Night', tempC: -8 },
 ];
 export const STAGE_WEATHER = [
+  { id: 'live', label: 'Live (forecast)' },
   { id: 'sunny', label: 'Sunny', clouds: 'clear', wetness: 0, rainMmH: 0, tempC: 22 },
   { id: 'damp', label: 'Damp', clouds: 'cumulus', wetness: 0.5, rainMmH: 0, tempC: 14 },
   { id: 'rain', label: 'Rain', clouds: 'overcast', wetness: 1, rainMmH: 4, tempC: 11 },
 ];
 export const DEFAULT_STAGE_CONDITIONS = { timeOfDay: 'noon', weather: 'sunny' };
+
+/** A preset's temperature offset; live time takes the preset nearest to `timeMs` today. */
+function timeTempC(time, timeMs, lat, lon) {
+  if (time.id !== 'live') return time.tempC;
+  const presets = STAGE_TIMES.filter((t) => t.id !== 'live');
+  const off = (t) => {
+    const d = (((presetTimeMs(t.id, lat, lon, timeMs) - timeMs) % MS_PER_DAY) + MS_PER_DAY) % MS_PER_DAY;
+    return Math.min(d, MS_PER_DAY - d);
+  };
+  return presets.reduce((best, t) => (off(t) < off(best) ? t : best)).tempC;
+}
 
 /**
  * @param {object} deps
@@ -52,7 +66,7 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
   }
 
   function carryWetness() {
-    if (state.kind !== 'rally' || state.timeMs <= carriedTo) return;
+    if (state.timeMs <= carriedTo) return;
     state.wetness = integrateWetness(state.wetness, carriedTo, state.timeMs, state.snapshots, state.lat, state.lon);
     carriedTo = state.timeMs;
   }
@@ -65,6 +79,7 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
       setCloudPreset(clouds);
       setWetness(wetness);
       setRainMmH(rainMmH);
+      setVisibilityM(NO_FOG_VISIBILITY_M);
       return;
     }
     carryWetness();
@@ -74,9 +89,11 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
       setAirTempC(AMBIENT_TEMP_C);
       setCloudPreset(OFFLINE_CLOUDS);
       setRainMmH(0);
+      setVisibilityM(NO_FOG_VISIBILITY_M);
       return;
     }
     setAirTempC(Math.round(w.tempC * 10) / 10);
+    setVisibilityM(w.visibilityM);
     setCloudPreset(w.precipMmH >= OVERCAST_RAIN_MM_H ? 'overcast' : classifyClouds({ ...w.cover, code: w.code }));
     setRainMmH(w.precipMmH >= SHOWN_RAIN_MM_H ? w.precipMmH : 0);
   }
@@ -101,13 +118,26 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
       take({ kind: 'rally', lat, lon, utcOffsetSec, firstDayMs, day: 1, timeMs, wetness, snapshots, fixed: null });
     },
 
-    /** A single stage at lat/lon today: from a STAGE_TIMES instant, in STAGE_WEATHER. */
-    startStage({ lat, lon, timeOfDay, weather }) {
-      const time = STAGE_TIMES.find((t) => t.id === timeOfDay) ?? STAGE_TIMES[1];
-      const sky = STAGE_WEATHER.find((w) => w.id === weather) ?? STAGE_WEATHER[0];
+    /** A single stage at lat/lon today: from a STAGE_TIMES instant (live = now), in STAGE_WEATHER (live = the forecast). */
+    async startStage({ lat, lon, timeOfDay, weather }) {
+      const time = STAGE_TIMES.find((t) => t.id === timeOfDay) ?? STAGE_TIMES.find((t) => t.id === 'noon');
+      const sky = STAGE_WEATHER.find((w) => w.id === weather) ?? STAGE_WEATHER.find((w) => w.id === 'sunny');
+      const now = Date.now();
+      const timeMs = time.id === 'live' ? now : presetTimeMs(time.id, lat, lon, now);
+      if (sky.id === 'live') {
+        let utcOffsetSec = guessUtcOffsetSec(lon);
+        let snapshots = [];
+        try {
+          ({ utcOffsetSec, snapshots } = await fetchRallyWeather(lat, lon, localDayStart(timeMs, utcOffsetSec), 1));
+        } catch (err) {
+          console.warn('Stage weather unavailable:', err.message);
+        }
+        const wetness = snapshots.length ? integrateWetness(0, timeMs - MS_PER_DAY, timeMs, snapshots, lat, lon) : WEATHER_WETNESS;
+        take({ kind: 'stage', lat, lon, utcOffsetSec, firstDayMs: localDayStart(timeMs, utcOffsetSec), day: 1, timeMs, wetness, snapshots, fixed: null });
+        return;
+      }
       const utcOffsetSec = guessUtcOffsetSec(lon);
-      const timeMs = presetTimeMs(time.id, lat, lon, Date.now());
-      const fixed = { clouds: sky.clouds, wetness: sky.wetness, rainMmH: sky.rainMmH, tempC: sky.tempC + time.tempC };
+      const fixed = { clouds: sky.clouds, wetness: sky.wetness, rainMmH: sky.rainMmH, tempC: sky.tempC + timeTempC(time, timeMs, lat, lon) };
       take({ kind: 'stage', lat, lon, utcOffsetSec, firstDayMs: localDayStart(timeMs, utcOffsetSec), day: 1, timeMs, wetness: sky.wetness, snapshots: [], fixed });
       // Only the clock's display needs the real time zone.
       const mine = state;
@@ -156,10 +186,10 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
 
     /**
      * Rally forecast snapshots from day 1 to day `days` (or today, if later), each with its rally `day`
-     * and `state`: 'done' (passed), 'current' (the one in force now) or ''. Empty for a single stage or offline.
+     * and `state`: 'done' (passed), 'current' (the one in force now) or ''. Empty in fixed weather or offline.
      */
     forecast(days) {
-      if (state?.kind !== 'rally') return [];
+      if (!state?.snapshots?.length) return [];
       const lastDay = Math.max(days, state.day);
       const rows = state.snapshots
         .map((s) => ({ ...s, day: Math.floor((s.ms - state.firstDayMs) / MS_PER_DAY) + 1, state: '' }))

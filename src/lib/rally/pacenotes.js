@@ -3,10 +3,12 @@
 // the tightest radius plus what cutting across the road's width gains over the corner's angle,
 // so shallow kinks come out fast. Junctions where the stage leaves the obvious road are marked.
 // Each note carries a point SHOW_M before the corner and its apex (where the HUD hides it).
+// Surface calls where the driven surface changes: a surface section's (stageSurfaces.js), else OSM's paved / unpaved.
 // Note format: pacenoteCalls.js.
 
 import { localToLatLon, latLonToLocal } from '../geo.js';
 import { routeStage } from './stageRoute.js';
+import { osmStageSurface } from './stageSurfaces.js';
 
 const STEP_M = 2;
 const SMOOTH_SIGMA_M = 8; // OSM roads are polygons: heading changes spread over this
@@ -27,17 +29,20 @@ const JUNCTION_GRADE = 6; // a turn off at a junction with no corner of its own
 const SHOW_M = 100; // a note's show point is this far along the road before its corner starts
 const ADD_SNAP_M = 30; // an added note's spot (the car) this close to the stage road
 const ADD_LOOK_M = 60; // an added note's corner: the first one starting within this past the spot
+const SURFACE_MIN_RUN_M = 30; // OSM paved / unpaved stretches shorter than this aren't called (mapping noise)
+const HINT_WEIGHT = 0.05; // spotOnLine: metres of distance a metre away from the hint costs (roads passed twice)
 
 // Stage points the route goes through, in order.
 const ROUTE_TYPES = new Set(['start', 'split', 'passageControl', 'finish']);
 
 const wrap = (a) => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 
-/** Even samples every STEP_M along the node line: { x, z, w (road width), s }, plus each node's s. */
+/** Even samples every STEP_M along the node line: { x, z, w (road width), u (unpaved) }, plus each node's s. */
 function resample(nodes) {
   const x = [];
   const z = [];
   const w = [];
+  const u = [];
   const nodeS = [0];
   let total = 0;
   let carry = 0; // metres into the current segment where the next sample lies
@@ -45,19 +50,21 @@ function resample(nodes) {
     const a = nodes[i];
     const b = nodes[i + 1];
     const len = Math.hypot(b.x - a.x, b.z - a.z);
-    const width = a.links.find((l) => l.node === b)?.width ?? 6;
+    const link = a.links.find((l) => l.node === b);
+    const width = link?.width ?? 6;
     while (carry <= len) {
       const t = len > 0 ? carry / len : 0;
       x.push(a.x + (b.x - a.x) * t);
       z.push(a.z + (b.z - a.z) * t);
       w.push(width);
+      u.push(!!link?.unpaved);
       carry += STEP_M;
     }
     carry -= len;
     total += len;
     nodeS.push(total);
   }
-  return { x, z, w, nodeS, length: total };
+  return { x, z, w, u, nodeS, length: total };
 }
 
 /** Signed curvature per sample (positive = right), from the smoothed heading. */
@@ -181,8 +188,8 @@ function routeWaypoints(points) {
 
 const sOf = (i) => i * STEP_M;
 
-/** The stage's road line from the start to the finish: { origin, samples, corners, routePoint }. */
-async function stageLine(points, onProgress) {
+/** The stage's road line from the start to the finish: { origin, nodes, samples, corners, routePoint }. */
+export async function stageLine(points, onProgress) {
   const { origin, nodes } = await routeStage(routeWaypoints(points), { onProgress });
   const samples = resample(nodes);
   const last = samples.x.length - 1;
@@ -209,12 +216,71 @@ function noteFromSamples(routePoint, { at, apex, len, dir, grade, junction }) {
 }
 
 /**
- * Pacenotes for a stage's points (rally.js items, in order), from the start to the finish.
+ * Metres along the stage line nearest to (lat, lon), and how far off it that is. `hintS`: prefer
+ * spots near this distance where the road passes close to itself.
+ * @returns {{s: number, dist: number}}
+ */
+export function spotOnLine({ origin, samples }, lat, lon, hintS = null) {
+  const spot = latLonToLocal(lat, lon, origin.lat, origin.lon);
+  let at = 0;
+  let best = Infinity;
+  let bestDist = Infinity;
+  samples.x.forEach((x, i) => {
+    const d = Math.hypot(x - spot.x, samples.z[i] - spot.z);
+    const cost = d + (hintS == null ? 0 : Math.abs(sOf(i) - hintS) * HINT_WEIGHT);
+    if (cost < best) {
+      best = cost;
+      bestDist = d;
+      at = i;
+    }
+  });
+  return { s: sOf(at), dist: bestDist };
+}
+
+/** Surface calls along the line for its sections: where the driven surface changes (not the start's). */
+function surfaceNotes(line, sections) {
+  const { samples, routePoint } = line;
+  const ids = samples.u.map(osmStageSurface);
+  const fixed = new Uint8Array(ids.length); // under a section: never merged away
+  for (const section of sections) {
+    const [a, b] = [[section.points[0], section.from], [section.points[section.points.length - 1], section.to]].map(
+      ([[lat, lon], hint]) => Math.round(spotOnLine(line, lat, lon, hint).s / STEP_M)
+    );
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+      ids[i] = section.surface;
+      fixed[i] = 1;
+    }
+  }
+  const runs = [];
+  ids.forEach((id, i) => {
+    const last = runs[runs.length - 1];
+    if (last?.id === id) last.b = i;
+    else runs.push({ id, a: i, b: i, fixed: !!fixed[i] });
+  });
+  const kept = [];
+  for (const run of runs) {
+    const last = kept[kept.length - 1];
+    if (last && (last.id === run.id || (!run.fixed && sOf(run.b - run.a + 1) < SURFACE_MIN_RUN_M))) last.b = run.b;
+    else kept.push(run);
+  }
+  return kept.slice(1).map(({ id, a }) => ({ ...routePoint(a), len: 0, surface: id, show: routePoint(a - Math.round(SHOW_M / STEP_M)), apex: routePoint(a) }));
+}
+
+/** `pacenotes` with its surface calls redone for `sections` over the stage line (stageLine()). */
+export function withSurfaceNotes(pacenotes, line, sections) {
+  const notes = pacenotes.notes.filter((n) => !n.surface).concat(surfaceNotes(line, sections));
+  return { ...pacenotes, notes: notes.sort((p, q) => p.s - q.s) };
+}
+
+/**
+ * Pacenotes for a stage's points (rally.js items, in order), from the start to the finish, with
+ * surface calls for its `surfaces` (stageSurfaces.js sections).
  * @param {(done: number, total: number) => void} [onProgress] - road tiles fetched.
  * @returns {Promise<{length: number, notes: object[]}>}
  */
-export async function generatePacenotes(points, { onProgress } = {}) {
-  const { nodes, samples, corners, routePoint } = await stageLine(points, onProgress);
+export async function generatePacenotes(points, { surfaces = [], onProgress } = {}) {
+  const line = await stageLine(points, onProgress);
+  const { nodes, samples, corners, routePoint } = line;
   const notes = [];
   for (const j of findJunctions(nodes, samples.nodeS)) {
     const at = Math.round(j.s / STEP_M);
@@ -233,7 +299,7 @@ export async function generatePacenotes(points, { onProgress } = {}) {
     if (c.grade || c.junction) notes.push({ at: c.a, apex: c.apex, len: sOf(c.b - c.a), dir: c.dir, grade: c.grade ?? JUNCTION_GRADE, junction: !!c.junction });
   }
   notes.sort((p, q) => p.at - q.at);
-  return { length: Math.round(samples.length), notes: notes.map((n) => noteFromSamples(routePoint, n)) };
+  return withSurfaceNotes({ length: Math.round(samples.length), notes: notes.map((n) => noteFromSamples(routePoint, n)) }, line, surfaces);
 }
 
 /**

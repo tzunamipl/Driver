@@ -9,6 +9,7 @@ import { createRepairCallouts } from '../hud/repairCallouts.js';
 const SHOW_SPEED = 0.8;
 const HIDE_SPEED = 1.5;
 const LAMP_SIDE_SHARE = 0.7; // lamp anchors this far out of the body's half width
+const CIRCUIT_SHARE = 0.55; // brake pipe anchors this far out of the body's half length
 const CENTRE_PX = 30; // parts this close to the car's middle on screen put their card right (no flip-flop)
 
 /** Chassis-local box of the body's shapes (offsets only: shapes are axis-aligned). */
@@ -25,8 +26,9 @@ function localBounds(body) {
 }
 
 /**
- * Anchors: { wheel: i } (its centre), { shock: i } (its top mount), { lamp: 'head' | 'tail', side },
- * 'front' (radiator), 'engine' (under the bonnet), 'under' (the floor's middle), 'filler' (left rear quarter).
+ * Anchors: { wheel: i } (its centre), { shock: i } (its top mount), { lamp: 'head' | 'tail', side }, { circuit: 'front' | 'rear' } (brake pipe under that end),
+ * 'front' (radiator), 'engine' (under the bonnet), 'under' (the floor's middle), 'filler' (left rear quarter),
+ * 'exhaust' (vehicle.exhaust.anchor, else the rear bottom).
  * @param {object} deps
  * @param {HTMLCanvasElement} deps.canvas
  * @param {THREE.Camera} deps.camera
@@ -46,9 +48,15 @@ export function createPartCallouts({ canvas, camera }) {
     const { min, max } = bounds;
     const midY = (min.y + max.y) / 2;
     if (anchor.lamp) local.set((anchor.side === 0 ? 1 : -1) * max.x * LAMP_SIDE_SHARE, midY, anchor.lamp === 'head' ? max.z : min.z);
+    else if (anchor.circuit) local.set(0, min.y, (anchor.circuit === 'front' ? max.z : min.z) * CIRCUIT_SHARE);
     else if (anchor === 'front') local.set(0, midY, max.z);
     else if (anchor === 'engine') local.set(0, max.y, max.z * 0.6);
     else if (anchor === 'under') local.set(0, min.y, (min.z + max.z) / 2);
+    else if (anchor === 'exhaust') {
+      const at = vehicle.exhaust?.anchor;
+      if (at) local.set(at[0], at[1], at[2]);
+      else local.set(max.x * 0.5, min.y, min.z);
+    }
     else local.set(max.x, midY, min.z * 0.6); // filler
     const body = vehicle.chassisBody;
     return local.applyQuaternion(chassisQuat).add(body.position);

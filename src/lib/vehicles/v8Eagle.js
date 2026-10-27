@@ -42,12 +42,14 @@ export default {
   reverseRatio: 2.78,
   shiftDurationS: 0.45,
   brakeForce: 190,
+  brakes: { front: { discMm: 300, vented: true }, rear: { discMm: 280, vented: true } },
   abs: false,
   mass: 1550,
   fuelTankL: 180, // twin boot tanks
   radiator: 0.85, // supercharged V8 behind a small grille: runs hot
   coolantL: 16,
   backfire: 1, // 0 no exhaust flame pops .. 1 full
+  breakableExhaust: false, // bare pipes off the manifold: no exhaust system to damage
   exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.95, -0.3, 0.56], dir: [sx * 0.15, 0, -1] })), // zoomie side pipes
   steerSpeedD: 0.007,
   maxSteerAt0: 0.9,

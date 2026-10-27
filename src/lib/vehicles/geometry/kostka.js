@@ -61,7 +61,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0xd94a1a) {
   box(0.46, 0.1, 0.012, plate, 0, -0.22, FRONT + 0.095);
   box(0.46, 0.1, 0.012, plate, 0, 0.06, BACK - 0.02);
   box(0.03, 0.02, 0.32, black, 0.1, 0.48, -1.66).rotation.x = Math.atan2(0.3, 0.3); // rear wiper
-  tube(0.03, 0.1, grey, 0.45, -0.42, BACK - 0.02, 10);
+  tube(0.03, 0.1, grey, 0.45, -0.42, BACK - 0.02, 10).userData.exhaust = true; // tailpipe
 
   return { group, bodyMat };
 }

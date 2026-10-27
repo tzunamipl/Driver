@@ -1,4 +1,4 @@
-import { SCORE_PER_PEDESTRIAN } from '../config.js';
+import { SCORE_PER_PEDESTRIAN, SCORING_ENABLED, PEDESTRIANS_ENABLED } from '../config.js';
 
 // Wires pedestrian hits and the shared-room "props" channel (hits, shots,
 // balls someone else already spawned) together. Split out from the main
@@ -10,12 +10,16 @@ export function setupGameplayProps({ pedestrians, balls, shots, net, carManager,
   const toView = (msg) => ({ ...msg, ...viewFrame.fromNetwork(msg.x, msg.z) });
 
   pedestrians.setOnHit((pedId, hit) => {
-    carManager.addScore(SCORE_PER_PEDESTRIAN);
-    scoreToast?.push(SCORE_PER_PEDESTRIAN, 'pedestrian');
+    if (SCORING_ENABLED) {
+      carManager.addScore(SCORE_PER_PEDESTRIAN);
+      scoreToast?.push(SCORE_PER_PEDESTRIAN, 'pedestrian');
+    }
     net.publishProps({ type: 'ped-hit', pedId, vx: hit.vx, vy: hit.vy, vz: hit.vz });
   });
 
   net.onProps((msg) => {
+    // Older clients still broadcast their pedestrians; don't adopt them.
+    if (!PEDESTRIANS_ENABLED && (msg.type === 'peds' || msg.type === 'ped-hit')) return;
     if (msg.type === 'peds' && Array.isArray(msg.peds)) {
       for (const ped of msg.peds) {
         const { x, z } = viewFrame.fromNetwork(ped.x, ped.z);

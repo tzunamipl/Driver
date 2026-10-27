@@ -1,10 +1,12 @@
 import { PLAYERS_UPDATE_INTERVAL, PLAYERS_ACTIVE_THRESHOLD_MS } from '../config.js';
+import { haversineMeters } from '../lib/geo.js';
+import { formatPeerDistance } from '../lib/units.js';
 
 // Top-right "who's online" panel: everyone this browser has seen publish
 // a pose in the shared room within the last 24h (see net.js's
 // ROSTER_TTL_MS/localStorage persistence), including the local player,
 // capped to the top 50 - sorted by activeness (most recently active
-// first), then by score. The count badge, though, only tallies currently
+// first), then by distance from our car (their last known position). The count badge, though, only tallies currently
 // -active players (see render() below), not idle ones still shown in the
 // list. Always visible (not gated by the K debug-visuals toggle),
 // independent of the other HUD widgets.
@@ -50,7 +52,7 @@ export function createPlayersPanel() {
           return (
             `<div class="players-row${p.isLocal ? ' me' : ''}">` +
             `<span class="players-name">${name}</span>` +
-            `<span class="players-score">${p.score}</span>` +
+            `<span class="players-distance">${p.distanceM == null ? '' : formatPeerDistance(p.distanceM)}</span>` +
             `<span class="players-status ${status.className}">${status.text}</span>` +
             `</div>`
           );
@@ -58,25 +60,36 @@ export function createPlayersPanel() {
         .join('') || '<div class="players-empty">No one else around</div>';
   }
 
-  function updatePlayersPanel(delta, { net, carManager, isJoined }) {
+  function updatePlayersPanel(delta, { net, carManager, isJoined, viewFrame }) {
     accum += delta;
     if (accum < PLAYERS_UPDATE_INTERVAL) return;
     accum = 0;
 
-    const entries = net.getRoster().map((p) => ({ ...p, isLocal: false }));
+    const carPos = carManager.getChassisMesh()?.position;
+    const me = carPos ? viewFrame.toLatLon(carPos.x, carPos.z) : null;
+    const distanceTo = (p) => {
+      if (!me || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return null;
+      const local = viewFrame.fromNetwork(p.x, p.z);
+      const them = viewFrame.toLatLon(local.x, local.z);
+      return haversineMeters(me.lat, me.lon, them.lat, them.lon);
+    };
+    const entries = net.getRoster().map((p) => ({ ...p, distanceM: distanceTo(p), isLocal: false }));
     if (isJoined()) {
       entries.push({
         id: net.clientId,
         name: carManager.getLocalName() || 'you',
-        score: carManager.getScore(),
+        distanceM: null,
         idleMs: 0,
         isLocal: true,
       });
     }
-    // Activeness first (least idle time wins), then score, so the panel
-    // reads as "who's around right now, best players first" rather than a
-    // pure leaderboard.
-    entries.sort((a, b) => a.idleMs - b.idleMs || b.score - a.score || a.name.localeCompare(b.name));
+    // Activeness first (least idle time wins), then nearest; unknown positions last.
+    entries.sort(
+      (a, b) =>
+        a.idleMs - b.idleMs ||
+        (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity) ||
+        a.name.localeCompare(b.name)
+    );
 
     render(entries.slice(0, ROSTER_LIMIT));
   }

@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import { getAirTempC } from '../lib/weather.js';
 
 // Whole-frame colour grade, done in the full-screen copy of the scene target (no extra pass):
-// overcast mutes saturation and contrast, cold air cools the white balance, hot air warms it.
+// overcast and fog mute saturation and contrast, cold air cools the white balance, hot air warms it.
 
-const OVERCAST_DESATURATE = 0.35; // share of saturation lost under a full deck
-const OVERCAST_FLATTEN = 0.15; // share of contrast lost under a full deck
+const OVERCAST_DESATURATE = 0.15; // share of saturation lost under a full deck
+const OVERCAST_FLATTEN = 0.01; // share of contrast lost under a full deck
 const CONTRAST_PIVOT = 0.18; // linear mid grey
 const COLD_FROM_C = 8; // neutral between these two
-const WARM_FROM_C = 22;
+const WARM_FROM_C = 15;
 const COLD_FULL_C = -10;
 const WARM_FULL_C = 35;
 const COOL_GAIN = new THREE.Vector3(0.74, 0.94, 1.32);
@@ -58,6 +58,7 @@ export function createColorGrade(map) {
   });
 
   let overcast = 0;
+  let fog = 0;
   let tint = tintForTemp(getAirTempC());
   let lastMs = performance.now();
 
@@ -66,8 +67,9 @@ export function createColorGrade(map) {
     const dt = Math.min(1, (now - lastMs) / 1000);
     lastMs = now;
     tint += (tintForTemp(getAirTempC()) - tint) * (1 - Math.exp(-dt / TEMP_EASE_SEC));
-    uniforms.desaturate.value = overcast * OVERCAST_DESATURATE;
-    uniforms.flatten.value = overcast * OVERCAST_FLATTEN;
+    const mute = Math.max(overcast, fog);
+    uniforms.desaturate.value = mute * OVERCAST_DESATURATE;
+    uniforms.flatten.value = mute * OVERCAST_FLATTEN;
     const target = tint < 0 ? COOL_GAIN : WARM_GAIN;
     uniforms.gain.value.set(1, 1, 1).lerp(target, Math.abs(tint));
   }
@@ -78,6 +80,10 @@ export function createColorGrade(map) {
     /** Cloud deck cover 0..1 (clouds.js). */
     setOvercast(share) {
       overcast = share;
+    },
+    /** Fog grey share 0..1 (daylight.js). */
+    setFog(share) {
+      fog = share;
     },
   };
 }

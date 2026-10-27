@@ -12,7 +12,8 @@
 // the suspension rays feel on this surface (surfaceImperfections.js), less
 // 30% of the tyre sidewall height (wheeledVehicle.js).
 // tyreWearMultiplier scales tread wear (abrasive gravel/rock wear faster);
-// punctureMultiplier divides the rim-strike speed a tyre survives (tyres.js).
+// punctureMultiplier divides the rim-strike speed a tyre survives, rimBreakMultiplier the one
+// a rim survives (tyres.js; hard ground breaks rims, soft ground gives).
 // wetSensitivity: share of a wet tyre's grip loss felt here; dirtLevel: how caked a tyre
 // rolling here ends up (more when wet: mud); dirtSensitivity: share of a dirty tyre's
 // grip loss felt here (tyres/condition.js).
@@ -28,6 +29,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 0,
     tyreWearMultiplier: 1,
     punctureMultiplier: 1,
+    rimBreakMultiplier: 1.4,
     wetSensitivity: 1,
     dirtLevel: 0,
     dirtSensitivity: 1,
@@ -43,9 +45,41 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 6,
     tyreWearMultiplier: 1.3,
     punctureMultiplier: 1.15,
+    rimBreakMultiplier: 0.9,
     wetSensitivity: 0.6,
     dirtLevel: 0.35,
     dirtSensitivity: 0.4,
+  },
+  // Cobbles / setts (stage surface sections): a bit less grip than asphalt, worse once broken
+  // loose or wet (polished stone), and a constant fine rumble.
+  cobblestone: {
+    frictionMultiplier: 1.3,
+    dynamicFrictionRatio: 0.72,
+    widthGripExponent: 0.3,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 0.8,
+    imperfectionCm: 3,
+    tyreWearMultiplier: 1.1,
+    punctureMultiplier: 1.1,
+    rimBreakMultiplier: 1.5,
+    wetSensitivity: 1.15,
+    dirtLevel: 0.05,
+    dirtSensitivity: 1,
+  },
+  // Mud (stage surface sections): slippery and draggy, cakes the tyres; already wet, so rain adds little.
+  mud: {
+    frictionMultiplier: 0.5,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.5,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 3.2,
+    imperfectionCm: 12,
+    tyreWearMultiplier: 0.6,
+    punctureMultiplier: 0.8,
+    rimBreakMultiplier: 0.5,
+    wetSensitivity: 0.25,
+    dirtLevel: 0.95,
+    dirtSensitivity: 0.2,
   },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
@@ -57,6 +91,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 20,
     tyreWearMultiplier: 0.8,
     punctureMultiplier: 1,
+    rimBreakMultiplier: 0.8,
     wetSensitivity: 0.5,
     dirtLevel: 0.6,
     dirtSensitivity: 0.3,
@@ -72,6 +107,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 2,
     tyreWearMultiplier: 1,
     punctureMultiplier: 1,
+    rimBreakMultiplier: 1.4,
     wetSensitivity: 0.9,
     dirtLevel: 0.1,
     dirtSensitivity: 1,
@@ -87,6 +123,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 30,
     tyreWearMultiplier: 0.7,
     punctureMultiplier: 1.2,
+    rimBreakMultiplier: 0.8,
     wetSensitivity: 0.5,
     dirtLevel: 0.7,
     dirtSensitivity: 0.3,
@@ -102,6 +139,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 45,
     tyreWearMultiplier: 1.8,
     punctureMultiplier: 1.4,
+    rimBreakMultiplier: 1.3,
     wetSensitivity: 0.8,
     dirtLevel: 0.15,
     dirtSensitivity: 0.8,
@@ -116,6 +154,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 1,
     tyreWearMultiplier: 0.2,
     punctureMultiplier: 1,
+    rimBreakMultiplier: 1,
     wetSensitivity: 1,
     dirtLevel: 0,
     dirtSensitivity: 1,
@@ -130,6 +169,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 22,
     tyreWearMultiplier: 0.9,
     punctureMultiplier: 1.2,
+    rimBreakMultiplier: 0.8,
     wetSensitivity: 0.5,
     dirtLevel: 0.55,
     dirtSensitivity: 0.3,
@@ -144,6 +184,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 2,
     tyreWearMultiplier: 0.5,
     punctureMultiplier: 0.8,
+    rimBreakMultiplier: 0.5,
     wetSensitivity: 0.2,
     dirtLevel: 0.5,
     dirtSensitivity: 0.2,
@@ -159,6 +200,7 @@ export const SURFACE_COMPOUNDS = {
     imperfectionCm: 0,
     tyreWearMultiplier: 0.3,
     punctureMultiplier: 1,
+    rimBreakMultiplier: 0.6,
     wetSensitivity: 0,
     dirtLevel: 0,
     dirtSensitivity: 0,

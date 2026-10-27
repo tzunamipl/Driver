@@ -35,6 +35,8 @@ export default {
   },
   suspensionForceG: 8,
   engine: 'v8',
+  breakableExhaust: false, // bare pipes off the manifold: no exhaust system to damage
+  exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 1.15, 2.65, -0.55], dir: [0, 1, 0] })), // stack tops
   enginePowerHp: 1300,
   peakTorqueNm: 3800,
   peakTorqueRpm: 2800,
@@ -48,6 +50,7 @@ export default {
   shiftDurationS: 1.0,
   engineInertia: 1.5,
   brakeForce: 200,
+  brakes: { front: { discMm: 430, vented: true }, rear: { discMm: 430, vented: true } },
   abs: false,
   mass: 11000,
   fuelTankL: 1200,
@@ -61,6 +64,7 @@ export default {
   trailer: {
     buildBody: buildTrailer,
     mass: 9000,
+    brakes: { rear: { drumMm: 410 } },
     hitch: [0, 0.45, -2.2],
     kingpin: [0, 0.4, 4.2],
     axles: [

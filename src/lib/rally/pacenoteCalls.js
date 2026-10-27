@@ -2,10 +2,12 @@
 // junction, show, apex }: s / len = metres along the stage where the corner starts and how long it is,
 // dir 'L' | 'R' | 'S' (straight on at a junction, no grade), grade 1 (slowest) .. 6 (fastest),
 // show / apex = { lat, lon, s }: a point before the corner and the apex, where the HUD stops showing the note.
+// A surface call is { lat, lon, s, len: 0, surface, show, apex } instead: onto a stageSurfaces.js surface at s.
 // What follows a note (distance, "into", "and") comes from the gap to the next one, called in
 // metres or yards (lib/units.js).
 
 import { shortDistanceValue } from '../units.js';
+import { STAGE_SURFACES } from './stageSurfaces.js';
 
 export const DIRS = ['L', 'R', 'S'];
 export const GRADES = [1, 2, 3, 4, 5, 6];
@@ -15,7 +17,7 @@ const AND_M = 35;
 const CALLED_DISTANCES = [30, 40, 50, 60, 70, 80, 100, 120, 150, 200, 250, 300, 400, 500];
 const LONG_STEP_M = 100;
 
-export const noteLabel = (note) => (note.dir === 'S' ? 'Straight' : `${note.dir}${note.grade}`);
+export const noteLabel = (note) => (note.surface ? STAGE_SURFACES[note.surface].label : note.dir === 'S' ? 'Straight' : `${note.dir}${note.grade}`);
 
 export function calledDistance(metres) {
   if (metres >= CALLED_DISTANCES[CALLED_DISTANCES.length - 1]) return Math.floor(metres / LONG_STEP_M) * LONG_STEP_M;
@@ -39,8 +41,9 @@ export function gapLabel(pacenotes, i) {
   return String(calledDistance(shortDistanceValue(gap)));
 }
 
-/** One line, e.g. 'L4 at junction 100'. */
+/** One line, e.g. 'L4 at junction 100', 'Onto gravel 50'. */
 export const callText = (pacenotes, i) => {
   const note = pacenotes.notes[i];
+  if (note.surface) return `Onto ${noteLabel(note).toLowerCase()} ${gapLabel(pacenotes, i)}`;
   return `${noteLabel(note)}${note.junction ? ' at junction' : ''} ${gapLabel(pacenotes, i)}`;
 };

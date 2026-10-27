@@ -6,6 +6,7 @@ import { buildBody } from './geometry/stallionTurbo.js';
 export default {
   id: 'C011', // display name in ./names.js
   category: 'rally',
+  skidPlate: true, // engineHeat.js: takes underbody hits before the sump
   defaultColor: 0xf4f4f2, // Martini white
   rimColor: 0xe8e8e8,
   rims: { default: 'rally8', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
@@ -41,6 +42,7 @@ export default {
   reverseRatio: 3.2,
   shiftDurationS: 0.15,
   brakeForce: 210,
+  brakes: { front: { discMm: 355, vented: true }, rear: { discMm: 330, vented: true }, pads: 'race' },
   abs: false,
   mass: 1230,
   fuelTankL: 80,

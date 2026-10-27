@@ -236,6 +236,7 @@ export class BuildingsManager {
     this._region = null; // { minTx, maxTx, minTy, maxTy } of the fetched area
     this._buildingsByTile = new Map(); // tileKey -> [{ ring: [{lat,lon}], height, color }]
     this._regionPending = null;
+    this._regionTilesLeft = 0; // z14 tiles of the pending region not fetched yet
     this._regionFailedAt = 0;
     this._lastError = null;
     this._usingCachedData = false; // region came from IndexedDB fallback (shown in HUD)
@@ -316,7 +317,13 @@ export class BuildingsManager {
       }
     }
 
-    const results = await Promise.allSettled(tileCoords.map(([tx14, ty14]) => fetchBuildingTile(tx14, ty14)));
+    this._regionTilesLeft = tileCoords.length;
+    const tileDone = () => {
+      if (generation === this._generation) this._regionTilesLeft--;
+    };
+    const results = await Promise.allSettled(
+      tileCoords.map(([tx14, ty14]) => fetchBuildingTile(tx14, ty14).finally(tileDone))
+    );
     if (generation !== this._generation) return; // recentered meanwhile
 
     const byTile = new Map();
@@ -507,7 +514,7 @@ export class BuildingsManager {
   pendingWork() {
     const far = this._far.pendingWork();
     return {
-      downloads: (this._regionPending ? 1 : 0) + far.downloads,
+      downloads: (this._regionPending ? Math.max(1, this._regionTilesLeft) : 0) + far.downloads,
       builds: this._buildQueue.length + this._inProgressBuilds.size + far.builds,
     };
   }

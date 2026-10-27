@@ -1,6 +1,8 @@
 // Pacenote icon shapes, shared by the HUD strip (SVG) and the editor's world tiles (canvas):
 // an arrow up from the bottom bent by the grade, straight for 'S', and a junction fork.
-// Path data in a -20..20 box (arrow) / 0..20 x 0..24 (fork).
+// Path data in a -20..20 box (arrow) / 0..20 x 0..24 (fork). Surface calls get a swatch of the surface instead.
+
+import { STAGE_SURFACES } from './stageSurfaces.js';
 
 // Degrees the arrow turns through, per grade.
 const ARROW_TURN = { 1: 165, 2: 130, 3: 100, 4: 75, 5: 50, 6: 28 };
@@ -40,6 +42,34 @@ const BORDER = 6;
 const ARROW_PX = 72;
 const FORK_PX = 22;
 
+function drawArrow(ctx, note, accent) {
+  const { line, head } = arrowPaths(note);
+  ctx.save();
+  ctx.translate(TILE_W / 2, 14 + ARROW_PX / 2);
+  ctx.scale(ARROW_PX / 40, ARROW_PX / 40);
+  ctx.translate(0, 2); // the box runs -22..18
+  ctx.strokeStyle = accent;
+  ctx.fillStyle = accent;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke(new Path2D(line));
+  ctx.fill(new Path2D(head));
+  ctx.restore();
+}
+
+/** Surface call: a square of the surface's colour where the arrow goes. */
+function drawSurfaceSwatch(ctx, surface, accent) {
+  const size = ARROW_PX * 0.7;
+  const x = (TILE_W - size) / 2;
+  const y = 14 + (ARROW_PX - size) / 2;
+  ctx.fillStyle = STAGE_SURFACES[surface].color;
+  ctx.fillRect(x, y, size, size);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = accent;
+  ctx.strokeRect(x, y, size, size);
+}
+
 /**
  * Canvas tile like the HUD's: arrow, call (e.g. 'R4') and what follows ('100', 'into'),
  * a fork at junctions. `selected` = yellow, `hover` = white outline.
@@ -56,24 +86,13 @@ export function noteTileCanvas({ note, call, gap, selected, hover }) {
   ctx.strokeStyle = hover ? '#ffffff' : selected ? '#f6c900' : '#888888';
   ctx.strokeRect(BORDER / 2, BORDER / 2, TILE_W - BORDER, TILE_H - BORDER);
 
-  const { line, head } = arrowPaths(note);
-  ctx.save();
-  ctx.translate(TILE_W / 2, 14 + ARROW_PX / 2);
-  ctx.scale(ARROW_PX / 40, ARROW_PX / 40);
-  ctx.translate(0, 2); // the box runs -22..18
-  ctx.strokeStyle = accent;
-  ctx.fillStyle = accent;
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.stroke(new Path2D(line));
-  ctx.fill(new Path2D(head));
-  ctx.restore();
+  if (note.surface) drawSurfaceSwatch(ctx, note.surface, accent);
+  else drawArrow(ctx, note, accent);
 
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `bold ${note.dir === 'S' ? 24 : 34}px monospace`;
+  ctx.font = `bold ${note.dir === 'S' || note.surface ? 24 : 34}px monospace`;
   ctx.fillText(call, TILE_W / 2, 112);
   ctx.font = '22px sans-serif';
   const gapWidth = ctx.measureText(gap).width;

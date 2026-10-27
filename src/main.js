@@ -12,7 +12,9 @@ import { createSplash } from './lib/splash.js';
 import { createWaterImmersion } from './lib/waterImmersion.js';
 import { createTireSmoke } from './lib/tireSmoke.js';
 import { createExhaustFlames } from './lib/exhaustFlames.js';
+import { createExhaustPipes } from './lib/exhaustPipes.js';
 import { createCoolantSteam } from './lib/coolantSteam.js';
+import { createBrakeSteam } from './lib/brakeSteam.js';
 import { createRimSparks } from './lib/rimSparks.js';
 import { createTerrainDust } from './lib/terrainDust.js';
 import { createBodyDust } from './lib/bodyDust.js';
@@ -52,6 +54,7 @@ import { BuildingsManager } from './lib/buildings.js';
 import { StreetsManager, setRoadOvercast } from './lib/streets.js';
 import { RiversManager } from './lib/rivers.js';
 import { createRoadside } from './lib/roadside.js';
+import { createCurbs } from './lib/curbs.js';
 import { createRoadPostKind } from './lib/roadPosts.js';
 import { createGuardRailKind } from './lib/guardRails.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
@@ -69,7 +72,7 @@ import { loadOrCreatePlayerId } from './lib/playerId.js';
 import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
 import { migrateStoredVehicleIds } from './lib/vehicleIdMigration.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, SCORING_ENABLED, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -93,6 +96,7 @@ import { createSuspensionHud } from './hud/suspensionHud.js';
 import { createEngineHud } from './hud/engineHud.js';
 import { createTyreHud } from './hud/tyreHud.js';
 import { createBodyHud } from './hud/bodyHud.js';
+import { createBrakeHud } from './hud/brakeHud.js';
 import { createMinimapHud } from './hud/minimap.js';
 import { createPlayersPanel } from './hud/playersPanel.js';
 import { setupCollapsibleHud } from './hud/collapsible.js';
@@ -126,6 +130,7 @@ import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
 import { createEditorNotePicking } from './app/editorNotePicking.js';
 import { createPacenotePanel } from './ui/pacenotePanel.js';
+import { createSurfacePanel } from './ui/surfacePanel.js';
 import { createCourseObjectsPanel } from './ui/courseObjectsPanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
@@ -223,7 +228,7 @@ const rallyStart = planStart(rallyInitialPick?.plan);
 
 // ---------- Rendering environment ----------
 const { renderer, scene, camera, renderView, colorGrade } = createSceneEnvironment();
-const daylight = createDaylight({ scene, ...createLighting(scene) });
+const daylight = createDaylight({ scene, ...createLighting(scene), onFog: (share) => colorGrade?.setFog(share) });
 // Free roam runs on the real time of day; other modes keep the fast cycle (or their own clock, rally).
 if (isFreeRoam) daylight.setClock(Date.now);
 const weatherFeed = createWeatherFeed();
@@ -311,6 +316,7 @@ const roadside = createRoadside({
   ],
   onHit: postHitSound.play,
 });
+const curbs = createCurbs({ scene, world, streets, builtUpAreas, terrain });
 const streetLights = createStreetLights({ scene, terrain, roadside, lampKind: streetLampKind });
 const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'), {
   allowed: !isEditorSession() && getGameMode(getActiveModeId())?.directionSignHud !== false,
@@ -375,9 +381,11 @@ const debugVisuals = createDebugVisualsToggle(
     engineHudEl: document.getElementById('engine-hud'),
     tyreHudEl: document.getElementById('tyre-hud'),
     bodyHudEl: document.getElementById('body-hud'),
+    brakeHudEl: document.getElementById('brake-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
     roadside,
+    curbs,
     directionSignHud,
     settingToggles: [
       { label: 'Road surface (Settings)', toggle: graphicsToggles.roadSurface },
@@ -389,11 +397,11 @@ const debugVisuals = createDebugVisualsToggle(
 createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
 createWeatherDebug(document.getElementById('debug-layers-hud'), weatherFeed);
 setupDebugFolds(
-  ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+  ['suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
 );
 setupDebugHudWrap(
   document.getElementById('debug-hud-row'),
-  ['suspension-hud', 'tyre-hud', 'body-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map((id) => document.getElementById(id)),
+  ['suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map((id) => document.getElementById(id)),
   document.getElementById('minimap')
 );
 createSurfaceHover({
@@ -410,6 +418,7 @@ createRoadBedInspect({ el: document.getElementById('road-bed-inspect'), canvas: 
 const bodyDust = createBodyDust(scene, { onImpact: impactSound.play });
 const carShadows = createCarShadows(world, scene);
 const rimSparks = createRimSparks(scene, { onGrind: createRimGrindSound().update });
+const exhaustPipes = createExhaustPipes(scene, world, { onScrape: createRimGrindSound().update });
 const carManager = createCarManager({
   world,
   scene,
@@ -426,6 +435,7 @@ const carManager = createCarManager({
   initialFuel: savedCarState?.fuel ?? null,
   initialTyres: savedCarState?.tyres ?? null,
   initialHeat: savedCarState?.heat ?? savedCarState?.coolant ?? null,
+  initialBrakes: savedCarState?.brakes ?? null,
   initialDamage: savedCarState?.damage ?? null,
   repairOnReset: !isFreeRoam,
   refillWhenEmpty: !isFreeRoam,
@@ -484,6 +494,7 @@ const suspensionHud = createSuspensionHud();
 const engineHud = createEngineHud();
 const tyreHud = createTyreHud();
 const bodyHud = createBodyHud();
+const brakeHud = createBrakeHud();
 const playersPanel = createPlayersPanel();
 function getCarLatLon() {
   const pos = carManager.getVehicle()?.chassisBody.position;
@@ -528,6 +539,7 @@ const shots = createShots({
   scene,
   world,
   onCarHit() {
+    if (!SCORING_ENABLED) return;
     carManager.addScore(SCORE_PER_CAR_HIT);
     scoreToast.push(SCORE_PER_CAR_HIT, 'car');
   },
@@ -538,8 +550,9 @@ const fireAndJump = !isEditorSession() && getGameMode(getActiveModeId())?.fireAn
 const splash = createSplash(scene, { onWade: waterWadeSound.update });
 const waterImmersion = createWaterImmersion({ streets, waterAreas, rivers });
 const tireSmoke = createTireSmoke(scene);
-const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play });
+const exhaustFlames = createExhaustFlames(scene, { onPop: createBackfireSound().play, getTips: exhaustPipes.getFlameTips });
 const coolantSteam = createCoolantSteam(scene, { onLeak: createCoolantHissSound().update });
+const brakeSteam = createBrakeSteam(scene);
 const clouds = createClouds(scene, {
   onOvercast: (share) => {
     daylight.setOvercast(share);
@@ -565,9 +578,11 @@ setupGameplayProps({
 const scoring = createScoring({
   world,
   carManager,
-  onJumpScore: (points) => scoreToast.push(points, 'jump'),
-  onAirtimeUpdate: (points) => airtimeHud.update(points),
-  onAirtimeEnd: () => airtimeHud.hide(),
+  ...(SCORING_ENABLED && {
+    onJumpScore: (points) => scoreToast.push(points, 'jump'),
+    onAirtimeUpdate: (points) => airtimeHud.update(points),
+    onAirtimeEnd: () => airtimeHud.hide(),
+  }),
 });
 
 // ---------- Scenario editor (a mode's Editor button) ----------
@@ -591,7 +606,10 @@ if (scenarioEditor) {
     getPlayerName: loadProfileName,
     openSettings: mainMenu.openSettings,
   });
-  if (editorFormat.kinds.some((kind) => kind.id === 'stage')) createPacenotePanel(scenarioEditor);
+  if (editorFormat.kinds.some((kind) => kind.id === 'stage')) {
+    createPacenotePanel(scenarioEditor);
+    createSurfacePanel(scenarioEditor);
+  }
   if (editorFormat.objectTypes) createCourseObjectsPanel(scenarioEditor);
   createEditorNotePicking({ canvas: renderer.domElement, camera, editor: scenarioEditor });
   scenarioEditor.subscribe(() => {
@@ -741,6 +759,8 @@ const rallySession =
         onRepair: repairTool.play,
         onPropHit: postHitSound.play,
         onStartBeep: createStartBeep().play,
+        onStartLine: () => setRallyGearMode('sport'),
+        onFinishLine: () => setRallyGearMode('comfort'),
         getTimeOfDayMs: daylight.getTimeMs,
         setClock: daylight.setClock,
         setLiveWeather: weatherFeed.setEnabled,
@@ -754,6 +774,10 @@ const rallySession =
         snapCamera: cameraFollow.snap,
       })
     : null;
+/** Single rally: an automatic box goes to `mode` at a stage's start / finish line. */
+function setRallyGearMode(mode) {
+  if (getActiveStartId() === 'rally' && !carManager.getVehicle()?.engine?.manual) input.setGearMode(mode);
+}
 /** Respawns the local car as `vehicleId` where it stands, with its saved paint. */
 function switchVehicle(vehicleId) {
   const body = carManager.getVehicle()?.chassisBody;
@@ -783,7 +807,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, trees, bushes, rocks, rimSparks, wheelDebris, wetSpray, rain, streetLights, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, curbs, trees, bushes, rocks, rimSparks, exhaustPipes, wheelDebris, wetSpray, rain, streetLights, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
 });
 
 // ---------- Main loop ----------
@@ -805,6 +829,7 @@ const mainLoop = createMainLoop({
   bushes,
   rocks,
   roadside,
+  curbs,
   streetLights,
   places,
   directionSignHud,
@@ -826,7 +851,9 @@ const mainLoop = createMainLoop({
   carDirtEnabled: graphicsToggles.carDirt.get,
   tireSmoke,
   exhaustFlames,
+  exhaustPipes,
   coolantSteam,
+  brakeSteam,
   rimSparks,
   terrainDust,
   wheelDebris,
@@ -851,6 +878,7 @@ const mainLoop = createMainLoop({
   engineHud,
   tyreHud,
   bodyHud,
+  brakeHud,
   playersPanel,
   minimapHud,
   routeGuidance,
@@ -867,7 +895,7 @@ const mainLoop = createMainLoop({
   rallySession,
   roadsideRepair: isFreeRoam ? createRoadsideRepair({ canvas: renderer.domElement, camera, getVehicle: () => carManager.getVehicle(), onRepair: repairTool.play }) : null,
 });
-graphicsDetailPicker.bind({ terrain, mainLoop, roadside, trees, bushes, rocks });
+graphicsDetailPicker.bind({ terrain, mainLoop, roadside, curbs, trees, bushes, rocks });
 graphicsToggles.bind({ streets });
 
 function startLoopOnce() {

@@ -19,6 +19,7 @@ const LAYERS = [
   { id: 'roadPosts', label: 'Road posts', group: 'graphics' },
   { id: 'guardRails', label: 'Guard rails', group: 'graphics' },
   { id: 'streetLamps', label: 'Street lamps', group: 'graphics' },
+  { id: 'curbs', label: 'Curbs', group: 'graphics' },
   { id: 'curveSigns', label: 'Curve signs', group: 'graphics' },
   { id: 'directionSigns', label: 'Direction signs', group: 'graphics' },
   { id: 'directionSignHud', label: 'Direction sign HUD', group: 'graphics' },
@@ -103,9 +104,11 @@ function saveEnabled(enabled) {
  * @param {HTMLElement} [deps.engineHudEl]
  * @param {HTMLElement} [deps.tyreHudEl]
  * @param {HTMLElement} [deps.bodyHudEl]
+ * @param {HTMLElement} [deps.brakeHudEl]
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
  * @param {ReturnType<import('../lib/roadside.js').createRoadside>} [deps.roadside]
+ * @param {ReturnType<import('../lib/curbs.js').createCurbs>} [deps.curbs]
  * @param {ReturnType<import('./directionSignHud.js').createDirectionSignHud>} [deps.directionSignHud]
  * @param {{ label: string, toggle: { get(): boolean, set(on: boolean): void, onChange(fn: (on: boolean) => void): void } }[]} [deps.settingToggles]
  *   Settings checkboxes mirrored in the Graphics group (saved by Settings, not with the layers).
@@ -133,9 +136,11 @@ export function createDebugVisualsToggle(
     engineHudEl,
     tyreHudEl,
     bodyHudEl,
+    brakeHudEl,
     vehicleDebugHudEl,
     layersHudEl,
     roadside,
+    curbs,
     directionSignHud,
     settingToggles = [],
   },
@@ -161,6 +166,7 @@ export function createDebugVisualsToggle(
     if (engineHudEl) engineHudEl.style.display = display;
     if (tyreHudEl) tyreHudEl.style.display = display;
     if (bodyHudEl) bodyHudEl.style.display = display;
+    if (brakeHudEl) brakeHudEl.style.display = display;
     if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = display;
     if (layersHudEl) layersHudEl.style.display = display;
     terrain.setBordersVisible(shown('tileBorders'));
@@ -169,6 +175,7 @@ export function createDebugVisualsToggle(
     if (roadProfileLegend) roadProfileLegend.style.display = isOn('roadProfile') ? '' : 'none';
     terrain.setRoadBedEnabled(kept('roadBed'));
     if (roadside) for (const group of ROADSIDE_GROUPS) roadside.setGroupVisible(group, kept(group));
+    if (curbs) curbs.setVisible(kept('curbs'));
     if (directionSignHud) directionSignHud.setEnabled(kept('directionSignHud'));
     buildings.setHitboxesVisible(shown('hitboxes'));
     if (streets) {

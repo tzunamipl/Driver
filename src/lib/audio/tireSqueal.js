@@ -5,7 +5,7 @@
 import { getAudio, createWheelOutput } from './audioContext.js';
 import { wheelSide } from '../wheelContact.js';
 
-const SQUEAL_SURFACES = new Set(['road', 'rock', 'builtUp']);
+const SQUEAL_SURFACES = new Set(['road', 'cobblestone', 'rock', 'builtUp']);
 
 const SLIDE_TONES = [
   { freq: 700, type: 'sine', gain: 0.01 },

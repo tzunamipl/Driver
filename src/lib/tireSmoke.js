@@ -47,7 +47,7 @@ export function createTireSmoke(scene) {
 
     vehicle.wheelInfos.forEach((wheel, i) => {
       wheelTimers[i] -= dt;
-      if (!wheel.sliding || wheel.surface !== 'road') return;
+      if (!wheel.sliding || (wheel.surface !== 'road' && wheel.surface !== 'cobblestone')) return;
       if (wheelTimers[i] > 0) return;
       if (!isWheelGrounded(world, wheel)) return;
 

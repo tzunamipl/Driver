@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GROUND_COLLISION_GROUP } from './terrain.js';
+import { GROUND_COLLISION_GROUP, GROUND_RENDER_ORDER } from './terrain.js';
 import { SURFACE_DEPTH_BIAS, applyDepthBias } from './streets.js';
 
 // fadeStart/fadeEnd = bottom clearance where fading starts / the patch is gone;
@@ -30,7 +30,7 @@ const WHEEL = {
   edgeSoftness: 0.8,
   heading: 'axle', // local x stays put while the wheel spins
 };
-// On the ground, kept in front of it and the road surface by depth bias (metres toward the camera).
+// On the ground, kept in front of its bulges under the road surface by depth bias (metres toward the camera).
 const DEPTH_BIAS_M = SURFACE_DEPTH_BIAS + 0.03;
 const RAY_UP_M = 1;
 const RAY_DOWN_M = BODY.fadeEnd + 5;
@@ -101,11 +101,12 @@ export function createCarShadows(world, scene) {
     const box = localBounds(caster);
     if (!box) return null;
     const alphaMap = alphaMaps.get(profile);
-    const material = new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap, transparent: true, depthWrite: false });
+    // Opaque pass, still alpha blended: drawn over the road surface view but before the car, so it can't cover the wheels.
+    const material = new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap, transparent: false, blending: THREE.CustomBlending, depthWrite: false });
     material.onBeforeCompile = (shader) => applyDepthBias(shader, DEPTH_BIAS_M);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.matrixAutoUpdate = false;
-    mesh.renderOrder = -1; // under other transparent effects (dust, smoke)
+    mesh.renderOrder = GROUND_RENDER_ORDER.contactShadow;
     scene.add(mesh);
     if (profile === WHEEL) {
       // Spin-proof footprint: tyre width across, diameter along.

@@ -63,6 +63,10 @@ export const torqueUnit = () => (isImperial() ? 'lb·ft' : 'Nm');
 export const pressureValue = (bar) => (isImperial() ? bar * PSI_PER_BAR : bar);
 export const pressureUnit = () => (isImperial() ? 'psi' : 'bar');
 /** Shown value back to litres (e.g. a refuel slider in gallons). */
+// US mpg = this / (L/100 km).
+const MPG_X_L_PER_100KM = 235.215;
+export const consumptionValue = (lPer100Km) => (isImperial() ? MPG_X_L_PER_100KM / lPer100Km : lPer100Km);
+export const consumptionUnit = () => (isImperial() ? 'mpg' : 'L/100km');
 export const litresFromVolume = (v) => (isImperial() ? v * L_PER_GAL : v);
 
 export const formatSpeed = (kmh, digits = 0) => `${speedValue(kmh).toFixed(digits)} ${speedUnit()}`;
@@ -84,4 +88,14 @@ export function formatDistance(m) {
 export function formatSignDistance(km) {
   const v = longDistanceValue(km);
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${longDistanceUnit()}`;
+}
+
+/** Distance to another player: km (miles), then "kkm" / "k mi" (teleported peers may be continents away). */
+export function formatPeerDistance(m) {
+  const d = longDistanceValue(m / 1000);
+  if (d >= 1000) {
+    const k = d / 1000;
+    return `${k.toFixed(k >= 10 ? 0 : 1)} ${isImperial() ? 'k mi' : 'kkm'}`;
+  }
+  return `${d >= 10 ? Math.round(d) : d.toFixed(1)} ${longDistanceUnit()}`;
 }

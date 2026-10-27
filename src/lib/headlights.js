@@ -10,7 +10,7 @@ import * as THREE from 'three';
 
 const FADE_S = 0.12;
 const FLARE_SIZE_M = 0.6;
-const POOL_INTENSITY = 320; // ~same brightness at the aim point as 4000 with decay 2
+const POOL_INTENSITY = 120; // ~same brightness at the aim point as 4000 with decay 2
 const POOL_DISTANCE_M = 200;
 const POOL_DECAY = 1.0; // gentler than physical inverse-square so the beam reaches further
 const POOL_ANGLE_RAD = 0.9;

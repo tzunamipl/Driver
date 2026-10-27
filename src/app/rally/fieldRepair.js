@@ -1,6 +1,6 @@
 // Rally field fixes: with the car nearly stopped, a floating button on each part the crew can
 // patch at the roadside (lib/serviceRepairs.js 'field' actions: spare wheel, shocks, radiator,
-// sump, gearbox, lamps, pouring in the cans); Inspect car offers the same. On a stage with the
+// sump, brake pipes, gearbox, lamps, pouring in the cans); Inspect car offers the same. On a stage with the
 // clock running (or counting down) each one adds its penalty to the stage time.
 
 import { createPartCallouts } from '../partCallouts.js';

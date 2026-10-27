@@ -17,6 +17,7 @@
 #suspension-hud,
 #tyre-hud,
 #body-hud,
+#brake-hud,
 #engine-hud {
   /* Stacked below the help/controls HUD inside #top-left-stack
      (same flex-column approach #terrain-stats uses under
@@ -31,7 +32,7 @@
   pointer-events: none;
   z-index: 10;
   /* Fixed width + one-line labels: changing values must not resize the panel. */
-  width: 180px;
+  width: 230px;
   font-variant-numeric: tabular-nums;
 }
 .susp-panel .susp-title {
@@ -94,12 +95,13 @@
   color: #b00000;
 }
 #tyre-hud[hidden],
-#body-hud[hidden] {
+#body-hud[hidden],
+#brake-hud[hidden] {
   display: none;
 }
 #tyre-hud .tyre-row {
   display: grid;
-  grid-template-columns: 22px 80px 32px 28px;
+  grid-template-columns: 22px 80px 32px 28px 28px;
   align-items: center;
   gap: 1px 4px;
   pointer-events: auto;
@@ -108,7 +110,7 @@
   font-size: 11px;
   text-align: right;
 }
-/* Temp / dirt rows: value spans the Pop column too. */
+/* Temp / dirt rows: value spans the Pop / Rim columns too. */
 #tyre-hud .tyre-wide { grid-column: 3 / -1; }
 #tyre-hud .tyre-tread,
 #tyre-hud .tyre-temp,
@@ -120,22 +122,26 @@
 }
 /* Win95 slider like base.css's #hud one (this panel is outside #hud, so it would render natively):
    4px track, small 3x10 thumb centred on it; the margin leaves the thumb room. */
-#tyre-hud input[type="range"] {
+#tyre-hud input[type="range"],
+#brake-hud input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
 }
-#tyre-hud input[type="range"]::-webkit-slider-runnable-track {
+#tyre-hud input[type="range"]::-webkit-slider-runnable-track,
+#brake-hud input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   background: var(--w95-face);
   box-shadow: var(--w95-sunken);
 }
-#tyre-hud input[type="range"]::-moz-range-track {
+#tyre-hud input[type="range"]::-moz-range-track,
+#brake-hud input[type="range"]::-moz-range-track {
   height: 4px;
   background: var(--w95-face);
   box-shadow: var(--w95-sunken);
 }
-#tyre-hud input[type="range"]::-webkit-slider-thumb {
+#tyre-hud input[type="range"]::-webkit-slider-thumb,
+#brake-hud input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 3px;
   height: 10px;
@@ -145,13 +151,39 @@
   background: var(--w95-face);
   box-shadow: var(--w95-raised);
 }
-#tyre-hud input[type="range"]::-moz-range-thumb {
+#tyre-hud input[type="range"]::-moz-range-thumb,
+#brake-hud input[type="range"]::-moz-range-thumb {
   width: 3px;
   height: 10px;
   border: none;
   border-radius: 0;
   background: var(--w95-face);
   box-shadow: var(--w95-raised);
+}
+#brake-hud .brake-row {
+  display: grid;
+  grid-template-columns: 22px 60px 34px 50px 30px;
+  align-items: center;
+  gap: 1px 4px;
+  pointer-events: auto;
+}
+#brake-hud .brake-row input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  height: 4px;
+  margin: 3px 0;
+}
+#brake-hud .brake-val {
+  text-align: right;
+  white-space: nowrap;
+}
+#brake-hud .brake-val.hot {
+  color: #b00000;
+}
+#brake-hud .brake-cond {
+  grid-column: 2 / -1;
+  font-size: 12px;
+  color: #444;
 }
 #tyre-hud .tyre-val {
   text-align: right;
@@ -164,6 +196,10 @@
 #tyre-hud .tyre-toggle {
   min-width: 0;
   padding: 1px 2px;
+}
+#tyre-hud .tyre-toggle.broken {
+  color: #c00;
+  font-weight: bold;
 }
 #tyre-hud .tyre-cond {
   grid-column: 2 / -1;

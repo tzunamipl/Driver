@@ -55,6 +55,9 @@ const WORLD_TOP_N = 10; // world times on the finished plan's results card
 const STAGE_DONE_SHOW_S = 10; // rally: a finished stage's time + world rank over the next item
 const GO_SHOW_S = 1.5;
 const NEAR_ZONE_M = 80;
+// Turn-around hint: straight-line distance to the next point growing this long.
+const WRONG_WAY_S = 5;
+const WRONG_WAY_RATE = 0.5; // m/s: slower changes (stopped, sliding about) neither count nor clear it
 const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the car state
 // m/s: Inspect car shows once this slow, kept until faster than the second.
 const INSPECT_SHOW_SPEED = 0.8;
@@ -77,10 +80,10 @@ const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
 
-/** Stage file -> { id (its file key), name, points, pacenotes, objects }. */
+/** Stage file -> { id (its file key), name, points, pacenotes, surfaces, objects }. */
 function readStage(json, id) {
-  const { name, items, pacenotes, objects } = stageKind.fromFile(json);
-  return { id, name, points: items, pacenotes, objects };
+  const { name, items, pacenotes, surfaces, objects } = stageKind.fromFile(json);
+  return { id, name, points: items, pacenotes, surfaces, objects };
 }
 
 /** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
@@ -112,6 +115,9 @@ async function buildPlan(kind, source, opened, key, json) {
 
 /** The plan's course objects: the rally's own and each stage's once, however often it's driven. */
 const planObjects = (plan) => [...new Set(plan.items.map((item) => item.stage?.objects ?? []))].flat().concat(plan.objects ?? []);
+
+/** The plan's surface sections: each stage's once (they stay in force on liaisons too). */
+const planSurfaces = (plan) => [...new Set(plan.items.map((item) => item.stage?.surfaces ?? []))].flat();
 
 /** Points of a plan item, in driving order. */
 const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item ? [item.point] : []);
@@ -162,12 +168,14 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {(clock: (() => number) | null) => void} deps.setClock - daylight.js: the rally clock drives the sun.
  * @param {(on: boolean) => void} deps.setLiveWeather - the free-roam forecast feed, off while a plan sets the weather.
  * @param {(points: object[]) => void} [deps.onMapPoints] - plan icons for the minimap / Navigation map (scenarioPointIcon.js).
+ * @param {() => void} [deps.onStartLine] - stopped at a stage's start line (countdown begins).
+ * @param {() => void} [deps.onFinishLine] - a stage's finish line passed.
  * @param {(held: boolean) => void} [deps.onFinishHold] - true while the finished plan's results are up (car parked, drone view).
  * @param {() => void} [deps.openMainMenu]
  * @param {ReturnType<import('../../ui/screenFade.js').createScreenFade>} [deps.screenFade] - liaison skips need it.
  * @param {() => void} [deps.snapCamera] - the camera jumps to the car (after a skip).
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, getTimeOfDayMs, setClock, setLiveWeather, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, onStartLine, onFinishLine, getTimeOfDayMs, setClock, setLiveWeather, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
   const conditions = createRallyConditions({ setClock, setLiveWeather });
   const clockMs = () => conditions.displayMs(getTimeOfDayMs?.() ?? Date.now());
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs: clockMs });
@@ -188,6 +196,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   let refuelWaitM = null; // metres driven since passing a refuel point whose menu waits for a stop
   let simTime = 0;
   let flash = null; // { text, until, result? } short status after a split / GO / a rally's stage
+  let away = null; // { key, dist, time, s }: how long the distance to the current target has been growing
   let resultRows = null; // stable array for the HUD while unchanged
   const step = { x: 0, z: 0 };
   let shownRed = 0; // countdown lights already beeped for
@@ -423,10 +432,16 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   }
 
   function onStageEvent(stage, best, event) {
-    if (event.type === 'countdown') saveProgress();
+    if (event.type === 'countdown') {
+      saveProgress();
+      onStartLine?.();
+    }
     // Timing clock beeps: check-in at a time / stop control, and the clock stopping at the finish.
     if (event.type === 'checkIn') onStartBeep?.(false);
-    if (event.type === 'finish') onStartBeep?.(true);
+    if (event.type === 'finish') {
+      onStartBeep?.(true);
+      onFinishLine?.();
+    }
     if (event.type === 'go') {
       flash = { text: 'GO!', until: simTime + GO_SHOW_S };
       onStartBeep?.(true);
@@ -574,6 +589,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     scenery.setPoints(plan.items.flatMap(itemPoints));
     scenery.setBase(plan.base);
     scenery.setObjects(planObjects(plan));
+    streets.setSurfaceSections(planSurfaces(plan));
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
@@ -614,6 +630,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (!picked) return; // Back: keep whatever was shown
       routeGuidance.stop();
       scenery.clear();
+      streets.setSurfaceSections([]);
       plan = null;
       run = null;
       finished = false;
@@ -667,7 +684,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const worn = vehicle ? carParts(vehicle).find((p) => p.group !== 'Fuel & spares' && p.level != null && p.level < SKIP_MIN_PART_LEVEL) : null;
     if (worn) {
       const flat = vehicle.wheelInfos?.some((w) => w.punctured);
-      flash = { text: `Can't skip: ${flat ? 'flat tyre' : `${worn.label.toLowerCase()} too damaged`}`, until: simTime + SPLIT_SHOW_S };
+      const rim = vehicle.wheelInfos?.some((w) => w.rimBroken);
+      flash = { text: `Can't skip: ${flat ? 'flat tyre' : rim ? 'broken rim' : `${worn.label.toLowerCase()} too damaged`}`, until: simTime + SPLIT_SHOW_S };
       return;
     }
     const fuel = vehicle?.fuel;
@@ -697,6 +715,20 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     }
   }
 
+  /** True once the distance to target `key` has kept growing for WRONG_WAY_S. */
+  function wrongWay(key, dist) {
+    if (dist == null || busy) return (away = null), false;
+    if (away?.key !== key || Math.abs(dist - away.dist) > JUMP_GUARD_M) away = { key, dist, time: simTime, s: 0 };
+    const dt = simTime - away.time;
+    if (dt <= 0) return away.s >= WRONG_WAY_S;
+    const rate = (dist - away.dist) / dt;
+    if (rate > WRONG_WAY_RATE) away.s += dt;
+    else if (rate < -WRONG_WAY_RATE) away.s = 0;
+    away.dist = dist;
+    away.time = simTime;
+    return away.s >= WRONG_WAY_S;
+  }
+
   function stageView(item) {
     const stage = item.stage;
     const ss = plan.items.slice(0, itemIndex + 1).filter((i) => i.type === 'stage').length;
@@ -718,6 +750,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       lights: state.phase === 'countdown' || run.lights().green ? run.lights() : null,
       status,
       next: next && dist != null && state.phase !== 'countdown' ? `Next: ${pointLabel(next.type)} · ${formatDistance(dist)}` : '',
+      warning: state.phase !== 'countdown' && wrongWay(`${itemIndex}|${state.next}`, next ? dist : null) ? 'Wrong way – turn around' : '',
       penaltyMs: run.penaltyMs(),
       buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : []), ...(run.isLive() ? ['retire'] : [])],
     };
@@ -922,6 +955,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       title: plan.name,
       status: flash && simTime < flash.until ? flash.text : liaisonStatus(item.point.type, dist),
       next: dist == null ? '' : `${pointLabel(item.point.type)} · ${formatDistance(dist)}`,
+      warning: wrongWay(`${itemIndex}`, dist) ? 'Wrong way – turn around' : '',
       buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : [])],
     };
   }

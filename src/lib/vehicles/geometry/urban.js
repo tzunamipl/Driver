@@ -58,7 +58,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0xe8ecef) {
   box(WIDTH + 0.02, 0.18, 0.1, black, 0, -0.3, BACK - 0.04);
   box(0.4, 0.1, 0.012, plate, 0, -0.3, FRONT + 0.095);
   box(0.4, 0.1, 0.012, plate, 0, -0.05, BACK - 0.02);
-  tube(0.03, 0.1, steel, 0.45, -0.45, BACK - 0.02, 10);
+  tube(0.03, 0.1, steel, 0.45, -0.45, BACK - 0.02, 10).userData.exhaust = true; // tailpipe
 
   return { group, bodyMat };
 }

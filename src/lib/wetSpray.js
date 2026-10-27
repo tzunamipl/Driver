@@ -11,9 +11,11 @@ const MAX_DROPS = 600;
 // Droplets per metre rolled on a soaked tyre; surfaces left out don't spray (water splashes in splash.js).
 const SURFACE_SPRAY = {
   road: 1.6,
+  cobblestone: 1.4,
   builtUp: 1.3,
   rock: 0.8,
   unpaved: 0.6,
+  mud: 0.5,
   normal: 0.25,
   scrub: 0.25,
   forest: 0.15,

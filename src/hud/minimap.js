@@ -1,10 +1,10 @@
-import { lon2tileX, lat2tileY, tileSizeMeters } from '../lib/geo.js';
+import { lon2tileX, lat2tileY, tileSizeMeters, haversineMeters } from '../lib/geo.js';
 import { computeHeadingDeg } from '../lib/heading.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
 import { strokeRoute } from './routeLine.js';
 import { drawScenarioPoints } from './scenarioPointIcon.js';
 import { formatRouteDistance, formatRouteDuration } from '../lib/routing.js';
-import { isImperial, longDistanceValue, longDistanceUnit, FT_PER_M, M_PER_MILE } from '../lib/units.js';
+import { isImperial, FT_PER_M, M_PER_MILE, formatPeerDistance } from '../lib/units.js';
 import { MINIMAP_MIN_ZOOM, MINIMAP_MAX_ZOOM, MINIMAP_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from '../config.js';
 
 // Round, north-up street-map minimap (OSM tiles, see mapTiles.js). The
@@ -44,26 +44,6 @@ function colorToCss(color) {
 
 // Matches the Navigation map's pin.
 const DESTINATION_COLOR = '#e53935';
-
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const toRad = Math.PI / 180;
-  const a =
-    Math.sin(((lat2 - lat1) * toRad) / 2) ** 2 +
-    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(((lon2 - lon1) * toRad) / 2) ** 2;
-  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(a)));
-}
-
-// Peer distance labels: km (miles), then "kkkm" / "k mi" (teleported peers may be continents away).
-function formatDistance(meters) {
-  const d = longDistanceValue(meters / 1000);
-  const unit = longDistanceUnit();
-  if (d >= 1000) {
-    const k = d / 1000;
-    return `${k.toFixed(k >= 10 ? 0 : 1)} ${isImperial() ? 'k mi' : 'kkkm'}`;
-  }
-  if (d >= 10) return `${Math.round(d)} ${unit}`;
-  return `${d.toFixed(1)} ${unit}`;
-}
 
 // Text nodes only touched when their content changes.
 function setText(el, text) {
@@ -366,7 +346,7 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
     ctx.lineWidth = 2.5 * s;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     for (const peer of onScreenPeers) {
-      const label = formatDistance(peer.distanceMeters);
+      const label = formatPeerDistance(peer.distanceMeters);
       const lx = center + peer.px;
       const ly = center + peer.py + 12 * s;
       ctx.textBaseline = 'top';
@@ -401,7 +381,7 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
       actx.stroke();
       actx.restore();
 
-      const label = formatDistance(peer.distanceMeters);
+      const label = formatPeerDistance(peer.distanceMeters);
       actx.textBaseline = 'middle';
       const lx = center + Math.cos(angle) * (mapRadius - 12 * s);
       const ly = center + Math.sin(angle) * (mapRadius - 12 * s);

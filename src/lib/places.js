@@ -68,6 +68,13 @@ export function createPlaces() {
   }
 
   return {
+    /** Tiles still fetching, for the streaming status bar. */
+    pendingWork() {
+      let downloads = 0;
+      for (const entry of tiles.values()) if (entry.pending) downloads++;
+      return { downloads, builds: 0 };
+    },
+
     /** Prefetches around the car and drops far tiles. */
     update(lat, lon) {
       around(lat, lon);

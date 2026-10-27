@@ -63,7 +63,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0x8a1414) {
     // Quad round headlamps in the grille, wide taillights.
     for (const x of [0.5, 0.75]) tube(0.08, 0.04, head, sx * x, 0.02, FRONT + 0.03);
     box(0.55, 0.1, 0.03, tail, sx * 0.55, 0.02, BACK - 0.01);
-    tube(0.045, 0.14, chrome, sx * 0.6, -0.44, BACK - 0.05, 10); // tailpipes
+    tube(0.045, 0.14, chrome, sx * 0.6, -0.44, BACK - 0.05, 10).userData.exhaust = true; // tailpipes
   }
   box(WIDTH - 0.1, 0.22, 0.03, black, 0, 0.02, FRONT + 0.015); // full-width grille
   box(WIDTH + 0.04, 0.1, 0.1, chrome, 0, -0.2, FRONT + 0.05);

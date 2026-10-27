@@ -37,6 +37,7 @@ export default {
   automaticGearbox: true, // arcade rig: automatic only
   shiftDurationS: 0.2,
   brakeForce: 220,
+  brakes: { front: { discMm: 355, vented: true }, rear: { discMm: 330, vented: true }, pads: 'race' },
   abs: false,
   mass: 1500,
   fuelTankL: 80,

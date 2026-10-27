@@ -1,12 +1,14 @@
 // Current weather, read by gameplay and visuals: outside air temperature (engine heat,
-// tyre temps), surface wetness (tyre wet grip floor, wet road look), the cloud preset and
-// rainfall (rain.js). Fed by app/weatherFeed.js (forecast), app/rally/rallyConditions.js
+// tyre temps), surface wetness (tyre wet grip floor, wet road look), the cloud preset,
+// rainfall (rain.js) and visibility (fog, app/weatherFog.js). Fed by app/weatherFeed.js (forecast), app/rally/rallyConditions.js
 // and the debug weather controls; the config values hold until the first forecast arrives.
 
 import { AMBIENT_TEMP_C, WEATHER_WETNESS } from '../config.js';
 
 // Sky presets, clearest first (clouds.js draws them).
 export const CLOUD_PRESETS = ['clear', 'fair', 'cumulus', 'cirrus', 'patchy', 'broken', 'overcast'];
+// Visibility (m) standing for "no fog": finite, so it lerps and saves as JSON.
+export const NO_FOG_VISIBILITY_M = 50_000;
 
 const state = {
   airTempC: AMBIENT_TEMP_C,
@@ -15,7 +17,9 @@ const state = {
   clouds: 'cumulus',
   rainMmH: 0,
   rainOverrideMmH: null, // debug: wins over every feed
-  // Forecast extras for the debug readout: { tempC, clouds, precipMm, cover: { low, mid, high } } or null.
+  visibilityM: NO_FOG_VISIBILITY_M,
+  visibilityOverrideM: null, // debug: wins over every feed
+  // Forecast extras for the debug readout: { tempC, clouds, precipMm, visibilityM, cover: { low, mid, high } } or null.
   forecast: null,
 };
 const listeners = new Set();
@@ -29,6 +33,7 @@ export const getWetness = () => state.wetness;
 export const getCloudPreset = () => state.clouds;
 export const getForecast = () => state.forecast;
 export const getRainMmH = () => state.rainOverrideMmH ?? state.rainMmH;
+export const getVisibilityM = () => state.visibilityOverrideM ?? state.visibilityM;
 
 export function setAirTempC(tempC) {
   if (!Number.isFinite(tempC) || tempC === state.airTempC) return;
@@ -77,6 +82,24 @@ export function setRainOverrideMmH(mmH) {
 }
 
 export const getRainOverrideMmH = () => state.rainOverrideMmH;
+
+/** Visibility in metres (NO_FOG_VISIBILITY_M or more = clear air). */
+export function setVisibilityM(m) {
+  const v = Number.isFinite(m) ? Math.min(NO_FOG_VISIBILITY_M, Math.max(1, m)) : NO_FOG_VISIBILITY_M;
+  if (v === state.visibilityM) return;
+  state.visibilityM = v;
+  changed();
+}
+
+/** Debug: force the visibility (m), or null to follow the feeds again. */
+export function setVisibilityOverrideM(m) {
+  const next = Number.isFinite(m) ? Math.min(NO_FOG_VISIBILITY_M, Math.max(1, m)) : null;
+  if (next === state.visibilityOverrideM) return;
+  state.visibilityOverrideM = next;
+  changed();
+}
+
+export const getVisibilityOverrideM = () => state.visibilityOverrideM;
 
 export function setForecast(forecast) {
   state.forecast = forecast;

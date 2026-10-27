@@ -41,6 +41,7 @@ export default {
   },
   suspensionForceG: 8,
   engine: 'v6d',
+  exhaustTips: [{ pos: [-0.95, 2.1, 2.0], dir: [0, 1, 0] }], // stack top
   enginePowerHp: 500,
   peakTorqueNm: 2000,
   peakTorqueRpm: 1400,
@@ -53,6 +54,7 @@ export default {
   shiftDurationS: 0.9,
   engineInertia: 2.5,
   brakeForce: 220,
+  brakes: { front: { discMm: 430, vented: true }, rear: { discMm: 430, vented: true } },
   mass: 17000,
   fuelTankL: 590,
   radiator: 1.3, // military spec, sized for desert heat

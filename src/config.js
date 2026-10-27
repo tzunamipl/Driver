@@ -47,9 +47,14 @@ export const BRAKE_FORCE = 3000;
 export const BRAKE_GRIP_START = 0.8;
 // ...the cap rises to the grip limit over this hold time, then lifts so the wheels can lock.
 export const BRAKE_LOCK_S = 0.4;
+// ABS / traction control keep the tyre within this share of its static grip (margin for bumps and load shifts).
+export const ABS_GRIP_SHARE = 0.9;
+export const TC_GRIP_SHARE = 0.9;
 // Holding the handbrake this long leaves it pulled until the next press.
 export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;
+// Cruise gearbox mode targets (km/h): motorway / trunk, else by zone (off road too).
+export const CRUISE_LIMITS_KMH = { highway: 140, open: 90, builtUp: 50 };
 // Hold to charge, release to jump; full charge = max speed.
 export const JUMP_CHARGE_S = 1.2;
 export const JUMP_MIN_SPEED = 5;
@@ -78,6 +83,8 @@ export const BUILDING_EMBED_EPSILON_M = 0.2; // tolerance so parking on a roof i
 export const BUILDING_PHYSICS_DISTANCE_M = 300; // buildings within this of the car get a collider
 
 // ---------- Score ----------
+export const SCORING_ENABLED = false; // off: no points awarded, toasts or airtime counter
+export const PEDESTRIANS_ENABLED = false;
 export const SCORE_PER_KM = 1;
 export const SCORE_TELEPORT_M = 20; // larger per-frame jumps are resets, not driving
 // Airtime: all wheels off and chassis this high above terrain (ride
@@ -304,8 +311,8 @@ export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
-export const WEATHER_DEBUG_STORAGE_KEY = 'driver.weatherDebug.v1'; // debug weather overrides: { wetness, clouds }
-export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort/eco gearbox
+export const WEATHER_DEBUG_STORAGE_KEY = 'driver.weatherDebug.v1'; // debug weather overrides: { wetness, clouds, rainMmH, tempC, visibilityM }
+export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort/eco/cruise gearbox
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
 export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old editor saves; wiped on start

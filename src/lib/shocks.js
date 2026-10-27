@@ -5,8 +5,8 @@
 //   spring sags (that corner sits lower and leans more).
 
 // Strike speed (m/s) a shock shrugs off, and the one that takes all its health in one hit.
-export const HIT_MIN_MS = 4.0;
-const HIT_FULL_MS = 11;
+export const HIT_MIN_MS = 5.0;
+const HIT_FULL_MS = 15;
 // Damage grows with this power of the strike over HIT_MIN_MS, so light strikes barely wear.
 const HIT_CURVE = 3;
 // Share of the stock damping / spring rate left at 0 health.

@@ -1,5 +1,5 @@
 // Engine + gearbox for wheeled cars: rpm-dependent torque curve through
-// gear ratios and final drive, with automatic shifting (sport/comfort) and
+// gear ratios and final drive, with automatic shifting (sport/comfort/cruise) and
 // manual override (requestShift), or a fully manual box with neutral
 // (setManual/selectGear), optional turbo (boost lag scales torque). Pure math (no physics imports); input.js calls update() each frame.
 // Gearbox wear (gearboxWear.js) stretches the shift and synchro times.
@@ -29,9 +29,32 @@ const COMFORT_DOWNSHIFT_BAND_FRACTION = 0.15;
 const COMFORT_HUNT_MARGIN = 1.15;
 // After a manual shift the automatic holds off this long.
 const MANUAL_HOLD_S = 5;
-export const GEAR_MODES = ['sport', 'comfort', 'eco'];
+export const GEAR_MODES = ['sport', 'comfort', 'eco', 'cruise'];
 // Pedal cap per automatic mode; eco shifts like comfort.
-const MODE_THROTTLE_CAP = { sport: 1, comfort: 0.75, eco: 0.5 };
+const MODE_THROTTLE_CAP = { sport: 1, comfort: 0.75, eco: 0.5, cruise: 0.75 };
+// Cruise: the pedal eases off over the last share of the target speed (at least the floor, m/s),
+// lifting / pressing at most this fast (pedal per second), plus a slow integral share (per m/s of
+// error per second) that holds the target against drag and slopes; it builds only once the car has
+// stopped gaining speed (m/s^2), so it doesn't wind up and overshoot on the way.
+const CRUISE_TAPER_FRACTION = 0.3;
+const CRUISE_TAPER_MIN_MS = 15 / 3.6;
+const CRUISE_PEDAL_RISE_PER_S = 1.5;
+const CRUISE_PEDAL_FALL_PER_S = 0.5;
+const CRUISE_HOLD_GAIN = 0.12;
+const CRUISE_HOLD_MAX_ACCEL = 0.3;
+const CRUISE_ACCEL_RESPONSE_PER_S = 4;
+// Cruise: pulls (late shifts, kickdown) from this far below the target (m/s) until within the
+// second, otherwise shifts like comfort, so it holds speed in a tall gear at low rpm.
+const CRUISE_PULL_START_MS = 8 / 3.6;
+const CRUISE_PULL_END_MS = 2 / 3.6;
+const CRUISE_UPSHIFT_RPM_FRACTION = 0.85;
+const CRUISE_KICKDOWN_RPM_FRACTION = 0.5;
+// Cruise at its target: the tallest gear that keeps rpm above idle times the floor factor,
+// shifting up whenever rpm is over the ceiling (raised for engines idling near it).
+const CRUISE_HOLD_RPM_CEILING = 2000;
+const CRUISE_HOLD_RPM_FLOOR_FACTOR = 1.4;
+// Cruise shifts take this share of the descriptor's shift time.
+const CRUISE_SHIFT_TIME_FACTOR = 0.6;
 // On throttle in a slide: drop a gear below this rpm if the lower gear lands
 // under SLIDE_TARGET_RPM_FRACTION (gap below the upshift point avoids hunting).
 const SLIDE_DOWNSHIFT_RPM_FRACTION = 0.65;
@@ -218,8 +241,16 @@ export function createEngineState(descriptor, wheelRadius) {
     return angularSpeed * Math.abs(gearRatio) * profile.finalDriveRatio * RAD_S_TO_RPM;
   }
 
+  // Cruise pedal integral 0..1 and whether it is pulling up to the target.
+  let cruiseHold = 0;
+  let cruisePulling = false;
+  let cruisePedal = 0;
+  let cruiseAccel = 0;
+  let lastSpeed = 0;
+  let fastShifts = false;
+
   function shiftDuration() {
-    return profile.shiftDurationS * engine.gearbox.shiftFactor;
+    return profile.shiftDurationS * engine.gearbox.shiftFactor * (fastShifts ? CRUISE_SHIFT_TIME_FACTOR : 1);
   }
 
   function shiftTo(gear) {
@@ -355,10 +386,31 @@ export function createEngineState(descriptor, wheelRadius) {
    * upshifts while the driven wheels are in the air. slipping: driven wheels
    * sliding: on throttle it drops gears to keep rpm high, else it holds.
    * mode: 'sport' (late shifts, slide downshifts), 'comfort' (early shifts, 75% pedal)
-   * or 'eco' (early shifts, 50% pedal); manual ignores it.
+   * or 'eco' (early shifts, 50% pedal), 'cruise' (75% pedal eased off toward `cruiseSpeed` (m/s),
+   * quick shifts); manual ignores it.
    */
-  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, forwardSpeed: signedSpeed = 0, grounded = true, slipping = false, mode = 'sport' }) {
+  function update(dt, { direction, throttle, wheelSpeedAbs, groundSpeedAbs = wheelSpeedAbs, forwardSpeed: signedSpeed = 0, grounded = true, slipping = false, mode = 'sport', cruiseSpeed = 0 }) {
+    if (dt > 0) cruiseAccel += ((signedSpeed - lastSpeed) / dt - cruiseAccel) * Math.min(1, dt * CRUISE_ACCEL_RESPONSE_PER_S);
+    lastSpeed = signedSpeed;
     forwardSpeed = signedSpeed;
+    const cruise = !engine.manual && mode === 'cruise' && cruiseSpeed > 0;
+    fastShifts = cruise;
+    if (cruise && direction === 1 && throttle > 0) {
+      const error = cruiseSpeed - signedSpeed;
+      const taper = Math.max(CRUISE_TAPER_MIN_MS, cruiseSpeed * CRUISE_TAPER_FRACTION);
+      if (error < taper && cruiseAccel < CRUISE_HOLD_MAX_ACCEL) cruiseHold = Math.min(1, Math.max(0, cruiseHold + error * CRUISE_HOLD_GAIN * dt));
+      if (error > CRUISE_PULL_START_MS) cruisePulling = true;
+      else if (error < CRUISE_PULL_END_MS) cruisePulling = false;
+      // Scaled (not clipped) by the mode cap, so the easing spans the whole stretch.
+      const wanted = MODE_THROTTLE_CAP.cruise * Math.min(1, Math.max(0, error / taper + cruiseHold));
+      const step = (wanted > cruisePedal ? CRUISE_PEDAL_RISE_PER_S : CRUISE_PEDAL_FALL_PER_S) * dt;
+      cruisePedal += Math.max(-step, Math.min(step, wanted - cruisePedal));
+      throttle *= cruisePedal;
+    } else {
+      cruiseHold = 0;
+      cruisePulling = false;
+      cruisePedal = 0;
+    }
     driveSpeed = Math.max(0, wheelSpeedAbs, groundSpeedAbs);
     engine.gearbox.tick(dt);
     if (engine.shiftTimer > 0) engine.shiftTimer = Math.max(0, engine.shiftTimer - dt);
@@ -410,7 +462,13 @@ export function createEngineState(descriptor, wheelRadius) {
     if (!engine.manual && engine.gear >= 1 && engine.shiftTimer <= 0 && engine.manualHoldTimer <= 0 && grounded) {
       const groundRpm = toRpm(groundAngularSpeed, ratio);
       const upshiftRpm = Math.min(engine.rpm, groundRpm);
-      const shift = mode !== 'sport' ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
+      const shift = cruisePulling
+        ? cruisePullShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio)
+        : cruise
+          ? cruiseHoldShift(upshiftRpm, ratio)
+          : mode !== 'sport'
+          ? comfortShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio)
+          : sportShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio, direction, throttle, slipping);
       if (shift !== 0) shiftTo(engine.gear + shift);
     }
 
@@ -476,6 +534,26 @@ export function createEngineState(descriptor, wheelRadius) {
       engine.rpm < profile.redlineRpm * DOWNSHIFT_RPM_FRACTION &&
       lowerRpm < profile.redlineRpm * UPSHIFT_RPM_FRACTION;
     return slideDownshift || normalDownshift ? -1 : 0;
+  }
+
+  /** Current-gear shift decision for cruise below its target: brisk upshifts, kickdown when the revs sag. */
+  function cruisePullShift(upshiftRpm, groundRpm, wheelAngularSpeed, ratio) {
+    if (upshiftRpm > profile.redlineRpm * CRUISE_UPSHIFT_RPM_FRACTION && engine.gear < engine.gearCount) return 1;
+    if (engine.gear <= 1 || engine.rpm >= profile.redlineRpm * CRUISE_KICKDOWN_RPM_FRACTION) return 0;
+    const lowerRatio = Math.abs(profile.gearRatios[engine.gear - 2]);
+    const lowerRpm = Math.max(toRpm(wheelAngularSpeed, lowerRatio), groundRpm * (lowerRatio / ratio));
+    // Margin under the upshift point so it doesn't bounce straight back up.
+    return lowerRpm < profile.redlineRpm * CRUISE_UPSHIFT_RPM_FRACTION * 0.9 ? -1 : 0;
+  }
+
+  /** Current-gear shift decision for cruise at its target: low revs in the tallest gear that keeps them above the floor. */
+  function cruiseHoldShift(upshiftRpm, ratio) {
+    const floor = profile.idleRpm * CRUISE_HOLD_RPM_FLOOR_FACTOR;
+    const ceiling = Math.max(CRUISE_HOLD_RPM_CEILING, floor * CRUISE_HOLD_RPM_FLOOR_FACTOR);
+    if (engine.gear < engine.gearCount && upshiftRpm > ceiling) {
+      if (upshiftRpm * (Math.abs(profile.gearRatios[engine.gear]) / ratio) >= floor) return 1;
+    }
+    return engine.gear > 1 && engine.rpm < floor ? -1 : 0;
   }
 
   /** Current-gear shift decision for comfort: +1, -1 or 0. */

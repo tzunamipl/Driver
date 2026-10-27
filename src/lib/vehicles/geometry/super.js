@@ -60,7 +60,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0xe8b400) {
   box(1.5, 0.03, 0.3, carbon, 0, 0.47, BACK + 0.25).rotation.x = -0.08; // wing
   box(1.3, 0.22, 0.04, black, 0, 0.0, BACK - 0.01); // rear grille
   box(1.6, 0.14, 0.3, carbon, 0, -0.34, BACK + 0.1); // diffuser
-  for (const x of [-0.12, 0.12]) tube(0.05, 0.12, pipe, x, -0.16, BACK - 0.04, 10);
+  for (const x of [-0.12, 0.12]) tube(0.05, 0.12, pipe, x, -0.16, BACK - 0.04, 10).userData.exhaust = true;
 
   return { group, bodyMat };
 }

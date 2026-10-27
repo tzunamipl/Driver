@@ -46,6 +46,7 @@ export default {
   reverseRatio: 3.55,
   shiftDurationS: 0.8,
   brakeForce: 95,
+  brakes: { front: { discMm: 256 }, rear: { drumMm: 228 } },
   brakeBias: 0.55, // rear-heavy brakes lock the rear first
   abs: false,
   mass: 1150,

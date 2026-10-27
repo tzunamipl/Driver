@@ -31,12 +31,20 @@ const RADIATOR_FIX_MIN = 4;
 const RADIATOR_REPLACE_MIN = 12;
 const SUMP_FIX_MIN = 4;
 const SUMP_REPLACE_MIN = 10;
+const SKID_PLATE_REPLACE_MIN = 6;
 const ENGINE_REBUILD_MIN = 30;
 const TOP_UP_MIN = 1;
 const LAMP_TAPE_MIN = 1;
 const LAMP_REPLACE_MIN = 3;
 const GEARBOX_FIX_MIN = 10;
 const GEARBOX_REPLACE_MIN = 25;
+const EXHAUST_FIX_MIN = 5;
+const EXHAUST_REPLACE_MIN = 8;
+const DISC_SKIM_MIN = 6;
+const DISC_REPLACE_MIN = 5;
+const PIPE_FIX_MIN = 4;
+const PIPE_REPLACE_MIN = 8;
+const BLEED_MIN = 3;
 // A service adds at most this much fuel (refuel zones fill the tank).
 const SERVICE_FUEL_L = 5;
 const FIX_HINT = { fix: 'Fixes 40-60% of the damage, 20-40% of new damage after that', field: 'Fixes 10-30% of the damage, 5-15% of new damage after that' };
@@ -48,6 +56,8 @@ const WORN_TREAD = 0.35; // the tyre service dialog's "Worn"
 const BALD_TREAD = 0.05;
 const LOW_FUEL = 0.125;
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
+// Brake rotor shown hot from this share of its pad fade (lib/brakes.js fade()).
+const HOT_BRAKE_FADE = 0.95;
 
 export const latePenaltyMs = (usedMin, budgetMin) => Math.ceil(Math.max(0, usedMin - budgetMin)) * LATE_PENALTY_MS_PER_MIN;
 
@@ -109,9 +119,10 @@ export function carParts(vehicle) {
 
   vehicle.wheelInfos?.forEach((w, i) => {
     const temp = Number.isFinite(w.tempC) ? `${formatTemp(w.tempC)}${w.tempC < lo ? ' cold' : w.tempC > hi ? ' hot' : ''}` : '';
-    const state = w.punctured ? 'Flat' : w.tread < BALD_TREAD ? 'Bald' : w.tread < WORN_TREAD ? 'Worn' : '';
-    const actions = w.punctured || w.tread < GOOD ? [{ kind: 'replace', label: 'New tyre', minutes: TYRE_MIN, remote: true, apply: () => vehicle.repairTyres(i) }] : [];
-    if (w.punctured && vehicle.fitSpareTyre) {
+    const state = [w.rimBroken ? 'Broken rim' : '', w.punctured ? 'Flat' : w.tread < BALD_TREAD ? 'Bald' : w.tread < WORN_TREAD ? 'Worn' : ''].filter(Boolean).join(' · ');
+    const wrecked = w.punctured || w.rimBroken;
+    const actions = wrecked || w.tread < GOOD ? [{ kind: 'replace', label: w.rimBroken ? 'New wheel' : 'New tyre', minutes: TYRE_MIN, remote: true, apply: () => vehicle.repairTyres(i) }] : [];
+    if (wrecked && vehicle.fitSpareTyre) {
       const spares = vehicle.spareTyres ?? 0;
       actions.push({
         kind: 'field',
@@ -126,9 +137,9 @@ export function carParts(vehicle) {
     parts.push({
       group: 'Tyres',
       label: wheelName(i),
-      level: w.punctured ? 0 : w.tread,
+      level: wrecked ? 0 : w.tread,
       note: [state, `tread ${pct(w.tread)}`, temp].filter(Boolean).join(' · '),
-      verdict: w.punctured || w.tread < BALD_TREAD ? 'bad' : w.tread < WORN_TREAD ? 'warn' : 'good',
+      verdict: wrecked || w.tread < BALD_TREAD ? 'bad' : w.tread < WORN_TREAD ? 'warn' : 'good',
       anchor: { wheel: i },
       actions,
     });
@@ -190,6 +201,17 @@ export function carParts(vehicle) {
           ? [{ kind: 'fix', label: 'Top up', minutes: TOP_UP_MIN, remote: true, apply: () => (heat.oilL = heat.oilCapacityL) }, pourCan(vehicle, 'oilL', oilRoom, (l) => (heat.oilL += l))].filter(Boolean)
           : [],
     });
+    if (heat.hasSkidPlate) {
+      parts.push({
+        group: 'Engine',
+        label: 'Skid plate',
+        level: heat.skidPlateHealth,
+        note: heat.skidPlateHealth > 0 ? pct(heat.skidPlateHealth) : 'worn through',
+        verdict: verdictOf(heat.skidPlateHealth),
+        anchor: 'under',
+        actions: heat.skidPlateHealth < GOOD ? [{ kind: 'replace', label: 'New skid plate', minutes: SKID_PLATE_REPLACE_MIN, remote: false, apply: () => heat.repairSkidPlate() }] : [],
+      });
+    }
     const sumpLeaking = heat.oilLeakLps > 0;
     const sump = { health: () => heat.sumpHealth, setHealth: (v) => (heat.sumpHealth = v), record: () => heat.sumpRepair, setRecord: (r) => (heat.sumpRepair = r) };
     parts.push({
@@ -254,6 +276,73 @@ export function carParts(vehicle) {
     });
   }
 
+  const brakes = vehicle.brakes;
+  if (brakes) {
+    brakes.discs.forEach((d, i) => {
+      const name = d.type === 'drum' ? 'Drum' : 'Disc';
+      const rotor = { health: () => d.health, setHealth: (v) => (d.health = Math.min(1, Math.max(0, v))), record: () => d.repair, setRecord: (r) => (d.repair = r) };
+      const hot = brakes.fade(d) < HOT_BRAKE_FADE;
+      parts.push({
+        group: 'Brakes',
+        label: `${name} · ${wheelName(i)}`,
+        level: d.health,
+        note: [`health ${pct(d.health)}`, `${formatTemp(d.tempC)}${hot ? ' fading' : ''}`, repairNote(d.repair)].filter(Boolean).join(' · '),
+        verdict: hot ? 'warn' : verdictOf(d.health),
+        anchor: { wheel: i },
+        actions:
+          d.health < GOOD
+            ? [...tieredActions(rotor, { fixLabel: 'Skim', fixMin: DISC_SKIM_MIN }).filter((a) => a.kind === 'fix'), { kind: 'replace', label: `New ${name.toLowerCase()}`, minutes: DISC_REPLACE_MIN, remote: false, apply: () => brakes.repairDisc(i) }]
+            : [],
+      });
+    });
+    for (const key of ['front', 'rear']) {
+      const c = brakes.circuits[key];
+      const leaking = c.leakLps > 0;
+      const pipe = { health: () => c.health, setHealth: (v) => (c.health = v), record: () => c.repair, setRecord: (r) => (c.repair = r) };
+      parts.push({
+        group: 'Brakes',
+        label: `Brake pipe · ${key}`,
+        level: null,
+        note: [leaking ? `leaking ${perMin(c.leakLps, 3)}` : 'sealed', repairNote(c.repair)].filter(Boolean).join(' · '),
+        verdict: leaking ? 'bad' : 'good',
+        anchor: { circuit: key },
+        actions: leaking
+          ? [...tieredActions(pipe, { fixLabel: 'Patch', fieldLabel: 'Patch', fixMin: PIPE_FIX_MIN }), { kind: 'replace', label: 'New pipe', minutes: PIPE_REPLACE_MIN, remote: false, apply: () => brakes.repairPipe(key) }]
+          : [],
+      });
+    }
+    const fluidRoom = brakes.capacityL - brakes.fluidL;
+    parts.push({
+      group: 'Brakes',
+      label: 'Brake fluid',
+      level: brakes.level,
+      note: `${pct(brakes.level)} · ${litres(brakes.fluidL)}`,
+      verdict: verdictOf(brakes.level),
+      anchor: 'engine',
+      actions:
+        brakes.level < GOOD
+          ? [{ kind: 'fix', label: 'Top up & bleed', minutes: BLEED_MIN, remote: true, apply: () => (brakes.fluidL = brakes.capacityL) }, pourCan(vehicle, 'brakeL', fluidRoom, (l) => (brakes.fluidL += l))].filter(Boolean)
+          : [],
+    });
+  }
+
+  const exhaust = vehicle.exhaust;
+  if (exhaust?.breakable) {
+    const h = exhaust.health;
+    const pipe = { health: () => exhaust.health, setHealth: (v) => exhaust.setState(v), record: () => exhaust.repairRecord, setRecord: (r) => (exhaust.repairRecord = r) };
+    // A fallen-off exhaust can only be replaced.
+    const fixes = exhaust.detached ? [] : tieredActions(pipe, { fixLabel: 'Weld', fieldLabel: 'Wire up', fixMin: EXHAUST_FIX_MIN });
+    parts.push({
+      group: 'Drivetrain',
+      label: 'Exhaust',
+      level: h,
+      note: exhaust.detached ? 'fell off · power -20%' : [`health ${pct(h)}`, repairNote(exhaust.repairRecord)].filter(Boolean).join(' · '),
+      verdict: exhaust.detached ? 'bad' : verdictOf(h),
+      anchor: 'exhaust',
+      actions: h < GOOD ? [...fixes, { kind: 'replace', label: 'New exhaust', minutes: EXHAUST_REPLACE_MIN, remote: false, apply: () => exhaust.repair() }] : [],
+    });
+  }
+
   const fuel = vehicle.fuel;
   if (fuel) {
     const room = fuel.capacityL - fuel.litres;
@@ -274,12 +363,12 @@ export function carParts(vehicle) {
   if (vehicle.supplies) {
     const s = vehicle.supplies;
     const total = SUPPLY_KEYS.reduce((sum, key) => sum + s[key], 0);
-    const full = SUPPLY_KEYS.length * CAN_L;
+    const full = SUPPLY_KEYS.reduce((sum, key) => sum + CAN_L[key], 0);
     parts.push({
       group: 'Fuel & spares',
       label: 'Cans',
       level: total / full,
-      note: `oil ${volumeValue(s.oilL).toFixed(1)} · fuel ${volumeValue(s.fuelL).toFixed(1)} · coolant ${volumeValue(s.coolantL).toFixed(1)} ${volumeUnit()}`,
+      note: `oil ${volumeValue(s.oilL).toFixed(1)} · fuel ${volumeValue(s.fuelL).toFixed(1)} · coolant ${volumeValue(s.coolantL).toFixed(1)} · brake ${volumeValue(s.brakeL).toFixed(1)} ${volumeUnit()}`,
       verdict: '',
       anchor: null,
       actions: total < full - 0.05 ? [{ kind: 'fix', label: 'Refill', minutes: TOP_UP_MIN, remote: true, apply: () => vehicle.setSupplies(fullSupplies()) }] : [],

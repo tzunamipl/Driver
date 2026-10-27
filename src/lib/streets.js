@@ -3,14 +3,17 @@
 // road/unpaved tyre-grip surface (terrainSurface.js). Plumbing: vectorLineLayer.js.
 // Settings road surface view: the same stripes, so exactly where the tyres feel
 // tarmac, drawn as asphalt / gravel for the roads carved into a road bed, within
-// SURFACE_RADIUS_M of the car.
+// SURFACE_RADIUS_M of the car. Stage surface sections (lib/rally/stageSurfaces.js) are extra stripes
+// over all of them, first in surfaceAt().
 
 import { Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2 } from 'three';
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from './roadClasses.js';
-import { DETAIL_BOX, DETAIL_ZOOM, applyGroundHaze } from './terrain.js';
+import { DETAIL_BOX, DETAIL_ZOOM, GROUND_RENDER_ORDER, applyGroundHaze } from './terrain.js';
 import { onRoadBed } from './terrain/roadBed.js';
-import { tileSizeMeters } from './geo.js';
+import { tileSizeMeters, lon2tileX, lat2tileY } from './geo.js';
+import { tileKey } from './tiles/vectorTileLayer.js';
+import { STAGE_SURFACES } from './rally/stageSurfaces.js';
 import { getWetness, onWeatherChange } from './weather.js';
 
 // The transportation layer's maxzoom.
@@ -19,12 +22,13 @@ const STREET_TILE_ZOOM = 14;
 // Lift above ground, against z-fighting.
 const STREET_LIFT = 0.2;
 
-// Surface view: on the road bed itself; the depth bias keeps it in front (paved above unpaved where they meet).
+// Surface view: on the road bed itself; the depth bias keeps it in front of the terrain. It writes no
+// depth, so cars are tested against the terrain and never sink into the biased stripes.
 // Depth bias: drawn this much nearer the camera than they are (metres, plus a share of the distance),
 // so the bed bulging between height samples doesn't poke through. Not polygonOffset: three
 // flips only its factor for the reversed depth buffer, and log depth ignores it.
 const DEPTH_BIAS_PER_M = 0.05;
-// Overlapping stripes (junctions): each class up the hierarchy is this much nearer, so the higher class is drawn on top.
+// Overlapping stripes (junctions) go by draw order (one mesh per class rank, higher on top); this keeps ranks apart from the terrain too.
 const DEPTH_BIAS_PER_RANK = 0.015;
 // Classes on the road bed, highest first: the only ones in the surface view.
 const BED_HIERARCHY = ROAD_HIERARCHY.filter((cls) => onRoadBed(cls));
@@ -89,16 +93,45 @@ const MARKING = {
 // wet = soaked look: darken (colour share kept), roughness, sheen (sky reflection strength).
 // blobs = polka-dot layers: diameterM = largest dot (metres), density = share of grid cells with a dot,
 // swing = colour swing (share of the colour; each dot lighter or darker at random).
+// Gloss (dry): setts / grain / slick mark matte gaps and per-piece polish; gloss = what matte parts get
+// (roughness, specular share). grain = gravel stones on a world grid (cellM, stone radius share range,
+// how far a stone strays from its cell's centre (share of a cell, up to 1), colour swing, gap shade, polish swing,
+// wetFade = gone by the wetness puddles start at); slick = wet glossy blotches on the puddle noise (how far below its threshold, roughness scale, darken).
+// edge = ragged sides frayed up to depthM in; the stripe is drawn depthM wider than the road for it, so the
+// mean edge stays where the tyres feel it.
+// puddles: wet look overrides (wetness they start at, noise threshold from start to soaked, cell sizes).
 const SURFACE_LOOKS = {
   paved: {
     color: 0x47484c, roughness: 0.78, specular: 0.35, lift: 0, depthBias: 0.12, markings: true, patches: 0.14,
     wet: { darken: 0.55, roughness: 0.42, sheen: 0.15 },
     blobs: [{ diameterM: 2.5, density: 0.35, swing: 0.2 }, { diameterM: 0.6, density: 0.5, swing: 0.08 }],
+    grain: { cellM: 0.03, radius: [0.22, 0.42], jitter: 0.9, swing: 0.12, gapShade: 0.85, polishSwing: 0.25 },
+    gloss: { roughness: 0.95, specular: 0.4 },
   },
   unpaved: {
     color: 0x9c8868, roughness: 0.9, specular: 0.15, lift: 0, depthBias: 0.13, patches: 0.8,
     wet: { darken: 0.6, roughness: 0.5, sheen: 0.06 },
     blobs: [{ diameterM: 3, density: 0.4, swing: 0.2 }, { diameterM: 0.2, density: 0.8, swing: 0.25 }],
+    edge: { depthM: 0.4 },
+    grain: { cellM: 0.06, radius: [0.22, 0.42], jitter: 0.9, swing: 0.18, gapShade: 0.75, polishSwing: 0.3 },
+    gloss: { roughness: 1, specular: 0.3 },
+  },
+  // Stage sections only.
+  cobblestone: {
+    color: 0x6f6a62, roughness: 0.7, specular: 0.3, lift: 0, depthBias: 0.13, patches: 0.2,
+    setts: { widthM: 0.33, lengthM: 0.48, joint: 0.036, swing: 0.16, jointShade: 0.55, polishSwing: 0.25, wetSwing: 0.5, jointSheen: 0.35 },
+    gloss: { roughness: 1, specular: 0.15 },
+    wet: { darken: 0.6, roughness: 0.35, sheen: 0.14 },
+  },
+  mud: {
+    color: 0x4f3b26, roughness: 0.62, specular: 0.25, lift: 0, depthBias: 0.13, patches: 0.5,
+    wet: { darken: 0.75, roughness: 0.38, sheen: 0.1 },
+    edge: { depthM: 0.4 },
+    puddles: { from: 0.2, threshold: { from: 0.66, soaked: 0.48 }, cellsM: [3, 0.75] },
+    blobs: [{ diameterM: 0.35, density: 0.6, swing: 0.2 }],
+    slick: { rim: 0.12, polish: 0.5, darken: 0.85 },
+    grain: { cellM: 0.04, radius: [0.22, 0.42], jitter: 1.9, swing: 0.14, gapShade: 0.95, polishSwing: 0.05, wetFade: true },
+    gloss: { roughness: 0.95, specular: 0.4 },
   },
 };
 // Blob dots: smallest diameter as a share of the layer's diameterM.
@@ -133,42 +166,54 @@ function depthRankOf(key) {
   return index < 0 ? 0 : BED_HIERARCHY.length - 1 - index;
 }
 
-const surfaceMaterials = Object.fromEntries(
-  Object.entries(SURFACE_LOOKS).map(([surface, { color, roughness, specular, depthBias, markings, patches, blobs, wet }]) => {
-    const material = new MeshStandardMaterial({ color, roughness, fog: false });
-    // Terrain haze; specular scaled (1 = three.js default) so a low sun glints instead of blowing out.
-    material.onBeforeCompile = (shader) => {
-      applyGroundHaze(shader);
-      shader.uniforms.surfaceCenter = surfaceCenter;
-      shader.uniforms.patchOffset = patchOffset;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurfaceXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
-      applyDepthBias(shader, depthBias, true);
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;\nuniform vec2 surfaceCenter;\nuniform vec2 patchOffset;')
-        // Dissolve: dithered discard keeps the stripes opaque (no sorting, no blending).
-        .replace(
-          '#include <clipping_planes_fragment>',
-          `#include <clipping_planes_fragment>
-          float surfaceFade = 1.0 - smoothstep(${(SURFACE_RADIUS_M - SURFACE_FADE_M).toFixed(1)}, ${SURFACE_RADIUS_M.toFixed(1)}, distance(vSurfaceXZ, surfaceCenter));
-          if (surfaceFade < fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;`
-        )
-        .replace(
-          '#include <lights_physical_fragment>',
-          `#include <lights_physical_fragment>
-          material.specularColorBlended *= mix(${specular.toFixed(2)}, ${WET_SPECULAR.toFixed(2)}, roadWetness);
-          material.specularF90 *= mix(${specular.toFixed(2)}, ${WET_SPECULAR.toFixed(2)}, roadWetness);`
-        );
-      if (markings) applyMarkings(shader);
-      applyPatches(shader, patches); // after: its code lands before the markings'
-      applyBlobs(shader, blobs);
-      applyWetness(shader, wet);
-    };
-    material.customProgramCacheKey = () => `roadSurface-${surface}`;
-    return [surface, material];
-  })
-);
+// Stage section ends fade into the road over this, with a blotchy edge; the tyres switch halfway.
+const SECTION_FADE_M = 8;
+
+/** Surface view material of a look; `sectionEnds`: stage section stripes, faded out towards their ends (stripe attribute's z). */
+function createSurfaceMaterial(surface, { color, roughness, specular, depthBias, markings, patches, blobs, setts, grain, slick, gloss, edge, wet, puddles }, sectionEnds) {
+  const material = new MeshStandardMaterial({ color, roughness, fog: false, depthWrite: false });
+  // Terrain haze; specular scaled (1 = three.js default) so a low sun glints instead of blowing out.
+  material.onBeforeCompile = (shader) => {
+    applyGroundHaze(shader);
+    shader.uniforms.surfaceCenter = surfaceCenter;
+    shader.uniforms.patchOffset = patchOffset;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurfaceXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    if (markings || setts || sectionEnds || edge) shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 stripe;');
+    applyDepthBias(shader, depthBias, true);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;\nuniform vec2 surfaceCenter;\nuniform vec2 patchOffset;\nfloat surfaceMatte = 0.0;\nfloat surfacePolish = 1.0;\nfloat surfaceSheen = 1.0;')
+      // Dissolve: dithered discard keeps the stripes opaque (no sorting, no blending).
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        float surfaceFade = 1.0 - smoothstep(${(SURFACE_RADIUS_M - SURFACE_FADE_M).toFixed(1)}, ${SURFACE_RADIUS_M.toFixed(1)}, distance(vSurfaceXZ, surfaceCenter));
+        if (surfaceFade < fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;`
+      )
+      .replace(
+        '#include <lights_physical_fragment>',
+        `#include <lights_physical_fragment>
+        material.specularColorBlended *= mix(${specular.toFixed(2)}, ${WET_SPECULAR.toFixed(2)}, roadWetness);
+        material.specularF90 *= mix(${specular.toFixed(2)}, ${WET_SPECULAR.toFixed(2)}, roadWetness);`
+      );
+    if (markings) applyMarkings(shader);
+    applyPatches(shader, patches); // after: its code lands before the markings'
+    applyBlobs(shader, blobs);
+    if (setts) applySetts(shader, setts);
+    if (grain) applyGrain(shader, grain, puddles?.from ?? PUDDLES_FROM);
+    if (slick) applySlick(shader, slick, puddles);
+    if (sectionEnds) applySectionEnds(shader);
+    if (edge) applyRaggedEdge(shader, edge);
+    applyWetness(shader, wet, puddles);
+    if (gloss) applyGloss(shader, gloss); // after: its roughness lands before the wet look's
+  };
+  material.customProgramCacheKey = () => `roadSurface-${surface}${sectionEnds ? '-section' : ''}`;
+  return material;
+}
+
+const surfaceMaterials = Object.fromEntries(Object.entries(SURFACE_LOOKS).map(([surface, look]) => [surface, createSurfaceMaterial(surface, look, false)]));
+const sectionMaterials = Object.fromEntries(Object.entries(SURFACE_LOOKS).map(([surface, look]) => [surface, createSurfaceMaterial(surface, look, true)]));
 
 const f = (n) => n.toFixed(3);
 
@@ -265,14 +310,193 @@ function applyBlobs(shader, layers = []) {
 }
 
 /**
+ * Cobbles: staggered rows of setts across the stripe (its `stripe` attribute: across, along), each its
+ * own shade, polish and wet sheen, dark matte joints; fades to their mean once a sett is a couple of pixels, so far road doesn't shimmer.
+ */
+function applySetts(shader, { widthM, lengthM, joint, swing, jointShade, polishSwing, wetSwing, jointSheen }) {
+  const jointShare = (2 * joint) / widthM + (2 * joint) / lengthM;
+  const mean = 1 - (1 - jointShade) * jointShare;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec2 vSett;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSett = stripe.xy;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      varying vec2 vSett;
+      float settHash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 19.19);
+        return fract((p3.x + p3.y) * p3.z);
+      }`
+    )
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      {
+        vec2 size = vec2(${f(widthM)}, ${f(lengthM)});
+        vec2 q = vSett / size;
+        q.x += 0.5 * mod(floor(q.y), 2.0);
+        vec2 inCell = fract(q);
+        vec2 edge = min(inCell, 1.0 - inCell) * size;
+        float aa = max(fwidth(vSett.x), fwidth(vSett.y));
+        float jointMask = 1.0 - smoothstep(${f(joint)}, ${f(joint)} + aa, min(edge.x, edge.y));
+        float settShade = (1.0 + (settHash(floor(q)) - 0.5) * ${f(swing * 2)}) * mix(1.0, ${f(jointShade)}, jointMask);
+        float settFar = smoothstep(0.25, 0.5, aa / ${f(Math.min(widthM, lengthM))});
+        diffuseColor.rgb *= mix(settShade, ${f(mean)}, settFar);
+        surfaceMatte = max(surfaceMatte, jointMask * (1.0 - settFar));
+        surfacePolish *= mix(1.0 + (settHash(floor(q) + 17.3) - 0.5) * ${f(polishSwing * 2)}, 1.0, settFar);
+        // Wet: each sett reflects the sky its own amount, joints less.
+        surfaceSheen *= mix((1.0 + (settHash(floor(q) + 5.1) - 0.5) * ${f(wetSwing * 2)}) * mix(1.0, ${f(jointSheen)}, jointMask), 1.0, settFar);
+      }`
+    );
+}
+
+/**
+ * Gravel: a stone per world grid cell (random size, strays up to `jitter` from the cell's centre, so the
+ * 3x3 cells around are checked; the biggest cover wins), each its own shade and polish, darker matte gaps;
+ * fades out once a cell is a few pixels.
+ */
+function applyGrain(shader, { cellM, radius: [rMin, rMax], jitter, swing, gapShade, polishSwing, wetFade }, wetFrom) {
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      vec3 grainHash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+        p3 += dot(p3, p3.yxz + 41.17);
+        return fract((p3.xxy + p3.yzz) * p3.zyx);
+      }`
+    )
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      {
+        vec2 p = (vSurfaceXZ + patchOffset) / ${f(cellM)};
+        float aa = length(fwidth(p));
+        float near = 1.0 - smoothstep(1.0, 4.0, aa);
+        ${wetFade ? `near *= 1.0 - smoothstep(0.0, ${f(wetFrom)}, roadWetness);` : ''}
+        float stone = 0.0;
+        vec3 k = vec3(0.5);
+        if (near > 0.0) {
+          vec2 base = floor(p);
+          for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+              vec2 cell = base + vec2(float(dx), float(dy));
+              vec2 id = mod(cell, ${f(Math.round(PATCH_PERIOD_M / cellM))});
+              vec3 h = grainHash(id);
+              float r = mix(${f(rMin)}, ${f(rMax)}, h.z);
+              vec2 centre = cell + 0.5 + (h.xy - 0.5) * ${f(jitter)};
+              float cover = 1.0 - smoothstep(r - aa, r + aa, length(p - centre));
+              if (cover > stone) {
+                stone = cover;
+                k = grainHash(id + 31.7);
+              }
+            }
+          }
+        }
+        diffuseColor.rgb *= mix(1.0, mix(${f(gapShade)}, 1.0 + (k.x - 0.5) * ${f(swing * 2)}, stone), near);
+        surfaceMatte = max(surfaceMatte, (1.0 - stone) * near);
+        surfacePolish *= mix(1.0, 1.0 + (k.y - 0.5) * ${f(polishSwing * 2)}, stone * near);
+      }`
+    );
+}
+
+/**
+ * Wet mud: glossy darker blotches on the puddle noise (applyWetness), `rim` below its threshold, so they
+ * come first as it gets wet and the puddles then fill them; dry mud has one even gloss.
+ */
+function applySlick(shader, { rim, polish, darken }, { from = PUDDLES_FROM, threshold = PUDDLE_THRESHOLD, cellsM = PUDDLE_CELLS_M } = {}) {
+  const octaves = cellsM.map((cell, i) => `${f(i ? 0.3 : 0.7)} * puddleFacetNoise(slickXZ / ${f(cell)}, ${f(PATCH_PERIOD_M / cell)})`);
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    `#include <color_fragment>
+      if (roadWetness > 0.0) {
+        vec2 slickXZ = vSurfaceXZ + patchOffset;
+        float n = ${octaves.join(' + ')};
+        float edge = mix(${f(threshold.from)}, ${f(threshold.soaked)}, smoothstep(${f(from)}, 1.0, roadWetness)) - ${f(rim)};
+        float aa = max(fwidth(n), 1e-4);
+        float slick = smoothstep(edge - aa, edge + aa, n) * smoothstep(0.0, ${f(from)}, roadWetness);
+        diffuseColor.rgb *= mix(1.0, ${f(darken)}, slick);
+        surfacePolish *= mix(1.0, ${f(polish)}, slick);
+      }`
+  );
+}
+
+/**
+ * Dry gloss from the patterns' surfaceMatte (0 face .. 1 gap / joint) and surfacePolish (roughness scale):
+ * matte parts take `roughness` and `specular` of the highlight.
+ */
+function applyGloss(shader, { roughness, specular }) {
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>
+      roughnessFactor = mix(clamp(roughnessFactor * surfacePolish, 0.0, 1.0), ${f(roughness)}, surfaceMatte);`
+    )
+    .replace(
+      '#include <lights_physical_fragment>',
+      `#include <lights_physical_fragment>
+      material.specularColorBlended *= mix(1.0, ${f(specular)}, surfaceMatte);
+      material.specularF90 *= mix(1.0, ${f(specular)}, surfaceMatte);`
+    );
+}
+
+/**
+ * Stage section ends (needs applyPatches' noise; stripe z = metres to the nearer end): blotchy dithered
+ * discard over SECTION_FADE_M, so the surface frays into the road instead of stopping at a line.
+ */
+function applySectionEnds(shader) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying float vSectionEnd;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSectionEnd = stripe.z;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying float vSectionEnd;')
+    .replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>
+      {
+        vec2 endXZ = vSurfaceXZ + patchOffset;
+        float endNoise = 0.6 * surfacePatchNoise(endXZ / 2.5, ${f(PATCH_PERIOD_M / 2.5)}) + 0.4 * surfacePatchNoise(endXZ / 0.5, ${f(PATCH_PERIOD_M / 0.5)});
+        if (clamp(vSectionEnd / ${f(SECTION_FADE_M)}, 0.0, 1.0) < 0.1 + 0.8 * endNoise) discard;
+      }`
+    );
+}
+
+/**
+ * Ragged sides (needs applyPatches' noise; stripe x = metres across, w = half width): blotchy discard up to
+ * depthM in from the side, straightening out where the band is under a couple of pixels, so far edges don't shimmer.
+ */
+function applyRaggedEdge(shader, { depthM }) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec2 vEdgeAcross;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEdgeAcross = stripe.xw;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec2 vEdgeAcross;')
+    .replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>
+      {
+        float fromSide = vEdgeAcross.y - abs(vEdgeAcross.x);
+        if (fromSide < ${f(depthM)}) {
+          vec2 edgeXZ = vSurfaceXZ + patchOffset;
+          float n = 0.65 * surfacePatchNoise(edgeXZ / 1.2, ${f(PATCH_PERIOD_M / 1.2)}) + 0.35 * surfacePatchNoise(edgeXZ / 0.3, ${f(PATCH_PERIOD_M / 0.3)});
+          n = mix(n, 0.5, smoothstep(${f(depthM * 0.25)}, ${f(depthM * 0.5)}, fwidth(fromSide)));
+          if (fromSide < ${f(depthM)} * n) discard;
+        }
+      }`
+    );
+}
+
+/**
  * Wet surface (needs applyPatches' noise and the haze colour as the sky): darker and smoother,
  * puddles near-mirror, plus a Fresnel sky reflection (no env map to reflect). Also the overcast spread.
  */
-function applyWetness(shader, { darken, roughness, sheen }) {
+function applyWetness(shader, { darken, roughness, sheen }, { from = PUDDLES_FROM, threshold = PUDDLE_THRESHOLD, cellsM = PUDDLE_CELLS_M } = {}) {
   shader.uniforms.roadWetness = roadWetness;
   shader.uniforms.roadOvercast = roadOvercast;
-  const fineCell = PUDDLE_CELLS_M[PUDDLE_CELLS_M.length - 1];
-  const puddleOctaves = PUDDLE_CELLS_M.map((cell, i) => {
+  const fineCell = cellsM[cellsM.length - 1];
+  const puddleOctaves = cellsM.map((cell, i) => {
     const weight = i ? 0.3 : 0.7;
     return `{
           vec2 p = wetXZ / ${f(cell)};
@@ -306,12 +530,12 @@ function applyWetness(shader, { darken, roughness, sheen }) {
       '#include <roughnessmap_fragment>',
       `#include <roughnessmap_fragment>
       float wetPuddle = 0.0;
-      if (roadWetness > ${f(PUDDLES_FROM)}) {
+      if (roadWetness > ${f(from)}) {
         vec2 wetXZ = vSurfaceXZ + patchOffset;
         float puddleNoise = 0.0;
         ${puddleOctaves.join('\n        ')}
-        float level = smoothstep(${f(PUDDLES_FROM)}, 1.0, roadWetness);
-        float edge = mix(${f(PUDDLE_THRESHOLD.from)}, ${f(PUDDLE_THRESHOLD.soaked)}, level);
+        float level = smoothstep(${f(from)}, 1.0, roadWetness);
+        float edge = mix(${f(threshold.from)}, ${f(threshold.soaked)}, level);
         float aa = max(fwidth(puddleNoise), 1e-4);
         wetPuddle = level * smoothstep(edge - aa, edge + aa, puddleNoise);
         // Flat tint per fine triangle: faceted water.
@@ -320,7 +544,8 @@ function applyWetness(shader, { darken, roughness, sheen }) {
         diffuseColor.rgb *= 1.0 - ${f(PUDDLE_FACET_SHADE)} * facet * wetPuddle;
       }
       diffuseColor.rgb *= mix(1.0, ${f(darken)}, roadWetness) * (1.0 - 0.25 * wetPuddle);
-      roughnessFactor = mix(roughnessFactor, ${f(roughness)}, roadWetness);
+      // Pieces keep their polish (surfacePolish) wet; matte gaps stay duller.
+      roughnessFactor = mix(roughnessFactor, clamp(${f(roughness)} * surfacePolish * (1.0 + 0.6 * surfaceMatte), 0.0, 1.0), roadWetness);
       roughnessFactor = mix(roughnessFactor, max(roughnessFactor, ${f(OVERCAST_ROUGHNESS)}), roadOvercast * (1.0 - ${f(OVERCAST_WET_HOLD)} * roadWetness));
       roughnessFactor = mix(roughnessFactor, 0.08, wetPuddle);`
     )
@@ -329,7 +554,7 @@ function applyWetness(shader, { darken, roughness, sheen }) {
       `#include <lights_fragment_end>
       {
         float wetFresnel = 0.02 + 0.98 * pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), 5.0);
-        reflectedLight.indirectSpecular += hazeColor * wetFresnel * roadWetness * mix(${f(sheen)}, ${f(PUDDLE_SHEEN)}, wetPuddle);
+        reflectedLight.indirectSpecular += hazeColor * wetFresnel * roadWetness * mix(${f(sheen)} * surfaceSheen, ${f(PUDDLE_SHEEN)}, wetPuddle);
       }`
     );
 }
@@ -338,7 +563,7 @@ function applyWetness(shader, { darken, roughness, sheen }) {
 function applyMarkings(shader) {
   shader.uniforms.markingColor = { value: MARKING.color };
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nattribute vec4 stripe;\nattribute float stripeMarkings;\nvarying vec4 vStripe;\nvarying float vStripeMarkings;')
+    .replace('#include <common>', '#include <common>\nattribute float stripeMarkings;\nvarying vec4 vStripe;\nvarying float vStripeMarkings;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvStripe = stripe;\nvStripeMarkings = stripeMarkings;');
   shader.fragmentShader = shader.fragmentShader
     .replace(
@@ -401,15 +626,82 @@ const surfaceStyles = new Map();
 function surfaceStyle(style) {
   if (!onRoadBed(style.key, style.brunnel)) return null;
   const surface = style.unpaved ? 'unpaved' : 'paved';
-  const markings = SURFACE_LOOKS[surface].markings ? markingsOf(style) : undefined;
+  const look = SURFACE_LOOKS[surface];
+  // Ragged edges need the stripe attribute too.
+  const markings = look.markings ? markingsOf(style) : look.edge ? 0 : undefined;
   const depthRank = depthRankOf(style.key);
   const key = `${surface}:${style.linewidth}:${markings}:${depthRank}`;
   let out = surfaceStyles.get(key);
   if (!out) {
-    out = { key: `surface-${surface}`, linewidth: style.linewidth, material: surfaceMaterials[surface], lift: SURFACE_LOOKS[surface].lift, lit: true, markings, depthRank };
+    // Bucketed per rank: drawn in rank order, unpaved over paved within one, all below the contact shadows.
+    const renderOrder = GROUND_RENDER_ORDER.roadSurface + (depthRank * 2 + (surface === 'unpaved' ? 1 : 0)) / (2 * BED_HIERARCHY.length);
+    const linewidth = style.linewidth + (look.edge?.depthM ?? 0);
+    out = { key: `surface-${surface}-${depthRank}`, linewidth, material: surfaceMaterials[surface], lift: look.lift, lit: true, markings, depthRank, renderOrder };
     surfaceStyles.set(key, out);
   }
   return out;
+}
+
+// `${look}:${width}` -> { linewidth (the road's, for the tyres), section, draw (surface view style, drawn over every road) }.
+const sectionStyles = new Map();
+const SECTION_RENDER_ORDER = GROUND_RENDER_ORDER.roadSurface + 0.999;
+const SECTION_SEGMENT_M = 4;
+const METERS_PER_DEGREE = 111_320;
+
+function sectionStyle(surface, width) {
+  const look = STAGE_SURFACES[surface].look;
+  const key = `${look}:${width}`;
+  let out = sectionStyles.get(key);
+  if (!out) {
+    const { lift, edge } = SURFACE_LOOKS[look];
+    const draw = {
+      key: `section-${look}`,
+      linewidth: width + (edge?.depthM ?? 0),
+      material: sectionMaterials[look],
+      lift,
+      lit: true,
+      markings: 0, // stripe attribute: the setts, the end fade and the ragged edges
+      depthRank: BED_HIERARCHY.length - 1,
+      renderOrder: SECTION_RENDER_ORDER,
+    };
+    out = { linewidth: width, section: true, draw };
+    sectionStyles.set(key, out);
+  }
+  return out;
+}
+
+/** Stage sections -> detail tile key -> stripe items like the decoded ones (a/b lat/lon, line, index, dist, len), plus their tyre `compound`. */
+function sectionItems(sections) {
+  const byTile = new Map();
+  for (const { surface, points } of sections) {
+    const def = STAGE_SURFACES[surface];
+    if (!def || !(points?.length >= 2)) continue;
+    const line = [];
+    let dist = 0;
+    for (let p = 0; p + 1 < points.length; p++) {
+      const [aLat, aLon, width] = points[p];
+      const [bLat, bLon] = points[p + 1];
+      const style = sectionStyle(surface, width);
+      const length = Math.hypot((bLat - aLat) * METERS_PER_DEGREE, (bLon - aLon) * METERS_PER_DEGREE * Math.cos((aLat * Math.PI) / 180));
+      const pieces = Math.max(1, Math.ceil(length / SECTION_SEGMENT_M));
+      let prev = { lat: aLat, lon: aLon };
+      for (let i = 1; i <= pieces; i++) {
+        const t = i / pieces;
+        const next = { lat: aLat + (bLat - aLat) * t, lon: aLon + (bLon - aLon) * t };
+        const item = { a: prev, b: next, style, dist, len: length / pieces, line, index: line.length, compound: def.compound };
+        line.push(item);
+        const key = tileKey(Math.floor(lon2tileX((prev.lon + next.lon) / 2, DETAIL_ZOOM)), Math.floor(lat2tileY((prev.lat + next.lat) / 2, DETAIL_ZOOM)));
+        if (!byTile.has(key)) byTile.set(key, []);
+        byTile.get(key).push(item);
+        dist += item.len;
+        prev = next;
+      }
+    }
+    // As junctions of no width at both ends: the stripe's clearance is then the distance to the nearer end.
+    line.junctions = [0, 0, dist, 0];
+    line.total = dist;
+  }
+  return byTile;
 }
 
 /** Importance of a class key for line ends (vectorLineLayer `rank`): higher up ROAD_HIERARCHY = larger (aliases rank as their base class). */
@@ -444,6 +736,16 @@ export class StreetsManager extends StreetLayer {
     this._polygonsShown = false;
     this._surfaceView = false; // meshes are built in the surface look
     this._look = '';
+    // Kept apart from the OSM items: roadside kinds place their props along those.
+    this._sectionsByTile = new Map();
+  }
+
+  /** Stage surface sections (lib/rally/stageSurfaces.js file format) in force; [] clears them. */
+  setSurfaceSections(sections) {
+    this._sectionsByTile = sectionItems(sections);
+    if (!this._surfaceView) return;
+    super.setVisible(false); // drops the meshes, so they rebuild with the sections
+    super.setVisible(true);
   }
 
   /** K-key debug overlay (class colours); wins over the surface view. */
@@ -517,14 +819,28 @@ export class StreetsManager extends StreetLayer {
     return mesh;
   }
 
+  _beginChunkBuild(tx, ty) {
+    const build = super._beginChunkBuild(tx, ty);
+    const sections = this._surfaceView && this._sectionsByTile.get(build.key);
+    if (sections) build.list = build.list.concat(sections);
+    return build;
+  }
+
   _buildItem(seg, byStyleKey) {
     if (!this._surfaceView) return super._buildItem(seg, byStyleKey);
+    if (seg.style.section) return super._buildItem({ ...seg, style: seg.style.draw }, byStyleKey);
     const style = surfaceStyle(seg.style);
     if (style) super._buildItem({ ...seg, style }, byStyleKey);
   }
 
-  /** 'road' if a paved stripe covers world (x, z), else 'unpaved' if an unpaved one does, else null. */
+  /** A stage section's surfaceCompounds.js key where one covers world (x, z), else 'road' if a paved stripe does, else 'unpaved' if an unpaved one does, else null. */
   surfaceAt(x, z) {
+    for (const list of this._listsNear(x, z, this._sectionsByTile)) {
+      for (const seg of list) {
+        const mid = seg.dist + seg.len / 2;
+        if (Math.min(mid, seg.line.total - mid) >= SECTION_FADE_M / 2 && this.segmentMargin(seg, x, z) >= 0) return seg.compound;
+      }
+    }
     let hit = null;
     for (const style of this.stylesAt(x, z)) {
       if (!style.unpaved) return 'road'; // paved wins where they overlap (junctions)

@@ -54,7 +54,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0xd8dce0) {
     box(0.34, 0.09, 0.03, tail, sx * 0.66, 0.16, BACK - 0.01);
     box(0.03, 0.09, 0.2, tail, sx * (WIDTH / 2 + 0.005), 0.16, BACK + 0.1);
     box(0.32, 0.12, 0.05, black, sx * 0.6, -0.18, FRONT + 0.0); // corner vent
-    tube(0.045, 0.12, satin, sx * 0.62, -0.42, BACK - 0.03, 10); // one tailpipe per side
+    tube(0.045, 0.12, satin, sx * 0.62, -0.42, BACK - 0.03, 10).userData.exhaust = true; // one tailpipe per side
   }
   box(0.66, 0.035, 0.03, satin, 0, 0.04, FRONT + 0.02); // grille bar
   box(0.7, 0.13, 0.04, black, 0, -0.2, FRONT + 0.0); // lower intake

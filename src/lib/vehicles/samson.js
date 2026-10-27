@@ -34,6 +34,7 @@ export default {
   },
   suspensionForceG: 8,
   engine: 'v6d',
+  exhaustTips: [{ pos: [-1.05, 1.65, 2.45], dir: [0, 1, 0] }], // stack top
   enginePowerHp: 625,
   peakTorqueNm: 3000,
   peakTorqueRpm: 1100,
@@ -48,6 +49,7 @@ export default {
   shiftDurationS: 0.5,
   engineInertia: 2.4,
   brakeForce: 240,
+  brakes: { front: { discMm: 430, vented: true }, rear: { drumMm: 410 } },
   tractionControl: true,
   mass: 13000, // empty
   fuelTankL: 400,

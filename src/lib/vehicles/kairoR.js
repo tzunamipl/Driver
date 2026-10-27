@@ -6,6 +6,7 @@ import { buildBody } from './geometry/kairoR.js';
 export default {
   id: 'C010', // display name in ./names.js
   category: 'rally',
+  skidPlate: true, // engineHeat.js: takes underbody hits before the sump
   defaultColor: 0xe67e00, // tangerine orange
   rimColor: 0xcda434,
   rims: { default: 'spoke5', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
@@ -40,12 +41,14 @@ export default {
   reverseRatio: 3.545,
   shiftDurationS: 0.45,
   brakeForce: 200,
+  brakes: { front: { discMm: 355, vented: true }, rear: { discMm: 300, vented: true }, pads: 'race' },
   abs: false,
   mass: 1270,
   fuelTankL: 60,
   radiator: 1.15,
   coolantL: 7.5,
   backfire: 0.3,
+  exhaustTips: [{ pos: [-0.54, -0.305, -2.2] }],
   steerSpeedD: 0.007,
   maxSteerAt0: 0.7,
   maxSteerAt100: 0.4,

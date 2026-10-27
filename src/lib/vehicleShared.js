@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { findGroundY } from './terrain.js';
 import { setPaint } from './vehicles/geometry/paint.js';
+import { SCORING_ENABLED } from '../config.js';
 
 // Tags every vehicle's collision shapes; physicsSetup.js pairs it with
 // ground/building materials (low friction so wall hits slide, not stick).
@@ -22,7 +23,7 @@ function makeNameSprite(name, score = 0) {
   ctx.font = '600 48px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`${name}  ${score}`, 256, 64);
+  ctx.fillText(SCORING_ENABLED ? `${name}  ${score}` : name, 256, 64);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

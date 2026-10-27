@@ -32,11 +32,11 @@ const _localPoint = new CANNON.Vec3();
 const _inverseQuat = new CANNON.Quaternion();
 // A push this much along the car's -z (from ahead) on the front half counts as a nose hit; +z on the rear half, a tail hit.
 const END_HIT_MIN_ALIGN = 0.5;
-const _endHit = { end: 0, under: false, x: 0, speed: 0 };
+const _endHit = { end: 0, under: false, x: 0, z: 0, speed: 0 };
 
 /**
  * Chassis contact as an end hit: `end` 1 nose (pushed backwards), -1 tail (pushed forwards), 0 neither;
- * `under`: the floor pushed up; `x` = chassis-local x of the contact, `speed` = impact speed along the normal (m/s). Reused object.
+ * `under`: the floor pushed up; `x` / `z` = chassis-local x / z of the contact, `speed` = impact speed along the normal (m/s). Reused object.
  */
 export function endImpact(chassisBody, contact) {
   const isBi = contact.bi === chassisBody;
@@ -50,6 +50,7 @@ export function endImpact(chassisBody, contact) {
   else _endHit.end = 0;
   _endHit.under = _localPoint.y < 0 && _localNormal.y > END_HIT_MIN_ALIGN;
   _endHit.x = _localPoint.x;
+  _endHit.z = _localPoint.z;
   _endHit.speed = Math.abs(contact.getImpactVelocityAlongNormal());
   return _endHit;
 }

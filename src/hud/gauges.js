@@ -4,6 +4,7 @@ import { createWarningLamps } from './warningLamps.js';
 import { createAuxGauge } from './auxGauge.js';
 import { createBoostGauge } from './boostGauge.js';
 import { createOutsideTempLcd } from './outsideTempLcd.js';
+import { createFuelAverageLcd } from './fuelAverageLcd.js';
 import { buildDialScale, valueToDeg } from './dialScale.js';
 import { speedValue, speedUnit, longDistanceValue, longDistanceUnit, onUnitsChange, isImperial } from '../lib/units.js';
 
@@ -62,6 +63,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
   const auxGauge = createAuxGauge(document.getElementById('aux-gauge'));
   const boostGauge = createBoostGauge(document.getElementById('boost-gauge'));
   const outsideTemp = createOutsideTempLcd(document.getElementById('outside-temp'));
+  const fuelAverage = createFuelAverageLcd(document.getElementById('fuel-average'));
   const lamps = createWarningLamps(document.getElementById('warning-lamps'), { onLightsClick, onHandbrakeClick });
   let lightsShown = null;
   const gaugesEl = document.getElementById('gauges');
@@ -79,8 +81,10 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     transmissionEl.blur();
   });
   let transmissionShown = null;
+  const cruiseLimitEl = document.getElementById('cruise-limit');
+  let cruiseLimitShown = null;
 
-  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false, gearMode = 'sport', transmission = 'auto') {
+  function updateGauges(chassisMesh, vehicle, handbrake, lightsOn = false, gearMode = 'sport', transmission = 'auto', cruiseLimitKmh = 0) {
     const lights = !!vehicle && lightsOn;
     if (lights !== lightsShown) {
       lightsShown = lights;
@@ -94,6 +98,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
       tachEl?.classList.remove('visible');
       auxGauge.update(null);
       outsideTemp.update(false);
+      fuelAverage.update(null);
       return;
     }
     odometer.addTravel(chassisMesh);
@@ -125,6 +130,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     auxGauge.update(engine ?? null);
     boostGauge.update(engine ?? null);
     outsideTemp.update(!!vehicle.outsideTempGauge);
+    fuelAverage.update(vehicle.outsideTempGauge ? vehicle.fuel : null);
     if (!engine) {
       tachEl?.classList.remove('visible');
       return;
@@ -157,6 +163,13 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
         ? 'Automatic gearbox - no manual mode for this vehicle'
         : 'Gearbox: automatic / manual (click to switch)';
       gearModeEl?.classList.toggle('inactive', engine.manual);
+    }
+    // Imperial: the nearest 5 mph, as on a real sign.
+    const limit = gearMode === 'cruise' && !engine.manual && cruiseLimitKmh > 0 ? (isImperial() ? Math.round(speedValue(cruiseLimitKmh) / 5) * 5 : cruiseLimitKmh) : 0;
+    if (limit !== cruiseLimitShown && cruiseLimitEl) {
+      cruiseLimitShown = limit;
+      cruiseLimitEl.hidden = !limit;
+      cruiseLimitEl.textContent = limit ? String(limit) : '';
     }
   }
 

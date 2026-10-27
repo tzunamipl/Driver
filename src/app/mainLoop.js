@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
-import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS } from '../config.js';
+import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS, PEDESTRIANS_ENABLED } from '../config.js';
 import { getAirTempC } from '../lib/weather.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
@@ -11,6 +11,8 @@ import { classifySurfaceAt } from '../lib/terrainSurface.js';
 import { getVehicle as getVehicleDescriptor } from '../lib/vehicles/index.js';
 import { setCarListener, setWheelStereo } from '../lib/audio/audioContext.js';
 import { getCameraView } from './cameraViews/index.js';
+import { RESET_LIFT_DURATION_S } from '../lib/vehicleShared.js';
+import { createSpeedLimit } from './speedLimit.js';
 
 // Own-car sounds play at full volume within this camera distance (covers the
 // default chase view), then fall off as 1/distance.
@@ -29,6 +31,8 @@ function updateCarListener(camera, carPosition) {
   setCarListener(Math.min(1, CAR_SOUND_FULL_DISTANCE_M / distance), pan);
 }
 
+// R reset: no damage through the lift and while the dropped car settles.
+const RESET_DAMAGE_GRACE_S = RESET_LIFT_DURATION_S + 2;
 const CAR_STATE_SAVE_INTERVAL_MS = 1000; // localStorage save throttle
 const ODOMETER_SAVE_INTERVAL_MS = 10000;
 
@@ -59,6 +63,7 @@ export function createMainLoop({
   bushes,
   rocks,
   roadside,
+  curbs,
   streetLights,
   places,
   directionSignHud,
@@ -80,7 +85,9 @@ export function createMainLoop({
   carDirtEnabled,
   tireSmoke,
   exhaustFlames,
+  exhaustPipes,
   coolantSteam,
+  brakeSteam,
   rimSparks,
   terrainDust,
   wheelDebris,
@@ -105,6 +112,7 @@ export function createMainLoop({
   engineHud,
   tyreHud,
   bodyHud,
+  brakeHud,
   playersPanel,
   minimapHud,
   routeGuidance,
@@ -138,6 +146,10 @@ export function createMainLoop({
     saveOdometer();
   };
   window.addEventListener('pagehide', flushSaves);
+  const protectedReset = () => {
+    carManager.getReset()?.();
+    carManager.protectFromDamage(RESET_DAMAGE_GRACE_S);
+  };
   const poseForward = new THREE.Vector3();
   const terrainHeading = new THREE.Vector3();
 
@@ -147,8 +159,11 @@ export function createMainLoop({
   const streaming = createFrameBudget(STREAMING_BUDGET_MS, (name) => profiler.mark(`stream:${name}`));
   // Gameplay: near buildings carry the collision prisms.
   streaming.add(Tier.GAMEPLAY, 'buildings', (deadline) => buildings.update(at.tileX, at.tileY, false, deadline));
+  // Near curbs carry the wheels' step boxes.
+  streaming.add(Tier.GAMEPLAY, 'curbs', (deadline) => curbs.update(at.dt, at.x, at.z, deadline));
   // Overlays still fetch their data every frame (tyre grip, splash); only their debug meshes wait.
   const overlays = { streets, rivers, waterAreas, builtUpAreas, landcoverAreas };
+  const speedLimit = createSpeedLimit({ streets, builtUpAreas });
   for (const [name, layer] of Object.entries(overlays)) {
     streaming.add(Tier.COSMETIC, name, (deadline) => layer.update(at.tileX, at.tileY, false, deadline));
   }
@@ -183,9 +198,14 @@ export function createMainLoop({
 
     carManager.getUpdateReset()?.(frameDelta);
     // Rally: R rocks the car instead of resetting it.
-    input.updateControls(vehicle, rallySession && reset ? rallySession.rock : reset, frameDelta);
+    if (vehicle && input.getGearMode() === 'cruise') {
+      const { x, z } = vehicle.chassisBody.position;
+      input.setCruiseLimitKmh(speedLimit.at(x, z));
+    }
+    input.updateControls(vehicle, reset && (rallySession ? rallySession.rock : protectedReset), frameDelta);
     if (vehicle?.fuel) vehicle.fuel.update(frameDelta, vehicle.engine);
     if (vehicle?.heat) vehicle.heat.update(frameDelta, vehicle.engine, vehicle.chassisBody.velocity.length(), getAirTempC());
+    vehicle?.brakes?.update(frameDelta, vehicle.wheelInfos, vehicle.chassisBody.velocity.length(), getAirTempC(), vehicle.wheelSinks);
     jump.update(frameDelta, fireAndJump && !!vehicle && !input.isTyping() && !input.isLocked() && input.keys.has('KeyJ'), vehicle);
 
     // Network messages use the fixed network frame; remap them into this
@@ -255,17 +275,19 @@ export function createMainLoop({
         if (shot) net.publishProps({ type: 'shot', ...toNetworkFrame(shot) });
       }
       scoring.update(frameDelta, currentChassisMesh, currentVehicle);
-      pedestrians.updatePopulation(
-        currentChassisMesh.position.x,
-        currentChassisMesh.position.y,
-        currentChassisMesh.position.z
-      );
-      pedestrians.updateNearMisses(
-        currentChassisMesh.position.x,
-        currentChassisMesh.position.z,
-        currentVehicle.chassisBody.velocity.x,
-        currentVehicle.chassisBody.velocity.z
-      );
+      if (PEDESTRIANS_ENABLED) {
+        pedestrians.updatePopulation(
+          currentChassisMesh.position.x,
+          currentChassisMesh.position.y,
+          currentChassisMesh.position.z
+        );
+        pedestrians.updateNearMisses(
+          currentChassisMesh.position.x,
+          currentChassisMesh.position.z,
+          currentVehicle.chassisBody.velocity.x,
+          currentVehicle.chassisBody.velocity.z
+        );
+      }
       poseForward.set(0, 0, 1).applyQuaternion(currentChassisMesh.quaternion);
       const velocity = currentVehicle.chassisBody.velocity;
       const { x: netX, z: netZ } = viewFrame.toNetwork(currentChassisMesh.position.x, currentChassisMesh.position.z);
@@ -305,6 +327,7 @@ export function createMainLoop({
         fuel: carManager.getFuelState(),
         tyres: carManager.getTyreState(),
         heat: carManager.getHeatState(),
+        brakes: carManager.getBrakeState(),
         damage: carManager.getDamageState(),
       };
       if (now >= nextCarStateSave) {
@@ -333,7 +356,7 @@ export function createMainLoop({
       odometerVehicleId = carManager.getVehicleId();
       gaugesHud.setOdometerKm(getVehicleOdometerKm(odometerVehicleId));
     }
-    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission());
+    gaugesHud.updateGauges(currentChassisMesh, currentVehicle, input.getHandbrake(), lightsOn, input.getGearMode(), input.getTransmission(), input.getCruiseLimitKmh());
     gaugesHud.updateHubLight(camera, daylight.getLight());
     gearstickHud.update(frameDelta, { vehicle: currentVehicle, keys: input.keys, typing: input.isTyping() });
     cursorHide.update(currentVehicle ? currentVehicle.chassisBody.velocity.length() : null);
@@ -374,6 +397,7 @@ export function createMainLoop({
       waterAreas,
       builtUpAreas,
       landcoverAreas,
+      places,
       roadside,
       trees,
       bushes,
@@ -399,13 +423,16 @@ export function createMainLoop({
     engineHud.updateEngineHud(currentVehicle, debugVisualsEnabled);
     tyreHud.updateTyreHud(currentVehicle, debugVisualsEnabled);
     bodyHud.updateBodyHud(currentVehicle, debugVisualsEnabled);
+    brakeHud.updateBrakeHud(currentVehicle, debugVisualsEnabled);
     // Effects run regardless of debug state. Splash also takes streets
     // (bridges don't splash) and rivers (narrow waterways).
     splash.update(frameDelta, currentVehicle, world, waterAreas, streets, rivers);
     tireSmoke.update(frameDelta, currentVehicle, world);
     rimSparks.update(frameDelta, currentVehicle, world);
+    exhaustPipes.update(frameDelta, currentVehicle, currentChassisMesh, getVehicleDescriptor(carManager.getVehicleId()));
     exhaustFlames.update(frameDelta, currentVehicle, currentChassisMesh, getVehicleDescriptor(carManager.getVehicleId()));
     coolantSteam.update(frameDelta, currentVehicle, currentChassisMesh);
+    brakeSteam.update(frameDelta, currentVehicle);
     tireSqueal.update(currentVehicle);
     gravelSpinSound.update(currentVehicle);
     bodyScrapeSound.update(frameDelta);
@@ -420,7 +447,7 @@ export function createMainLoop({
     if (currentChassisMesh) {
       clouds.update(frameDelta, currentChassisMesh.position.x, currentChassisMesh.position.z, currentChassisMesh.position.y);
     }
-    playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined });
+    playersPanel.updatePlayersPanel(frameDelta, { net, carManager, isJoined, viewFrame });
     profiler.mark('hud+effects');
 
     if (currentChassisMesh) {

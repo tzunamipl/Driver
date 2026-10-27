@@ -6,6 +6,7 @@ import { buildRallyBody } from './geometry/halny.js';
 export default {
   id: 'C025', // display name in ./names.js
   category: 'rally',
+  skidPlate: true, // engineHeat.js: takes underbody hits before the sump
   defaultColor: 0xf4f4f2, // white
   rimColor: 0xd0d2d4,
   rims: { default: 'rally6', tarmac: 'rally8' }, // car/rims.js, per tyre compound group
@@ -39,6 +40,7 @@ export default {
   reverseRatio: 3.3,
   shiftDurationS: 0.2,
   brakeForce: 190,
+  brakes: { front: { discMm: 300, vented: true }, rear: { discMm: 264 }, pads: 'race' },
   abs: false,
   mass: 1050,
   fuelTankL: 60,

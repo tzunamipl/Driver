@@ -4,9 +4,10 @@
 // wind dry it.
 
 import { sunDirection } from '../sunPosition.js';
+import { NO_FOG_VISIBILITY_M } from '../weather.js';
 
 const API_URL = 'https://api.open-meteo.com/v1/forecast';
-const HOURLY = ['temperature_2m', 'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'precipitation', 'weather_code', 'wind_speed_10m'];
+const HOURLY = ['temperature_2m', 'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'precipitation', 'weather_code', 'wind_speed_10m', 'visibility'];
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_FORECAST_DAYS = 16;
 export const MS_PER_DAY = 86_400_000;
@@ -25,6 +26,13 @@ const DRY_FROZEN = 0.01; // below 0 °C
 const DRYING_IN_RAIN = 0.3; // share of the drying left while it still rains
 const RAINING_MM_H = 0.05;
 const STEP_MS = 10 * 60_000;
+const FOG_CODE_VISIBILITY_M = 300; // WMO 45 / 48 (fog) at most this, whatever the model's visibility says
+
+/** Visibility (m) from the forecast's value and WMO code; missing (older saves, offline) = from the code alone. */
+export function visibilityFor(visibilityM, code) {
+  const v = Number.isFinite(visibilityM) ? Math.min(NO_FOG_VISIBILITY_M, visibilityM) : NO_FOG_VISIBILITY_M;
+  return code === 45 || code === 48 ? Math.min(v, FOG_CODE_VISIBILITY_M) : v;
+}
 
 const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
 
@@ -53,7 +61,7 @@ export async function fetchUtcOffsetSec(lat, lon) {
 
 /**
  * Snapshots for the local day before `firstDayMs` (local midnight of the rally's day 1) through `days` rally days.
- * @returns {Promise<{ utcOffsetSec: number, snapshots: object[] }>} snapshots: [{ ms, tempC, cover: { total, low, mid, high }, code, precipMmH, windMs }].
+ * @returns {Promise<{ utcOffsetSec: number, snapshots: object[] }>} snapshots: [{ ms, tempC, cover: { total, low, mid, high }, code, precipMmH, windMs, visibilityM }].
  */
 export async function fetchRallyWeather(lat, lon, firstDayMs, days) {
   const params = new URLSearchParams({
@@ -109,6 +117,7 @@ function toSnapshots(hourly, offsetSec) {
         code: n ? code : num('weather_code', i),
         precipMmH: n ? rain / n : num('precipitation', i),
         windMs: n ? wind / n : num('wind_speed_10m', i),
+        visibilityM: visibilityFor(hourly.visibility?.[i], num('weather_code', i)),
       });
     });
   }
@@ -138,6 +147,8 @@ export function sampleWeather(snapshots, ms) {
   const a = snapshots[i];
   const b = snapshots[i + 1] ?? a;
   const t = b === a ? 0 : Math.min(1, Math.max(0, (ms - a.ms) / (b.ms - a.ms)));
+  // Fog thickens / thins by factors: lerp in log space.
+  const logVis = (s) => Math.log(visibilityFor(s.visibilityM, s.code));
   return {
     tempC: lerp(a.tempC, b.tempC, t),
     cover: {
@@ -149,6 +160,7 @@ export function sampleWeather(snapshots, ms) {
     code: t < 0.5 ? a.code : b.code,
     precipMmH: lerp(a.precipMmH, b.precipMmH, t),
     windMs: lerp(a.windMs, b.windMs, t),
+    visibilityM: Math.exp(lerp(logVis(a), logVis(b), t)),
   };
 }
 
