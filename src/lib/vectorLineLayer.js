@@ -364,8 +364,8 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       return best;
     }
 
-    /** Bucket lists that can hold a stripe covering world (x, z): its detail tile, plus neighbours it is near the edge of. */
-    _listsNear(x, z) {
+    /** Bucket lists (of `byTile`, default the fetched items) that can hold a stripe covering world (x, z): its detail tile, plus neighbours it is near the edge of. */
+    _listsNear(x, z, byTile = this._itemsByTile) {
       const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
       const fx = lon2tileX(lon, DETAIL_ZOOM);
       const fy = lat2tileY(lat, DETAIL_ZOOM);
@@ -375,7 +375,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       const lists = [];
       for (let dx = fx - tx < reach ? -1 : 0; dx <= (tx + 1 - fx < reach ? 1 : 0); dx++) {
         for (let dy = fy - ty < reach ? -1 : 0; dy <= (ty + 1 - fy < reach ? 1 : 0); dy++) {
-          const list = this._itemsByTile.get(tileKey(tx + dx, ty + dy));
+          const list = byTile.get(tileKey(tx + dx, ty + dy));
           if (list) lists.push(list);
         }
       }

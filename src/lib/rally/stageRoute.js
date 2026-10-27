@@ -113,11 +113,11 @@ function createGraph() {
     return node;
   }
 
-  /** `road`: { width, rank } (or a link to copy them from). */
-  function link(a, b, { width, rank }) {
+  /** `road`: { width, rank, unpaved } (or a link to copy them from). */
+  function link(a, b, { width, rank, unpaved }) {
     if (a === b || a.links.some((l) => l.node === b)) return;
-    a.links.push({ node: b, width, rank });
-    b.links.push({ node: a, width, rank });
+    a.links.push({ node: b, width, rank, unpaved });
+    b.links.push({ node: a, width, rank, unpaved });
   }
 
   function unlink(a, b) {
@@ -136,7 +136,7 @@ function addTile(graph, layer, tx, ty, origin) {
     const style = classifyRoad(feature.properties);
     if (!style || SKIP_CLASSES.has(style.key)) continue;
     const rank = ROAD_HIERARCHY.indexOf(style.key);
-    const road = { width: style.width, rank: rank >= 0 ? rank : DEFAULT_RANK };
+    const road = { width: style.width, rank: rank >= 0 ? rank : DEFAULT_RANK, unpaved: !!style.unpaved };
     for (const run of feature.loadGeometry().flatMap((line) => clipLine(line, extent))) {
       let prev = null;
       for (const p of run) {
@@ -274,7 +274,7 @@ function shortestPath(from, to) {
 /**
  * Road route through `waypoints` ({lat, lon, label?}, in driving order) on OSM roads.
  * @returns {Promise<{origin: {lat: number, lon: number}, nodes: object[]}>} nodes in local
- *   metres around `origin` (x east, z south), each with `links` to its neighbours ({ node, width, rank }).
+ *   metres around `origin` (x east, z south), each with `links` to its neighbours ({ node, width, rank, unpaved }).
  */
 export async function routeStage(waypoints, { onProgress } = {}) {
   const origin = { lat: waypoints[0].lat, lon: waypoints[0].lon };

@@ -25,6 +25,8 @@ const STRIKE_WINDOW_MS = 10000;
 const TERRAIN_COLOR_GENERIC = '#4caf50';
 const TERRAIN_COLOR_ROAD = '#e53935';
 const TERRAIN_COLOR_UNPAVED = '#a1887f';
+const TERRAIN_COLOR_COBBLESTONE = '#9e9e9e';
+const TERRAIN_COLOR_MUD = '#5d4037';
 const TERRAIN_COLOR_WATER = '#2196f3';
 const TERRAIN_COLOR_BUILT_UP = '#ff9800';
 const TERRAIN_COLOR_FOREST = '#1b5e20';
@@ -63,6 +65,8 @@ function classifyTerrainAt(x, z, layers) {
 function terrainColor(kind) {
   if (kind === 'road') return TERRAIN_COLOR_ROAD;
   if (kind === 'unpaved') return TERRAIN_COLOR_UNPAVED;
+  if (kind === 'cobblestone') return TERRAIN_COLOR_COBBLESTONE;
+  if (kind === 'mud') return TERRAIN_COLOR_MUD;
   if (kind === 'water') return TERRAIN_COLOR_WATER;
   if (kind === 'builtUp') return TERRAIN_COLOR_BUILT_UP;
   if (kind === 'forest') return TERRAIN_COLOR_FOREST;

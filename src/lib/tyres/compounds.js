@@ -13,7 +13,7 @@ export const TYRE_COMPOUNDS = {
   slickSoft: {
     label: 'Slick soft',
     group: 'Tarmac',
-    grip: { road: 1.3, builtUp: 1.25, unpaved: 0.75, normal: 0.6, forest: 0.55, rock: 0.8, ice: 0.6, scrub: 0.6, sand: 0.5, water: 0.6 },
+    grip: { road: 1.3, builtUp: 1.25, unpaved: 0.75, normal: 0.6, forest: 0.55, rock: 0.8, ice: 0.6, scrub: 0.6, sand: 0.5, water: 0.6, cobblestone: 1.2, mud: 0.4 },
     wear: 2.6,
     puncture: 0.7,
     rolling: 0.9,
@@ -30,7 +30,7 @@ export const TYRE_COMPOUNDS = {
   slickHard: {
     label: 'Slick hard',
     group: 'Tarmac',
-    grip: { road: 1.2, builtUp: 1.15, unpaved: 0.75, normal: 0.6, forest: 0.55, rock: 0.8, ice: 0.6, scrub: 0.6, sand: 0.5, water: 0.6 },
+    grip: { road: 1.2, builtUp: 1.15, unpaved: 0.75, normal: 0.6, forest: 0.55, rock: 0.8, ice: 0.6, scrub: 0.6, sand: 0.5, water: 0.6, cobblestone: 1.12, mud: 0.4 },
     wear: 1.4,
     puncture: 0.8,
     rolling: 0.9,
@@ -47,7 +47,7 @@ export const TYRE_COMPOUNDS = {
   semiSlickSoft: {
     label: 'Semi-slick soft',
     group: 'Tarmac',
-    grip: { road: 1.18, builtUp: 1.15, unpaved: 0.85, normal: 0.75, forest: 0.7, rock: 0.9, ice: 0.7, scrub: 0.75, sand: 0.65, water: 0.8 },
+    grip: { road: 1.18, builtUp: 1.15, unpaved: 0.85, normal: 0.75, forest: 0.7, rock: 0.9, ice: 0.7, scrub: 0.75, sand: 0.65, water: 0.8, cobblestone: 1.12, mud: 0.55 },
     wear: 1.9,
     puncture: 0.85,
     rolling: 0.95,
@@ -64,7 +64,7 @@ export const TYRE_COMPOUNDS = {
   semiSlickHard: {
     label: 'Semi-slick hard',
     group: 'Tarmac',
-    grip: { road: 1.12, builtUp: 1.1, unpaved: 0.85, normal: 0.75, forest: 0.7, rock: 0.9, ice: 0.7, scrub: 0.75, sand: 0.65, water: 0.8 },
+    grip: { road: 1.12, builtUp: 1.1, unpaved: 0.85, normal: 0.75, forest: 0.7, rock: 0.9, ice: 0.7, scrub: 0.75, sand: 0.65, water: 0.8, cobblestone: 1.08, mud: 0.55 },
     wear: 1.1,
     puncture: 0.95,
     rolling: 0.95,
@@ -81,7 +81,7 @@ export const TYRE_COMPOUNDS = {
   wetSoft: {
     label: 'Wet soft',
     group: 'Tarmac',
-    grip: { road: 1.02, builtUp: 1.02, unpaved: 0.95, normal: 0.9, forest: 0.9, rock: 0.95, ice: 0.8, scrub: 0.9, sand: 0.8, water: 1.1 },
+    grip: { road: 1.02, builtUp: 1.02, unpaved: 0.95, normal: 0.9, forest: 0.9, rock: 0.95, ice: 0.8, scrub: 0.9, sand: 0.8, water: 1.1, cobblestone: 1.0, mud: 0.75 },
     wear: 2.4,
     puncture: 0.9,
     optimalTempC: 50,
@@ -96,7 +96,7 @@ export const TYRE_COMPOUNDS = {
   wetHard: {
     label: 'Wet hard',
     group: 'Tarmac',
-    grip: { road: 0.98, builtUp: 0.98, unpaved: 0.95, normal: 0.9, forest: 0.9, rock: 0.95, ice: 0.8, scrub: 0.9, sand: 0.8, water: 1.1 },
+    grip: { road: 0.98, builtUp: 0.98, unpaved: 0.95, normal: 0.9, forest: 0.9, rock: 0.95, ice: 0.8, scrub: 0.9, sand: 0.8, water: 1.1, cobblestone: 0.97, mud: 0.75 },
     wear: 1.6,
     optimalTempC: 60,
     windowC: 18,
@@ -110,9 +110,9 @@ export const TYRE_COMPOUNDS = {
   gravelSoft: {
     label: 'Gravel soft',
     group: 'Loose',
-    grip: { road: 0.85, builtUp: 0.9, unpaved: 1.25, normal: 1.15, forest: 1.1, rock: 1.05, ice: 0.85, scrub: 1.1, sand: 1.0 },
+    grip: { road: 0.85, builtUp: 0.9, unpaved: 1.25, normal: 1.15, forest: 1.1, rock: 1.05, ice: 0.85, scrub: 1.1, sand: 1.0, cobblestone: 0.9, mud: 1.2 },
     wear: 1.6,
-    wearOn: { road: 2, builtUp: 1.5 },
+    wearOn: { road: 2, builtUp: 1.5, cobblestone: 1.8 },
     puncture: 1.4,
     rolling: 1.05,
     optimalTempC: 55,
@@ -127,9 +127,9 @@ export const TYRE_COMPOUNDS = {
   gravelHard: {
     label: 'Gravel hard',
     group: 'Loose',
-    grip: { road: 0.9, builtUp: 0.92, unpaved: 1.18, normal: 1.1, forest: 1.05, rock: 1.08, ice: 0.85, scrub: 1.05, sand: 0.95 },
+    grip: { road: 0.9, builtUp: 0.92, unpaved: 1.18, normal: 1.1, forest: 1.05, rock: 1.08, ice: 0.85, scrub: 1.05, sand: 0.95, cobblestone: 0.93, mud: 1.12 },
     wear: 1,
-    wearOn: { road: 1.6, builtUp: 1.3 },
+    wearOn: { road: 1.6, builtUp: 1.3, cobblestone: 1.5 },
     puncture: 1.6,
     rolling: 1.05,
     optimalTempC: 65,
@@ -158,7 +158,7 @@ export const TYRE_COMPOUNDS = {
   allTerrain: {
     label: 'All-terrain',
     group: 'All-round',
-    grip: { road: 0.93, builtUp: 0.95, unpaved: 1.12, normal: 1.15, forest: 1.12, rock: 1.15, ice: 0.95, scrub: 1.12, sand: 1.05, water: 1.05 },
+    grip: { road: 0.93, builtUp: 0.95, unpaved: 1.12, normal: 1.15, forest: 1.12, rock: 1.15, ice: 0.95, scrub: 1.12, sand: 1.05, water: 1.05, cobblestone: 0.95, mud: 1.25 },
     wear: 0.8,
     puncture: 1.5,
     rolling: 1.15,
@@ -174,9 +174,9 @@ export const TYRE_COMPOUNDS = {
   mud: {
     label: 'Mud',
     group: 'Loose',
-    grip: { road: 0.8, builtUp: 0.85, unpaved: 1.15, normal: 1.3, forest: 1.35, rock: 1.05, ice: 0.8, scrub: 1.25, sand: 1.1, water: 1.2 },
+    grip: { road: 0.8, builtUp: 0.85, unpaved: 1.15, normal: 1.3, forest: 1.35, rock: 1.05, ice: 0.8, scrub: 1.25, sand: 1.1, water: 1.2, cobblestone: 0.85, mud: 1.5 },
     wear: 1.3,
-    wearOn: { road: 1.5, builtUp: 1.3 },
+    wearOn: { road: 1.5, builtUp: 1.3, cobblestone: 1.4 },
     puncture: 1.4,
     rolling: 1.35,
     optimalTempC: 35,
@@ -192,7 +192,7 @@ export const TYRE_COMPOUNDS = {
   snow: {
     label: 'Snow',
     group: 'Winter',
-    grip: { road: 0.9, builtUp: 0.92, forest: 1.05, rock: 0.95, ice: 1.8, sand: 0.95 },
+    grip: { road: 0.9, builtUp: 0.92, forest: 1.05, rock: 0.95, ice: 1.8, sand: 0.95, cobblestone: 0.92, mud: 1.0 },
     wear: 1.3,
     puncture: 1,
     optimalTempC: 10,
@@ -207,9 +207,9 @@ export const TYRE_COMPOUNDS = {
   ice: {
     label: 'Ice (studded)',
     group: 'Winter',
-    grip: { road: 0.85, builtUp: 0.9, normal: 0.95, rock: 0.85, ice: 3.2, sand: 0.9 },
+    grip: { road: 0.85, builtUp: 0.9, normal: 0.95, rock: 0.85, ice: 3.2, sand: 0.9, cobblestone: 0.85, mud: 0.95 },
     wear: 1.4,
-    wearOn: { road: 2.5, builtUp: 2, rock: 2 },
+    wearOn: { road: 2.5, builtUp: 2, rock: 2, cobblestone: 2.3 },
     puncture: 1.1,
     rolling: 1.1,
     optimalTempC: 5,
@@ -223,9 +223,9 @@ export const TYRE_COMPOUNDS = {
   sand: {
     label: 'Sand (paddle)',
     group: 'Loose',
-    grip: { road: 0.65, builtUp: 0.7, unpaved: 0.95, forest: 0.95, rock: 0.7, ice: 0.6, scrub: 0.95, sand: 2, water: 1.1 },
+    grip: { road: 0.65, builtUp: 0.7, unpaved: 0.95, forest: 0.95, rock: 0.7, ice: 0.6, scrub: 0.95, sand: 2, water: 1.1, cobblestone: 0.7, mud: 1.0 },
     wear: 2,
-    wearOn: { road: 1.5, builtUp: 1.3 },
+    wearOn: { road: 1.5, builtUp: 1.3, cobblestone: 1.4 },
     puncture: 0.8,
     rolling: 1.6,
     rollingOn: { sand: 0.55 },

@@ -6,7 +6,7 @@ import { isWheelGrounded, wheelSide } from './wheelContact.js';
 import { createPuffPool } from './particles/puffPool.js';
 import { createSparkles } from './particles/sparkles.js';
 
-const HARD_SURFACES = new Set(['road', 'rock']);
+const HARD_SURFACES = new Set(['road', 'cobblestone', 'rock']);
 const MIN_RUB_SPEED = 1.5; // m/s
 const SPARKS_PER_M = 7; // per metre the rim rubs along the ground
 const MAX_SPARKS_PER_S = 260; // per wheel

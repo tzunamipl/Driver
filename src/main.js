@@ -130,6 +130,7 @@ import { createScenarioEditor } from './app/scenarioEditor.js';
 import { createEditorPanel } from './ui/editorPanel.js';
 import { createEditorNotePicking } from './app/editorNotePicking.js';
 import { createPacenotePanel } from './ui/pacenotePanel.js';
+import { createSurfacePanel } from './ui/surfacePanel.js';
 import { createCourseObjectsPanel } from './ui/courseObjectsPanel.js';
 import { createRallySession, pickPlan, planStart } from './app/rally/rallySession.js';
 import { createRallyPicker } from './ui/rallyPicker.js';
@@ -605,7 +606,10 @@ if (scenarioEditor) {
     getPlayerName: loadProfileName,
     openSettings: mainMenu.openSettings,
   });
-  if (editorFormat.kinds.some((kind) => kind.id === 'stage')) createPacenotePanel(scenarioEditor);
+  if (editorFormat.kinds.some((kind) => kind.id === 'stage')) {
+    createPacenotePanel(scenarioEditor);
+    createSurfacePanel(scenarioEditor);
+  }
   if (editorFormat.objectTypes) createCourseObjectsPanel(scenarioEditor);
   createEditorNotePicking({ canvas: renderer.domElement, camera, editor: scenarioEditor });
   scenarioEditor.subscribe(() => {

@@ -80,10 +80,10 @@ const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
 
-/** Stage file -> { id (its file key), name, points, pacenotes, objects }. */
+/** Stage file -> { id (its file key), name, points, pacenotes, surfaces, objects }. */
 function readStage(json, id) {
-  const { name, items, pacenotes, objects } = stageKind.fromFile(json);
-  return { id, name, points: items, pacenotes, objects };
+  const { name, items, pacenotes, surfaces, objects } = stageKind.fromFile(json);
+  return { id, name, points: items, pacenotes, surfaces, objects };
 }
 
 /** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
@@ -115,6 +115,9 @@ async function buildPlan(kind, source, opened, key, json) {
 
 /** The plan's course objects: the rally's own and each stage's once, however often it's driven. */
 const planObjects = (plan) => [...new Set(plan.items.map((item) => item.stage?.objects ?? []))].flat().concat(plan.objects ?? []);
+
+/** The plan's surface sections: each stage's once (they stay in force on liaisons too). */
+const planSurfaces = (plan) => [...new Set(plan.items.map((item) => item.stage?.surfaces ?? []))].flat();
 
 /** Points of a plan item, in driving order. */
 const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item ? [item.point] : []);
@@ -586,6 +589,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     scenery.setPoints(plan.items.flatMap(itemPoints));
     scenery.setBase(plan.base);
     scenery.setObjects(planObjects(plan));
+    streets.setSurfaceSections(planSurfaces(plan));
     itemIndex = index;
     results = previousResults;
     finished = itemIndex >= plan.items.length;
@@ -626,6 +630,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (!picked) return; // Back: keep whatever was shown
       routeGuidance.stop();
       scenery.clear();
+      streets.setSurfaceSections([]);
       plan = null;
       run = null;
       finished = false;

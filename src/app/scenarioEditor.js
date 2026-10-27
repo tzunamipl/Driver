@@ -1,10 +1,11 @@
 // Scenario editor session (a game mode's Editor button): free driving plus placing the
 // mode's points at the car. Each gate snaps across the nearest road and faces along it unless
 // unticked per point (then exactly where placed / turned by hand). Stages get generated,
-// hand-corrected pacenotes (lib/rally/pacenotes.js). Course objects (format `objectTypes`: bales,
+// hand-corrected pacenotes (lib/rally/pacenotes.js) and surface sections marked at the car along the stage
+// road (lib/rally/surfaceSections.js), in force on the road while editing. Course objects (format `objectTypes`: bales,
 // tapes, signs) go exactly at the car, facing its way. They and the points' zone props stand as in the game
 // (lib/rally/controlScenery.js) but without collisions. Mode-specific parts come
-// from its format (lib/scenarios/formats.js); the panels are ui/editorPanel.js and ui/courseObjectsPanel.js. The draft
+// from its format (lib/scenarios/formats.js); the panels are ui/editorPanel.js, ui/courseObjectsPanel.js and ui/surfacePanel.js. The draft
 // lives in the editor's save slot; Publish commits it to the player's branch (lib/scenarios/publish.js).
 
 import {
@@ -20,14 +21,18 @@ import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSna
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 import { createControlScenery } from '../lib/rally/controlScenery.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
-import { generatePacenotes, pacenoteAt } from '../lib/rally/pacenotes.js';
+import { generatePacenotes, pacenoteAt, stageLine, spotOnLine, withSurfaceNotes } from '../lib/rally/pacenotes.js';
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
+import { placeSection } from '../lib/rally/surfaceSections.js';
+import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
 
 // Points without a known road direction retry the snap this often (streets still loading).
 const DIR_RETRY_MS = 1000;
 const NOTE_MARKER_M = 300; // pacenote markers within this of the car
 const NOTE_COLOR = 0xffffff; // minimap dot
 const OBJECT_LABEL_M = 150; // course object labels within this of the car
+const SECTION_SNAP_M = 30; // a section end (the car) this close to the stage road
+const SECTION_COLOR = 0xff8c1a; // minimap dot of the selected section's start
 
 function readStored(key) {
   try {
@@ -61,14 +66,17 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
   const listeners = new Set();
 
   // A new file keeps the folder of the one before it: authors work a region at a time.
-  const emptyDoc = (kind, { country = '', region = '' } = {}) => ({ kind, country, region, id: '', name: '', items: [], objects: [] });
+  const emptyDoc = (kind, { country = '', region = '' } = {}) => ({ kind, country, region, id: '', name: '', items: [], objects: [], surfaces: [] });
   const draft = readSaveField('editorDraft');
   const state = {
-    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', objects: [], ...draft } : emptyDoc(format.kinds[0].id),
+    doc: kindById.has(draft?.kind) && Array.isArray(draft.items) ? { country: '', region: '', objects: [], surfaces: [], ...draft } : emptyDoc(format.kinds[0].id),
     selected: -1,
     selectedObject: -1, // index into doc.objects
     selectedNote: -1, // index into doc.pacenotes.notes
     hoverNote: -1, // under the mouse in the world
+    selectedSection: -1, // index into doc.surfaces
+    sectionStart: null, // metres along the stage where the next section starts, once marked
+    newSectionSurface: 'gravel', // stageSurfaces.js id the next section gets
     showNoteBoards: readStored(EDITOR_PACENOTE_BOARDS_STORAGE_KEY) !== '0',
     source: OFFICIAL_SCENARIO_SOURCE, // where `index` comes from: the branch Publish goes to, else official
     index: null, // the source's index.json: { [indexKey]: file keys }
@@ -82,12 +90,55 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
 
   const kind = () => kindById.get(state.doc.kind);
 
+  let shownSurfaces = ''; // signature of the sections the road has
+  function syncSurfaces() {
+    const surfaces = state.doc.surfaces ?? [];
+    const signature = JSON.stringify(surfaces);
+    if (signature === shownSurfaces) return;
+    shownSurfaces = signature;
+    streets.setSurfaceSections(surfaces);
+  }
+
   function changed({ save = true } = {}) {
     if (save) {
       writeSaveField('editorDraft', state.doc);
       sceneryDirty = true;
+      syncSurfaces();
     }
     for (const listener of listeners) listener(state);
+  }
+
+  // The stage line of the last points it was routed for (routing again is slow, the tiles are cached anyway).
+  let line = null; // { key, promise }
+  function currentLine(what) {
+    const key = JSON.stringify(state.doc.items.map(({ type, lat, lon }) => [type, lat, lon]));
+    if (line?.key !== key) {
+      setStatus(`${what}: fetching roads…`);
+      line = { key, promise: stageLine(state.doc.items, (done, total) => setStatus(`${what}: fetching roads ${done}/${total}…`)) };
+      line.promise.catch(() => {
+        if (line?.key === key) line = null;
+      });
+    }
+    return line.promise;
+  }
+
+  /** Metres along the stage line where the car is; throws off the stage road. */
+  function carSpot(stage) {
+    const pos = carManager.getVehicle()?.chassisBody.position;
+    if (!pos) throw new Error('No car');
+    const { lat, lon } = viewFrame.toLatLon(pos.x, pos.z);
+    const { s, dist } = spotOnLine(stage, lat, lon);
+    if (dist > SECTION_SNAP_M) throw new Error(`Drive onto the stage road first (${Math.round(dist)} m off it)`);
+    return s;
+  }
+
+  /** Sections changed: the pacenotes' surface calls follow them. */
+  function sectionsChanged(stage) {
+    if (state.doc.pacenotes?.notes.length) {
+      state.doc.pacenotes = withSurfaceNotes(state.doc.pacenotes, stage, state.doc.surfaces);
+      state.selectedNote = -1;
+    }
+    changed();
   }
 
   function setStatus(text, error = false) {
@@ -238,6 +289,8 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       state.doc = emptyDoc(kindId, state.doc);
       state.selected = -1;
       state.selectedNote = -1;
+      state.selectedSection = -1;
+      state.sectionStart = null;
       state.selectedObject = -1;
       state.status = { text: '', error: false };
       changed();
@@ -400,6 +453,7 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       if (state.doc.pacenotes?.notes.length && !window.confirm('Generate pacenotes again? Your edits to them will be lost.')) return;
       setStatus('Pacenotes: fetching roads…');
       const pacenotes = await generatePacenotes(state.doc.items, {
+        surfaces: state.doc.surfaces ?? [],
         onProgress: (done, total) => setStatus(`Pacenotes: fetching roads ${done}/${total}…`),
       });
       state.doc.pacenotes = pacenotes;
@@ -471,6 +525,68 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       if (note) addressSearch.teleport(note.lat, note.lon, `Pacenote ${state.selectedNote + 1}`);
     },
 
+    /** Stage: the surface (stageSurfaces.js id) the next section gets. */
+    setNewSectionSurface(id) {
+      state.newSectionSurface = id;
+      changed({ save: false });
+    },
+    /** Stage: the next section starts where the car is on the stage road. */
+    markSectionStart: guard(async () => {
+      const stage = await currentLine('Section');
+      state.sectionStart = carSpot(stage);
+      setStatus(`Section starts at ${Math.round(state.sectionStart)} m. Drive to its end, then End at car.`);
+    }),
+    /** Stage: the section from the marked start to the car, laid over the others (it wins where they overlap); selected. */
+    markSectionEnd: guard(async () => {
+      if (state.sectionStart == null) throw new Error('Mark the start first');
+      const stage = await currentLine('Section');
+      const end = carSpot(stage);
+      const from = Math.min(state.sectionStart, end);
+      const to = Math.max(state.sectionStart, end);
+      if (to - from < 5) throw new Error('Drive further along the stage road: the section is under 5 m');
+      const surface = state.newSectionSurface;
+      state.doc.surfaces = placeSection(stage, state.doc.surfaces ?? [], { surface, from, to });
+      state.sectionStart = null;
+      state.selectedSection = state.doc.surfaces.findIndex((section) => section.surface === surface && section.from <= from + 1 && section.to >= to - 1);
+      sectionsChanged(stage);
+      setStatus(`${STAGE_SURFACES[surface].label} from ${Math.round(from)} m to ${Math.round(to)} m.`);
+    }),
+    cancelSectionStart() {
+      state.sectionStart = null;
+      setStatus('');
+    },
+    /** `toggle`: selecting the selected section again clears it. */
+    selectSection(i, toggle = true) {
+      state.selectedSection = toggle && state.selectedSection === i ? -1 : i;
+      changed({ save: false });
+    },
+    /** Selected section: another surface (merging with same-surface neighbours). */
+    setSectionSurface: guard(async (id) => {
+      const section = state.doc.surfaces?.[state.selectedSection];
+      if (!section || section.surface === id) return;
+      const stage = await currentLine('Section');
+      const others = state.doc.surfaces.filter((s) => s !== section);
+      state.doc.surfaces = placeSection(stage, others, { surface: id, from: section.from, to: section.to });
+      state.selectedSection = state.doc.surfaces.findIndex((s) => s.surface === id && s.from <= section.from && s.to >= section.to);
+      sectionsChanged(stage);
+      setStatus('');
+    }),
+    deleteSection: guard(async () => {
+      const surfaces = state.doc.surfaces;
+      if (!surfaces?.[state.selectedSection]) return;
+      // Only the surface calls need the line.
+      const stage = state.doc.pacenotes?.notes.length ? await currentLine('Section') : null;
+      surfaces.splice(state.selectedSection, 1);
+      state.selectedSection = Math.min(state.selectedSection, surfaces.length - 1);
+      if (stage) sectionsChanged(stage);
+      else changed();
+      setStatus('');
+    }),
+    goToSection() {
+      const section = state.doc.surfaces?.[state.selectedSection];
+      if (section) addressSearch.teleport(section.points[0][0], section.points[0][1], `${STAGE_SURFACES[section.surface].label} section`);
+    },
+
     /** Course object at the car, facing its way, after the selected one; selected. */
     placeObject(type) {
       const body = carManager.getVehicle()?.chassisBody;
@@ -522,9 +638,11 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       if ((state.doc.items.length || state.doc.objects.length) && !window.confirm(`Open ${key}? Unsaved points will be lost.`)) return;
       await loadIndex();
       // The file's folder is where it's saved back to.
-      state.doc = { kind: kindId, objects: [], ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
+      state.doc = { kind: kindId, objects: [], surfaces: [], ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
       state.selected = -1;
       state.selectedNote = -1;
+      state.selectedSection = -1;
+      state.sectionStart = null;
       state.selectedObject = -1;
       changed();
       setStatus(`Opened ${key} from ${formatSource(source)}`);
@@ -569,6 +687,8 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
         const def = format.objectTypes[object.type];
         points.push({ lat: object.lat, lon: object.lon, color: def.color, label: def.short, gate: false, selected: true });
       }
+      const section = state.doc.surfaces?.[state.selectedSection];
+      if (section) points.push({ lat: section.points[0][0], lon: section.points[0][1], color: SECTION_COLOR, label: STAGE_SURFACES[section.surface].label, gate: false, selected: true });
       return points;
     },
 
@@ -649,5 +769,6 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       scenery?.shiftOrigin(dx, dz);
     },
   };
+  syncSurfaces(); // the draft's
   return editor;
 }

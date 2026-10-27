@@ -50,6 +50,37 @@ export const SURFACE_COMPOUNDS = {
     dirtLevel: 0.35,
     dirtSensitivity: 0.4,
   },
+  // Cobbles / setts (stage surface sections): a bit less grip than asphalt, worse once broken
+  // loose or wet (polished stone), and a constant fine rumble.
+  cobblestone: {
+    frictionMultiplier: 1.3,
+    dynamicFrictionRatio: 0.72,
+    widthGripExponent: 0.3,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 0.8,
+    imperfectionCm: 3,
+    tyreWearMultiplier: 1.1,
+    punctureMultiplier: 1.1,
+    rimBreakMultiplier: 1.5,
+    wetSensitivity: 1.15,
+    dirtLevel: 0.05,
+    dirtSensitivity: 1,
+  },
+  // Mud (stage surface sections): slippery and draggy, cakes the tyres; already wet, so rain adds little.
+  mud: {
+    frictionMultiplier: 0.5,
+    dynamicFrictionRatio: 0.85,
+    widthGripExponent: 0.5,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 3.2,
+    imperfectionCm: 12,
+    tyreWearMultiplier: 0.6,
+    punctureMultiplier: 0.8,
+    rimBreakMultiplier: 0.5,
+    wetSensitivity: 0.25,
+    dirtLevel: 0.95,
+    dirtSensitivity: 0.2,
+  },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
     frictionMultiplier: 0.7,

@@ -1,5 +1,6 @@
 // Pacenotes window (left side, scenario editor, stages only): generate the stage's notes, the
-// list of calls, and the selected note's direction / grade / junction. Notes are also picked
+// list of calls, and the selected note's direction / grade / junction (surface calls: only go to / delete,
+// they follow the Surfaces window). Notes are also picked
 // by clicking their tiles in the world (app/editorNotePicking.js). Patched on every editor change.
 
 import { DIRS, GRADES, callText } from '../lib/rally/pacenoteCalls.js';
@@ -37,10 +38,13 @@ export function createPacenotePanel(editor) {
   const gradeButtons = GRADES.map((g) => button(String(g), () => editor.setNoteField('grade', g)));
   const junctionInput = el('input', { type: 'checkbox' });
   junctionInput.addEventListener('change', () => editor.setNoteField('junction', junctionInput.checked));
-  const noteEl = el('div', { className: 'editor-selected pacenote-selected' }, [
+  const cornerEl = el('div', { className: 'pacenote-corner' }, [
     el('div', { className: 'editor-buttons editor-kinds' }, dirButtons),
     el('div', { className: 'editor-buttons editor-kinds' }, gradeButtons),
     el('label', { className: 'editor-check', title: 'The stage turns off the natural way here (or goes straight on where the road bends away).' }, [junctionInput, 'At junction']),
+  ]);
+  const noteEl = el('div', { className: 'editor-selected pacenote-selected' }, [
+    cornerEl,
     el('div', { className: 'editor-buttons' }, [
       button('Go to', () => editor.goToNote(), { title: 'Teleport to this note' }),
       button('Delete', () => editor.deleteNote()),
@@ -70,6 +74,7 @@ export function createPacenotePanel(editor) {
     boardsInput.checked = state.showNoteBoards;
     const note = notes[state.selectedNote];
     noteEl.hidden = !note;
+    cornerEl.hidden = !!note?.surface;
     if (note) {
       for (const [i, btn] of dirButtons.entries()) btn.classList.toggle('active', DIRS[i] === note.dir);
       for (const [i, btn] of gradeButtons.entries()) btn.classList.toggle('active', GRADES[i] === note.grade);

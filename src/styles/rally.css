@@ -67,6 +67,7 @@
 .pacenote-arrow { display: block; width: 40px; height: 40px; margin: 0 auto; }
 .pacenote-arrow-line { fill: none; stroke: var(--pacenote-tint); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
 .pacenote-arrow-head { fill: var(--pacenote-tint); transition: fill 0.3s; }
+.pacenote-surface { box-sizing: border-box; width: 28px; height: 28px; margin: 6px auto; border: 3px solid var(--pacenote-tint); transition: border-color 0.3s; }
 .pacenote-call { font: bold 18px/1.1 monospace; }
 .pacenote-gap { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; color: #ddd; white-space: nowrap; }
 .pacenote-fork { width: 10px; height: 12px; }

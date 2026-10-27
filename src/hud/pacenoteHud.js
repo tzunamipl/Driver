@@ -1,9 +1,10 @@
 // Pacenote strip under the rally clock: the next few notes as tiles, the coming one first -
 // an arrow bent by the grade, the call (L4, R2, Straight) and what follows it (a distance,
-// into, and), with a fork icon at junctions.
+// into, and), with a fork icon at junctions. Surface calls show a swatch of the surface instead of the arrow.
 
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
 import { arrowPaths, ARROW_VIEWBOX, FORK_PATH } from '../lib/rally/pacenoteIcon.js';
+import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -29,7 +30,7 @@ const ENTER_DX = 28;
 const LEAVE_DX = -36;
 
 function gradeClass(note) {
-  if (note.dir === 'S') return '';
+  if (note.surface || note.dir === 'S') return '';
   if (note.grade === 1) return ' grade-1';
   return note.grade <= 3 ? ' grade-2-3' : '';
 }
@@ -43,7 +44,9 @@ function buildTile(pacenotes, i) {
     fork.append(svg('path', { d: FORK_PATH }));
     gap.append(fork);
   }
-  tile.append(arrowIcon(note), el('div', 'pacenote-call', noteLabel(note)), gap);
+  const icon = note.surface ? el('div', 'pacenote-surface') : arrowIcon(note);
+  if (note.surface) icon.style.background = STAGE_SURFACES[note.surface].color;
+  tile.append(icon, el('div', 'pacenote-call', noteLabel(note)), gap);
   return tile;
 }
 
