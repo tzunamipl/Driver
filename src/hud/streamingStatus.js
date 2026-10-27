@@ -49,7 +49,7 @@ export function createStreamingStatus() {
   let accum = 0;
 
   /** Every streamer has pendingWork() -> { downloads, builds }. */
-  function update(delta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas, roadside, trees, bushes, rocks }) {
+  function update(delta, { terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas, places, roadside, trees, bushes, rocks }) {
     accum += delta;
     if (accum < UPDATE_INTERVAL) return;
     const step = accum;
@@ -61,6 +61,7 @@ export function createStreamingStatus() {
       ['roads', [streets]],
       ['water', [rivers, waterAreas]],
       ['landuse', [builtUpAreas, landcoverAreas]],
+      ['places', [places]],
       ['roadside', [roadside]],
       ['trees', [trees, bushes]],
       ['rocks', [rocks]],

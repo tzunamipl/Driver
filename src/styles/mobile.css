@@ -19,7 +19,6 @@
     line-height: 21px;
     padding: 0 7px;
   }
-  #streaming-status { bottom: 104px; }
   #version-badge { bottom: 88px; }
   #odometer { --odo-scale: 0.48; }
   #minimap {
@@ -47,10 +46,10 @@
     gap: 6px;
   }
   #speedo {
-    width: 132px;
-    height: 132px;
+    width: 152px;
+    height: 152px;
   }
-  #speedo .gauge-needle { height: 50px; }
+  #speedo .gauge-needle { height: 58px; }
   #gauges { --tach-size: 106px; }
   #aux-gauge {
     width: 86px;

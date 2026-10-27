@@ -274,3 +274,19 @@
 }
 .repair-callout-fit { color: #000; font-weight: bold; }
 .repair-callout-note { margin-top: 4px; font-size: 11px; color: #ffd7a0; }
+/* Free roam: fixes every damaged part at once (app/roadsideRepair.js). */
+#repair-fix-all {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 10px 28px;
+  font-family: var(--w95-font);
+  font-size: 18px;
+  font-weight: bold;
+  color: #000;
+  border: 3px solid #f6c900;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.72);
+}
+#repair-fix-all[hidden] { display: none; }

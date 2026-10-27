@@ -1,17 +1,17 @@
 // Real weather at the car: Open-Meteo hourly forecast (free, no key) for its lat/lon,
 // read at the simulated time of day (daylight.js), so temperature follows day and night
-// and place. Feeds lib/weather.js: air temperature and the cloud preset (unless the
+// and place. Feeds lib/weather.js: air temperature, visibility (fog) and the cloud preset (unless the
 // debug panel overrides it), and with live wetness on (debug) the road wetness: seeded from the
 // last day's weather, then carried on by the weather now, debug overrides included
 // (lib/rally/rallyWeather.js model). Offline / failed fetches keep the last values.
 
 import { TIME_SCALE, WEATHER_REFETCH_KM, WEATHER_REFETCH_MIN } from '../config.js';
-import { getAirTempOverrideC, getRainOverrideMmH, setAirTempC, setCloudPreset, setForecast, setWetness } from '../lib/weather.js';
-import { integrateWetness, stepWetness, MS_PER_DAY } from '../lib/rally/rallyWeather.js';
+import { getAirTempOverrideC, getRainOverrideMmH, setAirTempC, setCloudPreset, setForecast, setVisibilityM, setWetness } from '../lib/weather.js';
+import { integrateWetness, stepWetness, visibilityFor, MS_PER_DAY } from '../lib/rally/rallyWeather.js';
 import { sunDirection } from '../lib/sunPosition.js';
 
 const API_URL = 'https://api.open-meteo.com/v1/forecast';
-const HOURLY = ['temperature_2m', 'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'precipitation', 'weather_code', 'wind_speed_10m'];
+const HOURLY = ['temperature_2m', 'cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high', 'precipitation', 'weather_code', 'wind_speed_10m', 'visibility'];
 const FETCH_TIMEOUT_MS = 10_000;
 const RETRY_AFTER_MS = 5 * 60_000;
 const SAMPLE_INTERVAL_MS = 2_000;
@@ -122,10 +122,12 @@ export function createWeatherFeed() {
     const code = hourly.weather_code[t < 0.5 ? i : i + 1] ?? 0;
     const tempC = Math.round(at('temperature_2m') * 10) / 10;
     const clouds = classifyClouds({ ...cover, code });
+    const visibilityM = visibilityFor(hourly.visibility ? at('visibility') : null, code);
     setAirTempC(tempC);
+    setVisibilityM(visibilityM);
     if (!cloudOverride) setCloudPreset(clouds);
     if (liveWetness) setWetness(carryWetness(timeMs, lat, lon, { tempC, cover, precipMmH: at('precipitation'), windMs: at('wind_speed_10m') }));
-    setForecast({ tempC, clouds, code, precipMm: at('precipitation'), cover });
+    setForecast({ tempC, clouds, code, precipMm: at('precipitation'), visibilityM, cover });
   }
 
   /**

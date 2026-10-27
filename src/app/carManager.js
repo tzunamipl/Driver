@@ -2,21 +2,25 @@ import { createCar, createRemoteCar } from '../lib/car.js';
 import { BUILDING_COLLISION_GROUP } from '../lib/buildings.js';
 import { GROUND_COLLISION_GROUP } from '../lib/terrain.js';
 import { DEFAULT_VEHICLE_ID, getVehicle } from '../lib/vehicles/index.js';
-import { DEFAULT_BODY_COLOR } from '../config.js';
+import { DEFAULT_BODY_COLOR, SCORING_ENABLED } from '../config.js';
 import { applyImpactRoll, endImpact } from './collisions.js';
 import { getTyreSetup } from '../lib/garage.js';
 import { sameTyreSetup } from '../lib/tyres/setup.js';
 import { wheelSide } from '../lib/wheelContact.js';
+import { getAirTempC } from '../lib/weather.js';
 
 // Local car lifecycle (spawn/respawn/swap) and the remote players' cars.
 
+// Impact speed (m/s, audio/impact.js) a breaking rim sounds like.
+const RIM_BREAK_THUD = 8;
+
 /**
- * initialFuel / initialTyres / initialHeat / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
+ * initialFuel / initialTyres / initialHeat / initialBrakes / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
  * repairOnReset false: a reset or teleport leaves the damage and worn tyres as they are.
  * refillWhenEmpty false: an empty tank stays empty (no power) until refuelled.
  * noDamage: the car is repaired on spawn and takes no damage (editor).
  */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true, noDamage = false }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialBrakes = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true, noDamage = false }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -40,10 +44,11 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   const remotes = new Map();
   // Fuel of the last car removed (or the save), so a recolour/respawn doesn't refill it.
   let carriedFuel = initialFuel;
-  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, tempC, dirt, wetness }], spares? }
+  let carriedTyres = initialTyres; // { vehicleId, setup, savedAt?, wheels: [{ tread, punctured, rimBroken, tempC, dirt, wetness }], spares? }
   let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
+  let carriedBrakes = initialBrakes; // { vehicleId, savedAt?, ...lib/brakes.js getState() }; savedAt (save only) cools the rotors by the time away
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
-  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level }
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, exhaust: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level }
   let carVehicleId = null; // vehicle id the current car was built as
 
   /** Takes no damage for `seconds` (a teleport drop landing), unless already noDamage for good. */
@@ -63,10 +68,14 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     return vehicle?.heat ? { vehicleId: carVehicleId, savedAt: Date.now(), ...vehicle.heat.getState() } : null;
   }
 
+  function getBrakeState() {
+    return vehicle?.brakes ? { vehicleId: carVehicleId, savedAt: Date.now(), ...vehicle.brakes.getState() } : null;
+  }
+
   function getDamageState() {
     if (!vehicle?.lamps) return null;
     const { getShockState, lamps, engine, getRepairState, supplies } = vehicle;
-    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), repairs: getRepairState(), supplies, dirt: vehicle.bodyDirt.getState() };
+    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), exhaust: vehicle.exhaust.getState(), repairs: getRepairState(), supplies, dirt: vehicle.bodyDirt.getState() };
   }
 
   function getTyreState() {
@@ -93,10 +102,15 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       const parkedS = Number.isFinite(carriedHeat.savedAt) ? (Date.now() - carriedHeat.savedAt) / 1000 : 0;
       nextVehicle.heat.setState(carriedHeat, parkedS);
     }
+    if (nextVehicle.brakes && carriedBrakes?.vehicleId === carVehicleId) {
+      const parkedS = Number.isFinite(carriedBrakes.savedAt) ? (Date.now() - carriedBrakes.savedAt) / 1000 : 0;
+      nextVehicle.brakes.setState(carriedBrakes, parkedS, getAirTempC());
+    }
     if (nextVehicle.lamps && carriedDamage?.vehicleId === carVehicleId) {
       nextVehicle.setShockState(carriedDamage.shocks);
       nextVehicle.lamps.setState(carriedDamage.lamps);
       nextVehicle.engine.gearbox.setState(carriedDamage.gearbox);
+      nextVehicle.exhaust.setState(carriedDamage.exhaust);
       nextVehicle.setRepairState(carriedDamage.repairs);
       nextVehicle.setSupplies(carriedDamage.supplies);
       nextVehicle.bodyDirt.setState(carriedDamage.dirt);
@@ -106,14 +120,19 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       tyrePopSound?.play(wheelSide(nextVehicle.wheelInfos[i]));
       rimSparks?.burst(nextVehicle.wheelInfos[i], nextVehicle.chassisBody.velocity);
     };
+    nextVehicle.onRimBreak = () => impactSound?.play(RIM_BREAK_THUD);
     const onCollide = (body) => (event) => {
       const hitGroup = event.body.collisionFilterGroup;
       if (body === nextVehicle.chassisBody && nextVehicle.heat && !nextVehicle.noDamage && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
         const hit = endImpact(body, event.contact);
         if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
-        if (hit.under) nextVehicle.heat.hitSump(hit.speed);
+        if (hit.under) {
+          nextVehicle.heat.hitSump(hit.speed);
+          nextVehicle.brakes?.hitPipes(hit.speed, hit.z, nextVehicle.heat.skidPlateHealth > 0);
+        }
         nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
         nextVehicle.engine.gearbox.hit(hit.speed);
+        nextVehicle.exhaust?.hit(hit);
       }
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);
@@ -145,6 +164,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     carriedFuel = getFuelState() ?? carriedFuel;
     carriedTyres = getTyreState() ?? carriedTyres;
     if (vehicle.heat) carriedHeat = { vehicleId: carVehicleId, ...vehicle.heat.getState() };
+    if (vehicle.brakes) carriedBrakes = { vehicleId: carVehicleId, ...vehicle.brakes.getState() };
     carriedDamage = getDamageState() ?? carriedDamage;
     world.removeEventListener('preStep', vehicle.preStepCallback);
     if (stabilityAssistCallback) world.removeEventListener('preStep', stabilityAssistCallback);
@@ -278,6 +298,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   }
 
   function addScore(delta) {
+    if (!SCORING_ENABLED) return;
     score += delta;
   }
 
@@ -303,6 +324,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
     getVehicleId: () => currentVehicleId,
     getFuelState,
     getHeatState,
+    getBrakeState,
     getDamageState,
     getTyreState,
     getColor: () => currentColor,

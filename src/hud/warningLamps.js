@@ -2,23 +2,13 @@
 // current vehicle has (first column sits next to the gauges). Placeholder lamps
 // (no `on`) stay dark until their feature exists.
 
-// Driven wheels outrunning the ground by this much light the wheelspin lamp.
-const SPIN_MIN_EXCESS_MS = 2;
-const SPIN_MIN_RATIO = 1.15;
-// Momentary lamps (ABS, wheelspin) stay lit this long so they don't flicker.
+// Momentary lamps (ABS, traction control) stay lit this long so they don't flicker.
 const HOLD_MS = 300;
 // Low-fuel lamp below this tank fraction (the fuel gauge's red band).
 const LOW_FUEL_FRACTION = 0.125;
 
 const wheeled = (v) => v.vehicleType !== 'hover';
 const hasEngine = (v) => !!v.engine;
-
-function wheelspin(v) {
-  const wheelSpeed = Math.abs(v.getDriveWheelSpeed());
-  const groundSpeed = v.chassisBody.velocity.length();
-  const grounded = v.driveWheels.some((i) => v.wheelInfos[i].isInContact);
-  return grounded && wheelSpeed - groundSpeed > SPIN_MIN_EXCESS_MS && wheelSpeed > groundSpeed * SPIN_MIN_RATIO;
-}
 
 // Panel order: column by column, top to bottom.
 const LAMPS = [
@@ -43,8 +33,15 @@ const LAMPS = [
     svg: '<circle cx="16" cy="12" r="8"/><path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15"/><text x="16" y="14.6" font-size="6.5">ABS</text>',
   },
   {
-    id: 'wheelspin', title: 'Traction control', color: 'amber', has: (v) => wheeled(v) && hasEngine(v) && v.tractionControl && !!v.getDriveWheelSpeed, hold: true,
-    on: wheelspin,
+    id: 'brakes', title: 'Brakes (low fluid or overheating)', color: 'red', has: (v) => !!v.brakes, on: (v) => v.brakes.warning,
+    svg: '<circle cx="16" cy="12" r="8"/><path d="M6 4.5a11 11 0 0 0 0 15M26 4.5a11 11 0 0 1 0 15"/><text x="16" y="16.2" font-size="11">!</text>',
+  },
+  {
+    // Amber while TC trims a driven wheel, steady red while switched off (click toggles).
+    id: 'wheelspin', title: 'Traction control (click to switch off/on)', color: 'amber', has: (v) => wheeled(v) && hasEngine(v) && !!v.tractionControl, hold: true,
+    on: (v) => v.tcOff || v.wheelInfos.some((w) => w.tcActive),
+    colorOf: (v) => (v.tcOff ? 'red' : 'amber'),
+    click: (v) => { v.tcOff = !v.tcOff; },
     svg: '<path d="M8 13l2.5-5h11l2.5 5v3H8z"/><path d="M7 21q2-2.5 4 0t4 0M17 21q2-2.5 4 0t4 0"/>',
   },
   {

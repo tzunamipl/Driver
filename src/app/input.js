@@ -88,6 +88,8 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   // Edge-triggered manual shifts: E up, Q down.
   let shiftUpWasPressed = false;
   let shiftDownWasPressed = false;
+  // Cruise mode target, set each frame from the road under the car.
+  let cruiseLimitKmh = 0;
 
   /**
    * Applies key state to the vehicle (engine, steering, brake, R reset).
@@ -150,6 +152,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     const engineMagnitude = vehicle.engine
       ? vehicle.engine.update(dt, {
           mode: gearMode,
+          cruiseSpeed: cruiseLimitKmh / 3.6,
           direction: manual ? (forward ? 1 : 0) : pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
           throttle: manual ? (forward ? 1 : 0) : pedalBraking || !(forward || backward) ? 0 : 1,
           wheelSpeedAbs: Math.abs(vehicle.getDriveWheelSpeed?.() ?? forwardSpeed),
@@ -178,7 +181,8 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     // engine force is a per-wheel value at the 2-wheel baseline; scale so
     // total force is the same whatever the number of driven wheels.
     const perWheelEngineForce = engineForce * (2 / driveWheels.length);
-    for (const i of driveWheels) vehicle.applyEngineForce(perWheelEngineForce, i);
+    const tc = !!vehicle.tractionControl && !vehicle.tcOff;
+    for (const i of driveWheels) vehicle.applyEngineForce(perWheelEngineForce, i, tc);
 
     // Speed-sensitive steering lock between maxSteerAt0 and maxSteerAt100
     // (100 km/h+), by unsigned speed.
@@ -285,8 +289,16 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     },
     isLocked: () => locked,
     getGearMode: () => gearMode,
+    setCruiseLimitKmh(kmh) {
+      cruiseLimitKmh = kmh;
+    },
+    getCruiseLimitKmh: () => cruiseLimitKmh,
     toggleGearMode() {
       gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];
+      saveChoice(GEAR_MODE_STORAGE_KEY, gearMode);
+    },
+    setGearMode(mode) {
+      gearMode = mode;
       saveChoice(GEAR_MODE_STORAGE_KEY, gearMode);
     },
     /** 'auto' | 'manual' as chosen; automatics drive as 'auto' regardless. */

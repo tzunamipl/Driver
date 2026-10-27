@@ -33,6 +33,7 @@ export default {
   },
   suspensionForceG: 8,
   engine: 'v6d',
+  exhaustTips: [{ pos: [-1.1, 2.05, 0.95], dir: [0, 1, 0] }], // stack top
   enginePowerHp: 500,
   peakTorqueNm: 2550,
   peakTorqueRpm: 1100,
@@ -47,6 +48,7 @@ export default {
   shiftDurationS: 0.8,
   engineInertia: 2.2,
   brakeForce: 200,
+  brakes: { front: { discMm: 430, vented: true }, rear: { drumMm: 410 } },
   tractionControl: true,
   mass: 7500,
   fuelTankL: 900,
@@ -60,6 +62,7 @@ export default {
   trailer: {
     buildBody: buildTrailer,
     mass: 7000, // empty
+    brakes: { rear: { drumMm: 410 } },
     gloss: 0, // fabric curtains
     hitch: [0, 0.15, -1.55],
     kingpin: [0, 0.15, 5.6],

@@ -42,6 +42,7 @@ export default {
   shiftDurationS: 0.7,
   engineInertia: 1.2,
   brakeForce: 200,
+  brakes: { front: { discMm: 375, vented: true }, rear: { drumMm: 360 } },
   mass: 4800, // empty
   fuelTankL: 120,
   fuelType: 'diesel',

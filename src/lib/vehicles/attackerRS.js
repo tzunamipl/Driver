@@ -6,6 +6,7 @@ import { buildBody } from './geometry/attackerRS.js';
 export default {
   id: 'C009', // display name in ./names.js
   category: 'rally',
+  skidPlate: true, // engineHeat.js: takes underbody hits before the sump
   defaultColor: 0xc8102e, // red
   rimColor: 0xf5f5f5,
   rims: { default: 'rally8', loose: 'rally6', winter: 'rally6' }, // car/rims.js, per tyre compound group
@@ -39,6 +40,7 @@ export default {
   reverseRatio: 3.416,
   shiftDurationS: 0.25,
   brakeForce: 200,
+  brakes: { front: { discMm: 300, vented: true }, rear: { discMm: 280, vented: true }, pads: 'race' },
   abs: false,
   mass: 1230,
   fuelTankL: 60,

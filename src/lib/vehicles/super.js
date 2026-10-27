@@ -1,4 +1,5 @@
 import { buildBody, AXLES_Z } from './geometry/super.js';
+import { METALLIC_PAINT } from './geometry/paint.js';
 
 // Super: compact mid-engined supercar, 4.0 twin-turbo V8 with 680 hp,
 // 7-speed, rear drive on staggered 245/35 R19 + 305/30 R20.
@@ -10,7 +11,7 @@ export default {
   id: 'C026', // display name in ./names.js
   category: 'cars',
   outsideTempGauge: true, // dash LCD: outside temperature
-  defaultColor: 0xe8b400, // yellow
+  defaultColor: 0xc8102e | METALLIC_PAINT, // cherry red, metallic
   rimColor: 0x1e1e20,
   rims: { default: 'spoke5Twist', loose: 'rally6' }, // car/rims.js, per tyre compound group
   buildBody,
@@ -47,6 +48,7 @@ export default {
   reverseRatio: 2.7,
   shiftDurationS: 0.12,
   brakeForce: 260,
+  brakes: { front: { discMm: 380, vented: true }, rear: { discMm: 360, vented: true }, pads: 'race' },
   tractionControl: true,
   mass: 1350,
   fuelTankL: 80,

@@ -95,6 +95,7 @@ export class VectorTileLayer {
     this._itemsBySourceTile = new Map(); // tileZoom tile key -> items decoded from it
     this._sourceTiles = new Map(); // tileZoom tile key -> decoded { byTile, items }, reused across region moves
     this._regionPending = null;
+    this._regionTilesLeft = 0; // source tiles of the pending region not fetched yet
     this._regionFailedAt = 0;
     this._generation = 0;
     this._frame = 0; // bumped whenever local coordinates move (items cache theirs per frame)
@@ -208,8 +209,14 @@ export class VectorTileLayer {
     }
 
     const cached = this._sourceTiles;
+    this._regionTilesLeft = tileCoords.length;
+    const tileDone = () => {
+      if (generation === this._generation) this._regionTilesLeft--;
+    };
     const results = await Promise.allSettled(
-      tileCoords.map(([tx, ty]) => cached.get(tileKey(tx, ty)) ?? this._fetchTile(tx, ty, sliced))
+      tileCoords.map(([tx, ty]) =>
+        Promise.resolve(cached.get(tileKey(tx, ty)) ?? this._fetchTile(tx, ty, sliced)).finally(tileDone)
+      )
     );
     if (generation !== this._generation) return; // recentered meanwhile
 
@@ -323,7 +330,7 @@ export class VectorTileLayer {
 
   /** Pending work for the streaming indicator: a region fetch, and tile mesh builds. */
   pendingWork() {
-    return { downloads: this._regionPending ? 1 : 0, builds: this._buildQueue.length + this._inProgressBuilds.size };
+    return { downloads: this._regionPending ? Math.max(1, this._regionTilesLeft) : 0, builds: this._buildQueue.length + this._inProgressBuilds.size };
   }
 
   /** True once a tile's meshes are built (not just fetched) - for the debug stats HUD. */

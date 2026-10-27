@@ -41,6 +41,7 @@ export default {
   reverseRatio: 3.68,
   shiftDurationS: 0.5,
   brakeForce: 200,
+  brakes: { front: { discMm: 348, vented: true }, rear: { discMm: 330, vented: true } },
   tractionControl: true,
   mass: 1950,
   fuelTankL: 85,

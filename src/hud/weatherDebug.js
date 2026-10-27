@@ -1,21 +1,27 @@
 // Debug-view weather: forecast readout, road Live / Dry / Damp / Wet (surface wetness: wet road
 // look + tyre wet grip; Live = from the forecast's last day, weatherFeed.js), a cloud preset
-// override, a rainfall override and an air temperature override (Live or a slider). The choices persist.
+// override, a rainfall override, a fog (visibility) override and an air temperature override (Live or a slider).
+// The choices persist.
 
 import { WEATHER_DEBUG_STORAGE_KEY } from '../config.js';
 import { formatTemp, formatRain } from '../lib/units.js';
+import { rainVisibilityM } from '../app/weatherFog.js';
 import {
   CLOUD_PRESETS,
+  NO_FOG_VISIBILITY_M,
   getAirTempC,
   getAirTempOverrideC,
   getCloudPreset,
   getForecast,
   getRainMmH,
   getRainOverrideMmH,
+  getVisibilityM,
+  getVisibilityOverrideM,
   getWetness,
   onWeatherChange,
   setAirTempOverrideC,
   setRainOverrideMmH,
+  setVisibilityOverrideM,
   setWetness,
 } from '../lib/weather.js';
 
@@ -31,6 +37,14 @@ const RAIN = [
   { mmH: 1, label: 'Light' },
   { mmH: 4, label: 'Moderate' },
   { mmH: 10, label: 'Heavy' },
+];
+const FOG = [
+  { m: null, label: 'Live' },
+  { m: NO_FOG_VISIBILITY_M, label: 'None' },
+  { m: 8_000, label: 'Haze' },
+  { m: 2_000, label: 'Mist' },
+  { m: 400, label: 'Fog' },
+  { m: 100, label: 'Dense' },
 ];
 const TEMP_MIN_C = -25;
 const TEMP_MAX_C = 45;
@@ -80,6 +94,7 @@ export function createWeatherDebug(hudEl, weatherFeed) {
   if (CLOUD_PRESETS.includes(saved.clouds)) weatherFeed.setCloudOverride(saved.clouds);
   if (Number.isFinite(saved.tempC)) setAirTempOverrideC(saved.tempC);
   if (Number.isFinite(saved.rainMmH)) setRainOverrideMmH(saved.rainMmH);
+  if (Number.isFinite(saved.visibilityM)) setVisibilityOverrideM(saved.visibilityM);
 
   const roadButtons = buttonRow(hudEl.querySelector('.debug-weather-road'), ROAD, ({ live, wetness }) => {
     weatherFeed.setLiveWetness(!!live);
@@ -95,6 +110,12 @@ export function createWeatherDebug(hudEl, weatherFeed) {
   const rainButtons = buttonRow(hudEl.querySelector('.debug-weather-rain'), RAIN, ({ mmH }) => {
     setRainOverrideMmH(mmH);
     save({ ...load(), rainMmH: mmH });
+    sync();
+  });
+
+  const fogButtons = buttonRow(hudEl.querySelector('.debug-weather-fog'), FOG, ({ m }) => {
+    setVisibilityOverrideM(m);
+    save({ ...load(), visibilityM: m });
     sync();
   });
 
@@ -123,6 +144,8 @@ export function createWeatherDebug(hudEl, weatherFeed) {
     cloudButtons.forEach((btn, i) => btn.classList.toggle('active', CLOUDS[i].id === override));
     const forcedRain = getRainOverrideMmH();
     rainButtons.forEach((btn, i) => btn.classList.toggle('active', RAIN[i].mmH === forcedRain));
+    const forcedFog = getVisibilityOverrideM();
+    fogButtons.forEach((btn, i) => btn.classList.toggle('active', FOG[i].m === forcedFog));
 
     const forcedTempC = getAirTempOverrideC();
     tempLiveButton.classList.toggle('active', forcedTempC == null);
@@ -136,7 +159,10 @@ export function createWeatherDebug(hudEl, weatherFeed) {
     const road = live ? `\nroad wetness ${Math.round(wetness * 100)} % (live)` : '';
     const temp = forcedTempC == null ? formatTemp(getAirTempC(), 1) : `${formatTemp(getAirTempC(), 1)} (forced)`;
     const rain = `\nrainfall ${formatRain(getRainMmH())}${forcedRain == null ? '' : ' (forced)'}`;
-    readoutEl.textContent = `${temp}  ${sky}  [${source}]${cover}${road}${rain}`;
+    const distText = (m) => (m >= NO_FOG_VISIBILITY_M ? 'clear' : m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+    const rainHazeM = rainVisibilityM(getRainMmH());
+    const fog = `\nvisibility ${distText(getVisibilityM())}${forcedFog == null ? '' : ' (forced)'}${rainHazeM < NO_FOG_VISIBILITY_M ? `, rain ${distText(rainHazeM)}` : ''}`;
+    readoutEl.textContent = `${temp}  ${sky}  [${source}]${cover}${road}${rain}${fog}`;
   }
 
   onWeatherChange(sync);

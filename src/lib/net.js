@@ -142,7 +142,7 @@ export function createNet({ clientId } = {}) {
     peer.vehicleId = sanitizeVehicleId(msg.vehicleId);
     peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
-    roster.set(msg.id, { name: peer.name, score: peer.score, lastSeen: Date.now() });
+    roster.set(msg.id, { name: peer.name, score: peer.score, x: msg.x, z: msg.z, lastSeen: Date.now() });
     saveRoster(roster);
 
     const sample = {
@@ -265,7 +265,7 @@ export function createNet({ clientId } = {}) {
     return poses;
   }
 
-  /** Peers seen within ROSTER_TTL_MS: [{ id, name, score, idleMs }]; prunes expired ones. */
+  /** Peers seen within ROSTER_TTL_MS: [{ id, name, score, x, z, idleMs }] (last network-frame position); prunes expired ones. */
   function getRoster() {
     const now = Date.now();
     const list = [];
@@ -277,7 +277,7 @@ export function createNet({ clientId } = {}) {
         pruned = true;
         continue;
       }
-      list.push({ id, name: entry.name, score: entry.score, idleMs });
+      list.push({ id, name: entry.name, score: entry.score, x: entry.x, z: entry.z, idleMs });
     }
     if (pruned) saveRoster(roster);
     return list;

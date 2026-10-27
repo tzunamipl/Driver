@@ -25,6 +25,9 @@ const WHIZZ_HZ_MIN = 3500;
 const WHIZZ_HZ_MAX = 9000;
 const CLATTER_DECAY = 0.004; // cycle fractions: near-instant injector knock
 const CLATTER_HZ = 2600;
+// Exhaust gone (lib/exhaustDamage.js): louder, harder into the clipper, unmuffled highs, more hiss.
+const BLOWN = { gain: 1.8, drive: 1.7, brightness: 2.2, hiss: 3 };
+const UNBLOWN = { gain: 1, drive: 1, brightness: 1, hiss: 1 };
 
 // Optional profile tuning (profile.x ?? DEFAULT_X).
 const DEFAULT_BANK_MIX = 0.5;
@@ -232,14 +235,15 @@ export function createEngineSound() {
     bankB.frequency.setTargetAtTime(cycleHz * (profile.bankDetune ?? DEFAULT_BANK_DETUNE), now, 0.03);
     clatterEnv.frequency.setTargetAtTime(cycleHz, now, 0.03);
 
-    out.gain.setTargetAtTime(vehicle ? MASTER_GAIN : 0, now, 0.1);
-    const body = profile.body ?? DEFAULT_BODY;
+    const blown = vehicle?.exhaust?.detached ? BLOWN : UNBLOWN;
+    out.gain.setTargetAtTime(vehicle ? MASTER_GAIN * blown.gain : 0, now, 0.1);
+    const body = (profile.body ?? DEFAULT_BODY) * blown.drive;
     bodyGain.gain.setTargetAtTime(body * (0.5 + 0.4 * throttle + 0.3 * r), now, 0.08);
-    const brightness = profile.brightness ?? DEFAULT_BRIGHTNESS;
+    const brightness = (profile.brightness ?? DEFAULT_BRIGHTNESS) * blown.brightness;
     lowpass.frequency.setTargetAtTime(brightness * (220 + r * 1600 + throttle * (300 + r * 900)), now, 0.08);
 
     const firingHz = (rpm / 120) * profile.pulseOffsets.length;
-    const hissLevel = profile.hiss ?? DEFAULT_HISS;
+    const hissLevel = (profile.hiss ?? DEFAULT_HISS) * blown.hiss;
     hissFilter.frequency.setTargetAtTime(firingHz * 6, now, 0.05);
     hissGain.gain.setTargetAtTime(hissLevel * (0.01 + throttle * (0.02 + 0.08 * r)), now, 0.08);
 

@@ -54,7 +54,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0xf2f0ea) {
   box(WIDTH - 0.06, 0.08, 0.06, black, 0, -0.32, FRONT + 0.02); // lip spoiler
   box(1.3, 0.035, 0.16, black, 0, 0.18, BACK + 0.08).rotation.x = -0.18; // boot spoiler
   box(WIDTH, 0.08, 0.05, black, 0, -0.18, BACK - 0.01);
-  tube(0.04, 0.12, black, 0.5, -0.36, BACK - 0.02, 10);
+  tube(0.04, 0.12, black, 0.5, -0.36, BACK - 0.02, 10).userData.exhaust = true; // tailpipe
   box(0.46, 0.1, 0.012, plate, 0, -0.18, FRONT + 0.04);
   box(0.46, 0.1, 0.012, plate, 0, -0.08, BACK - 0.02);
 

@@ -33,11 +33,13 @@ export default {
   idleRpm: 900,
   redlineRpm: 7000,
   turbo: { boostBar: 1.0, spoolRpm: 3200, lagS: 0.55 }, // bar, full-boost rpm, spool lag (s)
+  exhaustTips: [{ pos: [-0.52, -0.295, -2.2] }],
   gearRatios: [3.454, 2.062, 1.448, 1.088, 0.825], // TY75 5MT
   finalDriveRatio: 4.111,
   reverseRatio: 3.636,
   shiftDurationS: 0.6,
   brakeForce: 180,
+  brakes: { front: { discMm: 312, vented: true }, rear: { discMm: 272 } },
   abs: false,
   mass: 1300,
   fuelTankL: 50,

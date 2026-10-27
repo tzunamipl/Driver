@@ -86,7 +86,7 @@ export function createSceneEnvironment() {
   const scene = new THREE.Scene();
   scene.background = SKY_COLOR.clone();
   // Linear fog for non-terrain objects; terrain and sky opt out (terrain
-  // has its own distance haze, see terrain.js).
+  // has its own distance haze, see terrain.js). Weather fog pulls it in (weatherFog.js).
   const FOG_NEAR_METERS = 6_000;
   const FOG_FAR_METERS = 13_000;
   scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR_METERS, FOG_FAR_METERS);

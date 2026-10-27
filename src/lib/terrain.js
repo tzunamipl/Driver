@@ -101,6 +101,11 @@ const RETRY_WHILE_WAITING_MS = 1000; // how often a waiting load re-checks for f
 const SKIRT_DEPTH_CELLS = 0.3; // skirt depth in the tile's grid cells (+2 m)
 const STATS_GRID_RADIUS = 6; // debug HUD grid, in DETAIL_ZOOM tiles
 
+// Opaque draw order of the ground: terrain fills the depth buffer first; the road surface view
+// (streets.js) and car contact shadows (carShadow.js) paint over it without writing depth, in
+// this order, so cars and props (renderOrder 0) are tested against the terrain, not those layers.
+export const GROUND_RENDER_ORDER = { terrain: -3, roadSurface: -2, contactShadow: -1 };
+
 // Terrain-only collision group, for ground raycasts that ignore vehicles.
 export const GROUND_COLLISION_GROUP = 2;
 export const GROUND_MATERIAL = new CANNON.Material('ground');
@@ -137,20 +142,42 @@ const HAZE_EDGE_START_METERS = FAR_RADIUS_METERS * 0.8;
 const HAZE_MAX_HEIGHT_METERS = 10_000; // world y (relative to the fixed origin baseline)
 // Shared by every tile's program; driven by the day-night cycle.
 const hazeColorUniform = { value: SKY_COLOR.clone() };
+// Weather fog on top of the haze: linear from the camera, complete here (app/weatherFog.js).
+const NO_FOG_FAR_METERS = 1e9;
+const fogFarUniform = { value: NO_FOG_FAR_METERS };
 
 /** Sets the ground haze colour (slightly darker than `skyColor`). */
 export function setHazeColor(skyColor) {
   hazeColorUniform.value.copy(skyColor).multiplyScalar(0.99);
 }
 
+/** Distance (m) at which weather fog hides the ground completely; Infinity = no fog. */
+export function setFogFar(meters) {
+  fogFarUniform.value = Number.isFinite(meters) ? meters : NO_FOG_FAR_METERS;
+}
+
+/** onBeforeCompile hook adding just the weather fog (for what skips the haze, like cirrus). */
+export function applyFogVeil(shader) {
+  shader.uniforms.hazeColor = hazeColorUniform;
+  shader.uniforms.fogFar = fogFarUniform;
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform vec3 hazeColor;\nuniform float fogFar;')
+    .replace(
+      '#include <opaque_fragment>',
+      `outgoingLight = mix(outgoingLight, hazeColor, clamp(length(vViewPosition) / fogFar, 0.0, 1.0));
+      #include <opaque_fragment>`
+    );
+}
+
 /** onBeforeCompile hook adding the ground haze (one shared program for every tile and cloud). */
 export function applyGroundHaze(shader) {
   shader.uniforms.hazeColor = hazeColorUniform;
+  shader.uniforms.fogFar = fogFarUniform;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;\nuniform vec3 hazeColor;')
+    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;\nuniform vec3 hazeColor;\nuniform float fogFar;')
     .replace(
       '#include <opaque_fragment>',
       `
@@ -158,7 +185,7 @@ export function applyGroundHaze(shader) {
       float hazeHeight = 1.0 - smoothstep(${(HAZE_MAX_HEIGHT_METERS - 500).toFixed(1)}, ${HAZE_MAX_HEIGHT_METERS.toFixed(1)}, vHazeWorldY);
       float groundHaze = max(
         (1.0 - exp(-hazeDist / ${HAZE_DISTANCE_METERS.toFixed(1)})) * hazeHeight,
-        smoothstep(${HAZE_EDGE_START_METERS.toFixed(1)}, ${FAR_RADIUS_METERS.toFixed(1)}, hazeDist)
+        max(smoothstep(${HAZE_EDGE_START_METERS.toFixed(1)}, ${FAR_RADIUS_METERS.toFixed(1)}, hazeDist), clamp(hazeDist / fogFar, 0.0, 1.0))
       );
       outgoingLight = mix(outgoingLight, hazeColor, groundHaze);
       #include <opaque_fragment>`
@@ -276,12 +303,19 @@ export class TerrainManager {
     return tile?.heightfield?.elementSize ?? null;
   }
 
+  /** Heightfield of the detail tile at (x, z) (a new object whenever the tile rebuilds), or null if not loaded. */
+  detailHeightfieldAt(x, z) {
+    return this._detailTileAt(x, z)?.heightfield ?? null;
+  }
+
+  _detailTileAt(x, z) {
+    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+    return this.tiles.get(tileKey(DETAIL_ZOOM, Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM))));
+  }
+
   /** Detail-tile surface y at (x, z) from its heightfield (no physics body needed), or null if not loaded. */
   detailHeightAt(x, z) {
-    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
-    const tx = Math.floor(lon2tileX(lon, DETAIL_ZOOM));
-    const ty = Math.floor(lat2tileY(lat, DETAIL_ZOOM));
-    const tile = this.tiles.get(tileKey(DETAIL_ZOOM, tx, ty));
+    const tile = this._detailTileAt(x, z);
     if (!tile?.heightfield) return null;
     const { heights, cols, rows, elementSize } = tile.heightfield;
     const fx = Math.min(Math.max((x - tile.mesh.position.x) / elementSize, 0), cols - 1);
@@ -937,6 +971,7 @@ export class TerrainManager {
     const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
     material.onBeforeCompile = applyTerrainShading;
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = GROUND_RENDER_ORDER.terrain;
     mesh.receiveShadow = z === DETAIL_ZOOM; // the shadow frustum only spans metres around the car
     mesh.position.set(anchor.x, anchor.y, anchor.z);
     mesh.matrixAutoUpdate = false; // never moves

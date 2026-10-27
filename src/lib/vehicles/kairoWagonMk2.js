@@ -34,6 +34,7 @@ export default {
   redlineRpm: 6000,
   // Small twin-scroll: early, soft boost.
   turbo: { boostBar: 0.9, spoolRpm: 2000, lagS: 0.4 }, // bar, full-boost rpm, spool lag (s)
+  exhaustTips: [-1, 1].map((sx) => ({ pos: [sx * 0.45, -0.3, -2.23] })), // the body's twin pipes
   // TR580 range 3.58-0.57; upper steps spread evenly to the tallest ratio.
   gearRatios: [3.56, 2.255, 1.655, 1.201, 0.92, 0.71, 0.57],
   finalDriveRatio: 3.9,
@@ -41,6 +42,7 @@ export default {
   automaticGearbox: true, // CVT with stepped ratios
   shiftDurationS: 0.5,
   brakeForce: 170,
+  brakes: { front: { discMm: 312, vented: true }, rear: { discMm: 272 } },
   tractionControl: true,
   mass: 1500,
   fuelTankL: 60,

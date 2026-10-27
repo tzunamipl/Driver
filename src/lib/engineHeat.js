@@ -8,7 +8,8 @@
 // Starts at the outside temperature. Coolant can leak (radiator hits, boiling
 // over); a low level starves the pump, and an overheating engine loses power.
 // Oil (descriptor `oilL`) burns slowly at high rpm and leaks from a sump cracked by
-// underbody hits; a low level starves the oil flow, so the oil overheats. Low oil pressure
+// underbody hits (a skid plate, descriptor `skidPlate`, takes them first until worn through);
+// a low level starves the oil flow, so the oil overheats. Low oil pressure
 // wears the engine for good: power stays down until repairEngine().
 // Oil pressure follows pump speed (rpm), thick cold oil and the level, up to the relief valve.
 
@@ -87,8 +88,8 @@ const OIL_FULL_FLOW_LEVEL = 0.6;
 const OIL_DRY_LEVEL = 0.15;
 const OIL_DRY_CONTACT = 0.15;
 // Sump cracks (L/s): underbody impact speed that starts one, the one that opens it fully.
-const SUMP_MIN_HIT_MS = 4;
-const SUMP_MAX_HIT_MS = 14;
+const SUMP_MIN_HIT_MS = 6;
+const SUMP_MAX_HIT_MS = 20;
 const SUMP_MAX_LPS = 0.02;
 const DEBUG_SUMP_LEAK_LPS = 0.005;
 // Oil lamp from this temperature or below OIL_FULL_FLOW_LEVEL.
@@ -124,6 +125,7 @@ export function createEngineHeat(descriptor, ambientC) {
   let clock = 0; // s of update() time
   const radiatorHits = { until: -Infinity, severity: 0 }; // hardest hit in the current window
   const sumpHits = { until: -Infinity, severity: 0 };
+  const hasSkidPlate = !!descriptor.skidPlate;
 
   const heat = {
     blockTempC: ambientC,
@@ -137,6 +139,8 @@ export function createEngineHeat(descriptor, ambientC) {
     oilCapacityL,
     oilL: oilCapacityL,
     oilLeakLps: 0, // cracked sump
+    hasSkidPlate,
+    skidPlateHealth: hasSkidPlate ? 1 : 0, // 1 new .. 0 worn through: hits reach the sump
     sealed: false, // editor: no coolant or oil is lost
     radiatorRepair: null, // lib/partRepair.js records, cleared by a new part
     sumpRepair: null,
@@ -190,7 +194,9 @@ export function createEngineHeat(descriptor, ambientC) {
     repair,
     repairRadiator,
     repairSump,
+    repairSkidPlate,
     repairEngine,
+    coolDown,
     warmUp,
     getState,
     setState,
@@ -271,10 +277,14 @@ export function createEngineHeat(descriptor, ambientC) {
     heat.leakLps = Math.min(LEAK_MAX_LPS, heat.leakLps + extra * HIT_LEAK_SHARE * LEAK_MAX_LPS);
   }
 
-  /** Underbody impact at `speedMs`: cracks the sump above SUMP_MIN_HIT_MS. */
+  /** Underbody impact at `speedMs`: wears the skid plate, then cracks the sump, above SUMP_MIN_HIT_MS. */
   function hitSump(speedMs) {
-    const extra = newSeverity(sumpHits, clamp01((speedMs - SUMP_MIN_HIT_MS) / (SUMP_MAX_HIT_MS - SUMP_MIN_HIT_MS)));
-    heat.oilLeakLps = Math.min(SUMP_MAX_LPS, heat.oilLeakLps + extra * HIT_LEAK_SHARE * SUMP_MAX_LPS);
+    let extra = newSeverity(sumpHits, clamp01((speedMs - SUMP_MIN_HIT_MS) / (SUMP_MAX_HIT_MS - SUMP_MIN_HIT_MS))) * HIT_LEAK_SHARE;
+    // The plate takes the share the sump would have, the rest goes through.
+    const plate = Math.min(heat.skidPlateHealth, extra);
+    heat.skidPlateHealth -= plate;
+    extra -= plate;
+    heat.oilLeakLps = Math.min(SUMP_MAX_LPS, heat.oilLeakLps + extra * SUMP_MAX_LPS);
   }
 
   /** Debug: a moderate leak. */
@@ -301,16 +311,29 @@ export function createEngineHeat(descriptor, ambientC) {
     heat.oilL = oilCapacityL;
   }
 
+  /** New skid plate. */
+  function repairSkidPlate() {
+    if (hasSkidPlate) heat.skidPlateHealth = 1;
+  }
+
   /** Rebuilt engine (bearings worn by low oil pressure). */
   function repairEngine() {
     heat.engineHealth = 1;
   }
 
-  /** Fixed radiator, sump and engine, topped up (temperatures stay). */
+  /** Fixed radiator, skid plate, sump and engine, topped up (temperatures stay). */
   function repair() {
     repairRadiator();
+    repairSkidPlate();
     repairSump();
     repairEngine();
+  }
+
+  /** An overheated engine back down to working temperature. */
+  function coolDown() {
+    heat.blockTempC = Math.min(heat.blockTempC, WARM_BLOCK_C);
+    heat.coolantTempC = Math.min(heat.coolantTempC, WARM_COOLANT_C);
+    heat.oilTempC = Math.min(heat.oilTempC, WARM_OIL_C);
   }
 
   /** Repaired and at working temperature, as if warmed up before a start. */
@@ -330,6 +353,7 @@ export function createEngineHeat(descriptor, ambientC) {
       leakLps: heat.leakLps,
       oilL: heat.oilL,
       oilLeakLps: heat.oilLeakLps,
+      skidPlateHealth: heat.skidPlateHealth,
       engineHealth: heat.engineHealth,
     };
   }
@@ -344,6 +368,7 @@ export function createEngineHeat(descriptor, ambientC) {
     if (Number.isFinite(state?.leakLps)) heat.leakLps = Math.min(LEAK_MAX_LPS, Math.max(0, state.leakLps));
     if (Number.isFinite(state?.oilL)) heat.oilL = Math.min(oilCapacityL, Math.max(0, state.oilL));
     if (Number.isFinite(state?.oilLeakLps)) heat.oilLeakLps = Math.min(SUMP_MAX_LPS, Math.max(0, state.oilLeakLps));
+    if (hasSkidPlate && Number.isFinite(state?.skidPlateHealth)) heat.skidPlateHealth = clamp01(state.skidPlateHealth);
     if (Number.isFinite(state?.engineHealth)) heat.engineHealth = clamp01(state.engineHealth);
   }
 

@@ -5,8 +5,13 @@
 //   wheel.punctured: deflated, the wheel runs on its rim: smaller rolling
 //     radius (that corner drops), little grip, heavy drag, no sidewall to soak
 //     up bumps and a flapping tyre thumping once per revolution.
+//   wheel.tyreShed: after FLAT_SHED_M on the flat the tyre comes off the rim;
+//     the wheel runs on the bare rim (rim radius, no flapping).
 // Rim strikes pop a tyre: the suspension bottoms out and the tyre is crushed
 // against the rim faster than it can take, less the more worn it is.
+//   wheel.rimBroken: a much harder strike squashes the rim oval; twice a
+//     revolution the hub drops onto its short axis. Hard ground breaks rims sooner
+//     (surface rimBreakMultiplier). A new tyre comes on a new wheel, so repairTyre fixes it.
 // wheel.compound (tyres/compounds.js) sets grip per surface, wear, rolling drag and
 // carcass strength; temperature, dirt and water live in tyres/condition.js.
 import { getSurfaceCompound } from './surfaceCompounds.js';
@@ -33,14 +38,26 @@ const RIM_DROP_SHARE = 0.8;
 const RIM_TOE_RAD = 0.02;
 // Height (m) of the once-per-revolution thump of a flat tyre flapping under the rim.
 const RIM_LUMP_M = 0.012;
+// Metres rolled on a flat before the shredded tyre comes off the rim.
+const FLAT_SHED_M = 25;
 // Strike speed (m/s) a new tyre survives; a bald one keeps only MIN_STRENGTH of it.
 const STRIKE_SPEED = 8;
 const MIN_STRENGTH = 0.45;
+// Strike speed (m/s) a rim survives; less on its rim (no tyre to cushion it).
+const RIM_BREAK_SPEED = 15;
+const RIM_BREAK_FLAT_SHARE = 0.6;
+// Broken rim: how much (m) shorter its oval's short semi-axis is than the round radius.
+const RIM_OVAL_DROP_M = 0.07;
 
 /** Sets a wheel's tyre fields; call once from addWheel. */
 export function initTyre(wheel) {
   wheel.tread = 1;
   wheel.punctured = false;
+  wheel.tyreShed = false;
+  wheel.flatRolledM = 0;
+  wheel.rimBroken = false;
+  wheel.rimFlatAngle = 0; // wheel rotation (rad) at which the oval's short axis points down
+  wheel.rimDrop = 0; // hub drop (m) onto the oval this step
   wheel.inflatedRadius = wheel.radius;
   wheel.inflatedSidewall = wheel.sidewallHeight;
   wheel.rimToe = 0; // steering offset (rad) while flat
@@ -106,25 +123,58 @@ export function strikeTyre(wheel, strikeSpeed, compound) {
   return strikeSpeed > limit;
 }
 
+/** Rim strike check; true if it breaks the rim. */
+export function strikeRim(wheel, strikeSpeed, compound) {
+  if (wheel.rimBroken) return false;
+  const limit = (RIM_BREAK_SPEED * wheel.strikeScale * (wheel.punctured ? RIM_BREAK_FLAT_SHARE : 1)) / (compound.rimBreakMultiplier ?? 1);
+  return strikeSpeed > limit;
+}
+
+/** Squashes the rim oval along the direction that was down when it struck. */
+export function breakRim(wheel) {
+  wheel.rimBroken = true;
+  wheel.rimFlatAngle = wheel.rotation;
+}
+
 export function punctureTyre(wheel) {
   wheel.punctured = true;
+  wheel.flatRolledM = 0;
   wheel.radius = wheel.inflatedRadius - wheel.inflatedSidewall * RIM_DROP_SHARE;
   wheel.sidewallHeight = 0;
   const { x, z } = wheel.chassisConnectionPointLocal;
   wheel.rimToe = Math.sign(x || 1) * Math.sign(z || 1) * RIM_TOE_RAD; // signs: towards the flat's side, front or rear
 }
 
+/** Rolls a flat `metres` further; true when that sheds the tyre. */
+export function rollFlat(wheel, metres) {
+  if (!wheel.punctured || wheel.tyreShed) return false;
+  wheel.flatRolledM += metres;
+  if (wheel.flatRolledM < FLAT_SHED_M) return false;
+  shedTyre(wheel);
+  return true;
+}
+
+/** The tyre is gone: the wheel runs on its bare rim. */
+export function shedTyre(wheel) {
+  if (!wheel.punctured) punctureTyre(wheel);
+  wheel.tyreShed = true;
+  wheel.radius = wheel.inflatedRadius - wheel.inflatedSidewall;
+}
+
 /** Back on its tyre, tread unchanged. */
 export function inflateTyre(wheel) {
   wheel.punctured = false;
+  wheel.tyreShed = false;
+  wheel.flatRolledM = 0;
   wheel.radius = wheel.inflatedRadius;
   wheel.sidewallHeight = wheel.inflatedSidewall;
   wheel.rimToe = 0;
 }
 
-/** Fresh tyre of the same compound: full tread, clean, at outside temperature. */
+/** Fresh tyre of the same compound on a new rim: full tread, clean, at outside temperature. */
 export function repairTyre(wheel) {
   inflateTyre(wheel);
+  wheel.rimBroken = false;
   freshCondition(wheel);
   wheel.tread = 1;
   wheel.lastStrikeSpeed = 0;
@@ -139,6 +189,20 @@ export function freshWarmTyre(wheel) {
 
 /** Ray shortening (m) from a flat tyre's thump at this wheel rotation. */
 export function rimLump(wheel) {
-  if (!wheel.punctured) return 0;
+  if (!wheel.punctured || wheel.tyreShed) return 0;
   return RIM_LUMP_M * Math.pow(Math.max(0, Math.sin(wheel.rotation)), 8);
+}
+
+/** Hub drop (m) onto a broken rim's oval at this wheel rotation: radius less the ellipse's height over the ground. */
+export function rimFlatDrop(wheel) {
+  if (!wheel.rimBroken) return 0;
+  const a = wheel.radius;
+  const b = a - RIM_OVAL_DROP_M;
+  const c = Math.cos(wheel.rotation - wheel.rimFlatAngle);
+  return a - Math.sqrt(b * b * c * c + a * a * (1 - c * c));
+}
+
+/** Broken rim's oval for the wheel mesh: { angle } of its short axis (wheel rotation), { squash } = short / round radius. */
+export function rimOval(wheel) {
+  return wheel.rimBroken ? { angle: wheel.rimFlatAngle, squash: 1 - RIM_OVAL_DROP_M / wheel.radius } : { angle: 0, squash: 1 };
 }

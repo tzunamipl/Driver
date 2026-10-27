@@ -52,7 +52,7 @@ export function buildBody(_chassisWidth, _chassisLength, color = 0x15181f) {
     box(0.42, 0.13, 0.03, head, sx * 0.6, 0.03, FRONT + 0.03);
     box(0.5, 0.12, 0.03, tail, sx * 0.62, 0.08, BACK - 0.01);
     box(0.25, 0.06, 0.031, chrome, sx * 0.62, -0.03, BACK - 0.01); // reverse-lamp trim
-    tube(0.04, 0.12, chrome, sx * 0.55, -0.42, BACK - 0.04, 10); // twin tailpipes
+    tube(0.04, 0.12, chrome, sx * 0.55, -0.42, BACK - 0.04, 10).userData.exhaust = true; // twin tailpipes
   }
 
   // Tall chrome grille with vertical slats and the bonnet ornament.

@@ -8,7 +8,7 @@
 import { Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2 } from 'three';
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from './roadClasses.js';
-import { DETAIL_BOX, DETAIL_ZOOM, applyGroundHaze } from './terrain.js';
+import { DETAIL_BOX, DETAIL_ZOOM, GROUND_RENDER_ORDER, applyGroundHaze } from './terrain.js';
 import { onRoadBed } from './terrain/roadBed.js';
 import { tileSizeMeters } from './geo.js';
 import { getWetness, onWeatherChange } from './weather.js';
@@ -19,12 +19,13 @@ const STREET_TILE_ZOOM = 14;
 // Lift above ground, against z-fighting.
 const STREET_LIFT = 0.2;
 
-// Surface view: on the road bed itself; the depth bias keeps it in front (paved above unpaved where they meet).
+// Surface view: on the road bed itself; the depth bias keeps it in front of the terrain. It writes no
+// depth, so cars are tested against the terrain and never sink into the biased stripes.
 // Depth bias: drawn this much nearer the camera than they are (metres, plus a share of the distance),
 // so the bed bulging between height samples doesn't poke through. Not polygonOffset: three
 // flips only its factor for the reversed depth buffer, and log depth ignores it.
 const DEPTH_BIAS_PER_M = 0.05;
-// Overlapping stripes (junctions): each class up the hierarchy is this much nearer, so the higher class is drawn on top.
+// Overlapping stripes (junctions) go by draw order (one mesh per class rank, higher on top); this keeps ranks apart from the terrain too.
 const DEPTH_BIAS_PER_RANK = 0.015;
 // Classes on the road bed, highest first: the only ones in the surface view.
 const BED_HIERARCHY = ROAD_HIERARCHY.filter((cls) => onRoadBed(cls));
@@ -135,7 +136,7 @@ function depthRankOf(key) {
 
 const surfaceMaterials = Object.fromEntries(
   Object.entries(SURFACE_LOOKS).map(([surface, { color, roughness, specular, depthBias, markings, patches, blobs, wet }]) => {
-    const material = new MeshStandardMaterial({ color, roughness, fog: false });
+    const material = new MeshStandardMaterial({ color, roughness, fog: false, depthWrite: false });
     // Terrain haze; specular scaled (1 = three.js default) so a low sun glints instead of blowing out.
     material.onBeforeCompile = (shader) => {
       applyGroundHaze(shader);
@@ -406,7 +407,9 @@ function surfaceStyle(style) {
   const key = `${surface}:${style.linewidth}:${markings}:${depthRank}`;
   let out = surfaceStyles.get(key);
   if (!out) {
-    out = { key: `surface-${surface}`, linewidth: style.linewidth, material: surfaceMaterials[surface], lift: SURFACE_LOOKS[surface].lift, lit: true, markings, depthRank };
+    // Bucketed per rank: drawn in rank order, unpaved over paved within one, all below the contact shadows.
+    const renderOrder = GROUND_RENDER_ORDER.roadSurface + (depthRank * 2 + (surface === 'unpaved' ? 1 : 0)) / (2 * BED_HIERARCHY.length);
+    out = { key: `surface-${surface}-${depthRank}`, linewidth: style.linewidth, material: surfaceMaterials[surface], lift: SURFACE_LOOKS[surface].lift, lit: true, markings, depthRank, renderOrder };
     surfaceStyles.set(key, out);
   }
   return out;

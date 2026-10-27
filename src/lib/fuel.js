@@ -19,8 +19,9 @@ const DEFAULT_TANK_L = 50;
 const IDLE_FUEL_LPH_PER_KW = 0.008;
 // Mass is re-applied once the fuel changed by this much (kg).
 const MASS_UPDATE_KG = 0.5;
-// Average consumption window, in one-second buckets.
-const AVERAGE_WINDOW_S = 60;
+// Consumption history kept for averages, in one-second buckets.
+const HISTORY_S = 600;
+const DEFAULT_AVERAGE_S = 60;
 // Skipped drives (rally liaison): L/100 km on petrol, flat + per rated hp. High on purpose, so driving
 // there is cheaper. Descriptor `skipFuelLPer100Km` overrides.
 const SKIP_L_PER_100KM = 12;
@@ -101,7 +102,7 @@ export function createFuelTank(descriptor, chassisBody) {
     current.seconds += dt;
     if (current.seconds >= 1) {
       buckets.push(current);
-      if (buckets.length > AVERAGE_WINDOW_S) buckets.shift();
+      if (buckets.length > HISTORY_S) buckets.shift();
       current = { litres: 0, metres: 0, seconds: 0 };
     }
   }
@@ -112,12 +113,13 @@ export function createFuelTank(descriptor, chassisBody) {
     return (per100Km * metres) / 100000;
   }
 
-  /** Consumption over the last minute: { litresPerHour, litresPer100Km (null when barely moving) }. */
-  function getAverage() {
+  /** Consumption over the last `windowS` s (up to HISTORY_S): { litresPerHour, litresPer100Km (null when barely moving) }. */
+  function getAverage(windowS = DEFAULT_AVERAGE_S) {
     let litres = current.litres;
     let metres = current.metres;
     let seconds = current.seconds;
-    for (const b of buckets) {
+    for (let i = Math.max(0, buckets.length - Math.min(windowS, HISTORY_S)); i < buckets.length; i++) {
+      const b = buckets[i];
       litres += b.litres;
       metres += b.metres;
       seconds += b.seconds;

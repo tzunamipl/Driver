@@ -45,6 +45,15 @@ export function localToLatLon(x, z, originLat, originLon, scaleLat = originLat) 
   return { lat, lon };
 }
 
+/** Great-circle distance in metres. */
+export function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = Math.PI / 180;
+  const a =
+    Math.sin(((lat2 - lat1) * toRad) / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(((lon2 - lon1) * toRad) / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 /**
  * Re-expresses local (x, z) from one frame in another (via lat/lon) -
  * network frame vs this player's view frame. No-op if equal.

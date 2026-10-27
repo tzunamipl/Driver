@@ -31,6 +31,7 @@
 .rally-lamp.green { background: #1aff3a; box-shadow: 0 0 10px #1aff3a; }
 .rally-status { font-size: 14px; font-weight: bold; margin-top: 2px; }
 .rally-next { font-size: 12px; color: #ddd; }
+.rally-warning { font-size: 15px; font-weight: bold; color: #ffb020; margin-top: 2px; }
 .rally-penalty { font-size: 12px; color: #ff7070; }
 .rally-results { margin-top: 6px; font: 13px/1.5 monospace; text-align: left; }
 .rally-result-row { display: flex; justify-content: space-between; gap: 24px; }

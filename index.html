@@ -99,20 +99,6 @@
     </div>
     <div id="version-badge"><span id="fps-counter"></span><span id="version-text"></span></div>
     <div id="address-search-status"></div>
-    <div id="streaming-status" hidden>
-      <div class="streaming-status-section" data-kind="download" hidden>
-        <div class="streaming-status-row">
-          <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
-        </div>
-        <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
-      </div>
-      <div class="streaming-status-section" data-kind="render" hidden>
-        <div class="streaming-status-row">
-          <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
-        </div>
-        <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
-      </div>
-    </div>
     <div id="top-left-stack">
       <div id="top-left-row">
         <div id="top-left-col">
@@ -217,6 +203,28 @@
                   <button type="button" id="body-lamps-break" title="Debug: break every lamp">Break</button>
                   <button type="button" id="body-lamps-fix" title="Debug: working lamps">Fix</button>
                 </div>
+                <div title="Exhaust health (lib/exhaustDamage.js): loose below 75%, falls off at 0 (power -20%)">
+                  <div>Exhaust: <span id="body-exhaust">&mdash;</span></div>
+                </div>
+                <div class="susp-heat-actions">
+                  <button type="button" id="body-exhaust-wear" title="Debug: take 25% exhaust health">Wear</button>
+                  <button type="button" id="body-exhaust-fix" title="Debug: new exhaust">Fix</button>
+                </div>
+              </div>
+              <div id="brake-hud" class="susp-panel">
+                <div class="susp-title debug-fold-title">BRAKES</div>
+                <div id="brake-hud-list" title="Per wheel: rotor temperature and health (sliders set them), then pad fade, pedal force share and cooling rate (lib/brakes.js)"></div>
+                <div class="susp-landed" title="Master cylinder reservoir and the front / rear pipe circuits">
+                  <div>Fluid: <span id="brake-hud-fluid">&mdash;</span> L (<span id="brake-hud-pct">&mdash;</span>%)</div>
+                  <div>Leak F/R: <span id="brake-hud-leaks">&mdash;</span> L/min</div>
+                  <div>Pressure F/R: <span id="brake-hud-pressure">&mdash;</span>%</div>
+                  <div class="susp-heat-actions">
+                    <button type="button" id="brake-hud-heat" title="Debug: heat every rotor by 300 &deg;C">Heat</button>
+                    <button type="button" id="brake-hud-leak-front" title="Debug: crack the front brake pipe">Leak F</button>
+                    <button type="button" id="brake-hud-leak-rear" title="Debug: crack the rear brake pipe">Leak R</button>
+                    <button type="button" id="brake-hud-fix" title="Debug: new rotors and pipes, topped up">Fix</button>
+                  </div>
+                </div>
               </div>
               <div id="engine-hud" class="susp-panel">
                 <div class="susp-title debug-fold-title">ENGINE</div>
@@ -276,6 +284,7 @@
                 <div class="debug-time-list debug-weather-road"></div>
                 <div class="debug-time-list debug-weather-clouds"></div>
                 <div class="debug-time-list debug-weather-rain"></div>
+                <div class="debug-time-list debug-weather-fog"></div>
                 <div class="debug-time-list debug-weather-temp"></div>
               </div>
             </div>
@@ -326,6 +335,7 @@
       </div>
     </div>
     <div id="repair-callouts" hidden></div>
+    <button id="repair-fix-all" type="button" hidden></button>
     <div id="rally-picker" hidden></div>
     <div id="tyre-service" hidden></div>
     <div id="garage-dialog" hidden></div>
@@ -337,6 +347,20 @@
     <div id="top-right-stack">
       <div id="top-right-row">
         <div id="fps-graph-panel"><div class="debug-fold-title">FPS</div><canvas id="fps-graph"></canvas><div id="fps-graph-label"></div></div>
+        <div id="streaming-status" hidden>
+          <div class="streaming-status-section" data-kind="download" hidden>
+            <div class="streaming-status-row">
+              <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+            </div>
+            <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
+          </div>
+          <div class="streaming-status-section" data-kind="render" hidden>
+            <div class="streaming-status-row">
+              <span class="streaming-status-spinner"></span><span class="streaming-status-text"></span><span class="streaming-status-percent"></span>
+            </div>
+            <div class="streaming-status-bar"><div class="streaming-status-fill"></div></div>
+          </div>
+        </div>
         <div id="players-panel">
           <div id="net-row">
             <span id="net-status"></span>
@@ -385,6 +409,7 @@
         <div class="dial-ticks" id="tach-ticks"></div>
         <div class="gauge-needle" id="tach-needle"></div>
         <div class="gauge-hub"></div>
+        <div id="cruise-limit" title="Cruise mode speed limit" hidden></div>
         <button type="button" id="gear-mode" title="Gearbox mode (click to switch) - E/Q shift up/down">SPORT</button>
         <button type="button" id="transmission-mode" title="Gearbox: automatic / manual (click to switch)">AUTO</button>
       </div>
@@ -398,7 +423,10 @@
           <div class="gauge-needle" id="speedo-needle"></div>
           <div class="gauge-hub"></div>
           <div class="gauge-label" id="speedo-unit">km/h</div>
-          <div id="outside-temp" hidden title="Outside temperature"></div>
+          <div id="dash-lcds">
+            <div id="outside-temp" class="dash-lcd" hidden title="Outside temperature"></div>
+            <div id="fuel-average" class="dash-lcd" hidden title="Average fuel consumption, last 10 min"></div>
+          </div>
           <div id="odometer" aria-label="Licznik 0.0 kilometrów">
             <div class="odo-bezel">
               <div class="odo-row">

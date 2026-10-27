@@ -20,7 +20,7 @@ const CLOSED_LINE_M = 1; // ends this close = a ring (roundabout)
 const ENTRY_TURN_FRACTION = 0.15;
 const MIN_LEAD_M = 4; // ...but at least this far from the apex, so the two don't overlap
 const VIEW_M = 30; // boards face the centreline this far back along the approach
-const EDGE_OFFSET_M = -0.5; // from the stripe edge; negative = inside the road, just behind the posts
+const EDGE_OFFSET_M = 1.5; // from the stripe edge; negative = inside the road, just behind the posts
 const JUNCTION_CHECK_M = 0.1; // just past the edge: another road there drops the sign
 
 const CELL_WIDTH_M = 0.75; // one arrow
@@ -249,7 +249,7 @@ export function createRoadSignKinds(streets) {
       ]),
     ];
     for (const arrow of [1, -1]) {
-      const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.4, flatShading: true });
+      const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.85, flatShading: true });
       kinds.push({
         group: 'curveSigns',
         hitSound: 'metal',

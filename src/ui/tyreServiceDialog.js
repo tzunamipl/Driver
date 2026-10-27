@@ -21,7 +21,7 @@ const SHOW_WET = 0.15;
 /** One corner of the removed set: tread bar, temperature against the compound's window, dirt, water, verdict. */
 function wheelCard(label, w, compound) {
   const card = el('div', 'tyre-service-wheel');
-  const verdict = w.punctured ? ['Flat', 'bad'] : w.tread < BALD_TREAD ? ['Bald', 'bad'] : w.tread < WORN_TREAD ? ['Worn', 'warn'] : ['OK', 'good'];
+  const verdict = w.rimBroken ? ['Broken rim', 'bad'] : w.punctured ? ['Flat', 'bad'] : w.tread < BALD_TREAD ? ['Bald', 'bad'] : w.tread < WORN_TREAD ? ['Worn', 'warn'] : ['OK', 'good'];
   const head = el('div', 'tyre-service-wheel-head');
   head.append(el('b', '', label), el('span', `tyre-service-verdict ${verdict[1]}`, verdict[0]));
   const bar = el('span', 'tyre-setup-bar');

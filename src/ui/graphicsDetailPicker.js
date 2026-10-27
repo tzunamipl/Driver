@@ -11,11 +11,12 @@ export function createGraphicsDetailPicker() {
 
   function apply(id) {
     if (!targets) return;
-    const { terrain, mainLoop, roadside, trees, bushes, rocks } = targets;
+    const { terrain, mainLoop, roadside, curbs, trees, bushes, rocks } = targets;
     const level = GRAPHICS_DETAIL_LEVELS[id];
     terrain.setDetailCells(level.terrainCells);
     mainLoop.setStreamingBudgetMs(level.streamingBudgetMs);
     roadside.setDrawDistance(level.roadsideDrawDistance);
+    curbs.setDrawDistance(level.roadsideDrawDistance);
     trees.setDetail(level.trees);
     bushes.setDetail(level.bushes);
     rocks.setDetail(level.rocks);

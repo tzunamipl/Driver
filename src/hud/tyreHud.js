@@ -1,5 +1,5 @@
 // Tyre debug panel: fitted setup; per wheel tread, temperature and dirt (sliders set them),
-// Pop / Fix, then wetness and grip factors; Pop all / New for the set.
+// Pop / Fix, Rim (break / fix the rim), then wetness and grip factors; Pop all / New for the set.
 import { tyreGrip, treadGrip, gripBreakdown } from '../lib/tyres.js';
 import { getTyreCompound } from '../lib/tyres/compounds.js';
 import { tyreSizeLabel } from '../lib/tyres/setup.js';
@@ -56,6 +56,9 @@ export function createTyreHud() {
       const toggle = Object.assign(document.createElement('button'), { type: 'button', className: 'tyre-toggle' });
       row.appendChild(toggle);
       onClick(toggle, (v) => (v.wheelInfos[i].punctured ? v.inflateTyre(i) : v.popTyre(i)));
+      const rim = Object.assign(document.createElement('button'), { type: 'button', className: 'tyre-toggle', textContent: 'Rim' });
+      row.appendChild(rim);
+      onClick(rim, (v) => (v.wheelInfos[i].rimBroken ? v.fixRim(i) : v.breakRim(i)));
       span(row, 'tyre-sub', '&deg;C');
       const temp = slider(row, 'tyre-temp', -20, 200, i, (w, v) => (w.tempC = v));
       const tempVal = span(row, 'tyre-val tyre-wide');
@@ -64,7 +67,7 @@ export function createTyreHud() {
       const dirtVal = span(row, 'tyre-val tyre-wide');
       const cond = span(row, 'tyre-cond');
       list.appendChild(row);
-      return { tread, toggle, val, temp, tempVal, dirt, dirtVal, cond };
+      return { tread, toggle, rim, val, temp, tempVal, dirt, dirtVal, cond };
     });
   }
 
@@ -90,15 +93,15 @@ export function createTyreHud() {
 
     let hardestHit = null;
     vehicle.wheelInfos.forEach((wheel, i) => {
-      const { tread: treadInput, toggle, val, temp, tempVal, dirt, dirtVal, cond } = rows[i];
+      const { tread: treadInput, toggle, rim, val, temp, tempVal, dirt, dirtVal, cond } = rows[i];
       const tread = Math.round(wheel.tread * 100);
       syncSlider(treadInput, tread);
       syncSlider(temp, Math.round(wheel.tempC));
       tempVal.textContent = `${Math.round(wheel.tempC)}°`;
       syncSlider(dirt, Math.round(wheel.dirt * 100));
       dirtVal.textContent = `${Math.round(wheel.dirt * 100)}%`;
-      val.textContent = wheel.punctured ? 'FLAT' : `${tread}%`;
-      val.classList.toggle('flat', wheel.punctured);
+      val.textContent = wheel.rimBroken ? 'RIM' : wheel.punctured ? 'FLAT' : `${tread}%`;
+      val.classList.toggle('flat', wheel.punctured || wheel.rimBroken);
       val.title = `Grip x${tyreGrip(wheel).toFixed(2)}`;
       const g = gripBreakdown(wheel);
       cond.textContent = `wet ${Math.round(wheel.wetness * 100)}% · grip x${tyreGrip(wheel).toFixed(2)}`;
@@ -107,6 +110,8 @@ export function createTyreHud() {
         `temp x${g.temp.toFixed(2)}, wet x${g.wet.toFixed(2)}, dirt x${g.dirt.toFixed(2)}`;
       toggle.textContent = wheel.punctured ? 'Fix' : 'Pop';
       toggle.title = wheel.punctured ? 'Debug: reinflate (tread unchanged; a bald tyre pops again)' : 'Debug: pop this tyre';
+      rim.classList.toggle('broken', wheel.rimBroken);
+      rim.title = wheel.rimBroken ? 'Debug: straighten this rim' : 'Debug: break this rim (oval, hub drops twice a revolution)';
       const ratio = wheel.lastStrikeLimit > 0 ? wheel.lastStrikeSpeed / wheel.lastStrikeLimit : 0;
       if (ratio > 0 && (!hardestHit || ratio > hardestHit.ratio)) hardestHit = { ratio, wheel };
     });

@@ -109,7 +109,7 @@ export function getVehicle(id) {
 /** A board row's car name; null = a rally total driven in several cars. */
 export const vehicleLabel = (id) => (id == null ? 'Mixed cars' : getVehicle(id).name);
 
-/** Vehicles belonging to one category tab, in registry order. */
+/** Vehicles belonging to one category tab, alphabetically by display name. */
 export function vehiclesInCategory(categoryId) {
-  return VEHICLES.filter((v) => v.category === categoryId);
+  return VEHICLES.filter((v) => v.category === categoryId).sort((a, b) => a.name.localeCompare(b.name));
 }

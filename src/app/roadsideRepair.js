@@ -1,7 +1,7 @@
 // Free roam: with the car nearly stopped, a floating button points at each damaged part
-// (flat or worn tyre, worn shock, leaking radiator / low coolant, cracked sump / low oil, worn engine,
-// broken lamp, worn gearbox, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
-// Resets and teleports don't fix the car.
+// (flat or worn tyre, broken rim, worn shock, worn brake disc / drum, leaking brake pipe / low brake fluid, leaking radiator / low coolant,
+// worn skid plate, cracked sump / low oil, worn engine, broken lamp, worn gearbox, loose or lost exhaust, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
+// With two or more, a big Fix all button fixes everything at once. Resets and teleports don't fix the car.
 
 import { createPartCallouts } from './partCallouts.js';
 import { RESERVE_FRACTION } from '../lib/fuel.js';
@@ -12,9 +12,13 @@ const WORN_TREAD = 0.35;
 // Shock / gearbox health and coolant / oil level below these offer a fix.
 const WORN_SHOCK = 0.95;
 const WORN_GEARBOX = 0.95;
-const WORN_ENGINE = 0.95;
+const WORN_EXHAUST = 0.95;
+const WARM_ENGINE_C = 100; // coolant above this reads as overheating in the engine's note
 const LOW_COOLANT = 0.95;
 const LOW_OIL = 0.95;
+const WORN_SKID_PLATE = 0.95;
+const WORN_BRAKE = 0.95;
+const LOW_BRAKE_FLUID = 0.95;
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 
 const pct = (v) => `${Math.round(v * 100)}%`;
@@ -25,13 +29,28 @@ function damagedParts(vehicle) {
   const labels = vehicle.wheelLabels ?? [];
   vehicle.wheelInfos.forEach((w, i) => {
     const at = labels[i] ? ` · ${labels[i]}` : '';
-    if (w.punctured || w.tread < WORN_TREAD) {
-      parts.push({ label: `Replace tyre${at}`, note: w.punctured ? 'Flat' : `Worn · tread ${pct(w.tread)}`, anchor: { wheel: i }, fix: () => vehicle.repairTyres(i) });
+    if (w.punctured || w.rimBroken || w.tread < WORN_TREAD) {
+      const note = [w.rimBroken ? 'Broken rim' : '', w.punctured ? 'Flat' : w.tread < WORN_TREAD ? `Worn · tread ${pct(w.tread)}` : ''].filter(Boolean).join(' · ');
+      parts.push({ label: `Replace ${w.rimBroken ? 'wheel' : 'tyre'}${at}`, note, anchor: { wheel: i }, fix: () => vehicle.repairTyres(i) });
     }
     if (w.shockHealth < WORN_SHOCK) {
       parts.push({ label: `Replace shock${at}`, note: `Health ${pct(w.shockHealth)}`, anchor: { shock: i }, fix: () => vehicle.repairShocks(i) });
     }
   });
+  const brakes = vehicle.brakes;
+  brakes?.discs.forEach((d, i) => {
+    if (d.health >= WORN_BRAKE) return;
+    const at = labels[i] ? ` · ${labels[i]}` : '';
+    parts.push({ label: `Replace brake ${d.type}${at}`, note: `Health ${pct(d.health)}`, anchor: { wheel: i }, fix: () => brakes.repairDisc(i) });
+  });
+  for (const key of ['front', 'rear']) {
+    if (brakes?.circuits[key].leakLps > 0) {
+      parts.push({ label: `Fix brake pipe · ${key}`, note: `Leaking · fluid ${pct(brakes.level)}`, anchor: { circuit: key }, fix: () => brakes.repairPipe(key) });
+    }
+  }
+  if (brakes && brakes.level < LOW_BRAKE_FLUID && !Object.values(brakes.circuits).some((c) => c.leakLps > 0)) {
+    parts.push({ label: 'Top up brake fluid', note: `Fluid ${pct(brakes.level)}`, anchor: 'engine', fix: () => (brakes.fluidL = brakes.capacityL) });
+  }
   const heat = vehicle.heat;
   if (heat && (heat.leakLps > 0 || heat.level < LOW_COOLANT)) {
     const leaking = heat.leakLps > 0;
@@ -41,8 +60,14 @@ function damagedParts(vehicle) {
     const leaking = heat.oilLeakLps > 0;
     parts.push({ label: leaking ? 'Fix sump' : 'Top up oil', note: `${leaking ? 'Leaking · ' : ''}oil ${pct(heat.oilLevel)}`, anchor: leaking ? 'under' : 'engine', fix: () => heat.repairSump() });
   }
-  if (heat && heat.engineHealth < WORN_ENGINE) {
-    parts.push({ label: 'Rebuild engine', note: `Worn by low oil pressure · ${pct(heat.engineHealth)}`, anchor: 'engine', fix: () => heat.repairEngine() });
+  if (heat?.hasSkidPlate && heat.skidPlateHealth < WORN_SKID_PLATE) {
+    parts.push({ label: 'Replace skid plate', note: `Health ${pct(heat.skidPlateHealth)}`, anchor: 'under', fix: () => heat.repairSkidPlate() });
+  }
+  // Whenever the check-engine lamp is on (warningLamps.js): worn or overheating.
+  if (heat && heat.powerFactor < 1) {
+    const worn = heat.engineHealth < 1;
+    const note = [worn ? `Worn · ${pct(heat.engineHealth)}` : '', heat.coolantTempC > WARM_ENGINE_C ? 'Overheating' : '', `power ${pct(heat.powerFactor)}`].filter(Boolean).join(' · ');
+    parts.push({ label: worn ? 'Rebuild engine' : 'Cool engine', note, anchor: 'engine', fix: () => { heat.repairEngine(); heat.coolDown(); } });
   }
   const fuel = vehicle.fuel;
   if (fuel && fuel.fraction < RESERVE_FRACTION) {
@@ -58,6 +83,10 @@ function damagedParts(vehicle) {
   if (gearbox && gearbox.health < WORN_GEARBOX) {
     parts.push({ label: 'Fix gearbox', note: `Health ${pct(gearbox.health)}`, anchor: 'under', fix: () => gearbox.repair() });
   }
+  const exhaust = vehicle.exhaust;
+  if (exhaust && exhaust.health < WORN_EXHAUST) {
+    parts.push({ label: 'Replace exhaust', note: exhaust.detached ? 'Fell off · power -20%' : `Health ${pct(exhaust.health)}`, anchor: 'exhaust', fix: () => exhaust.repair() });
+  }
   return parts;
 }
 
@@ -70,13 +99,26 @@ function damagedParts(vehicle) {
  */
 export function createRoadsideRepair({ canvas, camera, getVehicle, onRepair }) {
   const callouts = createPartCallouts({ canvas, camera });
+  const fixAll = document.getElementById('repair-fix-all');
+  let parts = []; // the callouts' parts this frame (none while driving)
+  fixAll.addEventListener('click', () => {
+    fixAll.blur();
+    if (!parts.length) return;
+    for (const part of parts) part.fix();
+    onRepair?.();
+  });
 
   /** Per frame, after the camera moved. */
   function update() {
     const vehicle = getVehicle();
-    callouts.update(vehicle?.lamps ? vehicle : null, (v) =>
-      damagedParts(v).map((part) => ({ ...part, onClick: () => { part.fix(); onRepair?.(); } }))
-    );
+    parts = [];
+    callouts.update(vehicle?.lamps ? vehicle : null, (v) => {
+      parts = damagedParts(v);
+      return parts.map((part) => ({ ...part, onClick: () => { part.fix(); onRepair?.(); } }));
+    });
+    fixAll.hidden = parts.length < 2;
+    const label = `Fix all (${parts.length})`;
+    if (!fixAll.hidden && fixAll.textContent !== label) fixAll.textContent = label;
   }
 
   return { update };

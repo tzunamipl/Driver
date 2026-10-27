@@ -50,6 +50,7 @@ const WAGON_MK2 = {
             box(0.36, 0.08, 0.05, materials.tail, side * 0.6, 0.2, -2.16);     // wraparound tail lamp
             const pipe = add(new THREE.CylinderGeometry(0.04, 0.04, 0.08, 8), materials.trim, side * 0.45, -0.3, -2.19);
             pipe.rotation.x = Math.PI / 2;
+            pipe.userData.exhaust = true;
         }
         box(0.84, 0.02, 0.02, materials.tail, 0, 0.2, -2.165);                 // light bar
         box(1.3, 0.025, 0.16, materials.body, 0, roof(-1.74) + 0.03, -1.82).rotation.x = -0.12; // roof spoiler

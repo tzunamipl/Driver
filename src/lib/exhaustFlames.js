@@ -35,11 +35,24 @@ const LIGHT_FLICKER = 0.35; // random +/- share per frame
 const tipScratch = new THREE.Vector3();
 const dirScratch = new THREE.Vector3();
 
+/** Chassis-local tailpipe tips [{ pos, dir }] (THREE.Vector3, dir normalised). */
+export function exhaustTipsOf(descriptor, chassisMesh) {
+  if (descriptor.exhaustTips) {
+    return descriptor.exhaustTips.map(({ pos, dir = DEFAULT_DIR }) => ({
+      pos: new THREE.Vector3(...pos),
+      dir: new THREE.Vector3(...dir).normalize(),
+    }));
+  }
+  const box = localBounds(chassisMesh);
+  return [{ pos: new THREE.Vector3(box.min.x * 0.55, box.min.y + 0.15, box.min.z), dir: new THREE.Vector3(...DEFAULT_DIR) }];
+}
+
 /**
  * Creates the exhaust-flame effect. Call update() once per rendered frame.
- * onPop(strength 0..1) fires once per pop, for the sound.
+ * onPop(strength 0..1) fires once per pop, for the sound. getTips() may return live
+ * chassis-local tips (exhaustPipes.js: a swinging or lost pipe); else the descriptor's.
  */
-export function createExhaustFlames(scene, { onPop } = {}) {
+export function createExhaustFlames(scene, { onPop, getTips } = {}) {
   const puffs = createPuffPool(scene, {
     size: POOL_SIZE,
     lifetime: PARTICLE_LIFETIME_S,
@@ -59,21 +72,22 @@ export function createExhaustFlames(scene, { onPop } = {}) {
   const lightLocal = new THREE.Vector3(); // tips' midpoint, a bit out along the flame
   let flash = 0;
 
-  function resolveTips(descriptor, chassisMesh) {
-    if (tipsFor === descriptor) return tips;
-    tipsFor = descriptor;
-    if (descriptor.exhaustTips) {
-      tips = descriptor.exhaustTips.map(({ pos, dir = DEFAULT_DIR }) => ({
-        pos: new THREE.Vector3(...pos),
-        dir: new THREE.Vector3(...dir).normalize(),
-      }));
-    } else {
-      const box = localBounds(chassisMesh);
-      tips = [{ pos: new THREE.Vector3(box.min.x * 0.55, box.min.y + 0.15, box.min.z), dir: new THREE.Vector3(...DEFAULT_DIR) }];
-    }
+  function setTips(next) {
+    tips = next;
     lightLocal.set(0, 0, 0);
     for (const tip of tips) lightLocal.addScaledVector(tip.pos, 1 / tips.length).addScaledVector(tip.dir, TONGUE_LENGTH / 2 / tips.length);
-    return tips;
+  }
+
+  function resolveTips(descriptor, chassisMesh) {
+    const live = getTips?.();
+    if (live?.length) {
+      tipsFor = null;
+      setTips(live);
+      return;
+    }
+    if (tipsFor === descriptor) return;
+    tipsFor = descriptor;
+    setTips(exhaustTipsOf(descriptor, chassisMesh));
   }
 
   function updateLight(dt, chassisMesh) {

@@ -283,7 +283,9 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
     slab([rear(0.31, 0.06), rear(-0.31, 0.06), rear(-0.31, 0.15), rear(0.31, 0.15)], trimMat, 0.02);
     slab([rear(0.7, -0.23), rear(-0.7, -0.23), rear(-0.7, -0.17), rear(0.7, -0.17)], trimMat, 0.02);
     box(0.52, 0.11, 0.012, plateMat, 0, -0.07, TAIL_Z - 0.004);
-    add(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 10, 1, true), pipeMat, -0.5, -0.27, -2.17).rotation.x = Math.PI / 2;
+    const tailpipe = add(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 10, 1, true), pipeMat, -0.5, -0.27, -2.17);
+    tailpipe.rotation.x = Math.PI / 2;
+    tailpipe.userData.exhaust = true;
 
     // Two-tier wing on the boot lid (road: one low plane)
     const WING_Z = -1.97;

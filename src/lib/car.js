@@ -21,6 +21,9 @@ import { createEngineState } from './engine.js';
 import { createFuelTank } from './fuel.js';
 import { createEngineHeat } from './engineHeat.js';
 import { createLampDamage } from './lampDamage.js';
+import { createExhaustDamage } from './exhaustDamage.js';
+import { createBrakes, brakeUnit } from './brakes.js';
+import { buildBrakeMesh, setBrakeGlow, disposeBrakeMesh } from './car/brakeMesh.js';
 import { createBodyDirt } from './bodyDirt.js';
 import { MAX_STEER } from '../config.js';
 import { getAirTempC } from './weather.js';
@@ -34,13 +37,13 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness, setWheelSetRims } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness, setTyreVisible, setWheelSetRims, setWheelOval } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
 import { applyTyreSetup } from './tyres/setup.js';
 import { getTyreCompound } from './tyres/compounds.js';
-import { repairTyre } from './tyres.js';
+import { repairTyre, rimOval } from './tyres.js';
 import { SPARE_TYRE_KG, clampSpareTyres } from './spareTyres.js';
 import { emptySupplies, readSupplies, suppliesKg } from './supplies.js';
 import { readRepairRecord } from './partRepair.js';
@@ -198,10 +201,33 @@ function pedalBiasScales(wheels, bias) {
   return wheels.map((w) => (w.z > midZ + 1e-3 ? (bias * n) / front : w.z < midZ - 1e-3 ? ((1 - bias) * n) / rear : 1));
 }
 
+/**
+ * lib/brakes.js layout: per wheel its rotor (the spec's `brakes.front` ahead of the wheelbase
+ * midpoint, `brakes.rear` behind; a trailer's all rear) and circuit.
+ */
+function brakeLayout(tractorWheels, trailerWheels) {
+  const zs = tractorWheels.map((w) => w.z);
+  const midZ = (Math.max(...zs) + Math.min(...zs)) / 2;
+  const unitOf = (w, end) => brakeUnit(w.spec.brakes?.[end] ?? defaultBrakeAxle(w, end), w.spec.brakes?.pads);
+  return [
+    ...tractorWheels.map((w) => {
+      const end = w.z >= midZ - 1e-3 ? 'front' : 'rear';
+      return { unit: unitOf(w, end), circuit: end };
+    }),
+    ...trailerWheels.map((w) => ({ unit: unitOf(w, 'rear'), circuit: 'rear' })),
+  ];
+}
+
+/** Disc sized to the rim for a descriptor without `brakes`: vented front, solid rear. */
+function defaultBrakeAxle(w, end) {
+  const rimMm = (w.spec.rimSize ?? 15) * 25.4;
+  return end === 'front' ? { discMm: Math.round(rimMm * 0.72), vented: true } : { discMm: Math.round(rimMm * 0.66) };
+}
+
 /** Trailer spec: tyre/suspension/brake fields fall back to the tractor's. */
 function trailerSpecOf(descriptor) {
-  const { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound } = descriptor;
-  return { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, ...descriptor.trailer };
+  const { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, brakes } = descriptor;
+  return { rimSize, tyre, profile, rimColor, rims, wheelRadius, suspension, suspensionForceG, brakeForce, tyreCompound, brakes, ...descriptor.trailer };
 }
 
 /**
@@ -288,7 +314,8 @@ export function createCar(
   vehicle.heat = createEngineHeat(descriptor, getAirTempC()); // warmed by mainLoop, read by the aux gauge
   Object.defineProperty(vehicle.engine, 'oilPressureBar', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.oilPressureBar : 0) });
   Object.defineProperty(vehicle.engine, 'coolantTempC', { get: () => vehicle.heat.coolantTempC });
-  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.powerFactor : 0) });
+  vehicle.exhaust = createExhaustDamage({ breakable: descriptor.breakableExhaust ?? true }); // worn by carManager's collisions, drawn by exhaustPipes.js
+  Object.defineProperty(vehicle.engine, 'powerFactor', { get: () => (vehicle.fuel.litres > 0 ? vehicle.heat.powerFactor * vehicle.exhaust.powerFactor : 0) });
   vehicle.spareTyres = 0; // rally only (lib/spareTyres.js); their mass rides with the fuel
   vehicle.supplies = emptySupplies(); // rally cans (lib/supplies.js), mass with the spares
   const updateCargo = () => vehicle.fuel.setCargoKg(vehicle.spareTyres * SPARE_TYRE_KG + suppliesKg(vehicle.supplies));
@@ -300,16 +327,17 @@ export function createCar(
     vehicle.supplies = readSupplies(supplies);
     updateCargo();
   };
-  /** Swaps a spare (fresh, same tyre) in for wheel i's flat; false without one. */
+  /** Swaps a spare wheel (fresh, same tyre) in for wheel i's flat or broken rim; false without one. */
   vehicle.fitSpareTyre = (i) => {
     const wheel = vehicle.wheelInfos[i];
-    if (!wheel?.punctured || vehicle.spareTyres < 1) return false;
+    if (!(wheel?.punctured || wheel?.rimBroken) || vehicle.spareTyres < 1) return false;
     repairTyre(wheel);
     vehicle.setSpareTyres(vehicle.spareTyres - 1);
     return true;
   };
   vehicle.repairOnReset = true; // off: resets and teleports keep the damage (carManager)
   vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
+  vehicle.brakes = createBrakes(brakeLayout(tractorWheels, trailer?.wheels ?? []), descriptor, getAirTempC()); // heated by the wheels, updated by mainLoop
   vehicle.bodyDirt = createBodyDirt([chassisMesh, trailer?.mesh].filter(Boolean)); // built up by mainLoop
   /** Partial repair records (lib/partRepair.js) of every part, for the save. */
   vehicle.getRepairState = () => ({
@@ -317,6 +345,7 @@ export function createCar(
     gearbox: vehicle.engine.gearbox.repairRecord,
     radiator: vehicle.heat.radiatorRepair,
     sump: vehicle.heat.sumpRepair,
+    exhaust: vehicle.exhaust.repairRecord,
   });
   vehicle.setRepairState = (state) => {
     if (Array.isArray(state?.shocks) && state.shocks.length === vehicle.wheelInfos.length) {
@@ -325,19 +354,24 @@ export function createCar(
     vehicle.engine.gearbox.repairRecord = readRepairRecord(state?.gearbox);
     vehicle.heat.radiatorRepair = readRepairRecord(state?.radiator);
     vehicle.heat.sumpRepair = readRepairRecord(state?.sump);
+    vehicle.exhaust.repairRecord = readRepairRecord(state?.exhaust);
   };
-  /** New radiator and sump (topped up), fresh shocks, working lamps, mended gearbox. */
+  /** New radiator and sump (topped up), fresh shocks, working lamps, mended gearbox, new brake rotors and pipes, new exhaust. */
   vehicle.repairDamage = () => {
     vehicle.heat.repair();
+    vehicle.brakes.repair();
     vehicle.repairShocks();
     vehicle.lamps.repair();
     vehicle.engine.gearbox.repair();
+    vehicle.exhaust.repair();
   };
   /** Repaired with fresh tyres, and takes no damage from then on (editor). */
   vehicle.setNoDamage = () => {
     vehicle.noDamage = true;
     vehicle.engine.gearbox.noWear = true;
+    vehicle.exhaust.noWear = true;
     vehicle.heat.sealed = true;
+    vehicle.brakes.noDamage = true;
     vehicle.repairDamage();
     vehicle.repairTyres();
     vehicle.bodyDirt.wash();
@@ -355,7 +389,8 @@ export function createCar(
   vehicle.hasTrailer = !!trailer;
   vehicle.abs = descriptor.abs ?? DEFAULT_ABS; // ABS fitted: pedal brake backs off before locking
   vehicle.absOff = false; // fitted ABS switched off from the dash lamp
-  vehicle.tractionControl = descriptor.tractionControl ?? false; // dash lamp only, not simulated
+  vehicle.tractionControl = descriptor.tractionControl ?? false; // TC fitted: drive backs off before wheelspin
+  vehicle.tcOff = false; // fitted TC switched off from the dash lamp
   // Speed-sensitive steering lock; input.js lerps between these by speed.
   vehicle.steerSpeedD = descriptor.steerSpeedD ?? DEFAULT_STEER_SPEED_D;
   vehicle.maxSteerAt0 = descriptor.maxSteerAt0 ?? MAX_STEER;
@@ -372,11 +407,15 @@ export function createCar(
   };
   const pedalBias = pedalBiasScales(tractorWheels, descriptor.brakeBias ?? DEFAULT_BRAKE_BIAS);
   // Pedal brake on every wheel, handbrake only on handbrake axles (they must be able to lock).
+  // The rotors (fade, wear) scale both; line pressure only the pedal (lib/brakes.js).
   vehicle.applyBrakes = (pedalForce, handbrakeForce, abs, gripCap = Infinity) => {
+    const brakes = vehicle.brakes;
+    brakes.pedal = pedalForce > 0;
     allWheels.forEach((w, i) => {
       const share = w.brakeForce / vehicle.brakeForce;
-      const handbrake = w.axle.handbrake ? handbrakeForce : 0;
-      const pedal = pedalForce * (pedalBias[i] ?? 1);
+      const rotation = vehicle.wheelInfos[i].rotation;
+      const handbrake = w.axle.handbrake && handbrakeForce > 0 ? handbrakeForce * brakes.frictionFactor(i, rotation) : 0;
+      const pedal = pedalForce > 0 ? pedalForce * (pedalBias[i] ?? 1) * brakes.pedalFactor(i, rotation) : 0;
       vehicle.setBrake(Math.max(pedal, handbrake) * share, i, abs && !handbrake, handbrake > 0, handbrake ? Infinity : gripCap);
     });
   };
@@ -453,6 +492,16 @@ export function createCar(
     for (const m of hitboxMeshes) m.visible = visible;
   }
   const wheelMeshes = allWheels.map((w) => buildWheelSet(w.spec, scene, w.axle.dual, w.side));
+  // Steered with the wheel but not spun, so the caliper stays put.
+  const brakeMeshes = allWheels.map((w, i) => {
+    const rimRadius = w.spec.rimSize ? (w.spec.rimSize * 2.54) / 200 : w.options.radius * 0.6;
+    const mesh = buildBrakeMesh(vehicle.brakes.discs[i], rimRadius, w.options.tyreWidth * 0.95, w.side, w.spec.brakes?.pads);
+    scene.add(mesh);
+    return mesh;
+  });
+  const brakeBodyMesh = allWheels.map((w) => (w.body === chassisBody ? chassisMesh : trailer.mesh));
+  const brakeSteerQuat = new THREE.Quaternion();
+  const UP = new THREE.Vector3(0, 1, 0);
   /** Fits the setup's rim style + colour (cosmetic, tyres untouched); the trailer keeps its own. */
   vehicle.setRims = (setup) => {
     vehicle.tyreSetup = { ...vehicle.tyreSetup, rim: setup.rim, rimColor: setup.rimColor };
@@ -544,11 +593,18 @@ export function createCar(
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
       setTyreDirt(mesh, Math.round(vehicle.wheelInfos[i].dirt * 100) / 100); // rounded: recolour only on visible change
       setTyreWetness(mesh, Math.round(vehicle.wheelInfos[i].wetness * 50) / 50);
+      const wheel = vehicle.wheelInfos[i];
+      setTyreVisible(mesh, !wheel.tyreShed);
+      setWheelOval(mesh, rimOval(wheel));
+      const brake = brakeMeshes[i];
+      brake.position.copy(mesh.position);
+      brake.quaternion.copy(brakeBodyMesh[i].quaternion).multiply(brakeSteerQuat.setFromAxisAngle(UP, wheel.steering + wheel.rimToe));
+      setBrakeGlow(brake, vehicle.brakes.discs[i].tempC);
     });
   }
 
   // --- Reset ---
-  // Without arguments: rights the car in place (same heading, lifted). With `repairOnReset` it also fits fresh tyres and shocks, fixes the radiator, lamps and gearbox, and washes the car.
+  // Without arguments: rights the car in place (same heading, lifted). With `repairOnReset` it also fits fresh tyres and shocks, fixes the radiator, lamps, gearbox and exhaust, and washes the car.
   // The body is kinematic while updateReset() eases it into the pose; a
   // trailer rides along straight behind it.
   let liftAnim = null;
@@ -606,6 +662,10 @@ export function createCar(
   /** Removes the extras carManager's generic cleanup doesn't know about. */
   function dispose() {
     world.removeEventListener('preStep', syncWheelHitboxes);
+    for (const mesh of brakeMeshes) {
+      scene.remove(mesh);
+      disposeBrakeMesh(mesh);
+    }
     for (const body of wheelHitboxBodies) world.removeBody(body);
     if (trailer) {
       trailer.hitch.dispose();

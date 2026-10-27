@@ -387,7 +387,7 @@ function buildSignMesh(item) {
     const y = top - (k + 1) * BOARD_H - k * BOARD_GAP;
     const front = new THREE.Mesh(
       boardGeometry(board.dir, w).translate(0, y, BOARD_DEPTH / 2),
-      new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.4, flatShading: true })
+      new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.85, flatShading: true })
     );
     // Mirrored outline turned round = the same outline seen from behind.
     const mirrored = board.dir === 'left' ? 'right' : board.dir === 'right' ? 'left' : 'straight';

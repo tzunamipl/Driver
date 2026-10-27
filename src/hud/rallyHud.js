@@ -27,10 +27,11 @@ export function createRallyHud(actions) {
   const lamps = Array.from({ length: 5 }, () => lights.appendChild(el('span', 'rally-lamp')));
   const status = el('div', 'rally-status');
   const next = el('div', 'rally-next');
+  const warning = el('div', 'rally-warning');
   const penalty = el('div', 'rally-penalty');
   const results = el('div', 'rally-results');
   const buttons = el('div', 'rally-buttons');
-  root.append(title, clock, lights, status, next, penalty, results, buttons);
+  root.append(title, clock, lights, status, next, warning, penalty, results, buttons);
 
   const LABELS = { retire: 'Retire', inspect: 'Inspect car', restart: 'Restart stage', skipLiaison: 'Skip liaison', pick: 'Choose stage', newRally: 'Choose rally', pickAgain: 'Choose again', mainMenu: 'Main menu' };
   let shownButtons = '';
@@ -44,7 +45,7 @@ export function createRallyHud(actions) {
 
   return {
     /**
-     * @param {object | null} view - { title, clockMs, lights: {red, green} | null, status, next,
+     * @param {object | null} view - { title, clockMs, lights: {red, green} | null, status, next, warning,
      *   penaltyMs, results: [label, value, className?][] | null, buttons: string[] }; null hides the HUD.
      */
     render(view) {
@@ -61,6 +62,7 @@ export function createRallyHud(actions) {
       }
       setText(status, view.status);
       setText(next, view.next);
+      setText(warning, view.warning);
       setText(penalty, view.penaltyMs ? `Penalty +${formatTime(view.penaltyMs)}` : '');
       if (view.results !== shownResults) {
         shownResults = view.results;

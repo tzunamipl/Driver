@@ -94,8 +94,29 @@
 }
 #gear-mode[data-mode="comfort"] { color: #4fc3ff; }
 #gear-mode[data-mode="eco"] { color: #6fdc6f; }
+#gear-mode[data-mode="cruise"] { color: #e0d36a; }
 /* Manual box: sport/comfort/eco doesn't apply. */
 #gear-mode.inactive { opacity: 0.35; pointer-events: none; }
+/* Cruise speed-limit sign, at the tach's upper-right rim (the boost dial takes the left). */
+#cruise-limit {
+  position: absolute;
+  right: -12%;
+  top: -12%;
+  width: calc(var(--tach-size) * 0.38);
+  height: calc(var(--tach-size) * 0.38);
+  box-sizing: border-box;
+  border: calc(var(--tach-size) * 0.05) solid #d32020;
+  border-radius: 50%;
+  background: #fff;
+  color: #111;
+  font: bold calc(var(--tach-size) * 0.15) sans-serif;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+#cruise-limit[hidden] { display: none; }
 #transmission-mode {
   top: 85%;
   color: #ddd;
@@ -169,35 +190,42 @@
    carrying the odometer built into its face (bottom third of the
    dial), like a real car's instrument cluster. */
 #speedo {
-  width: 190px;
-  height: 190px;
+  width: 220px;
+  height: 220px;
 }
 #speedo .gauge-label {
   top: 40%;
   font-size: 11px;
 }
 #speedo .gauge-needle {
-  height: 74px;
+  height: 86px;
 }
-/* Outside temperature LCD (hud/outsideTempLcd.js) between the km/h label and the odometer. */
-#outside-temp {
+/* Dash LCD row between the km/h label and the odometer: outside temperature
+   (hud/outsideTempLcd.js) + average fuel consumption (hud/fuelAverageLcd.js). */
+#dash-lcds {
   position: absolute;
   left: 50%;
-  top: 59%;
+  top: 63%;
   transform: translate(-50%, -50%);
   display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 4px;
-  border-radius: 2px;
-  background: #1a2418;
-  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
-  font: bold 10px/14px monospace;
-  color: #9fe870;
-  text-shadow: 0 0 3px rgba(159, 232, 112, 0.6);
+  gap: 4px;
+  white-space: nowrap;
   pointer-events: none;
 }
-#outside-temp[hidden] { display: none; }
+.dash-lcd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: #1a2418;
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
+  font: bold 15px/21px monospace;
+  color: #9fe870;
+  text-shadow: 0 0 3px rgba(159, 232, 112, 0.6);
+}
+.dash-lcd[hidden] { display: none; }
+.fuel-average-unit { font-size: 10px; }
 .outside-temp-frost { color: rgba(159, 232, 112, 0.15); text-shadow: none; }
 .outside-temp-frost.lit { color: #7fd0ff; text-shadow: 0 0 3px rgba(127, 208, 255, 0.7); }
 /* Mechanical odometer in the speedo's lower face: odometer over trip meter,
@@ -205,7 +233,7 @@
 #odometer {
   position: absolute;
   left: 50%;
-  top: 73%;
+  top: 83%;
   transform: translate(-50%, -50%) scale(var(--odo-scale, 0.72));
   pointer-events: none;
 }
@@ -372,8 +400,8 @@
     #0b0b0b;
 }
 #speedo .gauge-hub {
-  width: 20px;
-  height: 20px;
+  width: 23px;
+  height: 23px;
 }
 #gauges.dash-lit .gauge-hub {
   background-color: #2a1a0e;

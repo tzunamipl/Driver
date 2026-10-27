@@ -30,6 +30,9 @@ const END_GRID_M = 32;
 // Not cut when it meets that road at a shallower angle than this (sin): the cut would run far along it.
 const END_CUT_MIN_SIN = 0.35;
 const NO_CUTS = [];
+// segmentsAt() index: each bucket list in a lat/lon grid of about this cell size, segments padded by up to the query margin.
+const NEAR_CELL_M = 16;
+const NEAR_MAX_MARGIN_M = 2;
 
 /**
  * Builds a manager class (call `new Cls(scene, world, originLat, originLon, terrain)`).
@@ -44,6 +47,7 @@ const NO_CUTS = [];
  *   width; half width) and `stripeMarkings` (= `markings`), for road marking shaders.
  *   With `rank` (default: `linewidth`), a flat line ending on a higher-ranked one stops at its edge.
  *   With `depthRank` (a number) its stripes get a `depthRank` attribute (= `depthRank`).
+ *   With `renderOrder` its meshes get it.
  * @param {number} [options.lift] - metres above ground, avoids z-fighting.
  * @param {boolean} [options.flat] - draw `linewidth` as a real-metre ground-hugging stripe
  *   instead of a screen-space LineMaterial fat line. Required for containsPoint().
@@ -76,6 +80,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
   return class VectorLineLayerManager extends VectorTileLayer {
     constructor(scene, world, originLat, originLon, terrain) {
       super(scene, world, originLat, originLon, { tileZoom, layerName, classify, alwaysStream, radius, terrain });
+      this._nearGrids = new WeakMap(); // bucket list -> { count, cells }
     }
 
     // Items also carry `dist` (metres along the line at `a`), `len`, `buffer`
@@ -279,6 +284,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
         }
         const mesh = new Mesh(geometry, materialFor(bucket.style));
         mesh.receiveShadow = !!bucket.style.lit;
+        if (bucket.style.renderOrder != null) mesh.renderOrder = bucket.style.renderOrder;
         return mesh;
       }
       const geometry = new LineSegmentsGeometry();
@@ -299,8 +305,42 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     *stylesAt(x, z) {
       if (!flat) return;
       for (const list of this._listsNear(x, z)) {
-        for (const seg of list) if (this._segmentMargin(seg, x, z) >= 0) yield seg.style;
+        for (const seg of list) if (this.segmentMargin(seg, x, z) >= 0) yield seg.style;
       }
+    }
+
+    /** Fetched segments whose stripe, widened by `margin` (up to NEAR_MAX_MARGIN_M), covers world (x, z). Flat layers only. */
+    *segmentsAt(x, z, margin = 0) {
+      if (!flat) return;
+      const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
+      const key = nearCellKey(lat, lon);
+      for (const list of this._listsNear(x, z)) {
+        for (const seg of this._nearGrid(list).get(key) ?? NO_CUTS) if (this.segmentMargin(seg, x, z) >= -margin) yield seg;
+      }
+    }
+
+    /** Cell -> segments whose stripe plus NEAR_MAX_MARGIN_M reaches into it, rebuilt when the list grows. */
+    _nearGrid(list) {
+      let grid = this._nearGrids.get(list);
+      if (grid?.count === list.length) return grid.cells;
+      const cells = new Map();
+      for (const seg of list) {
+        const reach = seg.style.linewidth / 2 + NEAR_MAX_MARGIN_M;
+        const dLat = reach / METERS_PER_DEGREE;
+        const dLon = dLat / Math.cos((seg.a.lat * Math.PI) / 180);
+        const [x0, y0] = nearCell(Math.min(seg.a.lat, seg.b.lat) - dLat, Math.min(seg.a.lon, seg.b.lon) - dLon);
+        const [x1, y1] = nearCell(Math.max(seg.a.lat, seg.b.lat) + dLat, Math.max(seg.a.lon, seg.b.lon) + dLon);
+        for (let cx = x0; cx <= x1; cx++) {
+          for (let cy = y0; cy <= y1; cy++) {
+            const key = `${cx},${cy}`;
+            const cell = cells.get(key);
+            if (cell) cell.push(seg);
+            else cells.set(key, [seg]);
+          }
+        }
+      }
+      this._nearGrids.set(list, (grid = { count: list.length, cells }));
+      return cells;
     }
 
     /** Metres from world (x, z) to the nearest strip edge, inside the widest strip covering it; 0 outside. */
@@ -314,7 +354,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
       let best = -Infinity;
       for (const list of this._listsNear(x, z)) {
         for (const seg of list) {
-          const margin = this._segmentMargin(seg, x, z);
+          const margin = this.segmentMargin(seg, x, z);
           if (margin > best) {
             best = margin;
             if (firstHit && best >= 0) return best;
@@ -343,7 +383,7 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
     }
 
     /** Half width minus distance from world (x, z) to the segment's centreline. */
-    _segmentMargin(seg, x, z) {
+    segmentMargin(seg, x, z) {
       // End points in the current local frame, converted once per origin move.
       let local = seg.local;
       if (local?.frame !== this._frame) {
@@ -359,8 +399,19 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
   };
 }
 
+/** segmentsAt() grid cell of (lat, lon): [x, y]. */
+function nearCell(lat, lon) {
+  const size = NEAR_CELL_M / METERS_PER_DEGREE;
+  return [Math.floor(lon / size), Math.floor(lat / size)];
+}
+
+function nearCellKey(lat, lon) {
+  const [x, y] = nearCell(lat, lon);
+  return `${x},${y}`;
+}
+
 /** Unit XZ normal to the left of a -> b. */
-function sideNormal(a, b) {
+export function sideNormal(a, b) {
   const dx = b.x - a.x;
   const dz = b.z - a.z;
   const len = Math.hypot(dx, dz);
@@ -368,7 +419,7 @@ function sideNormal(a, b) {
 }
 
 /** Side offset of half width `hw` at the joint between segments with normals `n0`, `n1`. */
-function miter(n0, n1, hw) {
+export function miter(n0, n1, hw) {
   const mx = n0[0] + n1[0];
   const mz = n0[1] + n1[1];
   const len = Math.hypot(mx, mz);

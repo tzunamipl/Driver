@@ -32,6 +32,9 @@ const DEFAULT_SEGMENTS = 8;
 export function buildWheelMesh({ rimSize, tyre, profile, rimStyle, rimColor }, parent, segments = DEFAULT_SEGMENTS, side = 1) {
   const tyreWallScale = 0.3;
   const group = new THREE.Group();
+  // Tyre + rim, squashed oval by a broken rim (setWheelOval) inside the spinning wheel.
+  const oval = new THREE.Group();
+  group.add(oval);
   const rimDiameter = rimSize * 2.54 / 100;
   const tyreWidth = tyre / 1000;
   const rimWidth = tyreWidth * 1.05; // belt pokes just past the sidewalls
@@ -63,19 +66,19 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimStyle, rimColor }, p
     clearcoatRoughness: WET_FILM_ROUGHNESS,
   });
   const treadMat = sideMat.clone();
-  group.add(new THREE.Mesh(tyreGeo1, sideMat));
-  group.add(new THREE.Mesh(tyreGeo2, sideMat));
-  group.add(new THREE.Mesh(treadGeo, treadMat));
+  const parts = [new THREE.Mesh(tyreGeo1, sideMat), new THREE.Mesh(tyreGeo2, sideMat), new THREE.Mesh(treadGeo, treadMat)];
+  for (const m of parts) oval.add(m);
 
   const tire = new THREE.Mesh(mergeGeometries([tyreGeo1, tyreGeo2, treadGeo], true), [sideMat, sideMat, treadMat]);
   tire.castShadow = true;
-  group.add(tire);
+  oval.add(tire);
 
-  const rim = { radius: rimDiameter / 2, width: rimWidth, segments, side, group: null };
+  const rim = { radius: rimDiameter / 2, width: rimWidth, segments, side, group: null, oval };
   group.userData.rim = rim;
   setRim(group, rimStyle, rimColor);
 
   group.userData.tyreMats = { side: [sideMat], tread: [treadMat] };
+  group.userData.tyreMeshes = [...parts, tire];
   parent.add(group);
   return group;
 }
@@ -83,11 +86,11 @@ export function buildWheelMesh({ rimSize, tyre, profile, rimStyle, rimColor }, p
 function setRim(wheel, rimStyle, rimColor) {
   const rim = wheel.userData.rim;
   if (rim.group) {
-    wheel.remove(rim.group);
+    rim.oval.remove(rim.group);
     disposeRim(rim.group);
   }
   rim.group = buildRim(rimStyle, rimColor, rim.radius, rim.width, rim.segments, rim.side);
-  wheel.add(rim.group);
+  rim.oval.add(rim.group);
 }
 
 /** Swaps the rims of a wheel set (one wheel or a dual set) for `spec`'s (rims.js resolveRim). */
@@ -126,6 +129,24 @@ export function setTyreWetness(wheelSet, wetness) {
   }
 }
 
+/** Squashes a wheel set's tyres + rims to `squash` of their radius along the wheel rotation `angle` (tyres.js rimOval). */
+export function setWheelOval(wheelSet, { angle, squash }) {
+  wheelSet.traverse((obj) => {
+    const oval = obj.userData.rim?.oval;
+    if (!oval || (oval.scale.y === squash && oval.rotation.x === -angle)) return;
+    // Local y squashed, then turned to where the ground was (wheel down = -y rotated back by the wheel's spin).
+    oval.rotation.x = -angle;
+    oval.scale.y = squash;
+  });
+}
+
+/** Shows or hides a wheel set's tyres (a shed tyre leaves the bare rim). */
+export function setTyreVisible(wheelSet, visible) {
+  const meshes = wheelSet.userData.tyreMeshes;
+  if (!meshes || meshes[0].visible === visible) return;
+  for (const m of meshes) m.visible = visible;
+}
+
 /** One wheel position's mesh: a single wheel, or twin tyres side by side for a dual set; `side` +1 left, -1 right. */
 export function buildWheelSet(descriptor, parent, dual = false, side = 1) {
   const tyreWidth = (descriptor.tyre ?? 225) / 1000;
@@ -134,13 +155,16 @@ export function buildWheelSet(descriptor, parent, dual = false, side = 1) {
   if (offsets.length === 1) return buildWheelMesh(spec, parent, DEFAULT_SEGMENTS, side);
   const set = new THREE.Group();
   const tyreMats = { side: [], tread: [] };
+  const tyreMeshes = [];
   for (const x of offsets) {
     const wheel = buildWheelMesh(spec, set, DEFAULT_SEGMENTS, side);
     wheel.position.x = x;
     tyreMats.side.push(...wheel.userData.tyreMats.side);
     tyreMats.tread.push(...wheel.userData.tyreMats.tread);
+    tyreMeshes.push(...wheel.userData.tyreMeshes);
   }
   set.userData.tyreMats = tyreMats;
+  set.userData.tyreMeshes = tyreMeshes;
   parent.add(set);
   return set;
 }

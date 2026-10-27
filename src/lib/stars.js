@@ -168,9 +168,9 @@ export function createStars(scene) {
   const spin = new THREE.Matrix4();
   const radius = new THREE.Vector3(SKY_RADIUS_M, SKY_RADIUS_M, SKY_RADIUS_M);
 
-  /** Per frame: orient the sky for `timeMs` at lat/lon, centred on `position`, faded by sun elevation. */
-  function update(timeMs, lat, lon, position, sunElevationDeg) {
-    visibility.value = THREE.MathUtils.smoothstep(-sunElevationDeg, -FADE_START_DEG, -FADE_FULL_DEG);
+  /** Per frame: orient the sky for `timeMs` at lat/lon, centred on `position`, faded by sun elevation and `veil` (fog 0..1). */
+  function update(timeMs, lat, lon, position, sunElevationDeg, veil = 0) {
+    visibility.value = THREE.MathUtils.smoothstep(-sunElevationDeg, -FADE_START_DEG, -FADE_FULL_DEG) * (1 - veil);
     sky.visible = visibility.value > 0;
     if (!sky.visible) return;
     time.value = performance.now() / 1000;

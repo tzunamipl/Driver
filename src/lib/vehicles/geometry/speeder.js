@@ -89,7 +89,7 @@ export function buildBody(chassisWidth, chassisLength, color = DEFAULT_BODY_COLO
         );
         exhaust.rotateX(Math.PI / 2);
 
-        add(exhaust, darkMat, x * w * 0.36, w * 0.25, -l * 0.05);
+        add(exhaust, darkMat, x * w * 0.36, w * 0.25, -l * 0.05).userData.exhaust = true;
     }
 
     // Tylne błotniki
