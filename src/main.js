@@ -616,6 +616,8 @@ if (scenarioEditor) {
     const points = scenarioEditor.mapPoints();
     minimapHud.setScenarioPoints(points);
     navigationPanel.setScenarioPoints(points);
+    minimapHud.setStageRoute(scenarioEditor.mapRoute());
+    navigationPanel.setStageRoute(scenarioEditor.mapRoute());
   });
 }
 

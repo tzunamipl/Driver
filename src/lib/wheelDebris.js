@@ -17,12 +17,14 @@ const DARK_SOIL = [0x3d2a18, 0x4a321c, 0x2e2014];
 const GRAVEL = [0x8a8378, 0x6f6a62, 0xa59d90];
 const STONE = [0x8d8a84, 0x6e6b66, 0xa8a49c];
 const SAND = [0xc2a66b, 0xb09460];
+const SNOW = [0xf2f5f8, 0xdfe5ec, 0xe9edf2];
 
 // perM = bits per metre of patch slip; leaf = share that are flat bits; size = chunk size range (m).
 const SURFACE_DEBRIS = {
   normal: { perM: 1.2, leaf: 0.65, leafColors: GRASS, chunkColors: SOIL, size: [0.03, 0.07] },
   forest: { perM: 1.4, leaf: 0.8, leafColors: LEAVES, chunkColors: DARK_SOIL, size: [0.03, 0.07] },
   scrub: { perM: 1, leaf: 0.55, leafColors: SCRUB, chunkColors: SOIL, size: [0.03, 0.06] },
+  snow: { perM: 2.5, leaf: 0, chunkColors: SNOW, size: [0.02, 0.06] },
   mud: { perM: 2.5, leaf: 0, chunkColors: DARK_SOIL, size: [0.03, 0.08] },
   unpaved: { perM: 3, leaf: 0, chunkColors: GRAVEL, size: [0.015, 0.045] },
   rock: { perM: 0.8, leaf: 0, chunkColors: STONE, size: [0.02, 0.06] },

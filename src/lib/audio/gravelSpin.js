@@ -6,7 +6,7 @@ import { getAudio, createWheelOutput } from './audioContext.js';
 import { wheelSide } from '../wheelContact.js';
 
 // Surfaces that crunch; road/cobblestone/rock/builtUp squeal (tireSqueal.js), water wades.
-export const GRAVEL_SURFACES = new Set(['unpaved', 'normal', 'forest', 'scrub', 'sand', 'mud']);
+export const GRAVEL_SURFACES = new Set(['unpaved', 'normal', 'forest', 'scrub', 'sand', 'mud', 'snow']);
 
 const MAX_GAIN = 0.04;
 const SLIP_FOR_MAX_MPS = 8; // slip speed at which a wheel reaches full level

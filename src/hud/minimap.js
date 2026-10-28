@@ -2,6 +2,7 @@ import { lon2tileX, lat2tileY, tileSizeMeters, haversineMeters } from '../lib/ge
 import { computeHeadingDeg } from '../lib/heading.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from './mapTiles.js';
 import { strokeRoute } from './routeLine.js';
+import { STAGE_ROUTE_COLOR } from '../lib/rally/stageRouteLine.js';
 import { drawScenarioPoints } from './scenarioPointIcon.js';
 import { formatRouteDistance, formatRouteDuration } from '../lib/routing.js';
 import { isImperial, FT_PER_M, M_PER_MILE, formatPeerDistance } from '../lib/units.js';
@@ -71,7 +72,7 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
   const routeTurnEl = document.getElementById('minimap-route-turn');
   const routeTurnDistEl = document.getElementById('minimap-route-turn-dist');
   const routeSummaryEl = document.getElementById('minimap-route-summary');
-  if (!root || !canvas) return { update() {}, setDestination() {}, setScenarioPoints() {} };
+  if (!root || !canvas) return { update() {}, setDestination() {}, setScenarioPoints() {}, setStageRoute() {} };
 
   const ctx = canvas.getContext('2d');
   // Off-screen peer arrows go on a click-through overlay canvas above the
@@ -89,6 +90,7 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
   let destination = null;
   /** Scenario editor points: { lat, lon, color, label, gate, selected }. */
   let scenarioPoints = [];
+  let stageRoute = null;
 
   // Last successful lookup position, and an in-flight guard.
   let lastGeocodeLat = null;
@@ -284,9 +286,10 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
       }
     }
 
+    const worldPx = TILE_SIZE * 2 ** zoom;
+    if (stageRoute) strokeRoute(ctx, stageRoute, null, txf / 2 ** zoom, tyf / 2 ** zoom, worldPx, 3 * s, STAGE_ROUTE_COLOR);
     const routeState = getRouteState?.();
     if (routeState?.route) {
-      const worldPx = TILE_SIZE * 2 ** zoom;
       strokeRoute(ctx, routeState.route, routeState.progress, txf / 2 ** zoom, tyf / 2 ** zoom, worldPx, 4 * s);
     }
 
@@ -495,5 +498,10 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
     scenarioPoints = points ?? [];
   }
 
-  return { update, setDestination, setScenarioPoints };
+  /** Editor stage route ({ mx, my } normalised Web Mercator); null hides it. */
+  function setStageRoute(route) {
+    stageRoute = route;
+  }
+
+  return { update, setDestination, setScenarioPoints, setStageRoute };
 }

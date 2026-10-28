@@ -16,6 +16,7 @@ const SURFACE_SPRAY = {
   rock: 0.8,
   unpaved: 0.6,
   mud: 0.5,
+  snow: 0.7,
   normal: 0.25,
   scrub: 0.25,
   forest: 0.15,

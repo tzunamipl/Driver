@@ -31,6 +31,7 @@ export function parseClockTime(text) {
 }
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
+// routed: a stage route point (pacenotes, editor route line); file `straight: true` = the route reaches it in a straight line from the point before, not by road;
 // stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; refuel: passing it offers fuel;
 // service: passing it opens that lib/serviceRepairs.js SERVICE_ZONES repair menu; endsDay: passing it ends the rally day (`nextStart` field);
 // description: what the point does in the game (editor tooltips).
@@ -44,15 +45,15 @@ const POINT_TYPES = {
     description: 'Start line: the car stops at it for a 5-light countdown and the clock starts at GO. Moving before GO is a jump start (+10 s). Exactly one per stage.',
   },
   split: {
-    label: 'Split', short: 'SPLIT', color: 0x2f7fff, gate: true,
+    label: 'Split', short: 'SPLIT', color: 0x2f7fff, gate: true, routed: true,
     description: 'Intermediate timing point between start and finish: crossing it records a split time compared with the best run. Flags, fireworks and sparkles.',
   },
   passageControl: {
-    label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true,
+    label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true, routed: true,
     description: 'Required checkpoint: the stage only counts it when crossed in order, so use it to block shortcuts. Small purple PC flags, sparkles when passed; not timed.',
   },
   finish: {
-    label: 'Flying finish', short: 'FINISH', color: 0xe02020, gate: true,
+    label: 'Flying finish', short: 'FINISH', color: 0xe02020, gate: true, routed: true,
     description: 'Crossing it at speed stops the clock: this is the stage time. Exactly one per stage, after the start.',
   },
   stop: {
@@ -125,7 +126,7 @@ const RALLY_POINTS = ['base', 'serviceParkIn', 'service', 'serviceParkOut', 'reg
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
 const normalHeading = (deg) => Number((((deg % 360) + 360) % 360).toFixed(HEADING_DECIMALS)) % 360;
-const gate = ({ type, id, lat, lon, width, heading, snap, nextStart }) => ({
+const gate = ({ type, id, lat, lon, width, heading, snap, straight, nextStart }) => ({
   type,
   ...(id ? { id } : {}),
   lat: round(lat),
@@ -133,6 +134,7 @@ const gate = ({ type, id, lat, lon, width, heading, snap, nextStart }) => ({
   width: round(width ?? defaultWidth(type)),
   ...(Number.isFinite(heading) ? { heading: normalHeading(heading) } : {}),
   ...(snap === false ? { snap: false } : {}),
+  ...(straight && POINT_TYPES[type].routed ? { straight: true } : {}),
   ...(POINT_TYPES[type].endsDay && parseClockTime(nextStart) != null ? { nextStart: nextStart.trim() } : {}),
 });
 
@@ -141,6 +143,7 @@ function readGate(entry) {
   const point = { type: entry.type, lat: entry.lat, lon: entry.lon, width: Number.isFinite(entry.width) ? entry.width : defaultWidth(entry.type) };
   if (Number.isFinite(entry.heading)) point.heading = normalHeading(entry.heading);
   if (entry.snap === false) point.snap = false;
+  if (entry.straight === true && POINT_TYPES[entry.type].routed) point.straight = true;
   if (typeof entry.id === 'string' && entry.id) point.id = entry.id;
   if (POINT_TYPES[entry.type].endsDay && parseClockTime(entry.nextStart) != null) point.nextStart = entry.nextStart;
   return point;

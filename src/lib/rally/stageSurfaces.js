@@ -9,6 +9,8 @@ export const STAGE_SURFACES = {
   cobblestone: { label: 'Cobbles', compound: 'cobblestone', look: 'cobblestone', color: '#7d776d' },
   gravel: { label: 'Gravel', compound: 'unpaved', look: 'unpaved', color: '#9c8868' },
   mud: { label: 'Mud', compound: 'mud', look: 'mud', color: '#4f3b26' },
+  snow: { label: 'Snow', compound: 'snow', look: 'snow', color: '#e3e8ee' },
+  ice: { label: 'Ice', compound: 'ice', look: 'ice', color: '#9fb8c8' },
 };
 
 export const STAGE_SURFACE_IDS = Object.keys(STAGE_SURFACES);

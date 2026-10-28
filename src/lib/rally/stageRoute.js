@@ -272,7 +272,9 @@ function shortestPath(from, to) {
 }
 
 /**
- * Road route through `waypoints` ({lat, lon, label?}, in driving order) on OSM roads.
+ * Road route through `waypoints` ({lat, lon, label?, straight?}, in driving order) on OSM roads;
+ * `straight`: the leg to that waypoint is a straight line instead (off the graph, so no other leg takes it).
+ * A straight leg's ends stand off-road when no road is near, then the leg after must be straight too.
  * @returns {Promise<{origin: {lat: number, lon: number}, nodes: object[]}>} nodes in local
  *   metres around `origin` (x east, z south), each with `links` to its neighbours ({ node, width, rank, unpaved }).
  */
@@ -296,13 +298,15 @@ export async function routeStage(waypoints, { onProgress } = {}) {
   const stops = waypoints.map((p, i) => {
     const { x, z } = latLonToLocal(p.lat, p.lon, origin.lat, origin.lon);
     const node = snapNode(graph, x, z);
-    if (!node) throw new Error(`No road within ${SNAP_M} m of ${p.label ?? `point ${i + 1}`}`);
-    return node;
+    if (node) return node;
+    const byRoad = (i > 0 && !p.straight) || (i + 1 < waypoints.length && !waypoints[i + 1].straight);
+    if (byRoad) throw new Error(`No road within ${SNAP_M} m of ${p.label ?? `point ${i + 1}`}: tick Straight from previous point on it (and on the point after)`);
+    return { x, z, links: [] };
   });
   const nodes = [stops[0]];
   for (let i = 1; i < stops.length; i++) {
-    const leg = shortestPath(stops[i - 1], stops[i]);
-    if (!leg) throw new Error(`No road route from ${waypoints[i - 1].label ?? `point ${i}`} to ${waypoints[i].label ?? `point ${i + 1}`}`);
+    const leg = waypoints[i].straight ? [stops[i - 1], stops[i]] : shortestPath(stops[i - 1], stops[i]);
+    if (!leg) throw new Error(`No road route from ${waypoints[i - 1].label ?? `point ${i}`} to ${waypoints[i].label ?? `point ${i + 1}`}: tick Straight from previous point on the second`);
     for (const node of leg.slice(1)) {
       // Turning back over the road just driven (a waypoint just off the line): drop the spur.
       if (nodes.length >= 2 && nodes[nodes.length - 2] === node) nodes.pop();

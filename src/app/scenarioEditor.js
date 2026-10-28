@@ -1,7 +1,8 @@
 // Scenario editor session (a game mode's Editor button): free driving plus placing the
 // mode's points at the car. Each gate snaps across the nearest road and faces along it unless
 // unticked per point (then exactly where placed / turned by hand). Stages get generated,
-// hand-corrected pacenotes (lib/rally/pacenotes.js) and surface sections marked at the car along the stage
+// hand-corrected pacenotes (lib/rally/pacenotes.js) along its road route (drawn on the road and the maps,
+// lib/rally/stageRouteLine.js) and surface sections marked at the car along the stage
 // road (lib/rally/surfaceSections.js), in force on the road while editing. Course objects (format `objectTypes`: bales,
 // tapes, signs) go exactly at the car, facing its way. They and the points' zone props stand as in the game
 // (lib/rally/controlScenery.js) but without collisions. Mode-specific parts come
@@ -12,6 +13,7 @@ import {
   OFFICIAL_SCENARIO_SOURCE,
   SCENARIOS_REPO,
   EDITOR_PACENOTE_BOARDS_STORAGE_KEY,
+  EDITOR_STAGE_ROUTE_STORAGE_KEY,
   EDITOR_SNAP_RADIUS_M,
 } from '../config.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
@@ -25,6 +27,9 @@ import { generatePacenotes, pacenoteAt, stageLine, spotOnLine, withSurfaceNotes 
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
 import { placeSection } from '../lib/rally/surfaceSections.js';
 import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
+import { createStageRouteLine } from '../lib/rally/stageRouteLine.js';
+import { lon2tileX, lat2tileY } from '../lib/geo.js';
+import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
 // Points without a known road direction retry the snap this often (streets still loading).
 const DIR_RETRY_MS = 1000;
@@ -33,6 +38,7 @@ const NOTE_COLOR = 0xffffff; // minimap dot
 const OBJECT_LABEL_M = 150; // course object labels within this of the car
 const SECTION_SNAP_M = 30; // a section end (the car) this close to the stage road
 const SECTION_COLOR = 0xff8c1a; // minimap dot of the selected section's start
+const ROUTE_DELAY_MS = 800; // the stage is routed again this long after its points last changed
 
 function readStored(key) {
   try {
@@ -58,6 +64,7 @@ function writeStored(key, value) {
  */
 export function createScenarioEditor({ format, scene, world, terrain, streets, viewFrame, carManager, addressSearch, getPlayerName }) {
   const markers = createGateMarkers(scene);
+  const routeLine = createStageRouteLine({ scene, terrain, viewFrame });
   // Zone props of the points and the course objects, as the game shows them but never in the way.
   const scenery = format.objectTypes ? createControlScenery({ scene, world, streets, terrain, viewFrame, editor: true }) : null;
   let sceneryDirty = true;
@@ -78,6 +85,8 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
     sectionStart: null, // metres along the stage where the next section starts, once marked
     newSectionSurface: 'gravel', // stageSurfaces.js id the next section gets
     showNoteBoards: readStored(EDITOR_PACENOTE_BOARDS_STORAGE_KEY) !== '0',
+    showRoute: readStored(EDITOR_STAGE_ROUTE_STORAGE_KEY) !== '0',
+    route: { text: '', error: false }, // the drawn stage route: its length, or why there's none
     source: OFFICIAL_SCENARIO_SOURCE, // where `index` comes from: the branch Publish goes to, else official
     index: null, // the source's index.json: { [indexKey]: file keys }
     refNames: {}, // stage key -> its name in `source` (null while loading)
@@ -99,8 +108,10 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
     streets.setSurfaceSections(surfaces);
   }
 
+  let editedAt = 0;
   function changed({ save = true } = {}) {
     if (save) {
+      editedAt = performance.now();
       writeSaveField('editorDraft', state.doc);
       sceneryDirty = true;
       syncSurfaces();
@@ -109,17 +120,70 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
   }
 
   // The stage line of the last points it was routed for (routing again is slow, the tiles are cached anyway).
-  let line = null; // { key, promise }
+  let line = null; // { key, promise, what }
+  const lineKey = () => JSON.stringify(state.doc.items.map(({ type, lat, lon, straight }) => [type, lat, lon, !!straight]));
+  /** `what`: names the action in the status while roads are fetched; null = the route line's own routing. */
   function currentLine(what) {
-    const key = JSON.stringify(state.doc.items.map(({ type, lat, lon }) => [type, lat, lon]));
+    const key = lineKey();
     if (line?.key !== key) {
-      setStatus(`${what}: fetching roads…`);
-      line = { key, promise: stageLine(state.doc.items, (done, total) => setStatus(`${what}: fetching roads ${done}/${total}…`)) };
+      if (what) setStatus(`${what}: fetching roads…`);
+      const progress = (done, total) => {
+        if (line?.key !== key) return;
+        if (line.what) setStatus(`${line.what}: fetching roads ${done}/${total}…`);
+        else setRoute(`Route: fetching roads ${done}/${total}…`);
+      };
+      // Partial without a finish: s is from the start either way, so sections marked meanwhile still fit.
+      line = { key, what, promise: stageLine(state.doc.items, progress, { partial: true }) };
       line.promise.catch(() => {
         if (line?.key === key) line = null;
       });
     }
+    if (what) line.what = what;
     return line.promise;
+  }
+
+  function setRoute(text, error = false) {
+    state.route = { text, error };
+    changed({ save: false });
+  }
+
+  // The drawn route: stage files from the start to the finish, or the last route point while there's none; routed again once their points settle.
+  let routedKey = null;
+  let mapRoute = null; // { mx, my } normalised Web Mercator, for the maps
+  function showRouteOf(stage) {
+    routeLine.set(stage);
+    mapRoute = null;
+    if (stage) {
+      const n = stage.samples.x.length;
+      mapRoute = { mx: new Float64Array(n), my: new Float64Array(n) };
+      for (let i = 0; i < n; i++) {
+        const { lat, lon } = stage.routePoint(i);
+        mapRoute.mx[i] = lon2tileX(lon, 0);
+        mapRoute.my[i] = lat2tileY(lat, 0);
+      }
+    }
+  }
+  function syncRoute(now) {
+    const key = state.showRoute && state.doc.kind === 'stage' ? lineKey() : null;
+    if (key === routedKey || (key && now - editedAt < ROUTE_DELAY_MS)) return;
+    routedKey = key;
+    if (!key || !state.doc.items.some((item) => item.type === 'start')) {
+      showRouteOf(null);
+      return setRoute(key ? 'Route: place the start' : '');
+    }
+    currentLine(null).then(
+      (stage) => {
+        if (routedKey !== key) return;
+        showRouteOf(stage);
+        const to = state.doc.items.some((item) => item.type === 'finish') ? 'finish' : 'last point (no finish yet)';
+        setRoute(`Route: ${longDistanceValue(((stage.samples.x.length - 1) * stage.step) / 1000).toFixed(2)} ${longDistanceUnit()}, start to ${to}`);
+      },
+      (err) => {
+        if (routedKey !== key) return;
+        showRouteOf(null);
+        setRoute(`Route: ${err.message}`, true);
+      }
+    );
   }
 
   /** Metres along the stage line where the car is; throws off the stage road. */
@@ -376,6 +440,14 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       else item.snap = false;
       changed();
     },
+    /** Selected route point: on = the stage route reaches it in a straight line from the point before, ignoring roads. */
+    setStraight(on) {
+      const item = state.doc.items[state.selected];
+      if (!format.pointTypes[item?.type]?.routed) return;
+      if (on) item.straight = true;
+      else delete item.straight;
+      changed();
+    },
     /** Selected gate: on = faces along the road, off = keeps the direction it shows now, then turned by hand. */
     setRoadOrientation(on) {
       editor.setHeading(on ? null : editor.headingOf(state.selected) ?? 0);
@@ -491,6 +563,16 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
     setHoverNote(i) {
       state.hoverNote = i;
     },
+    /** Stage route line on the road and the maps on / off. */
+    setShowRoute(on) {
+      state.showRoute = on;
+      writeStored(EDITOR_STAGE_ROUTE_STORAGE_KEY, on ? null : '0');
+      routeLine.setVisible(on);
+      changed({ save: false });
+    },
+    /** The stage route for the maps ({ mx, my }), or null. */
+    mapRoute: () => (state.showRoute && state.doc.kind === 'stage' ? mapRoute : null),
+
     /** Pacenote boards on the road (and clicking them) on / off. */
     setShowNoteBoards(on) {
       state.showNoteBoards = on;
@@ -756,6 +838,8 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
         if (y != null) entries.push({ key: object, tag: true, color: def.color, label: `${i + 1} ${def.short}`, selected: i === state.selectedObject, x, y, z, dirX: 0, dirZ: 0 });
       });
       markers.sync(entries);
+      syncRoute(now);
+      routeLine.update(state.doc.kind === 'stage' ? car : null);
       if (scenery) {
         if (sceneryDirty) syncScenery();
         sceneryDirty = false;
@@ -767,8 +851,10 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
 
     shiftOrigin(dx, dz) {
       scenery?.shiftOrigin(dx, dz);
+      routeLine.shiftOrigin();
     },
   };
   syncSurfaces(); // the draft's
+  routeLine.setVisible(state.showRoute);
   return editor;
 }

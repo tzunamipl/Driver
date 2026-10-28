@@ -21,7 +21,7 @@ import { DEFAULT_SURFACE_KEY } from './surfaceCompounds.js';
  * @param {number} x
  * @param {number} z
  * @param {{ streets?: {surfaceAt(x: number, z: number): string|null}, waterAreas?: {classifyAt(x: number, z: number): string|null}, rivers?: {containsPoint(x: number, z: number): boolean}, landcoverAreas?: {classifyAt(x: number, z: number): string|null}, builtUpAreas?: {classifyAt(x: number, z: number): string|null} }} [layers]
- * @returns {'road'|'unpaved'|'cobblestone'|'mud'|'water'|'forest'|'rock'|'ice'|'scrub'|'sand'|'builtUp'|'normal'}
+ * @returns {'road'|'unpaved'|'cobblestone'|'mud'|'snow'|'water'|'forest'|'rock'|'ice'|'scrub'|'sand'|'builtUp'|'normal'}
  */
 export function classifySurfaceAt(x, z, { streets, waterAreas, rivers, landcoverAreas, builtUpAreas } = {}) {
   const street = streets?.surfaceAt(x, z);

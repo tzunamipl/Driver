@@ -133,6 +133,21 @@ const SURFACE_LOOKS = {
     grain: { cellM: 0.04, radius: [0.22, 0.42], jitter: 1.9, swing: 0.14, gapShade: 0.95, polishSwing: 0.05, wetFade: true },
     gloss: { roughness: 0.95, specular: 0.4 },
   },
+  snow: {
+    color: 0xdfe4ea, roughness: 0.88, specular: 0.25, lift: 0, depthBias: 0.13, patches: 0.12,
+    wet: { darken: 0.82, roughness: 0.5, sheen: 0.06 },
+    puddles: { from: 0.6, threshold: { from: 0.78, soaked: 0.66 }, cellsM: [3, 0.75] },
+    blobs: [{ diameterM: 1.6, density: 0.4, swing: 0.06 }],
+    edge: { depthM: 0.5 },
+    grain: { cellM: 0.024, radius: [0.25, 0.45], jitter: 0.9, swing: 0.06, gapShade: 0.92, polishSwing: 0.4 },
+    gloss: { roughness: 1, specular: 0.5 },
+  },
+  ice: {
+    color: 0x9fb8c8, roughness: 0.18, specular: 0.6, lift: 0, depthBias: 0.13, patches: 0.3,
+    wet: { darken: 0.85, roughness: 0.08, sheen: 0.2 },
+    blobs: [{ diameterM: 2, density: 0.45, swing: 0.12 }, { diameterM: 0.3, density: 0.5, swing: 0.08 }],
+    edge: { depthM: 0.25 },
+  },
 };
 // Blob dots: smallest diameter as a share of the layer's diameterM.
 const BLOB_MIN_SCALE = 0.5;

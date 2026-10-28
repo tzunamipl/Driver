@@ -9,7 +9,7 @@ const MIN_STEP_PX = 1.5;
  * Strokes the part of `route` still ahead of `progress` (all of it if null).
  * (originMx, originMy) maps to the canvas' current (0, 0); `worldPx` = pixels per Mercator unit.
  */
-export function strokeRoute(ctx, route, progress, originMx, originMy, worldPx, width) {
+export function strokeRoute(ctx, route, progress, originMx, originMy, worldPx, width, color = ROUTE_COLOR) {
   const n = route.mx.length;
   if (n < 2) return;
   const toX = (mx) => (mx - originMx) * worldPx;
@@ -40,7 +40,7 @@ export function strokeRoute(ctx, route, progress, originMx, originMy, worldPx, w
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = width + 3;
   ctx.stroke();
-  ctx.strokeStyle = ROUTE_COLOR;
+  ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.restore();

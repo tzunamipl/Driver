@@ -81,6 +81,21 @@ export const SURFACE_COMPOUNDS = {
     dirtLevel: 0.95,
     dirtSensitivity: 0.2,
   },
+  // Packed snow (stage surface sections): little grip, slides evenly, draggy; packs into the tread.
+  snow: {
+    frictionMultiplier: 0.45,
+    dynamicFrictionRatio: 0.88,
+    widthGripExponent: 0.15,
+    maxForceN: Infinity,
+    rollingResistanceMultiplier: 2.2,
+    imperfectionCm: 4,
+    tyreWearMultiplier: 0.4,
+    punctureMultiplier: 0.8,
+    rimBreakMultiplier: 0.6,
+    wetSensitivity: 0.4,
+    dirtLevel: 0.3,
+    dirtSensitivity: 0.5,
+  },
   // Everything else: less grip, more rolling drag; loose ground slides more evenly.
   normal: {
     frictionMultiplier: 0.7,

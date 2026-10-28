@@ -19,6 +19,7 @@ const VELOCITY_INHERIT_FRACTION = 0.1;
 // Surfaces that raise dust; others (road, forest, water, ...) don't.
 const SURFACE_DUST = {
   normal: { amount: 1, colors: [0x5c3f23, 0x8a5a2e] },
+  snow: { amount: 1.2, colors: [0xf4f6f9, 0xe2e8ee] },
   sand: { amount: 2.5, colors: [0xd8c08a, 0xc2a66b] },
   unpaved: { amount: 0.7, colors: [0xa59d90, 0x8f877a] },
   scrub: { amount: 0.6, colors: [0x7a5f3c, 0x9a7f55] },

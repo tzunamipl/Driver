@@ -319,6 +319,7 @@ export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old e
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
 export const UNITS_STORAGE_KEY = 'driver.units.v1'; // Settings > Gameplay: 'metric' | 'imperial' (lib/units.js)
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
+export const EDITOR_STAGE_ROUTE_STORAGE_KEY = 'driver.editorStageRoute.v1'; // '0' = editor hides the stage route line
 
 // ---------- Scenarios ----------
 // Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.

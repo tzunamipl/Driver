@@ -108,7 +108,8 @@
 .editor-ref[hidden] { display: none; }
 .editor-note { margin: 0; color: #444; }
 .editor-status { margin: 2px 0 0; min-height: 1.4em; word-break: break-word; }
-.editor-status.is-error { color: #a00000; }
+.editor-status.is-error,
+.editor-note.is-error { color: #a00000; }
 
 /* Hover tooltip for point types and items, right of the mouse. Win98 tooltip look. */
 .editor-tip {

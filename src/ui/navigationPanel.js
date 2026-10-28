@@ -1,6 +1,7 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
 import { strokeRoute } from '../hud/routeLine.js';
+import { STAGE_ROUTE_COLOR } from '../lib/rally/stageRouteLine.js';
 import { drawScenarioPoints } from '../hud/scenarioPointIcon.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
@@ -54,7 +55,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   const selectionEl = document.getElementById('nav-selection');
   const teleportBtn = document.getElementById('nav-teleport');
   const navigateBtn = document.getElementById('nav-navigate');
-  if (!panel || !canvas) return { isOpen: () => false, setScenarioPoints() {} };
+  if (!panel || !canvas) return { isOpen: () => false, setScenarioPoints() {}, setStageRoute() {} };
 
   const ctx = canvas.getContext('2d');
   const tiles = createMapTileCache();
@@ -65,6 +66,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   /** @type {{ lat: number, lon: number, label: string } | null} */
   let selection = null;
   let scenarioPoints = [];
+  let stageRoute = null;
   let reverseSeq = 0;
   let rafId = 0;
   let widthCss = 0;
@@ -325,6 +327,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     }
     tiles.prune();
 
+    if (stageRoute) strokeRoute(ctx, stageRoute, null, left / world - Math.round(cx - stageRoute.mx[0]), top / world, world, 4, STAGE_ROUTE_COLOR);
     const { route, progress } = routeGuidance.getState();
     if (route) {
       // Same world copy as the markers below.
@@ -391,5 +394,10 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     scenarioPoints = points ?? [];
   }
 
-  return { isOpen, setScenarioPoints };
+  /** Editor stage route ({ mx, my } normalised Web Mercator); null hides it. */
+  function setStageRoute(route) {
+    stageRoute = route;
+  }
+
+  return { isOpen, setScenarioPoints, setStageRoute };
 }

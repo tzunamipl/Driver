@@ -158,7 +158,7 @@ function findJunctions(nodes, nodeS) {
     // Approach direction: back along the route, as far as it goes unbranched.
     const back = alongBranch(node, from, JUNCTION_LOOK_M);
     const inHeading = Math.atan2(node.z - back.z, node.x - back.x);
-    const inRank = node.links.find((l) => l.node === from).rank;
+    const inRank = node.links.find((l) => l.node === from)?.rank ?? Infinity; // a straight leg: any branch counts
     const branches = node.links
       .filter((l) => l.node !== from)
       .map((l) => {
@@ -175,22 +175,28 @@ function findJunctions(nodes, nodeS) {
   return junctions;
 }
 
-/** Route waypoints: start, splits and passage controls, finish. */
-function routeWaypoints(points) {
+/** Route waypoints: start, splits and passage controls, finish; `partial`: up to the last one placed when there's no finish yet. */
+function routeWaypoints(points, partial = false) {
   const start = points.findIndex((p) => p.type === 'start');
-  const finish = points.findIndex((p) => p.type === 'finish');
+  let finish = points.findIndex((p) => p.type === 'finish');
+  if (finish < 0 && partial) finish = points.length - 1;
   if (start < 0 || finish < start) throw new Error('Pacenotes need a start and a finish after it');
-  return points
-    .map((p, i) => ({ lat: p.lat, lon: p.lon, type: p.type, label: `point ${i + 1}` }))
+  const waypoints = points
+    .map((p, i) => ({ lat: p.lat, lon: p.lon, type: p.type, straight: !!p.straight, label: `point ${i + 1}` }))
     .slice(start, finish + 1)
     .filter((p) => ROUTE_TYPES.has(p.type));
+  if (waypoints.length < 2) throw new Error('Place a split, passage control or finish after the start');
+  return waypoints;
 }
 
 const sOf = (i) => i * STEP_M;
 
-/** The stage's road line from the start to the finish: { origin, nodes, samples, corners, routePoint }. */
-export async function stageLine(points, onProgress) {
-  const { origin, nodes } = await routeStage(routeWaypoints(points), { onProgress });
+/**
+ * The stage's road line from the start to the finish: { origin, nodes, samples (every `step` m), corners, routePoint }.
+ * `partial`: without a finish, to the last route point (editor route line while planning).
+ */
+export async function stageLine(points, onProgress, { partial = false } = {}) {
+  const { origin, nodes } = await routeStage(routeWaypoints(points, partial), { onProgress });
   const samples = resample(nodes);
   const last = samples.x.length - 1;
   /** Sample i as a note's { lat, lon, s }. */
@@ -199,7 +205,7 @@ export async function stageLine(points, onProgress) {
     const { lat, lon } = localToLatLon(samples.x[j], samples.z[j], origin.lat, origin.lon);
     return { lat, lon, s: Math.round(sOf(j)) };
   };
-  return { origin, nodes, samples, corners: findCorners(samples), routePoint };
+  return { origin, nodes, samples, step: STEP_M, corners: findCorners(samples), routePoint };
 }
 
 /** A note in the file format, from sample indices along the line. */

@@ -177,6 +177,13 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     refNote,
   ]);
   const itemsEl = el('ol', { className: 'editor-items' });
+  const routeInput = el('input', { type: 'checkbox' });
+  routeInput.addEventListener('change', () => editor.setShowRoute(routeInput.checked));
+  const routeNote = el('p', { className: 'editor-note' });
+  const routeEl = el('div', {}, [
+    el('label', { className: 'editor-check', title: 'The road route from the start through the splits and passage controls to the finish, as pacenotes and surface sections follow it: arrows on the road near the car, a line on the maps.' }, [routeInput, 'Show stage route']),
+    routeNote,
+  ]);
   const selectedEl = el('div', { className: 'editor-selected' });
 
   const exportText = el('textarea', { readOnly: true, rows: 10, spellcheck: false });
@@ -247,7 +254,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       placeEl,
       refRow,
     ]),
-    el('div', { className: 'editor-column' }, [itemsEl, selectedEl, actionsEl, exportEl, branchEl, statusEl]),
+    el('div', { className: 'editor-column' }, [itemsEl, routeEl, selectedEl, actionsEl, exportEl, branchEl, statusEl]),
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);
@@ -278,7 +285,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   let renderedKind = null;
   let renderedSelection = null;
   let dial = null; // the selected gate's heading dial
-  let gateChecks = null; // the selected gate's { snap, road } checkboxes
+  let gateChecks = null; // the selected gate's { snap, road, straight? } checkboxes
 
   function renderPlace(kind) {
     placeEl.replaceChildren(
@@ -351,9 +358,12 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       fields.push(el('label', { textContent: 'Width (m)' }), width);
       const snap = check('Snap position to road', 'On: stands across the nearest road\'s centreline, its boards along the road. Off: exactly at its point (Move to car = where the car is), boards in a straight line, even off-road.', (on) => editor.setSnap(on));
       const road = check('Road orientation', 'On: faces along the nearest road, in driving order. Off: faces the heading set on the dial (Move to car = the way the car faces).', (on) => editor.setRoadOrientation(on));
-      gateChecks = { snap: snap.input, road: road.input };
+      const straight = format.pointTypes[item.type].routed
+        ? check('Straight from previous point', 'On: the stage route (pacenotes, surface sections, the route line) goes in a straight line from the route point before to this one, ignoring roads. For tracks missing from OSM or cut off from the road network. Off: by road.', (on) => editor.setStraight(on))
+        : null;
+      gateChecks = { snap: snap.input, road: road.input, straight: straight?.input };
       dial = createHeadingDial((degrees) => editor.setHeading(degrees));
-      fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row])]));
+      fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row, ...(straight ? [straight.row] : [])])]));
       if (format.pointTypes[item.type].endsDay) fields.push(...nextStartFields(item, state.doc.startTime || editor.kind().startTime, 'Empty: the rally start time.'));
     } else {
       const name = el('input', { type: 'text', value: item.name ?? '', placeholder: isRef ? 'Name for this pass (optional)' : 'Name' });
@@ -416,6 +426,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     }
 
     refRow.hidden = !kind.refKind;
+    routeEl.hidden = kind.id !== 'stage';
+    routeInput.checked = state.showRoute;
+    routeNote.textContent = state.route.text;
+    routeNote.hidden = !state.route.text;
+    routeNote.classList.toggle('is-error', state.route.error);
     if (kind.refKind) renderRefPicker();
 
     itemsEl.replaceChildren(
@@ -439,6 +454,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     if (gateChecks) {
       gateChecks.snap.checked = item.snap !== false;
       gateChecks.road.checked = !Number.isFinite(item.heading);
+      if (gateChecks.straight) gateChecks.straight.checked = !!item.straight;
     }
 
     // The list was rebuilt: the hovered row is gone.
