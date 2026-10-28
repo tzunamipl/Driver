@@ -20,7 +20,6 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const VERSION_RE = /^[\w.-]{1,20}$/;
 const MAX_AVG_SPEED_MPS = 90; // straight-line average between gates; quicker is not a real run
 const MAX_TIME_MS = 6 * 3600_000;
-const PENALTIES_MS = [0, 10_000];
 const NAME_MAX = 24;
 const MAX_ENTRIES = 1000;
 const PUT_RETRIES = 3;
@@ -115,7 +114,8 @@ function readSubmission(body) {
   if (!VEHICLE_RE.test(vehicle ?? '')) throw new HttpError(400, 'Bad vehicle');
   if (!VERSION_RE.test(version || '0')) throw new HttpError(400, 'Bad version');
   if (!Number.isInteger(totalMs) || totalMs <= 0 || totalMs > MAX_TIME_MS) throw new HttpError(400, 'Bad totalMs');
-  if (!PENALTIES_MS.includes(penaltyMs)) throw new HttpError(400, 'Bad penaltyMs');
+  // Penalties (jump start, field fixes, spare wheels) only add time, so any sum below the total is fine.
+  if (!Number.isInteger(penaltyMs) || penaltyMs < 0 || penaltyMs >= totalMs) throw new HttpError(400, 'Bad penaltyMs');
   if (!Array.isArray(splits) || splits.length > 100) throw new HttpError(400, 'Bad splits');
   const cleanName = String(name ?? '').replace(/[\p{C}]/gu, '').trim().slice(0, NAME_MAX) || 'Player';
   return { stage, sha, playerId, name: cleanName, vehicle: currentVehicleId(vehicle), totalMs, splits, penaltyMs, version };
