@@ -45,6 +45,7 @@ import {
 const REBUILD_MOVE_M = 20;
 const REBUILD_INTERVAL_S = 1; // also picks up refined terrain
 const FILL_REBUILD_S = 0.2; // newly placed tiles show at most this often
+const MIN_REBUILD_STEP = 128; // trees staged per frame even past the deadline (also the clock check interval), so a rebuild always finishes
 const INITIAL_CAPACITY = 1024;
 const JITTER = 0.8; // of a grid cell
 const SCALE_MIN = 0.75;
@@ -109,7 +110,8 @@ function buildTrunkGeometry() {
 
 /** Non-indexed copy of `g` with each vertex pushed out by up to ±`jitter` of the radius; flat normals. */
 function lumpy(g, jitter, seed) {
-  const out = g.toNonIndexed();
+  // Polyhedra (the rock's icosahedron) come non-indexed already.
+  const out = g.index ? g.toNonIndexed() : g.clone();
   const pos = out.getAttribute('position');
   // Same displacement for coincident vertices (keyed by rounded position), so faces stay closed.
   const offsets = new Map();
@@ -322,6 +324,7 @@ function createVegetation({
   let unfilledTiles = 0; // in range, skipped for lack of time (not ones waiting for data)
   const bodies = new Map(); // "tx_ty:i" -> static body (rock sphere / trunk box, within physicsDistance)
   let nearTrees = new Map(); // "tx_ty:i" -> [x, y, z, scale] drawn within DISSOLVE_NEAR_M at the last rebuild
+  let job = null; // rebuild being staged over frames
 
   /**
    * Static colliders for `wanted` ("tx_ty:i" -> [x, y, z, radius, halfHeight, yaw]): a sphere when halfHeight is 0,
@@ -498,23 +501,28 @@ function createVegetation({
     return placed;
   }
 
-  function rebuild(x, z, inRange) {
+  /** A rebuild of the instances around (x, z), staged over frames by stepRebuild and swapped in by finishRebuild. */
+  function startRebuild(x, z, inRange) {
+    return { x, z, inRange, t: 0, i: 0, near: new Map(), solids: new Map(), trunks: [], crowns: [], crownColors: [], pines: [], pineColors: [] };
+  }
+
+  /** Stages trees until `deadline` (at least MIN_REBUILD_STEP of them); true once every tile in range is done. */
+  function stepRebuild(job, deadline) {
     const maxDistSq = drawDistance * drawDistance;
     const trunkDistSq = trunkDistance * trunkDistance;
     const physicsDistSq = physicsDistance * physicsDistance;
     const nearDistSq = DISSOLVE_NEAR_M * DISSOLVE_NEAR_M;
-    const near = new Map();
-    const solids = new Map();
-    let count = 0;
-    let trunkCount = 0;
-    let pineCount = 0;
-    const instances = []; // [x, y, z, height scale, yaw, colour, trunk, width scale, pine, tilt, ...]
-    for (const { tx, ty, key } of inRange) {
+    const { x, z, inRange } = job;
+    let done = 0;
+    for (; job.t < inRange.length; job.t++, job.i = 0) {
+      const { tx, ty, key } = inRange[job.t];
       const trees = tiles.get(key);
       if (!trees?.length) continue;
       const { nw, se } = tileCorners(tx, ty);
       const lat = tileY2lat(ty + 0.5, DETAIL_ZOOM);
-      for (let i = 0; i < trees.length; i += TREE_FIELDS) {
+      for (; job.i < trees.length; job.i += TREE_FIELDS) {
+        if (++done % MIN_REBUILD_STEP === 0 && performance.now() >= deadline) return false;
+        const i = job.i;
         const px = nw.x + trees[i] * (se.x - nw.x);
         const pz = nw.z + trees[i + 1] * (se.z - nw.z);
         const distSq = (px - x) ** 2 + (pz - z) ** 2;
@@ -528,58 +536,51 @@ function createVegetation({
         const shrink = kind.altitudeShrink ? treeShrink(py + terrain.heightOffset, lat) : 1;
         const s = trees[i + 2] * shrink;
         const w = trees[i + 2] * trees[i + 5] * (1 - (1 - shrink) * TREE_SHRINK_WIDTH_SHARE);
-        instances.push(px, py, pz, s, trees[i + 3], trees[i + 4], trunk ? 1 : 0, w, pine ? 1 : 0, tilt);
-        count++;
-        if (dissolve && distSq <= nearDistSq) near.set(`${key}:${i}`, [px, py, pz, s]);
-        if (trunk) trunkCount++;
-        if (pine) pineCount++;
+        position.set(px, py, pz);
+        // Lean about the tree's own x axis; the random yaw makes the direction random.
+        quaternion.setFromAxisAngle(UP, trees[i + 3]).multiply(tiltQuaternion.setFromAxisAngle(SIDE, tilt));
+        scale.set(w, s, w);
+        matrix.compose(position, quaternion, scale);
+        crownColor.copy((pine ? PINE_COLORS : kind.colors)[trees[i + 4]]);
+        if (terrain.groundColorAt(px, pz, photoBytes)) {
+          const k = PHOTO_GAIN / 255;
+          photo.setRGB(Math.min(1, photoBytes[0] * k), Math.min(1, photoBytes[1] * k), Math.min(1, photoBytes[2] * k), THREE.SRGBColorSpace);
+          crownColor.lerp(photo, kind.photoMix ?? PHOTO_MIX);
+        }
+        (pine ? job.pines : job.crowns).push(...matrix.elements);
+        (pine ? job.pineColors : job.crownColors).push(crownColor.r, crownColor.g, crownColor.b);
+        if (trunk) job.trunks.push(...matrix.elements);
+        if (dissolve && distSq <= nearDistSq) job.near.set(`${key}:${i}`, [px, py, pz, s]);
         if (world && distSq <= physicsDistSq) {
           if (trunk) {
             const halfHeight = (TRUNK_HEIGHT_M / 2) * s;
-            solids.set(`${key}:${i}`, [px, py + halfHeight - TRUNK_SINK_M * s, pz, TRUNK_COLLIDER_HALF_M * w, halfHeight, trees[i + 3]]);
+            job.solids.set(`${key}:${i}`, [px, py + halfHeight - TRUNK_SINK_M * s, pz, TRUNK_COLLIDER_HALF_M * w, halfHeight, trees[i + 3]]);
           } else if (kind.solid) {
-            solids.set(`${key}:${i}`, [px, py - ROCK_SINK * s, pz, s * Math.min(1, trees[i + 5]) * ROCK_COLLIDER_SCALE, 0, 0]);
+            job.solids.set(`${key}:${i}`, [px, py - ROCK_SINK * s, pz, s * Math.min(1, trees[i + 5]) * ROCK_COLLIDER_SCALE, 0, 0]);
           }
         }
       }
     }
-    if (world) syncBodies(solids);
-    if (dissolve) dissolveDropped(x, z, near);
-    ensureCapacity(trunkSet, trunkCount);
-    ensureCapacity(crownSet, count - pineCount);
-    ensureCapacity(pineSet, pineCount);
-    for (const [set, n] of [[trunkSet, trunkCount], [crownSet, count - pineCount], [pineSet, pineCount]]) {
+    return true;
+  }
+
+  function finishRebuild() {
+    if (world) syncBodies(job.solids);
+    if (dissolve) dissolveDropped(job.x, job.z, job.near);
+    for (const [set, matrices, colors] of [[trunkSet, job.trunks, null], [crownSet, job.crowns, job.crownColors], [pineSet, job.pines, job.pineColors]]) {
+      const n = matrices.length / 16;
+      ensureCapacity(set, n);
       if (!set.mesh) continue;
       set.mesh.position.set(0, 0, 0);
       set.mesh.count = n;
+      set.mesh.instanceMatrix.array.set(matrices);
+      set.mesh.instanceMatrix.needsUpdate = true;
+      if (!colors) continue;
+      set.mesh.instanceColor ??= new THREE.InstancedBufferAttribute(new Float32Array(set.mesh.instanceMatrix.count * 3), 3);
+      set.mesh.instanceColor.array.set(colors);
+      set.mesh.instanceColor.needsUpdate = true;
     }
-    let trunkIndex = 0;
-    let crownIndex = 0;
-    let pineIndex = 0;
-    for (let n = 0; n < count; n++) {
-      const j = n * 10;
-      const pine = instances[j + 8];
-      const crowns = pine ? pineSet : crownSet;
-      const index = pine ? pineIndex++ : crownIndex++;
-      const s = instances[j + 3];
-      position.set(instances[j], instances[j + 1], instances[j + 2]);
-      // Lean about the tree's own x axis; the random yaw makes the direction random.
-      quaternion.setFromAxisAngle(UP, instances[j + 4]).multiply(tiltQuaternion.setFromAxisAngle(SIDE, instances[j + 9]));
-      const w = instances[j + 7];
-      scale.set(w, s, w);
-      matrix.compose(position, quaternion, scale);
-      crowns.mesh.setMatrixAt(index, matrix);
-      crownColor.copy((pine ? PINE_COLORS : kind.colors)[instances[j + 5]]);
-      if (terrain.groundColorAt(instances[j], instances[j + 2], photoBytes)) {
-        const k = PHOTO_GAIN / 255;
-        photo.setRGB(Math.min(1, photoBytes[0] * k), Math.min(1, photoBytes[1] * k), Math.min(1, photoBytes[2] * k), THREE.SRGBColorSpace);
-        crownColor.lerp(photo, kind.photoMix ?? PHOTO_MIX);
-      }
-      crowns.mesh.setColorAt(index, crownColor);
-      if (instances[j + 6]) trunkSet.mesh.setMatrixAt(trunkIndex++, matrix);
-    }
-    for (const set of sets) if (set.mesh) set.mesh.instanceMatrix.needsUpdate = true;
-    for (const set of [crownSet, pineSet]) if (set.mesh?.instanceColor) set.mesh.instanceColor.needsUpdate = true;
+    job = null;
   }
 
   return {
@@ -587,6 +588,10 @@ function createVegetation({
     update(dt, x, z, deadline = Infinity) {
       if (!visible) return;
       sinceRebuild += dt;
+      if (job) {
+        if (stepRebuild(job, deadline)) finishRebuild();
+        return;
+      }
       const moved = Math.hypot(x - lastX, z - lastZ) >= REBUILD_MOVE_M;
       if (!dirty && !moved && sinceRebuild < REBUILD_INTERVAL_S) return;
       const inRange = tilesInRange(x, z);
@@ -597,7 +602,8 @@ function createVegetation({
       lastX = x;
       lastZ = z;
       sinceRebuild = 0;
-      rebuild(x, z, inRange);
+      job = startRebuild(x, z, inRange);
+      if (stepRebuild(job, deadline)) finishRebuild();
     },
 
     /** Streaming indicator: in-range tiles still to place. */
@@ -617,6 +623,7 @@ function createVegetation({
       }
       dirty = true;
       sinceRebuild = Infinity;
+      job = null;
     },
 
     /** Debug HUD: drawn instances (one per crown). */
@@ -629,6 +636,7 @@ function createVegetation({
       if (!value && world) syncBodies(new Map()); // hidden rocks/trunks don't collide; the next rebuild restores them
       for (const set of sets) if (set.mesh) set.mesh.visible = value;
       sinceRebuild = Infinity;
+      job = null;
     },
 
     setShadows(value) {
@@ -640,6 +648,11 @@ function createVegetation({
     shiftOrigin(dx, dz) {
       lastX -= dx;
       lastZ -= dz;
+      // A staged rebuild is in the old frame: start over.
+      if (job) {
+        job = null;
+        sinceRebuild = Infinity;
+      }
       for (const tree of nearTrees.values()) {
         tree[0] -= dx;
         tree[2] -= dz;

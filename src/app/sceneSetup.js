@@ -59,12 +59,19 @@ function createReversedDepthView(renderer) {
       grade.update();
       renderer.render(blitScene, blitCamera);
     },
+    /** Programs are keyed on the bound target's colour space: compile against the one the scene draws into. */
+    compileAsync(object, scene, camera) {
+      renderer.setRenderTarget(target);
+      const ready = renderer.compileAsync(object, camera, scene);
+      renderer.setRenderTarget(null);
+      return ready;
+    },
   };
 }
 
 /**
  * Builds renderer/scene/camera, mounts the canvas in #app; returns them plus renderView() for the frame
- * and the colour grade (null without the reversed depth target: the canvas is drawn directly then).
+ * and compileView() for shader warm-ups, and the colour grade (null without the reversed depth target: the canvas is drawn directly then).
  */
 export function createSceneEnvironment() {
   const app = document.getElementById('app');
@@ -109,7 +116,10 @@ export function createSceneEnvironment() {
   });
 
   const renderView = view ? () => view.render(scene, camera) : () => renderer.render(scene, camera);
-  return { renderer, scene, camera, renderView, colorGrade: view?.grade ?? null };
+  // Shader warm-up: compiles `object`'s programs as renderView will draw them, so their first frame doesn't stall.
+  const compileView = (object) =>
+    (view ? view.compileAsync(object, scene, camera) : renderer.compileAsync(object, camera, scene)).catch((err) => console.warn('Shader warm-up failed', err));
+  return { renderer, scene, camera, renderView, compileView, colorGrade: view?.grade ?? null };
 }
 
 /** Ambient + one directional light (sun by day, moon by night); daylight.js drives them each frame. */

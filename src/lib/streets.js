@@ -6,7 +6,7 @@
 // SURFACE_RADIUS_M of the car. Stage surface sections (lib/rally/stageSurfaces.js) are extra stripes
 // over all of them, first in surfaceAt().
 
-import { Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, ShaderChunk, Vector2 } from 'three';
+import { BufferGeometry, Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, ShaderChunk, Vector2 } from 'three';
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from './roadClasses.js';
 import { DETAIL_BOX, DETAIL_ZOOM, GROUND_RENDER_ORDER, applyGroundHaze } from './terrain.js';
@@ -942,6 +942,14 @@ export class StreetsManager extends StreetLayer {
       super.setVisible(false); // drops the meshes, so they rebuild in the other look
     }
     super.setVisible(this._debugShown || this._surfaceShown || this._polygonsShown);
+  }
+
+  /** Compiles every surface look's shaders (plain + stage section) with `compileView` (sceneSetup.js), so the first stripe of a surface doesn't stall a frame. */
+  warmUp(compileView) {
+    const probe = new Group();
+    const geometry = new BufferGeometry();
+    for (const material of [...Object.values(surfaceMaterials), ...Object.values(sectionMaterials)]) probe.add(new Mesh(geometry, material));
+    return compileView(probe).finally(() => geometry.dispose());
   }
 
   _makeMesh(bucket) {

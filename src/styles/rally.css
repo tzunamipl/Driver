@@ -59,12 +59,12 @@
 .rally-buttons button { color: #000; }
 
 /* Pacenote strip under the rally clock, the coming note first. */
-#pacenote-hud { position: relative; display: flex; gap: 6px; pointer-events: none; }
+#pacenote-hud { position: relative; display: flex; gap: 12px; pointer-events: none; }
 #pacenote-hud[hidden] { display: none; }
 .pacenote-tile {
   --pacenote-tint: #fff;
-  width: 64px;
-  padding: 4px 2px 5px;
+  width: 128px;
+  padding: 8px 4px 10px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.72);
   border: 2px solid #888;
@@ -81,13 +81,13 @@
 .pacenote-tile.grade-2-3 { --pacenote-tint: #ff9a1a; border-color: #ff9a1a; }
 .pacenote-tile.grade-1 .pacenote-call,
 .pacenote-tile.grade-2-3 .pacenote-call { color: var(--pacenote-tint); }
-.pacenote-arrow { display: block; width: 40px; height: 40px; margin: 0 auto; }
+.pacenote-arrow { display: block; width: 80px; height: 80px; margin: 0 auto; }
 .pacenote-arrow-line { fill: none; stroke: var(--pacenote-tint); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
 .pacenote-arrow-head { fill: var(--pacenote-tint); transition: fill 0.3s; }
-.pacenote-surface { box-sizing: border-box; width: 28px; height: 28px; margin: 6px auto; border: 3px solid var(--pacenote-tint); transition: border-color 0.3s; }
-.pacenote-call { font: bold 18px/1.1 monospace; }
-.pacenote-gap { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; color: #ddd; white-space: nowrap; }
-.pacenote-fork { width: 10px; height: 12px; }
+.pacenote-surface { box-sizing: border-box; width: 56px; height: 56px; margin: 12px auto; border: 6px solid var(--pacenote-tint); transition: border-color 0.3s; }
+.pacenote-call { font: bold 27px/1.1 monospace; }
+.pacenote-gap { display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 18px; color: #ddd; white-space: nowrap; }
+.pacenote-fork { width: 15px; height: 18px; }
 .pacenote-fork path { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
 
 /* Rally plan (hud/rallyPlanHud.js), in #top-right-stack under the players panel;

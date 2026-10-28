@@ -26,8 +26,8 @@ const el = (tag, className, text = '') => Object.assign(document.createElement(t
 const ENTER = { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' };
 const LEAVE = { duration: 320, easing: 'cubic-bezier(0.5, 0, 0.8, 0.6)', fill: 'forwards' };
 const SLIDE = { duration: 300, easing: 'cubic-bezier(0.25, 0.8, 0.3, 1)' };
-const ENTER_DX = 28;
-const LEAVE_DX = -36;
+const ENTER_DX = 56;
+const LEAVE_DX = -72;
 
 function gradeClass(note) {
   if (note.surface || note.dir === 'S') return '';

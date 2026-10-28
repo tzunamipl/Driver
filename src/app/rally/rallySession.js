@@ -884,7 +884,9 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   const pointState = (i, j) => {
     const state = itemState(i);
     if (state !== 'current') return state;
-    return j < run.state.next ? 'done' : j === run.state.next ? 'current' : '';
+    // No run yet while startPlan awaits the conditions: nothing driven.
+    const next = run?.state.next ?? 0;
+    return j < next ? 'done' : j === next ? 'current' : '';
   };
 
   /** Side panel: the itinerary, stage by stage. */
@@ -1007,6 +1009,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (!plan) return { title: 'Rally', status: flash?.text ?? '', buttons: ['pickAgain'] };
     if (finished) return resultsView();
     const item = currentItem();
+    // startPlan awaits the conditions before showItem: no item / run for the new plan yet.
+    if (!item || (item.type === 'stage' && !run)) return { title: plan.name, status: 'Loading…' };
     if (item.type === 'stage') return stageView(item);
     const gate = scenery.getGate(0);
     const pos = carPosition();
@@ -1107,7 +1111,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (keepsProgress && simTime >= nextProgressSave) saveProgress();
       const item = currentItem();
       if (item.type === 'stage') {
-        run.step(dt, prev, step, carManager.getVehicle().chassisBody.velocity.length());
+        run?.step(dt, prev, step, carManager.getVehicle().chassisBody.velocity.length());
       } else {
         const gate = scenery.getGate(0);
         const dist = gate ? Math.hypot(step.x - gate.x, step.z - gate.z) : Infinity;

@@ -367,17 +367,17 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     },
 
     /**
-     * Compiles every kind's shaders (standing instances + debris) against `scene`'s lights, so the first
+     * Compiles every kind's shaders (standing instances + debris) with `compileView` (sceneSetup.js), so the first
      * object in range or knocked over doesn't stall a frame. Call once the local car's lamps are in the scene.
      * Per-item kinds (direction boards) share the instanced kinds' debris programs (same material setup).
      */
-    warmUp(renderer, camera) {
+    warmUp(compileView) {
       const probe = new THREE.Group();
       for (const set of sets) {
         if (!set.debrisGeometry) continue;
         probe.add(new THREE.InstancedMesh(set.kind.geometry, set.kind.material, 1), new THREE.Mesh(set.debrisGeometry, set.kind.material));
       }
-      return renderer.compileAsync(probe, camera, scene).catch((err) => console.warn('Roadside shader warm-up failed', err));
+      return compileView(probe);
     },
 
     /** Meshes and bodies are moved by the generic shift; the next rebuild re-bases the instances. */

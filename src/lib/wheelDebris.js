@@ -3,7 +3,7 @@
 // Thrown along the patch's slip over the ground (wheelspin = backwards), more
 // with slip speed. Two InstancedMeshes (flat bits, chunks); visual only.
 
-import { Color, DoubleSide, IcosahedronGeometry, InstancedMesh, MeshStandardMaterial, Object3D, PlaneGeometry } from 'three';
+import { Color, DoubleSide, FrontSide, IcosahedronGeometry, InstancedMesh, MeshStandardMaterial, Object3D, PlaneGeometry } from 'three';
 import { isWheelGrounded } from './wheelContact.js';
 
 const MAX_LEAVES = 500;
@@ -52,7 +52,7 @@ const SHRINK_S = 0.3; // shrink away over the last part of life
 const rand = ([a, b]) => a + Math.random() * (b - a);
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
-function createLayer(scene, geometry, max, side) {
+function createLayer(scene, geometry, max, side = FrontSide) {
   const mesh = new InstancedMesh(geometry, new MeshStandardMaterial({ roughness: 1, flatShading: true, side }), max);
   mesh.frustumCulled = false;
   mesh.count = 0;

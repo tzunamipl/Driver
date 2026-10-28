@@ -168,7 +168,8 @@ const lobby = createLobby({
   originChain: () => addressSearch.awaitOriginChain(),
   onJoined(color, vehicleId) {
     carManager.spawnLocalCar(color, vehicleId);
-    roadside.warmUp(renderer, camera);
+    roadside.warmUp(compileView);
+    streets.warmUp(compileView);
     vehicleDebugPicker.syncFromCar();
     startLoopOnce();
     beginModeOnce();
@@ -229,7 +230,7 @@ if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
 const rallyStart = planStart(rallyInitialPick?.plan);
 
 // ---------- Rendering environment ----------
-const { renderer, scene, camera, renderView, colorGrade } = createSceneEnvironment();
+const { renderer, scene, camera, renderView, compileView, colorGrade } = createSceneEnvironment();
 const daylight = createDaylight({ scene, ...createLighting(scene), onFog: (share) => colorGrade?.setFog(share) });
 // Free roam runs on the real time of day; other modes keep the fast cycle (or their own clock, rally).
 if (isFreeRoam) daylight.setClock(Date.now);

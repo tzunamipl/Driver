@@ -28,7 +28,7 @@ export const GAME_MODES = [
       { id: 'rally', name: 'Single rally', saves: true },
       { id: 'career', name: 'Career', saves: true, available: false },
     ],
-    keepOnNewGame: ['vehicle', 'lastFile'],
+    keepOnNewGame: ['vehicle', 'lastFile', 'stageConditions'],
     cameraView: 'close',
     teleport: false,
     directionSignHud: false,
