@@ -1,10 +1,12 @@
 // Editor line along a stage's road route (pacenotes.js stageLine): a flat ribbon of chevrons draped
 // on the ground near the car, pointing the way the stage is driven. Unlit, so it reads at night too.
+// The reverse run's line goes beside it (offset to the right of its own travel), in its own colour.
 
 import { BufferAttribute, BufferGeometry, CanvasTexture, DoubleSide, Mesh, MeshBasicMaterial, RepeatWrapping, SRGBColorSpace } from 'three';
 import { localToLatLon } from '../geo.js';
 
 export const STAGE_ROUTE_COLOR = '#ffc21a';
+export const REVERSE_ROUTE_COLOR = '#2ec8ff';
 const WIDTH_M = 0.8;
 const LIFT_M = 0.15; // above the ground, clear of the road bed's triangles
 const CHEVRON_M = 3; // one chevron per this much road
@@ -12,11 +14,11 @@ const RADIUS_M = 400; // drawn within this of the car
 const REBUILD_MOVE_M = 40;
 const REFRESH_MS = 1000; // terrain loading in under it, teleports
 
-function chevronTexture() {
+function chevronTexture(color) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 64;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = STAGE_ROUTE_COLOR;
+  ctx.fillStyle = color;
   ctx.globalAlpha = 0.35;
   ctx.fillRect(0, 0, 64, 64);
   ctx.globalAlpha = 1;
@@ -36,8 +38,9 @@ function chevronTexture() {
   return texture;
 }
 
-export function createStageRouteLine({ scene, terrain, viewFrame }) {
-  const material = new MeshBasicMaterial({ map: chevronTexture(), transparent: true, depthWrite: false, side: DoubleSide });
+/** `offsetM`: the ribbon's centre this far right of the road line (driving direction). */
+export function createStageRouteLine({ scene, terrain, viewFrame, color = STAGE_ROUTE_COLOR, offsetM = 0 }) {
+  const material = new MeshBasicMaterial({ map: chevronTexture(color), transparent: true, depthWrite: false, side: DoubleSide });
   const mesh = new Mesh(new BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.visible = false;
@@ -69,11 +72,16 @@ export function createStageRouteLine({ scene, terrain, viewFrame }) {
       const a = pts[i - 1] ?? p;
       const b = pts[i + 1] ?? p;
       const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const nx = (-(b.z - a.z) / len) * (WIDTH_M / 2);
-      const nz = ((b.x - a.x) / len) * (WIDTH_M / 2);
+      // Unit right of travel (x east, z south).
+      const rx = -(b.z - a.z) / len;
+      const rz = (b.x - a.x) / len;
+      const cx = p.x + rx * offsetM;
+      const cz = p.z + rz * offsetM;
+      const nx = rx * (WIDTH_M / 2);
+      const nz = rz * (WIDTH_M / 2);
       const v = (i * route.step) / CHEVRON_M;
       const at = positions.length / 6;
-      positions.push(p.x + nx, y + LIFT_M, p.z + nz, p.x - nx, y + LIFT_M, p.z - nz);
+      positions.push(cx + nx, y + LIFT_M, cz + nz, cx - nx, y + LIFT_M, cz - nz);
       uvs.push(0, v, 1, v);
       if (prev >= 0) indices.push(prev * 2, prev * 2 + 1, at * 2, prev * 2 + 1, at * 2 + 1, at * 2);
       prev = at;

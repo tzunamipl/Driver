@@ -4,7 +4,7 @@
 // at that point's `nextStart`. Weather comes from forecast snapshots taken when the rally
 // starts (lib/rally/rallyWeather.js), with road wetness carried through every jump.
 // A single stage instead runs from a picked time of day (or now) in fixed weather, or in the
-// forecast weather like a rally.
+// forecast weather like a rally; 'random' rolls one of the fixed presets at each start.
 // Drives daylight.js (setClock) and lib/weather.js while a plan is up.
 
 import { presetTimeMs } from '../daylight.js';
@@ -20,6 +20,7 @@ const OFFLINE_CLOUDS = 'fair';
 
 export const STAGE_TIMES = [
   { id: 'live', label: 'Live (now)' },
+  { id: 'random', label: 'Random' },
   { id: 'morning', label: 'Morning', tempC: -4 },
   { id: 'noon', label: 'Noon', tempC: 0 },
   { id: 'sunset', label: 'Sunset', tempC: -3 },
@@ -27,21 +28,80 @@ export const STAGE_TIMES = [
 ];
 export const STAGE_WEATHER = [
   { id: 'live', label: 'Live (forecast)' },
+  { id: 'random', label: 'Random' },
   { id: 'sunny', label: 'Sunny', clouds: 'clear', wetness: 0, rainMmH: 0, tempC: 22 },
   { id: 'damp', label: 'Damp', clouds: 'cumulus', wetness: 0.5, rainMmH: 0, tempC: 14 },
   { id: 'rain', label: 'Rain', clouds: 'overcast', wetness: 1, rainMmH: 4, tempC: 11 },
 ];
 export const DEFAULT_STAGE_CONDITIONS = { timeOfDay: 'noon', weather: 'sunny' };
 
+/** `id` from `list`; 'random' = any fixed preset (not live), unknown = `fallback`. */
+function pickPreset(list, id, fallback) {
+  if (id === 'random') {
+    const fixed = list.filter((p) => p.id !== 'live' && p.id !== 'random');
+    return fixed[Math.floor(Math.random() * fixed.length)];
+  }
+  return list.find((p) => p.id === id) ?? list.find((p) => p.id === fallback);
+}
+
 /** A preset's temperature offset; live time takes the preset nearest to `timeMs` today. */
 function timeTempC(time, timeMs, lat, lon) {
   if (time.id !== 'live') return time.tempC;
-  const presets = STAGE_TIMES.filter((t) => t.id !== 'live');
+  const presets = STAGE_TIMES.filter((t) => t.tempC != null);
   const off = (t) => {
     const d = (((presetTimeMs(t.id, lat, lon, timeMs) - timeMs) % MS_PER_DAY) + MS_PER_DAY) % MS_PER_DAY;
     return Math.min(d, MS_PER_DAY - d);
   };
   return presets.reduce((best, t) => (off(t) < off(best) ? t : best)).tempC;
+}
+
+/** Snapshots of days 1..lastDay (firstDayMs = local midnight of day 1) with their `day` and `state`: 'done', 'current' (in force at timeMs) or ''. */
+function forecastRows(snapshots, firstDayMs, timeMs, lastDay) {
+  const rows = snapshots
+    .map((s) => ({ ...s, day: Math.floor((s.ms - firstDayMs) / MS_PER_DAY) + 1, state: '' }))
+    .filter((s) => s.day >= 1 && s.day <= lastDay);
+  const now = timeMs == null ? -1 : rows.findLastIndex((s) => s.ms <= timeMs);
+  rows.forEach((s, i) => (s.state = i < now ? 'done' : i === now ? 'current' : ''));
+  return rows;
+}
+
+// Picker previews, per place and length: picking another file / time of day mustn't refetch.
+const previewCache = new Map();
+function previewWeather(lat, lon, days) {
+  const key = `${lat.toFixed(3)},${lon.toFixed(3)},${days}`;
+  if (!previewCache.has(key)) {
+    const utcOffsetSec = guessUtcOffsetSec(lon);
+    const fetched = fetchRallyWeather(lat, lon, localDayStart(Date.now(), utcOffsetSec), days).catch((err) => {
+      previewCache.delete(key);
+      throw err;
+    });
+    previewCache.set(key, fetched);
+  }
+  return previewCache.get(key);
+}
+
+/**
+ * The forecast a rally / single stage would start in, before it's picked (as forecast() reads once running):
+ * a rally from `startMin` today over `days`, a single stage today at its STAGE_TIMES `timeOfDay` (random = no current row).
+ * @returns {Promise<{ rows: object[], displayMs: (ms: number) => number }>} rows empty offline.
+ */
+export async function previewForecast({ lat, lon, days = 1, startMin, timeOfDay }) {
+  let weather;
+  try {
+    weather = await previewWeather(lat, lon, days);
+  } catch (err) {
+    console.warn('Forecast preview unavailable:', err.message);
+    return { rows: [], displayMs: (ms) => ms };
+  }
+  const { utcOffsetSec, snapshots } = weather;
+  const now = Date.now();
+  const firstDayMs = localDayStart(now, utcOffsetSec);
+  const time = timeOfDay && STAGE_TIMES.find((t) => t.id === timeOfDay);
+  const timeMs = time ? (time.id === 'live' ? now : time.id === 'random' ? null : presetTimeMs(time.id, lat, lon, now)) : firstDayMs + (startMin ?? 0) * 60_000;
+  return {
+    rows: forecastRows(snapshots, firstDayMs, timeMs, days),
+    displayMs: (ms) => ms + utcOffsetSec * 1000 + new Date(ms).getTimezoneOffset() * 60_000,
+  };
 }
 
 /**
@@ -118,10 +178,10 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
       take({ kind: 'rally', lat, lon, utcOffsetSec, firstDayMs, day: 1, timeMs, wetness, snapshots, fixed: null });
     },
 
-    /** A single stage at lat/lon today: from a STAGE_TIMES instant (live = now), in STAGE_WEATHER (live = the forecast). */
+    /** A single stage at lat/lon today: from a STAGE_TIMES instant (live = now), in STAGE_WEATHER (live = the forecast); random = a fixed preset. */
     async startStage({ lat, lon, timeOfDay, weather }) {
-      const time = STAGE_TIMES.find((t) => t.id === timeOfDay) ?? STAGE_TIMES.find((t) => t.id === 'noon');
-      const sky = STAGE_WEATHER.find((w) => w.id === weather) ?? STAGE_WEATHER.find((w) => w.id === 'sunny');
+      const time = pickPreset(STAGE_TIMES, timeOfDay, 'noon');
+      const sky = pickPreset(STAGE_WEATHER, weather, 'sunny');
       const now = Date.now();
       const timeMs = time.id === 'live' ? now : presetTimeMs(time.id, lat, lon, now);
       if (sky.id === 'live') {
@@ -190,13 +250,7 @@ export function createRallyConditions({ setClock, setLiveWeather }) {
      */
     forecast(days) {
       if (!state?.snapshots?.length) return [];
-      const lastDay = Math.max(days, state.day);
-      const rows = state.snapshots
-        .map((s) => ({ ...s, day: Math.floor((s.ms - state.firstDayMs) / MS_PER_DAY) + 1, state: '' }))
-        .filter((s) => s.day >= 1 && s.day <= lastDay);
-      const now = rows.findLastIndex((s) => s.ms <= state.timeMs);
-      rows.forEach((s, i) => (s.state = i < now ? 'done' : i === now ? 'current' : ''));
-      return rows;
+      return forecastRows(state.snapshots, state.firstDayMs, state.timeMs, Math.max(days, state.day));
     },
 
     getDay: () => state?.day ?? 1,

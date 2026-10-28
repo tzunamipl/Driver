@@ -1,7 +1,7 @@
 // Digital rally clock, 1 m wide: black housing with a glowing HH:MM face of the in-game time of day.
 // Every clock shares one face texture, redrawn only when the minute changes.
 
-import { BoxGeometry, CanvasTexture, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
+import { BoxGeometry, CanvasTexture, Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, SRGBColorSpace } from 'three';
 
 export const CLOCK_WIDTH_M = 1;
 export const CLOCK_HEIGHT_M = 0.4;
@@ -9,6 +9,7 @@ const CLOCK_DEPTH_M = 0.12;
 const FACE_INSET_M = 0.04;
 const DIGIT_COLOR = '#ff3b1f';
 const GHOST_COLOR = '#2a0b06'; // unlit segments behind the digits
+const FACE_GLINT = { intensity: 2, color: new Color(DIGIT_COLOR) }; // wet road glint (lampGlints.js via controlScenery.js)
 
 const canvas = document.createElement('canvas');
 canvas.width = 512;
@@ -58,6 +59,7 @@ export function makeClock() {
   group.add(new Mesh(housingGeometry, housingMaterial));
   const face = new Mesh(faceGeometry, faceMaterial);
   face.position.z = CLOCK_DEPTH_M / 2 + 0.005;
+  face.userData.glint = FACE_GLINT;
   group.add(face);
   return group;
 }

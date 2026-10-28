@@ -17,7 +17,7 @@ export function createEditorNotePicking({ canvas, camera, editor }) {
   let press = null;
 
   function noteAt(e) {
-    if (!editor.state.showNoteBoards || !editor.state.doc.pacenotes?.notes.length) return -1;
+    if (!editor.state.showNoteBoards || !editor.notes()?.notes.length) return -1;
     const rect = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);

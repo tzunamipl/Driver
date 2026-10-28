@@ -1,7 +1,7 @@
 import { lon2tileX, lat2tileY, tileX2lon, tileY2lat } from '../lib/geo.js';
 import { TILE_SIZE, createMapTileCache, formatCoords } from '../hud/mapTiles.js';
 import { strokeRoute } from '../hud/routeLine.js';
-import { STAGE_ROUTE_COLOR } from '../lib/rally/stageRouteLine.js';
+import { STAGE_ROUTE_COLOR, REVERSE_ROUTE_COLOR } from '../lib/rally/stageRouteLine.js';
 import { drawScenarioPoints } from '../hud/scenarioPointIcon.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 
@@ -67,6 +67,7 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
   let selection = null;
   let scenarioPoints = [];
   let stageRoute = null;
+  let reverseRoute = null;
   let reverseSeq = 0;
   let rafId = 0;
   let widthCss = 0;
@@ -327,6 +328,8 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     }
     tiles.prune();
 
+    // Wider under the stage route: shows where the two differ.
+    if (reverseRoute) strokeRoute(ctx, reverseRoute, null, left / world - Math.round(cx - reverseRoute.mx[0]), top / world, world, 8, REVERSE_ROUTE_COLOR);
     if (stageRoute) strokeRoute(ctx, stageRoute, null, left / world - Math.round(cx - stageRoute.mx[0]), top / world, world, 4, STAGE_ROUTE_COLOR);
     const { route, progress } = routeGuidance.getState();
     if (route) {
@@ -394,9 +397,10 @@ export function createNavigationPanel({ addressSearch, getCarLatLon, routeGuidan
     scenarioPoints = points ?? [];
   }
 
-  /** Editor stage route ({ mx, my } normalised Web Mercator); null hides it. */
-  function setStageRoute(route) {
+  /** Editor stage route and its reverse run's ({ mx, my } normalised Web Mercator); null hides one. */
+  function setStageRoute(route, reverse = null) {
     stageRoute = route;
+    reverseRoute = reverse;
   }
 
   return { isOpen, setScenarioPoints, setStageRoute };

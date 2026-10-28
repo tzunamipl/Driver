@@ -1,8 +1,9 @@
 // Startup overlay shown until terrain.init() and the gameplay layers resolve: live steps from
-// TerrainManager.getLoadProgress() so a slow tile server doesn't look like a hang.
+// TerrainManager.getLoadProgress() and loadGameplayLayers() so a slow tile server doesn't look like a hang.
 
 const POLL_MS = 150;
 const SLOW_AFTER_MS = 15000;
+const TERRAIN_SHARE = 0.6; // of the bar; the rest is the gameplay layers (roads, water, buildings)
 
 export function createLoadingScreen(terrain, { lat, lon }) {
   const root = document.getElementById('loading-screen');
@@ -14,6 +15,7 @@ export function createLoadingScreen(terrain, { lat, lon }) {
   const farStep = root.querySelector('[data-step="far"]');
   const gameplayStep = root.querySelector('[data-step="gameplay"]');
   let gameplayState = 'pending';
+  let gameplayFraction = 0;
   const bar = root.querySelector('.loading-bar-fill');
   const footer = root.querySelector('.loading-footer');
   const slowHint = root.querySelector('.loading-slow');
@@ -32,9 +34,10 @@ export function createLoadingScreen(terrain, { lat, lon }) {
     const groundDone = p.physicsLoaded === p.physicsTotal;
     setStep(groundStep, !p.baselineReady ? 'pending' : groundDone ? 'done' : 'active', `${p.physicsLoaded} / ${p.physicsTotal} tiles`);
     setStep(farStep, p.baselineReady ? 'active' : 'pending', `${p.farLoaded} tiles`);
-    setStep(gameplayStep, gameplayState);
+    setStep(gameplayStep, gameplayState, gameplayState === 'active' ? `${Math.round(gameplayFraction * 100)}%` : '');
     // Baseline is one fetch; weight it as one ground tile.
-    const fraction = ((p.baselineReady ? 1 : 0) + p.physicsLoaded) / (p.physicsTotal + 1);
+    const terrainFraction = gameplayState === 'pending' ? ((p.baselineReady ? 1 : 0) + p.physicsLoaded) / (p.physicsTotal + 1) : 1;
+    const fraction = terrainFraction * TERRAIN_SHARE + gameplayFraction * (1 - TERRAIN_SHARE);
     bar.style.width = `${Math.round(fraction * 100)}%`;
     const elapsed = performance.now() - startedAt;
     footer.textContent = `${p.inFlight} download${p.inFlight === 1 ? '' : 's'} in flight · ${(elapsed / 1000).toFixed(1)} s`;
@@ -55,5 +58,10 @@ export function createLoadingScreen(terrain, { lat, lon }) {
     render();
   }
 
-  return { hide, setGameplayState };
+  /** Gameplay layers progress, 0..1 (loadGameplayLayers onProgress). */
+  function setGameplayProgress(fraction) {
+    gameplayFraction = fraction;
+  }
+
+  return { hide, setGameplayState, setGameplayProgress };
 }

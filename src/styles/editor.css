@@ -82,6 +82,8 @@
 .editor-items:empty { display: none; }
 .editor-items li { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .editor-items li.selected { background: var(--w95-select); color: #fff; }
+.editor-items li.is-other { opacity: 0.5; }
+.editor-kinds > span { align-self: center; margin-right: 2px; }
 .editor-selected:not(:empty) {
   display: flex;
   flex-direction: column;
@@ -155,7 +157,7 @@
 .scenario-tree-files button { text-align: left; min-height: 22px; }
 .scenario-tree-note { margin: 2px 0; color: #444; }
 
-/* Pacenotes window, left side under Settings / Navigation; the list takes the spare height. */
+/* Pacenotes window, first in the debug panel columns; the list takes the spare height. */
 #pacenote-panel {
   pointer-events: auto;
   width: 220px;
@@ -172,7 +174,6 @@
   line-height: 1.4;
 }
 #pacenote-panel[hidden],
-#pacenote-panel.collapsed .pacenote-body,
 .pacenote-selected[hidden],
 .pacenote-corner[hidden] { display: none; }
 .pacenote-corner { display: flex; flex-direction: column; gap: 3px; }
@@ -180,7 +181,7 @@
 .editor-notes { flex: 1 1 auto; min-height: 60px; max-height: none; padding-left: 30px; font-family: monospace; }
 .editor-notes li::before { display: none; }
 
-/* Surfaces window, left side under the pacenotes. */
+/* Surfaces window, under the pacenotes. */
 #surface-panel {
   pointer-events: auto;
   width: 220px;
@@ -195,12 +196,11 @@
   line-height: 1.4;
 }
 #surface-panel[hidden],
-#surface-panel.collapsed .pacenote-body,
 #surface-panel .editor-selected[hidden],
 #surface-panel button[hidden] { display: none; }
 .surface-list { max-height: 140px; }
 
-/* Course objects window, left side under the surfaces. */
+/* Course objects window, under the surfaces. */
 #course-objects-panel {
   pointer-events: auto;
   width: 220px;
@@ -215,7 +215,6 @@
   line-height: 1.4;
 }
 #course-objects-panel[hidden],
-#course-objects-panel.collapsed .pacenote-body,
 #course-objects-panel .editor-selected[hidden],
 .course-objects-length[hidden] { display: none; }
 .course-objects-list { max-height: 160px; }

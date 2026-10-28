@@ -91,7 +91,7 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       } finally {
         clearInterval(progressTimer);
       }
-      status('Loading roads, water & buildings\u2026');
+
       buildings.recenter(lat, lon);
       if (streets) streets.recenter(lat, lon);
       if (rivers) rivers.recenter(lat, lon);
@@ -100,7 +100,9 @@ export function createAddressSearch({ world, terrain, buildings, streets, rivers
       if (landcoverAreas) landcoverAreas.recenter(lat, lon);
       viewFrame.set(lat, lon);
       const layers = [streets, rivers, waterAreas, builtUpAreas, landcoverAreas].filter(Boolean);
-      await loadGameplayLayers({ buildings, layers }, lat, lon);
+      await loadGameplayLayers({ buildings, layers }, lat, lon, (fraction) =>
+        status(`Loading roads, water & buildings\u2026 ${Math.round(fraction * 100)}%`)
+      );
       // Position only, so the heading is kept. World y is relative to the
       // shared origin's elevation, so drop relative to the ground here.
       const groundY = findGroundY(world, 0, 0) ?? 0;

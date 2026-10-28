@@ -176,7 +176,7 @@ function findJunctions(nodes, nodeS) {
 }
 
 /** Route waypoints: start, splits and passage controls, finish; `partial`: up to the last one placed when there's no finish yet. */
-function routeWaypoints(points, partial = false) {
+export function routeWaypoints(points, partial = false) {
   const start = points.findIndex((p) => p.type === 'start');
   let finish = points.findIndex((p) => p.type === 'finish');
   if (finish < 0 && partial) finish = points.length - 1;
@@ -197,6 +197,18 @@ const sOf = (i) => i * STEP_M;
  */
 export async function stageLine(points, onProgress, { partial = false } = {}) {
   const { origin, nodes } = await routeStage(routeWaypoints(points, partial), { onProgress });
+  return lineOf(origin, nodes);
+}
+
+/** A stage line from a saved route (lib/rally/savedRoute.js), without road widths. */
+export function savedStageLine(route) {
+  const [lat0, lon0] = route.points[0];
+  const nodes = route.points.map(([lat, lon]) => ({ ...latLonToLocal(lat, lon, lat0, lon0), links: [] }));
+  for (let i = 0; i + 1 < nodes.length; i++) nodes[i].links.push({ node: nodes[i + 1], unpaved: !!route.points[i][2] });
+  return lineOf({ lat: lat0, lon: lon0 }, nodes);
+}
+
+function lineOf(origin, nodes) {
   const samples = resample(nodes);
   const last = samples.x.length - 1;
   /** Sample i as a note's { lat, lon, s }. */
@@ -243,20 +255,26 @@ export function spotOnLine({ origin, samples }, lat, lon, hintS = null) {
   return { s: sOf(at), dist: bestDist };
 }
 
-/** Surface calls along the line for its sections: where the driven surface changes (not the start's). */
-function surfaceNotes(line, sections) {
-  const { samples, routePoint } = line;
-  const ids = samples.u.map(osmStageSurface);
-  const fixed = new Uint8Array(ids.length); // under a section: never merged away
+/** The driven surface per sample: a section's, else OSM's paved / unpaved; `fixed` = under a section. */
+function sampleSurfaces(line, sections) {
+  const ids = line.samples.u.map(osmStageSurface);
+  const fixed = new Uint8Array(ids.length);
   for (const section of sections) {
     const [a, b] = [[section.points[0], section.from], [section.points[section.points.length - 1], section.to]].map(
       ([[lat, lon], hint]) => Math.round(spotOnLine(line, lat, lon, hint).s / STEP_M)
     );
-    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+    for (let i = Math.max(0, Math.min(a, b)); i <= Math.min(ids.length - 1, Math.max(a, b)); i++) {
       ids[i] = section.surface;
       fixed[i] = 1;
     }
   }
+  return { ids, fixed };
+}
+
+/** Surface calls along the line for its sections: where the driven surface changes (not the start's). */
+function surfaceNotes(line, sections) {
+  const { routePoint } = line;
+  const { ids, fixed } = sampleSurfaces(line, sections); // fixed: never merged away
   const runs = [];
   ids.forEach((id, i) => {
     const last = runs[runs.length - 1];
@@ -270,6 +288,14 @@ function surfaceNotes(line, sections) {
     else kept.push(run);
   }
   return kept.slice(1).map(({ id, a }) => ({ ...routePoint(a), len: 0, surface: id, show: routePoint(a - Math.round(SHOW_M / STEP_M)), apex: routePoint(a) }));
+}
+
+/** Metres of each stage surface id (stageSurfaces.js) from the start to the finish of a stage's points; `route`: their saved route, else routed. */
+export async function stageSurfaceMetres(points, sections = [], route = null) {
+  const { ids } = sampleSurfaces(route ? savedStageLine(route) : await stageLine(points), sections);
+  const metres = {};
+  for (const id of ids) metres[id] = (metres[id] ?? 0) + STEP_M;
+  return metres;
 }
 
 /** `pacenotes` with its surface calls redone for `sections` over the stage line (stageLine()). */
@@ -307,6 +333,10 @@ export async function generatePacenotes(points, { surfaces = [], onProgress } = 
   notes.sort((p, q) => p.at - q.at);
   return withSurfaceNotes({ length: Math.round(samples.length), notes: notes.map((n) => noteFromSamples(routePoint, n)) }, line, surfaces);
 }
+
+/** Surface sections as met driving the stage the other way (`length`: that run's line), for its surface calls. */
+export const reverseSections = (sections, length) =>
+  sections.map((section) => ({ ...section, from: length - section.to, to: length - section.from, points: section.points.slice().reverse() }));
 
 /**
  * One note starting at a spot on the stage road (the car): the first corner from there (its apex,

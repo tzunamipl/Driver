@@ -1,7 +1,7 @@
 // Driver API: checks stage times against the official stage files and keeps each player's best
 // per vehicle in a GitHub data repo, one JSON file per stage; commits editor saves to a player's
 // branch of the scenarios repo, with a PR into the official branch. The tokens stay here.
-//   GET  /board?stage=<country/region/id>  -> { board }
+//   GET  /board?stage=<country/region/id>  -> { board }  (stage ids + `~reverse` = driven the other way, own board)
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
 //        -> { board, rank, improved }
 //   POST /scenarios { branch, folder, kindFolder, key, content } -> { owner, repo, branch, sha, unchanged, pr }
@@ -9,9 +9,11 @@
 //   POST /player/save { playerId, updatedAt, data } -> { stored }  (also sent as a text/plain beacon)
 
 import { currentVehicleId } from '../../src/lib/vehicles/legacyIds.js';
+import { REVERSE_SUFFIX, splitReverseKey, drivenStagePoints } from '../../src/lib/rally/stageReverse.js';
 
 const SLUG = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const STAGE_KEY_RE = new RegExp(`^(?:${SLUG}/${SLUG}/)?${SLUG}$`); // bare `id` = flat layout from before countries
+const STAGE_ID_RE = new RegExp(`^(?:${SLUG}/${SLUG}/)?${SLUG}(?:${REVERSE_SUFFIX})?$`);
 const PLAYER_ID_RE = /^[0-9a-f-]{8,64}$/i;
 const VEHICLE_RE = /^[\w-]{1,40}$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -57,13 +59,16 @@ async function sha256Hex(text) {
 /** Public id on the board: the raw player id is also the MQTT identity. */
 const playerHash = async (playerId) => (await sha256Hex(playerId)).slice(0, 16);
 
-async function fetchStage(env, key, ref) {
+/** The stage file of a stage id, its points as driven in that version (timing checks and fingerprint follow them). */
+async function fetchStage(env, id, ref) {
+  const { key, reverse } = splitReverseKey(id);
   const res = await fetch(`https://raw.githubusercontent.com/${env.SCENARIOS_REPO}/${ref}/${stageFilePath(key)}`, {
     cf: { cacheTtl: STAGE_CACHE_S, cacheEverything: true },
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new HttpError(502, `Scenarios repo: ${res.status}`);
-  return res.json();
+  const stage = await res.json();
+  return { ...stage, points: drivenStagePoints(stage.points ?? [], { reverse }) };
 }
 
 /** Points that decide the timing; any edit to them starts the stage's board over. Heading and snap only when set, so older files keep theirs. */
@@ -104,7 +109,7 @@ function checkTimes(stage, { totalMs, splits, penaltyMs }) {
 
 function readSubmission(body) {
   const { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs = 0, version = '' } = body ?? {};
-  if (!STAGE_KEY_RE.test(stage ?? '')) throw new HttpError(400, 'Bad stage');
+  if (!STAGE_ID_RE.test(stage ?? '')) throw new HttpError(400, 'Bad stage');
   if (!SHA_RE.test(sha ?? '')) throw new HttpError(400, 'Bad sha');
   if (!PLAYER_ID_RE.test(playerId ?? '')) throw new HttpError(400, 'Bad playerId');
   if (!VEHICLE_RE.test(vehicle ?? '')) throw new HttpError(400, 'Bad vehicle');
@@ -207,7 +212,7 @@ async function submit(env, sub) {
 }
 
 async function getBoard(env, key) {
-  if (!STAGE_KEY_RE.test(key ?? '')) throw new HttpError(400, 'Bad stage');
+  if (!STAGE_ID_RE.test(key ?? '')) throw new HttpError(400, 'Bad stage');
   const head = await fetchStage(env, key, env.SCENARIOS_BRANCH);
   if (!head) throw new HttpError(404, 'Not an official stage');
   const { board } = await readBoard(env, key);

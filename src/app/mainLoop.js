@@ -3,6 +3,7 @@ import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { DETAIL_ZOOM } from '../lib/terrain.js';
 import { FIXED_STEP, MAX_SUBSTEPS, STREAMING_BUDGET_MS, PEDESTRIANS_ENABLED } from '../config.js';
 import { getAirTempC } from '../lib/weather.js';
+import { updateGlints } from '../lib/lampGlints.js';
 import { createFrameBudget, Tier } from './frameBudget.js';
 import { createHitchProfiler } from './hitchProfiler.js';
 import { saveCarState } from '../lib/carState.js';
@@ -369,7 +370,10 @@ export function createMainLoop({
       damage: currentVehicle?.lamps?.broken,
       remotes: carManager.getRemoteLights(headlightSwitch.isNight()),
     });
-    if (currentChassisMesh) streets.setSurfaceCenter(currentChassisMesh.position.x, currentChassisMesh.position.z);
+    if (currentChassisMesh) {
+      streets.setSurfaceCenter(currentChassisMesh.position.x, currentChassisMesh.position.z);
+      updateGlints(currentChassisMesh.position.x, currentChassisMesh.position.z);
+    }
     const shadowCasters = carManager.getShadowCasters();
     carShadows.update(shadowCasters.bodies, shadowCasters.wheels);
     const debugVisualsEnabled = debugVisuals.isEnabled();

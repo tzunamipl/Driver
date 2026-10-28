@@ -51,6 +51,7 @@
           <button type="button" data-action="save" hidden>Save<span class="menu-save-status"></span></button>
           <button type="button" data-action="modes">Game mode</button>
           <button type="button" data-action="settings">Settings</button>
+          <button type="button" data-action="about">About</button>
         </div>
       </div>
       <div class="menu-screen menu-window" data-screen="modes" hidden>
@@ -61,6 +62,19 @@
       <div class="menu-screen menu-window" data-screen="settings" hidden>
         <h1 class="menu-titlebar">Settings</h1>
         <div id="menu-settings"></div>
+        <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
+      </div>
+      <div class="menu-screen menu-window" data-screen="about" hidden>
+        <h1 class="menu-titlebar">About</h1>
+        <div id="menu-about">
+          <p>Driver is a browser driving game on real-world terrain: elevation, aerial imagery, roads and buildings streamed for anywhere on Earth.</p>
+          <p>The game is still in development, so expect rough edges, missing features and frequent changes.</p>
+          <p>It is coded with the help of AI assistants: GitHub Copilot and Claude.</p>
+          <div class="menu-about-links">
+            <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+            <a href="https://buymeacoffee.com/Kanalizer" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+          </div>
+        </div>
         <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
       </div>
     </div>
@@ -110,15 +124,24 @@
             <div id="hud-body">
               <div class="hud-line">W / &uarr; &mdash; throttle</div>
               <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
-              <div class="hud-line">A D / &larr; &rarr; &mdash; steer, also in the air</div>
+              <div class="hud-line">A D / &larr; &rarr; &mdash; steer</div>
               <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
-              <div class="hud-line">Shift &mdash; turbo</div>
-              <div class="hud-line">E / Q &mdash; shift gear up / down (gearbox mode: click SPORT/COMFORT/ECO on the rev counter)</div>
-              <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick (G hide/show, X / Z truck range lever up / down, shifts the range in gear); W throttle in any gear, S brakes</div>
+              <div class="hud-line">E / Q &mdash; shift gear up / down</div>
+              <div class="hud-line">X / Z &mdash; range extender lever up / down</div>
+              <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick or E / Q</div>
               <div class="hud-line">H &mdash; horn</div>
               <div class="hud-line">L &mdash; headlights (automatic at night)</div>
               <div class="hud-line">R &mdash; reset car</div>
               <div class="hud-line">C &mdash; switch camera view</div>
+              <div class="hud-line">Click on dials &mdash; toggle systems</div>
+              <div class="hud-line">Gearbox modes: click SPORT/COMFORT/ECO/CRUISE on the rev counter</div>
+              <div class="hud-line">SPORT &mdash; full throttle</div>
+              <div class="hud-line">COMFORT &mdash; 75% throttle, faster gear changes</div>
+              <div class="hud-line">ECO &mdash; 50% throttle, faster gear changes</div>
+              <div class="hud-line">CRUISE &mdash; 90% throttle to the speed limit, then keep low RPM</div>
+              <div class="hud-line"></div>
+              <div class="hud-line"></div>
+              <div class="hud-line"></div>
               <div class="hud-section" id="hud-audio">
                 <div>Audio</div>
                 <label>
@@ -166,11 +189,11 @@
               </div>
             </div>
           </div>
-          <div id="pacenote-panel" hidden></div>
-          <div id="surface-panel" hidden></div>
-          <div id="course-objects-panel" hidden></div>
           <div id="debug-hud-row">
             <div class="debug-hud-col">
+              <div id="pacenote-panel" hidden></div>
+              <div id="surface-panel" hidden></div>
+              <div id="course-objects-panel" hidden></div>
               <div id="suspension-hud" class="susp-panel">
                 <div class="susp-title debug-fold-title">SUSPENSION</div>
                 <div class="susp-grid" id="susp-grid"></div>

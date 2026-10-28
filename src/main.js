@@ -60,6 +60,7 @@ import { createGuardRailKind } from './lib/guardRails.js';
 import { createRoadSignKinds } from './lib/roadSigns.js';
 import { createStreetLampKind } from './lib/streetLamps.js';
 import { createStreetLights } from './lib/streetLights.js';
+import { addSignGlints } from './lib/signGlints.js';
 import { createDirectionSignKind } from './lib/directionSigns.js';
 import { createPlaces } from './lib/places.js';
 import { createDirectionSignHud } from './hud/directionSignHud.js';
@@ -167,6 +168,7 @@ const lobby = createLobby({
   originChain: () => addressSearch.awaitOriginChain(),
   onJoined(color, vehicleId) {
     carManager.spawnLocalCar(color, vehicleId);
+    roadside.warmUp(renderer, camera);
     vehicleDebugPicker.syncFromCar();
     startLoopOnce();
     beginModeOnce();
@@ -318,6 +320,7 @@ const roadside = createRoadside({
 });
 const curbs = createCurbs({ scene, world, streets, builtUpAreas, terrain });
 const streetLights = createStreetLights({ scene, terrain, roadside, lampKind: streetLampKind });
+addSignGlints(roadside);
 const directionSignHud = createDirectionSignHud(document.getElementById('direction-sign-hud'), {
   allowed: !isEditorSession() && getGameMode(getActiveModeId())?.directionSignHud !== false,
 });
@@ -401,7 +404,9 @@ setupDebugFolds(
 );
 setupDebugHudWrap(
   document.getElementById('debug-hud-row'),
-  ['suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map((id) => document.getElementById(id)),
+  ['pacenote-panel', 'surface-panel', 'course-objects-panel', 'suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map(
+    (id) => document.getElementById(id)
+  ),
   document.getElementById('minimap')
 );
 createSurfaceHover({
@@ -467,7 +472,7 @@ const input = createInputController({
 const lightSwitchSound = createLightSwitchSound();
 const headlightSwitch = createHeadlightSwitch({ onToggle: lightSwitchSound.play });
 const headlights = createHeadlights(scene);
-const collapsibleHud = setupCollapsibleHud();
+const collapsibleHud = setupCollapsibleHud({ folded: getActiveModeId() === 'rally' });
 setupTouchControls(input.keys);
 
 // ---------- Camera ----------
@@ -611,13 +616,14 @@ if (scenarioEditor) {
     createSurfacePanel(scenarioEditor);
   }
   if (editorFormat.objectTypes) createCourseObjectsPanel(scenarioEditor);
+  setupDebugFolds(['pacenote-panel', 'surface-panel', 'course-objects-panel'].map((id) => document.getElementById(id)));
   createEditorNotePicking({ canvas: renderer.domElement, camera, editor: scenarioEditor });
   scenarioEditor.subscribe(() => {
     const points = scenarioEditor.mapPoints();
     minimapHud.setScenarioPoints(points);
     navigationPanel.setScenarioPoints(points);
-    minimapHud.setStageRoute(scenarioEditor.mapRoute());
-    navigationPanel.setStageRoute(scenarioEditor.mapRoute());
+    minimapHud.setStageRoute(scenarioEditor.mapRoute(), scenarioEditor.mapReverseRoute());
+    navigationPanel.setStageRoute(scenarioEditor.mapRoute(), scenarioEditor.mapReverseRoute());
   });
 }
 
@@ -809,7 +815,7 @@ const floatingOrigin = createFloatingOrigin({
   camera,
   viewFrame,
   streamers: [terrain, buildings, streets, rivers, waterAreas, builtUpAreas, landcoverAreas],
-  parts: [carManager, cameraFollow, gaugesHud, scoring, roadside, curbs, trees, bushes, rocks, rimSparks, exhaustPipes, wheelDebris, wetSpray, rain, streetLights, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
+  parts: [carManager, cameraFollow, gaugesHud, scoring, clouds, roadside, curbs, trees, bushes, rocks, rimSparks, exhaustPipes, wheelDebris, wetSpray, rain, streetLights, ...(rallySession ? [rallySession] : []), ...(scenarioEditor ? [scenarioEditor] : [])],
 });
 
 // ---------- Main loop ----------
@@ -914,7 +920,8 @@ terrain.init().then(async () => {
   await loadGameplayLayers(
     { buildings, layers: [streets, rivers, waterAreas, builtUpAreas, landcoverAreas] },
     initialViewOrigin.lat,
-    initialViewOrigin.lon
+    initialViewOrigin.lon,
+    loadingScreen.setGameplayProgress
   );
   loadingScreen.hide();
   mainMenu.setInGame(menuPark, () => {

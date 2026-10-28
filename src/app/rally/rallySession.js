@@ -22,6 +22,8 @@ import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat, resolvePointRefs, parseClockTime, DEFAULT_START_TIME } from '../../lib/scenarios/rally.js';
 import { filePath } from '../../lib/scenarios/paths.js';
+import { reverseKey, splitReverseKey, drivenStagePoints, inVersion } from '../../lib/rally/stageReverse.js';
+import { savedRouteFor } from '../../lib/rally/savedRoute.js';
 import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
 import { readLocalBests, writeLocalBests, localBestKey } from '../../lib/rally/localBest.js';
@@ -33,7 +35,7 @@ import { createPacenoteHud } from '../../hud/pacenoteHud.js';
 import { createCarRocking } from '../carRocking.js';
 import { createZonePicking } from './zonePicking.js';
 import { createFieldRepair } from './fieldRepair.js';
-import { createRallyConditions, DEFAULT_STAGE_CONDITIONS } from './rallyConditions.js';
+import { createRallyConditions, previewForecast, DEFAULT_STAGE_CONDITIONS } from './rallyConditions.js';
 import { getVehicle, vehicleLabel } from '../../lib/vehicles/index.js';
 import { getVehicleColor } from '../../lib/vehicleColors.js';
 import { getTyreSetup, getSpareTyres } from '../../lib/garage.js';
@@ -70,6 +72,7 @@ const TYRE_FITTING_MIN = 10; // clock minutes at a tyre fitting zone
 const REFUEL_MIN = 5; // ...and at a refuel zone
 const NIGHT_CAPTION_MS = 1500; // end of a rally day: the black screen holds this long
 const RAIN_SHOWN_MM_H = 0.1; // forecast rain below this reads as none
+const DAMAGE_SHOWN_LEVEL = 0.95; // a 'warn' part at or above this health is only hot / cold, not damaged
 
 const formatClock = (date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 const minutesText = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
@@ -80,20 +83,35 @@ const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
 
-/** Stage file -> { id (its file key), name, points, pacenotes, surfaces, objects }. */
-function readStage(json, id) {
-  const { name, items, pacenotes, surfaces, objects } = stageKind.fromFile(json);
-  return { id, name, points: items, pacenotes, surfaces, objects };
+/**
+ * A stage file's version (lib/rally/stageReverse.js) -> { id (its file key, + the reverse suffix), name, points,
+ * pacenotes, surfaces, objects, route (lib/rally/savedRoute.js, null when missing or stale) }. `doc`: stageKind.fromFile
+ * result; both versions share its objects and surfaces.
+ */
+function readStage(doc, key, reverse = false) {
+  const { name, items, pacenotes, reversePacenotes, surfaces, objects, route, reverseRoute } = doc;
+  const points = drivenStagePoints(items, { reverse, defaultWidth: rallyFormat.defaultGateWidth });
+  return {
+    id: reverse ? reverseKey(key) : key,
+    name: reverse ? `${name} (reverse)` : name,
+    points,
+    route: savedRouteFor(reverse ? reverseRoute : route, points),
+    pacenotes: reverse ? reversePacenotes : pacenotes,
+    surfaces,
+    objects: objects.filter((object) => inVersion(object, reverse)),
+  };
 }
 
-/** Plan items for a picked file: stage -> one stage item; rally -> its itinerary. */
+/** Plan items for a picked file: stage -> one stage item (a stageReverse.js reverse key: its reverse version); rally -> its itinerary. */
 async function buildPlan(kind, source, opened, key, json) {
   if (kind === 'stage') {
-    const stage = readStage(json, key);
+    const { key: fileKey, reverse } = splitReverseKey(key);
+    const stage = readStage(stageKind.fromFile(json), fileKey, reverse);
     return { kind, source, sha: opened.sha, id: key, name: stage.name, items: [{ type: 'stage', stage }], objects: [] };
   }
   const rally = rallyKind.fromFile(json);
-  const stages = new Map();
+  const docs = new Map(); // stage key -> its file read
+  const stages = new Map(); // stage id -> its version
   const items = [];
   for (const item of resolvePointRefs(rally.items)) {
     if (item.type === 'base') continue;
@@ -101,23 +119,43 @@ async function buildPlan(kind, source, opened, key, json) {
       items.push({ type: 'point', point: item });
       continue;
     }
-    if (!stages.has(item.ref)) {
+    if (!docs.has(item.ref)) {
       const stageJson = await opened.readJson(filePath(rallyFormat.folder, stageKind, item.ref));
       if (!stageJson) throw new Error(`Stage ${item.ref} is missing from ${source}`);
-      stages.set(item.ref, readStage(stageJson, item.ref));
+      docs.set(item.ref, stageKind.fromFile(stageJson));
     }
-    const stage = stages.get(item.ref);
+    const id = item.reverse ? reverseKey(item.ref) : item.ref;
+    if (!stages.has(id)) stages.set(id, readStage(docs.get(item.ref), item.ref, !!item.reverse));
+    const stage = stages.get(id);
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
   const base = rally.items.find((item) => item.type === 'base') ?? null;
   return { kind, source, sha: opened.sha, id: key, name: rally.name, startTime: rally.startTime, base, items, objects: rally.objects };
 }
 
-/** The plan's course objects: the rally's own and each stage's once, however often it's driven. */
-const planObjects = (plan) => [...new Set(plan.items.map((item) => item.stage?.objects ?? []))].flat().concat(plan.objects ?? []);
+/** The plan's course objects: the rally's own and each stage's once, however often (and whichever way) it's driven. */
+const planObjects = (plan) => [...new Set(plan.items.flatMap((item) => item.stage?.objects ?? []))].concat(plan.objects ?? []);
 
 /** The plan's surface sections: each stage's once (they stay in force on liaisons too). */
 const planSurfaces = (plan) => [...new Set(plan.items.map((item) => item.stage?.surfaces ?? []))].flat();
+
+/** Rally days: one plus a parc fermé (`endsDay` point) each. */
+const planDays = (plan) => 1 + plan.items.filter((item) => item.type === 'point' && rallyFormat.pointTypes[item.point.type]?.endsDay).length;
+
+/** ui/rallyInfoDialog.js forecast rows from rallyConditions.js forecast rows; `withDay`: a rally's day number in the label. */
+function formatForecast(rows, displayMs, withDay) {
+  return rows.map((s) => {
+    const date = new Date(displayMs(s.ms));
+    return {
+      state: s.state,
+      label: `${withDay ? `Day ${s.day} ` : ''}${date.toLocaleDateString(undefined, { weekday: 'short' })} ${formatClock(date)}`,
+      sky: skyLabel(s),
+      temp: formatTemp(s.tempC),
+      rain: s.precipMmH >= RAIN_SHOWN_MM_H ? formatRain(s.precipMmH) : '',
+      wind: formatSpeed(s.windMs * 3.6),
+    };
+  });
+}
 
 /** Points of a plan item, in driving order. */
 const itemPoints = (item) => (item?.type === 'stage' ? item.stage.points : item ? [item.point] : []);
@@ -138,7 +176,26 @@ export async function pickPlan(picker, { vehicleId } = {}) {
     vehicleId,
     lastFile: readSaveField('lastFile'),
     onFilePick: (file) => writeSaveField('lastFile', file),
+    forecast: (plan, stageConditions) => planForecast(plan, stageConditions),
   });
+}
+
+/**
+ * The forecast a picked plan would start in: a rally's days from its start time, a single stage's day in Live
+ * weather (null in fixed weather). Rows as ui/rallyInfoDialog.js shows them; empty offline.
+ */
+async function planForecast(plan, stageConditions) {
+  const at = plan.base ?? planStart(plan);
+  if (!at) return null;
+  if (plan.kind === 'stage') {
+    const { timeOfDay, weather } = { ...DEFAULT_STAGE_CONDITIONS, ...stageConditions };
+    if (weather !== 'live') return null;
+    const { rows, displayMs } = await previewForecast({ lat: at.lat, lon: at.lon, timeOfDay });
+    return formatForecast(rows, displayMs, false);
+  }
+  const days = planDays(plan);
+  const { rows, displayMs } = await previewForecast({ lat: at.lat, lon: at.lon, days, startMin: parseClockTime(plan.startTime) ?? DEFAULT_START_MIN });
+  return formatForecast(rows, displayMs, true);
 }
 
 /** Where a plan starts: its first item's first point (lat/lon), or null. */
@@ -407,17 +464,18 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     routeToItem();
   }
 
-  /** A stage driven more than once keeps the scenery of one run: the current or next one, else the last. */
+  /** A stage driven more than once (either way) keeps the scenery of one run: the current or next one, else the last. */
   function hideOtherRuns() {
-    const shownRun = new Map(); // stage id -> item index
+    const shownRun = new Map(); // stage file key -> item index
+    const road = (item) => splitReverseKey(item.stage.id).key;
     plan.items.forEach((item, i) => {
-      if (item.type === 'stage' && (!shownRun.has(item.stage.id) || shownRun.get(item.stage.id) < itemIndex)) shownRun.set(item.stage.id, i);
+      if (item.type === 'stage' && (!shownRun.has(road(item)) || shownRun.get(road(item)) < itemIndex)) shownRun.set(road(item), i);
     });
     const hidden = [];
     let offset = 0;
     plan.items.forEach((item, i) => {
       const count = itemPoints(item).length;
-      if (item.type === 'stage' && shownRun.get(item.stage.id) !== i) for (let k = 0; k < count; k++) hidden.push(offset + k);
+      if (item.type === 'stage' && shownRun.get(road(item)) !== i) for (let k = 0; k < count; k++) hidden.push(offset + k);
       offset += count;
     });
     scenery.setHidden(hidden);
@@ -612,7 +670,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     await conditions.startRally({ lat: at.lat, lon: at.lon, startMin: parseClockTime(plan.startTime) ?? DEFAULT_START_MIN, days: rallyDays() });
   }
 
-  const rallyDays = () => 1 + plan.items.filter((item) => item.type === 'point' && rallyFormat.pointTypes[item.point.type]?.endsDay).length;
+  const rallyDays = () => planDays(plan);
 
   /** A new event (picked, or a single stage restarted) starts in a brand new car, the picked spares and full cans on board. */
   function newCar() {
@@ -770,6 +828,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         rows.push(['Stage time', r?.ms == null ? 'DNF' : formatTime(r.ms), 'total']);
         if (r?.best) rows.push(['Your best', formatTime(r.best.totalMs)]);
         else if (r?.ms != null) rows.push(['Your best', 'New best!']);
+        rows.push(...damageRows());
       } else {
         const dnf = results.some((r) => r.ms == null);
         const late = servicePenaltyMs();
@@ -784,6 +843,17 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       results: resultRows,
       buttons: plan.kind === 'stage' ? ['restart', 'pick', 'mainMenu'] : ['newRally', 'mainMenu'],
     };
+  }
+
+  /** The car's damaged parts after a single stage (lib/serviceRepairs.js verdicts). */
+  function damageRows() {
+    const vehicle = carManager.getVehicle();
+    if (!vehicle) return [];
+    const damaged = carParts(vehicle).filter(
+      (p) => p.group !== 'Fuel & spares' && (p.verdict === 'bad' || (p.verdict === 'warn' && (p.level == null || p.level < DAMAGE_SHOWN_LEVEL))),
+    );
+    const rows = damaged.map((p) => [p.group === 'Tyres' ? `Tyre · ${p.label}` : p.label, p.note, p.verdict]);
+    return [['Car damage', rows.length ? '' : 'none', 'head'], ...rows];
   }
 
   function onlineRank(entry) {
@@ -854,8 +924,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       const { stage } = item;
       const result = state === 'done' ? results[ss] : null;
       ss++;
-      // Only pacenotes measure the stage road.
-      const length = stage.pacenotes?.length;
+      // Only pacenotes or the saved route measure the stage road.
+      const length = stage.pacenotes?.length ?? stage.route?.length;
       if (length) km += length / 1000;
       const best = bests[bestKey(stage)];
       return {
@@ -882,17 +952,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         ['Air temperature', formatTemp(getAirTempC())],
         ['Surface', surface],
       ],
-      forecast: conditions.forecast(rallyDays()).map((s) => {
-        const date = new Date(conditions.displayMs(s.ms));
-        return {
-          state: s.state,
-          label: `Day ${s.day} ${date.toLocaleDateString(undefined, { weekday: 'short' })} ${formatClock(date)}`,
-          sky: skyLabel(s),
-          temp: formatTemp(s.tempC),
-          rain: s.precipMmH >= RAIN_SHOWN_MM_H ? formatRain(s.precipMmH) : '',
-          wind: formatSpeed(s.windMs * 3.6),
-        };
-      }),
+      forecast: formatForecast(conditions.forecast(rallyDays()), conditions.displayMs, plan.kind === 'rally'),
       rows,
       totals: [
         ['Stages', `${results.length} / ${ss} driven`],
@@ -1003,7 +1063,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       try {
         const opened = await openSource(source);
         const def = progress.kind === 'rally' ? rallyKind : stageKind;
-        const json = await opened.readJson(filePath(rallyFormat.folder, def, progress.id));
+        const json = await opened.readJson(filePath(rallyFormat.folder, def, splitReverseKey(progress.id).key));
         if (!json) throw new Error(`${progress.id} is gone from ${progress.source}`);
         const saved = await buildPlan(progress.kind, progress.source, opened, progress.id, json);
         // The car resumes where it was saved (lib/carState.js), so it needs no spawn.

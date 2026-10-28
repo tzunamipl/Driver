@@ -5,6 +5,7 @@
 import { listSources, openListed } from '../lib/scenarios/catalog.js';
 import { formatSource } from '../lib/scenarios/source.js';
 import { filePath, indexPath, splitKey, slugLabel } from '../lib/scenarios/paths.js';
+import { reverseKey } from '../lib/rally/stageReverse.js';
 
 function el(tag, props = {}, children = []) {
   const node = Object.assign(document.createElement(tag), props);
@@ -23,9 +24,11 @@ const note = (text) => el('p', { className: 'scenario-tree-note', textContent: t
  * @param {() => string | null} [opts.ownBranch] - player's branch: opened instead of Official when listed.
  * @param {{source: string, kindId: string, key: string} | null} [opts.initialFile] - file to open the folders down to
  *   and pick (source as 'owner/repo@branch'); skipped when gone or something else was picked first.
+ * @param {string[]} [opts.reverseKinds] - kinds whose files are listed twice: as authored and driven the other
+ *   way (key = lib/rally/stageReverse.js reverseKey, same json).
  * @returns {{el: HTMLElement, reload: () => void}}
  */
-export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranch = () => null, initialFile = null }) {
+export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranch = () => null, initialFile = null, reverseKinds = [] }) {
   const root = el('div', { className: 'scenario-tree' });
   let selectedButton = null;
   const isInitialSource = (listed) => !!initialFile && formatSource(listed.source) === initialFile.source;
@@ -39,28 +42,33 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranc
     button.scrollIntoView({ block: 'nearest' });
   }
 
-  function fileButton(listed, opened, kind, key) {
+  /** The file's button, and its reverse run's after it for `reverseKinds`. */
+  function fileButtons(listed, opened, kind, key) {
     const { id } = splitKey(key);
-    const button = el('button', { type: 'button', textContent: id, disabled: true });
+    const variants = [{ key, suffix: '' }, ...(reverseKinds.includes(kind.id) ? [{ key: reverseKey(key), suffix: ' (reverse)' }] : [])];
+    const buttons = variants.map(({ suffix }) => el('button', { type: 'button', textContent: `${id}${suffix}`, disabled: true }));
     opened.readJson(filePath(folder, kind, key)).then(
       (json) => {
         if (!json) return;
-        button.textContent = json.name || id;
-        button.title = key;
-        button.disabled = false;
-        const picked = { source: listed.source, opened, kindId: kind.id, key, json };
-        button.onclick = () => {
-          selectedButton?.classList.remove('selected');
-          selectedButton = button;
-          button.classList.add('selected');
-          onPick(picked);
-        };
-        if (onActivate) button.ondblclick = () => onActivate(picked);
-        if (isInitialSource(listed) && initialFile.kindId === kind.id && initialFile.key === key) restore(button);
+        variants.forEach((variant, i) => {
+          const button = buttons[i];
+          button.textContent = `${json.name || id}${variant.suffix}`;
+          button.title = key;
+          button.disabled = false;
+          const picked = { source: listed.source, opened, kindId: kind.id, key: variant.key, json };
+          button.onclick = () => {
+            selectedButton?.classList.remove('selected');
+            selectedButton = button;
+            button.classList.add('selected');
+            onPick(picked);
+          };
+          if (onActivate) button.ondblclick = () => onActivate(picked);
+          if (isInitialSource(listed) && initialFile.kindId === kind.id && initialFile.key === variant.key) restore(button);
+        });
       },
       () => {}
     );
-    return button;
+    return buttons;
   }
 
   /** A kind's files, folded by country then region / theme. */
@@ -83,11 +91,11 @@ export function createScenarioTree({ folder, kinds, onPick, onActivate, ownBranc
     for (const [country, regions] of countries) {
       // Flat-layout files: listed loose, before the country folders.
       if (!country) {
-        list.prepend(...[...regions.values()].flat().map((key) => fileButton(listed, opened, kind, key)));
+        list.prepend(...[...regions.values()].flat().flatMap((key) => fileButtons(listed, opened, kind, key)));
         continue;
       }
       const regionNodes = [...regions].map(([region, regionKeys]) =>
-        folderNode(slugLabel(region), [el('div', { className: 'scenario-tree-files' }, regionKeys.map((key) => fileButton(listed, opened, kind, key)))])
+        folderNode(slugLabel(region), [el('div', { className: 'scenario-tree-files' }, regionKeys.flatMap((key) => fileButtons(listed, opened, kind, key)))])
       );
       list.append(folderNode(slugLabel(country), regionNodes));
     }

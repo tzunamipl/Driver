@@ -26,6 +26,8 @@ const DRY_FROZEN = 0.01; // below 0 °C
 const DRYING_IN_RAIN = 0.3; // share of the drying left while it still rains
 const RAINING_MM_H = 0.05;
 const STEP_MS = 10 * 60_000;
+// mm/h at least, per WMO rain / drizzle code: the merged models' code can say rain over ~0 mm (snow codes left alone).
+const CODE_MIN_RAIN_MM_H = { 51: 0.2, 53: 0.3, 55: 0.5, 56: 0.2, 57: 0.5, 61: 0.5, 63: 2, 65: 5, 66: 0.5, 67: 3, 80: 0.5, 81: 2, 82: 6, 95: 2, 96: 4, 99: 6 };
 const FOG_CODE_VISIBILITY_M = 300; // WMO 45 / 48 (fog) at most this, whatever the model's visibility says
 
 /** Visibility (m) from the forecast's value and WMO code; missing (older saves, offline) = from the code alone. */
@@ -94,7 +96,7 @@ function toSnapshots(hourly, offsetSec) {
       const ms = day + hour * MS_PER_HOUR;
       const i = times.findIndex((t) => t >= ms);
       if (i < 0 || times[i] - ms >= MS_PER_HOUR) return;
-      // Window: halfway to the neighbouring snapshots (wrapping over midnight).
+      // Window: halfway to the neighbouring snapshots (wrapping over midnight). Rain is its peak, so a shower isn't averaged away.
       const prev = k > 0 ? SNAPSHOT_HOURS[k - 1] : SNAPSHOT_HOURS.at(-1) - 24;
       const next = k < SNAPSHOT_HOURS.length - 1 ? SNAPSHOT_HOURS[k + 1] : SNAPSHOT_HOURS[0] + 24;
       const from = day + ((prev + hour) / 2) * MS_PER_HOUR;
@@ -105,17 +107,18 @@ function toSnapshots(hourly, offsetSec) {
       let n = 0;
       times.forEach((t, j) => {
         if (t < from || t >= to) return;
-        rain += num('precipitation', j);
+        rain = Math.max(rain, num('precipitation', j));
         wind += num('wind_speed_10m', j);
         code = Math.max(code, num('weather_code', j));
         n++;
       });
+      const snapCode = n ? code : num('weather_code', i);
       snapshots.push({
         ms,
         tempC: num('temperature_2m', i),
         cover: { total: num('cloud_cover', i), low: num('cloud_cover_low', i), mid: num('cloud_cover_mid', i), high: num('cloud_cover_high', i) },
-        code: n ? code : num('weather_code', i),
-        precipMmH: n ? rain / n : num('precipitation', i),
+        code: snapCode,
+        precipMmH: Math.max(n ? rain : num('precipitation', i), CODE_MIN_RAIN_MM_H[snapCode] ?? 0),
         windMs: n ? wind / n : num('wind_speed_10m', i),
         visibilityM: visibilityFor(hourly.visibility?.[i], num('weather_code', i)),
       });

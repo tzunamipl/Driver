@@ -330,6 +330,11 @@ export class VectorTileLayer {
 
   /** Pending work for the streaming indicator: a region fetch, and tile mesh builds. */
   pendingWork() {
+    return this.nearWork();
+  }
+
+  /** The region fetch and queued tile builds a load waits on (gameplayLoad.js). */
+  nearWork() {
     return { downloads: this._regionPending ? Math.max(1, this._regionTilesLeft) : 0, builds: this._buildQueue.length + this._inProgressBuilds.size };
   }
 
@@ -413,7 +418,7 @@ export class VectorTileLayer {
 
   /**
    * Streams data around (centerTx, centerTy) and, while visible, builds meshes
-   * until `deadline` (unbounded if `awaitAll`, which also waits for the data).
+   * until `deadline`; `awaitAll` waits for the data first.
    */
   async update(centerTx, centerTy, awaitAll = false, deadline = Infinity) {
     if (!this.alwaysStream && !this._visible) return;
@@ -449,7 +454,6 @@ export class VectorTileLayer {
       this._queueStaleChunks();
     }
 
-    if (awaitAll) deadline = Infinity;
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;

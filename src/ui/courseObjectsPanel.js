@@ -1,6 +1,6 @@
 // Course objects window (left side, scenario editor, formats with `objectTypes`): place-at-car
-// buttons, the file's object list, and the selected object's heading dial, tape length and
-// actions. Built once and patched on change, so typing in a field keeps its focus.
+// buttons, the file's object list, and the selected object's heading dial, tape length, stage versions
+// (lib/rally/stageReverse.js; out of the edited one: dimmed) and actions. Built once and patched on change, so typing in a field keeps its focus.
 
 import { attachTips, createHeadingDial, patchValue, setTip } from './editorPanel.js';
 
@@ -24,7 +24,7 @@ export function createCourseObjectsPanel(editor) {
   const root = document.getElementById('course-objects-panel');
   root.hidden = false;
 
-  const toggle = button('Objects', () => root.classList.toggle('collapsed'), { className: 'editor-toggle' });
+  const toggle = button('Objects', null, { className: 'editor-toggle debug-fold-title' });
   const placeEl = el(
     'div',
     { className: 'editor-place' },
@@ -46,10 +46,20 @@ export function createCourseObjectsPanel(editor) {
   const lengthLabel = el('label', { textContent: 'Length (m)' });
   setTip(lengthLabel, 'Length', 'Tape length across the heading, centred on the object; a stake about every 3 m.');
   const lengthRow = el('div', { className: 'course-objects-length' }, [lengthLabel, lengthInput]);
+  const onlySelect = el('select', {}, [
+    el('option', { value: '', textContent: 'Both versions' }),
+    el('option', { value: 'forward', textContent: 'Forward only' }),
+    el('option', { value: 'reverse', textContent: 'Reverse only' }),
+  ]);
+  onlySelect.addEventListener('change', () => editor.setObjectOnly(onlySelect.value || null));
+  const onlyLabel = el('label', { textContent: 'Versions' });
+  setTip(onlyLabel, 'Versions', 'Which ways the stage is driven with this object: both (same spot), or only forward / reverse. A sign faces one way: give each version its own.');
+  const onlyRow = el('div', { className: 'course-objects-length' }, [onlyLabel, onlySelect]);
   const selectedEl = el('div', { className: 'editor-selected' }, [
     el('label', { textContent: 'Heading' }),
     dial.el,
     lengthRow,
+    onlyRow,
     el('div', { className: 'editor-buttons' }, [
       button('Move to car', () => editor.moveObjectToCar(), { title: 'Moves it where the car is; the heading stays' }),
       button('Go to', () => editor.goToObject(), { title: 'Teleport to this object' }),
@@ -65,13 +75,15 @@ export function createCourseObjectsPanel(editor) {
 
   function render() {
     const { objects } = state.doc;
+    const isStage = editor.kind().id === 'stage';
     toggle.textContent = objects.length ? `Objects (${objects.length})` : 'Objects';
     listEl.replaceChildren(
       ...objects.map((object, i) => {
         const def = types[object.type];
-        const text = `${def.label}${def.chain ? ` · ${object.length} m` : ''} · ${Math.round(object.heading)}°`;
+        const text = `${def.label}${def.chain ? ` · ${object.length} m` : ''} · ${Math.round(object.heading)}°${object.only ? ` · ${object.only} only` : ''}`;
         const li = el('li', { textContent: text, onclick: () => editor.selectObject(i) });
         li.classList.toggle('selected', i === state.selectedObject);
+        li.classList.toggle('is-other', isStage && object.only === (state.reverse ? 'forward' : 'reverse'));
         li.style.setProperty('--editor-swatch', hex(def.color));
         return li;
       })
@@ -83,6 +95,8 @@ export function createCourseObjectsPanel(editor) {
       dial.set(object.heading, true);
       lengthRow.hidden = !types[object.type].chain;
       if (types[object.type].chain) patchValue(lengthInput, String(object.length));
+      onlyRow.hidden = !isStage;
+      onlySelect.value = object.only ?? '';
     }
     if (state.selectedObject !== shownSelection) {
       shownSelection = state.selectedObject;

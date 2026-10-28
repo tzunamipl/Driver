@@ -4,8 +4,11 @@ import { readSaveField, writeSaveField } from '../lib/saves.js';
 
 /** Each panel needs an id and a `.debug-fold-title` child that becomes the toggle. */
 export function setupDebugFolds(panels) {
-  const saved = readSaveField('debugFolded');
-  const folded = saved && typeof saved === 'object' ? { ...saved } : {};
+  const read = () => {
+    const saved = readSaveField('debugFolded');
+    return saved && typeof saved === 'object' ? { ...saved } : {};
+  };
+  let folded = read();
   for (const panel of panels) {
     const title = panel?.querySelector('.debug-fold-title');
     if (!title) continue;
@@ -15,7 +18,8 @@ export function setupDebugFolds(panels) {
       title.setAttribute('aria-expanded', folded[panel.id] ? 'false' : 'true');
     };
     title.addEventListener('click', () => {
-      folded[panel.id] = !folded[panel.id];
+      // Re-read: panels set up by another call may have changed the saved state.
+      folded = { ...read(), [panel.id]: !folded[panel.id] };
       writeSaveField('debugFolded', folded);
       apply();
     });

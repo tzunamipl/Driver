@@ -1,5 +1,5 @@
 // Scenario editor panel (top right): file kind/id/name, place-at-car buttons for the
-// mode's point types, the ordered item list, the selected item's fields (road snap,
+// mode's point types, a stage's Forward / Reverse version switch, the ordered item list (in the edited version's driving order), the selected item's fields (road snap,
 // road orientation and a heading dial for gates), save/export, and an Open window with the scenario tree.
 // Built once and patched on change, so typing in a field keeps its focus.
 
@@ -176,13 +176,30 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     el('div', { className: 'editor-buttons' }, [refStage, button('Add', () => editor.addRef(refStage.value))]),
     refNote,
   ]);
+  const versionButtons = [false, true].map((reverse) => {
+    const btn = button(reverse ? 'Reverse' : 'Forward', () => editor.setReverse(reverse));
+    setTip(
+      btn,
+      reverse ? 'Edit the reverse version' : 'Edit the forward version',
+      reverse
+        ? 'The stage driven the other way, as players get it from the stage list: the points in its driving order (start and finish, time control and stop swapped), its own pacenotes (generate them here), passage controls and objects of both versions or the reverse only. Points placed here take their reverse role. Surface sections are shared.'
+        : 'The stage as authored. Passage controls and objects can be kept out of the reverse version.'
+    );
+    return btn;
+  });
+  const versionEl = el('div', { className: 'editor-buttons editor-kinds' }, [el('span', { textContent: 'Version' }), ...versionButtons]);
   const itemsEl = el('ol', { className: 'editor-items' });
   const routeInput = el('input', { type: 'checkbox' });
   routeInput.addEventListener('change', () => editor.setShowRoute(routeInput.checked));
   const routeNote = el('p', { className: 'editor-note' });
+  const reverseRouteInput = el('input', { type: 'checkbox' });
+  reverseRouteInput.addEventListener('change', () => editor.setShowReverseRoute(reverseRouteInput.checked));
+  const reverseRouteNote = el('p', { className: 'editor-note' });
   const routeEl = el('div', {}, [
     el('label', { className: 'editor-check', title: 'The road route from the start through the splits and passage controls to the finish, as pacenotes and surface sections follow it: arrows on the road near the car, a line on the maps.' }, [routeInput, 'Show stage route']),
     routeNote,
+    el('label', { className: 'editor-check', title: 'The route of the stage driven the other way (every stage can be played in reverse): finish to start, straight legs kept. Blue arrows beside the stage route, a blue line under it on the maps (seen where the two differ).' }, [reverseRouteInput, 'Show reverse route']),
+    reverseRouteNote,
   ]);
   const selectedEl = el('div', { className: 'editor-selected' });
 
@@ -253,8 +270,9 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       el('div', { className: 'editor-heading', textContent: 'Place at car' }),
       placeEl,
       refRow,
+      routeEl,
     ]),
-    el('div', { className: 'editor-column' }, [itemsEl, routeEl, selectedEl, actionsEl, exportEl, branchEl, statusEl]),
+    el('div', { className: 'editor-column' }, [versionEl, itemsEl, selectedEl, actionsEl, exportEl, branchEl, statusEl]),
   ]);
   toggle.addEventListener('click', () => root.classList.toggle('collapsed'));
   root.replaceChildren(toggle, body);
@@ -271,14 +289,16 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   /** Point type of an item: its own, or for a repeat the type of the gate it drives again. */
   const typeDef = (item, i) => format.pointTypes[item.type === 'pointRef' ? editor.repeatTarget(i)?.type : item.type];
 
+  /** `item` as driven in the edited version (listItems() `point`); `i` = its index in the file. */
   function itemLabel(item, i) {
-    if (item.type === 'ref') return `Stage: ${item.ref}${item.name ? ` (${item.name})` : ''}${editor.refListed(item.ref) ? '' : ' · not on the publish branch'}`;
+    if (item.type === 'ref') return `Stage: ${item.ref}${item.reverse ? ' · reverse' : ''}${item.name ? ` (${item.name})` : ''}${editor.refListed(item.ref) ? '' : ' · not on the publish branch'}`;
     if (item.type === 'pointRef') {
       const target = editor.repeatTarget(i);
       return target ? `↻ ${format.pointTypes[target.type].label} · ${item.ref} (${state.doc.items.indexOf(target) + 1})` : `↻ Missing point "${item.ref}"`;
     }
     const def = format.pointTypes[item.type];
-    if (def.gate) return `${def.label}${item.id ? ` · ${item.id}` : ''} · ${item.width} m${Number.isFinite(item.heading) ? ` · ${Math.round(item.heading)}°` : ''}`;
+    const only = item.only ? ` · ${item.only} only` : '';
+    if (def.gate) return `${def.label}${item.id ? ` · ${item.id}` : ''} · ${item.width} m${Number.isFinite(item.heading) ? ` · ${Math.round(item.heading)}°` : ''}${only}`;
     return item.name ? `${def.label}: ${item.name}` : def.label;
   }
 
@@ -286,6 +306,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   let renderedSelection = null;
   let dial = null; // the selected gate's heading dial
   let gateChecks = null; // the selected gate's { snap, road, straight? } checkboxes
+  let onlySelect = null; // the selected point's stage version select
 
   function renderPlace(kind) {
     placeEl.replaceChildren(
@@ -322,9 +343,23 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     return [label, nextStart];
   }
 
+  /** 'Versions' label + select (both / forward only / reverse only) calling `onChange` with null | 'forward' | 'reverse'. */
+  function versionField(tip, onChange) {
+    const select = el('select', {}, [
+      el('option', { value: '', textContent: 'Both versions' }),
+      el('option', { value: 'forward', textContent: 'Forward only' }),
+      el('option', { value: 'reverse', textContent: 'Reverse only' }),
+    ]);
+    select.addEventListener('change', () => onChange(select.value || null));
+    const label = el('label', { textContent: 'Versions' });
+    setTip(label, 'Versions', tip);
+    return { select, label };
+  }
+
   function renderSelected(item) {
     dial = null;
     gateChecks = null;
+    onlySelect = null;
     if (!item) return selectedEl.replaceChildren();
     if (item.type === 'pointRef') {
       const note = el('p', {
@@ -358,17 +393,27 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       fields.push(el('label', { textContent: 'Width (m)' }), width);
       const snap = check('Snap position to road', 'On: stands across the nearest road\'s centreline, its boards along the road. Off: exactly at its point (Move to car = where the car is), boards in a straight line, even off-road.', (on) => editor.setSnap(on));
       const road = check('Road orientation', 'On: faces along the nearest road, in driving order. Off: faces the heading set on the dial (Move to car = the way the car faces).', (on) => editor.setRoadOrientation(on));
-      const straight = format.pointTypes[item.type].routed
-        ? check('Straight from previous point', 'On: the stage route (pacenotes, surface sections, the route line) goes in a straight line from the route point before to this one, ignoring roads. For tracks missing from OSM or cut off from the road network. Off: by road.', (on) => editor.setStraight(on))
+      const straight = format.pointTypes[editor.listItems().find((e) => e.index === state.selected)?.point.type]?.routed
+        ? check('Straight from previous point', 'On: the route of the version edited (pacenotes, surface sections, the route line) goes in a straight line from the route point before to this one, ignoring roads. For tracks missing from OSM or cut off from the road network. Off: by road. A straight forward leg is straight in reverse too.', (on) => editor.setStraight(on))
         : null;
       gateChecks = { snap: snap.input, road: road.input, straight: straight?.input };
       dial = createHeadingDial((degrees) => editor.setHeading(degrees));
       fields.push(el('label', { textContent: 'Heading' }), el('div', { className: 'editor-heading-row' }, [dial.el, el('div', { className: 'editor-checks' }, [snap.row, road.row, ...(straight ? [straight.row] : [])])]));
       if (format.pointTypes[item.type].endsDay) fields.push(...nextStartFields(item, state.doc.startTime || editor.kind().startTime, 'Empty: the rally start time.'));
+      if (format.pointTypes[item.type].versions) {
+        const version = versionField('Which ways the stage is driven with this point: both, or only forward / reverse (e.g. a shortcut that only exists one way).', (value) => editor.setOnly(value));
+        onlySelect = version.select;
+        fields.push(version.label, version.select);
+      }
     } else {
       const name = el('input', { type: 'text', value: item.name ?? '', placeholder: isRef ? 'Name for this pass (optional)' : 'Name' });
       name.addEventListener('input', () => editor.setField('name', name.value));
       fields.push(el('label', { textContent: 'Name' }), name);
+      if (isRef) {
+        const reverse = check('Reverse', 'On: this pass drives the stage the other way: its reverse version (finish to start, the stop control as its time control, its reverse pacenotes and objects).', (on) => editor.setRefReverse(on));
+        reverse.input.checked = !!item.reverse;
+        fields.push(reverse.row);
+      }
     }
     selectedEl.replaceChildren(
       ...fields,
@@ -431,21 +476,30 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     routeNote.textContent = state.route.text;
     routeNote.hidden = !state.route.text;
     routeNote.classList.toggle('is-error', state.route.error);
+    reverseRouteInput.checked = state.showReverseRoute;
+    reverseRouteNote.textContent = state.reverseRoute.text;
+    reverseRouteNote.hidden = !state.reverseRoute.text;
+    reverseRouteNote.classList.toggle('is-error', state.reverseRoute.error);
     if (kind.refKind) renderRefPicker();
 
+    const isStage = kind.id === 'stage';
+    versionEl.hidden = !isStage;
+    versionButtons.forEach((btn, i) => btn.classList.toggle('active', state.reverse === (i === 1)));
     itemsEl.replaceChildren(
-      ...state.doc.items.map((item, i) => {
-        const def = typeDef(item, i);
-        const li = el('li', { textContent: itemLabel(item, i), onclick: () => editor.select(i) });
-        const tip = item.type === 'pointRef' ? 'The same gate as the one numbered in brackets, driven again here.' : def?.description;
-        setTip(li, `${i + 1}. ${itemLabel(item, i)}`, tip ?? 'A stage driven at this point of the rally.');
+      ...editor.listItems().map(({ index: i, point, driven }, n) => {
+        const def = typeDef(point, i);
+        const label = itemLabel(point, i);
+        const li = el('li', { textContent: label, onclick: () => editor.select(i) });
+        const tip = point.type === 'pointRef' ? 'The same gate as the one numbered in brackets, driven again here.' : def?.description;
+        setTip(li, `${n + 1}. ${label}`, driven ? tip ?? 'A stage driven at this point of the rally.' : `Not in the ${state.reverse ? 'reverse' : 'forward'} version.`);
         li.classList.toggle('selected', i === state.selected);
+        li.classList.toggle('is-other', !driven);
         if (def) li.style.setProperty('--editor-swatch', hex(def.color));
         return li;
       })
     );
     const item = state.doc.items[state.selected];
-    const selection = item ? `${state.selected}|${item.type}|${state.doc.items.length}` : null;
+    const selection = item ? `${state.selected}|${item.type}|${state.doc.items.length}|${isStage && state.reverse}` : null;
     if (selection !== renderedSelection) {
       renderedSelection = selection;
       renderSelected(item);
@@ -454,8 +508,13 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     if (gateChecks) {
       gateChecks.snap.checked = item.snap !== false;
       gateChecks.road.checked = !Number.isFinite(item.heading);
-      if (gateChecks.straight) gateChecks.straight.checked = !!item.straight;
+      if (gateChecks.straight) {
+        const { on, fromForward } = editor.straightOf(state.selected);
+        gateChecks.straight.checked = on;
+        gateChecks.straight.disabled = fromForward || state.busy;
+      }
     }
+    if (onlySelect) onlySelect.value = item.only ?? '';
 
     // The list was rebuilt: the hovered row is gone.
     tips.hideIfDetached();

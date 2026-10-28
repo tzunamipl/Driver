@@ -1,4 +1,5 @@
-// The player list can be folded away. Narrow screens start folded so it doesn't cover the road.
+// The player list can be folded away. Narrow screens start folded so it doesn't cover the road;
+// `folded` (rally) starts it folded too but keeps the toggle.
 //
 // It has three stages, cycled by clicking its toggle: full list -> top 5 only ("medium") ->
 // collapsed pill -> back to full. It starts full and auto-folds down to "medium" after
@@ -12,19 +13,19 @@ const NARROW = '(max-width: 800px)';
 const PLAYERS_AUTO_FOLD_MS = 15_000;
 const PLAYERS_STAGES = ['full', 'medium', 'collapsed'];
 
-export function setupCollapsibleHud() {
+export function setupCollapsibleHud({ folded = false } = {}) {
   const startCollapsed = window.matchMedia(NARROW).matches;
   const playersPanel = document.getElementById('players-panel');
   const playersToggle = document.getElementById('players-toggle');
 
   // Set once the player touches the toggle, so a later startAutoFold() never fights their choice.
   let playersInteracted = false;
-  wirePlayersPanel(playersPanel, playersToggle, startCollapsed, () => {
+  wirePlayersPanel(playersPanel, playersToggle, startCollapsed, folded, () => {
     playersInteracted = true;
   });
 
   function startAutoFold() {
-    if (playersPanel && playersToggle && !startCollapsed && !playersInteracted) {
+    if (playersPanel && playersToggle && !startCollapsed && !folded && !playersInteracted) {
       setTimeout(() => {
         if (!playersInteracted && playersStage(playersPanel) === 'full') setPlayersStage(playersPanel, playersToggle, 'medium');
       }, PLAYERS_AUTO_FOLD_MS);
@@ -46,7 +47,7 @@ function setPlayersStage(panel, button, stage) {
   button.setAttribute('aria-expanded', stage === 'collapsed' ? 'false' : 'true');
 }
 
-function wirePlayersPanel(panel, button, startCollapsed, onInteract) {
+function wirePlayersPanel(panel, button, startCollapsed, folded, onInteract) {
   if (!panel || !button) return;
 
   if (startCollapsed) {
@@ -54,7 +55,7 @@ function wirePlayersPanel(panel, button, startCollapsed, onInteract) {
     return;
   }
 
-  setPlayersStage(panel, button, 'full');
+  setPlayersStage(panel, button, folded ? 'collapsed' : 'full');
   button.addEventListener('click', () => {
     onInteract();
     const next = PLAYERS_STAGES[(PLAYERS_STAGES.indexOf(playersStage(panel)) + 1) % PLAYERS_STAGES.length];

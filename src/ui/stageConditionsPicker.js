@@ -18,12 +18,17 @@ function select(label, options, onChange) {
   return { root, input };
 }
 
-export function createStageConditionsPicker() {
+/** @param {{ onChange?: (conditions: { timeOfDay: string, weather: string }) => void }} [opts] */
+export function createStageConditionsPicker({ onChange } = {}) {
   let draft = null;
   const saved = () => ({ ...DEFAULT_STAGE_CONDITIONS, ...readSaveField('stageConditions') });
   const current = () => draft ?? saved();
-  const time = select('Time of day', STAGE_TIMES, (id) => (draft = { ...current(), timeOfDay: id }));
-  const weather = select('Weather', STAGE_WEATHER, (id) => (draft = { ...current(), weather: id }));
+  const set = (field, id) => {
+    draft = { ...current(), [field]: id };
+    onChange?.(draft);
+  };
+  const time = select('Time of day', STAGE_TIMES, (id) => set('timeOfDay', id));
+  const weather = select('Weather', STAGE_WEATHER, (id) => set('weather', id));
   const root = el('div', 'stage-conditions');
   root.append(time.root, weather.root);
 

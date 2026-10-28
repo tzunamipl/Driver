@@ -204,10 +204,12 @@ export function createVectorLineLayer({ tileZoom, layerName, classify, lift = 0.
         [b.x + obx, by, b.z + obz, hw, db, cb],
         [b.x - obx, by, b.z - obz, -hw, db, cb],
       ];
-      for (const cut of this._endCutsOf(seg)) {
+      const cuts = this._endCutsOf(seg);
+      // Stretch before any clip: stretchEnd needs the 4-corner quad (a one-segment line has both ends here).
+      for (const cut of cuts) {
         if (seg.index === (cut.atStart ? 0 : seg.line.length - 1)) poly = stretchEnd(poly, cut);
-        poly = clipPolygon(poly, cut);
       }
+      for (const cut of cuts) poly = clipPolygon(poly, cut);
       for (let i = 1; i < poly.length - 1; i++) {
         for (const v of [poly[0], poly[i], poly[i + 1]]) {
           positions.push(v[0], v[1], v[2]);

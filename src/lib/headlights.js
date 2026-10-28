@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLINT_UNIFORMS, clearGlint, glintCone, setGlint } from './lampGlints.js';
 
 // Cosmetic headlights: glowing lenses and flare sprites on every car, plus
 // two weak shadowless spotlights for the local car's ground pools: front, and rear
@@ -6,7 +7,8 @@ import * as THREE from 'three';
 // ('head' | 'tail' | 'fog'); bodies without head lamps get bumper-corner
 // fallbacks. Broken lamps (lampDamage.js) stay dark and take their share of
 // the ground pool. The spotlights live in the scene permanently so the light
-// count (and so every shader) never changes.
+// count (and so every shader) never changes. On the road surface (streets.js) the pools only
+// light; their glint comes from lampGlints.js instead, one per lamp.
 
 const FADE_S = 0.12;
 const FLARE_SIZE_M = 0.6;
@@ -14,10 +16,12 @@ const POOL_INTENSITY = 120; // ~same brightness at the aim point as 4000 with de
 const POOL_DISTANCE_M = 200;
 const POOL_DECAY = 1.0; // gentler than physical inverse-square so the beam reaches further
 const POOL_ANGLE_RAD = 0.9;
+const POOL_PENUMBRA = 0.75;
 const POOL_AIM = new THREE.Vector3(0, -1.6, 18); // target, relative to the lamps' midpoint
 const REAR_DISTANCE_M = 30;
 const REAR_DECAY = 1.0;
 const REAR_ANGLE_RAD = 1.0;
+const REAR_PENUMBRA = 0.8;
 const REAR_AIM = new THREE.Vector3(0, -1.2, -6); // target, relative to the tail lamps' midpoint
 const REAR_TAIL_INTENSITY = 1;
 const REAR_BRAKE_INTENSITY = 7;
@@ -31,6 +35,9 @@ const LAMP_ON = {
   fog: { color: new THREE.Color(0xffe6a0), intensity: 1.3 },
   tail: { color: new THREE.Color(0xff1a10), intensity: 1.4 },
 };
+
+const POOL_CONE = glintCone(POOL_ANGLE_RAD, POOL_PENUMBRA, POOL_DECAY);
+const REAR_CONE = glintCone(REAR_ANGLE_RAD, REAR_PENUMBRA, REAR_DECAY);
 
 let flareTexture = null;
 function getFlareTexture() {
@@ -73,6 +80,7 @@ function scanLamps(group, fallback) {
   const present = { head: [false, false], tail: [false, false] };
   const sides = [new THREE.Box3(), new THREE.Box3()];
   const tails = new THREE.Box3();
+  const tailSides = [new THREE.Box3(), new THREE.Box3()];
   const all = new THREE.Box3();
   const box = new THREE.Box3();
   const center = new THREE.Vector3();
@@ -106,7 +114,10 @@ function scanLamps(group, fallback) {
       if (kind === 'head') head = true;
       if (kind === 'tail') tail = true;
     });
-    if (tail && center.z < 0) tails.union(box);
+    if (tail && center.z < 0) {
+      tails.union(box);
+      if (slot.side >= 0) tailSides[slot.side].union(box);
+    }
     if (!head) return;
     // Front half only: some rigs reuse the lens material on rear markers.
     if (center.z <= 0 || slot.side < 0) return;
@@ -129,7 +140,14 @@ function scanLamps(group, fallback) {
   let rear = null;
   if (!tails.isEmpty()) rear = new THREE.Vector3(tails.getCenter(center).x, center.y, tails.min.z);
   else if (!all.isEmpty()) rear = new THREE.Vector3(all.getCenter(center).x, all.min.y + (all.max.y - all.min.y) * 0.35, all.min.z);
-  return { lamps, materials, rear, present };
+  const rearLamps = []; // { position, side }
+  tailSides.forEach((sideBox, side) => {
+    if (sideBox.isEmpty()) return;
+    sideBox.getCenter(center);
+    rearLamps.push({ position: new THREE.Vector3(center.x, center.y, sideBox.min.z), side });
+  });
+  if (!rearLamps.length && rear) rearLamps.push({ position: rear, side: -1 });
+  return { lamps, materials, rear, rearLamps, present };
 }
 
 function ease(value, on, dt) {
@@ -146,7 +164,7 @@ function workingShare(present, broken) {
 
 /** Attaches headlight visuals to a car body group; `update` fades them, broken lamps stay dark. */
 function createRig(group, fallback) {
-  const { lamps, materials, rear, present } = scanLamps(group, fallback);
+  const { lamps, materials, rear, rearLamps, present } = scanLamps(group, fallback);
   const lenses = [...materials].map(([material, { kind, end, side }]) => ({
     material,
     tail: kind === 'tail',
@@ -214,6 +232,9 @@ function createRig(group, fallback) {
     group,
     midpoint,
     rear,
+    lamps,
+    rearLamps,
+    isBroken: (end, side) => isBroken(end, side),
     hasLamps: lamps.length > 0,
     headShare: () => workingShare(present.head, broken.head),
     tailShare: () => workingShare(present.tail, broken.tail),
@@ -222,14 +243,27 @@ function createRig(group, fallback) {
 
 export function createHeadlights(scene) {
   const rigs = new WeakMap(); // body group -> rig
-  const pool = new THREE.SpotLight(0xfff1d6, 0, POOL_DISTANCE_M, POOL_ANGLE_RAD, 0.75, POOL_DECAY);
+  const pool = new THREE.SpotLight(0xfff1d6, 0, POOL_DISTANCE_M, POOL_ANGLE_RAD, POOL_PENUMBRA, POOL_DECAY);
   pool.castShadow = false;
   scene.add(pool, pool.target);
-  const rearPool = new THREE.SpotLight(REAR_RED, 0, REAR_DISTANCE_M, REAR_ANGLE_RAD, 0.8, REAR_DECAY);
+  const rearPool = new THREE.SpotLight(REAR_RED, 0, REAR_DISTANCE_M, REAR_ANGLE_RAD, REAR_PENUMBRA, REAR_DECAY);
   rearPool.castShadow = false;
   scene.add(rearPool, rearPool.target);
   const worldPos = new THREE.Vector3();
+  const aim = new THREE.Vector3();
   let reverse = 0;
+
+  /** Glint slots `first`, `first` + 1: the rig's lamps of one end, splitting `intensity` between them. */
+  function setGlints(first, rig, end, list, aimLocal, cone, distance, intensity, color) {
+    rig.group.updateMatrixWorld();
+    aim.copy(aimLocal).transformDirection(rig.group.matrixWorld);
+    for (let k = 0; k < 2; k++) {
+      const lamp = list[k];
+      if (!lamp || rig.isBroken(end, lamp.side)) continue;
+      rig.group.localToWorld(worldPos.copy(lamp.position));
+      setGlint(first + k, worldPos, aim, cone, distance, intensity / list.length, color);
+    }
+  }
 
   function rigFor(group, fallback) {
     let rig = rigs.get(group);
@@ -250,14 +284,17 @@ export function createHeadlights(scene) {
   function update(dt, { chassisMesh, wheeled, on, braking = false, reversing = false, damage, remotes }) {
     let poolLevel = 0;
     let rearIntensity = 0;
+    for (let i = 0; i < 4; i++) clearGlint(i);
     if (chassisMesh && wheeled) {
       const rig = rigFor(chassisMesh, true);
       const { level, brake } = rig.update(dt, on, braking, damage);
       reverse = ease(reverse, reversing, dt);
       if (rig.rear) {
         const red = Math.max(REAR_TAIL_INTENSITY * level, REAR_BRAKE_INTENSITY * brake);
-        rearIntensity = THREE.MathUtils.lerp(red, REAR_REVERSE_INTENSITY, reverse) * rig.tailShare();
+        const rearAll = THREE.MathUtils.lerp(red, REAR_REVERSE_INTENSITY, reverse);
+        rearIntensity = rearAll * rig.tailShare();
         rearPool.color.lerpColors(REAR_RED, REAR_WHITE, reverse);
+        if (rearAll > 0) setGlints(2, rig, 'tail', rig.rearLamps, REAR_AIM, REAR_CONE, REAR_DISTANCE_M, rearAll, rearPool.color);
         rig.group.localToWorld(worldPos.copy(rig.rear));
         rearPool.position.copy(worldPos);
         rig.group.localToWorld(worldPos.copy(rig.rear).add(REAR_AIM));
@@ -266,6 +303,7 @@ export function createHeadlights(scene) {
       }
       if (rig.hasLamps) {
         poolLevel = level * rig.headShare();
+        if (level > 0) setGlints(0, rig, 'head', rig.lamps, POOL_AIM, POOL_CONE, POOL_DISTANCE_M, POOL_INTENSITY * level, pool.color);
         rig.group.localToWorld(worldPos.copy(rig.midpoint));
         pool.position.copy(worldPos);
         rig.group.localToWorld(worldPos.copy(rig.midpoint).add(POOL_AIM));
@@ -275,6 +313,8 @@ export function createHeadlights(scene) {
     }
     pool.intensity = POOL_INTENSITY * poolLevel;
     rearPool.intensity = rearIntensity;
+    GLINT_UNIFORMS.carPoolPos.value[0].copy(pool.position);
+    GLINT_UNIFORMS.carPoolPos.value[1].copy(rearPool.position);
     for (const remote of remotes) {
       if (remote.mesh && remote.wheeled) rigFor(remote.mesh, true).update(dt, remote.on);
     }

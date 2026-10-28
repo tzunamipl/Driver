@@ -22,6 +22,7 @@ export function createHitchProfiler(renderer) {
   let prevEnd = 0;
   const observers = [];
   let prevResources = null;
+  let seenPrograms = new Set();
   // The browser stops frames for a hidden tab: that gap isn't a hitch.
   let wasHidden = false;
   document.addEventListener('visibilitychange', () => {
@@ -78,6 +79,12 @@ export function createHitchProfiler(renderer) {
     }, REPORT_DELAY_MS);
   }
 
+  // Material type, plus a short customProgramCacheKey (the cache key's last part; three's default is the onBeforeCompile source).
+  function programLabel(program) {
+    const custom = program.cacheKey?.split(',').pop();
+    return /^[\w-]{1,40}$/.test(custom ?? '') ? `${program.name} ${custom}` : program.name;
+  }
+
   function resources() {
     const { memory, programs } = renderer.info;
     return { textures: memory.textures, geometries: memory.geometries, programs: programs?.length ?? 0 };
@@ -110,6 +117,9 @@ export function createHitchProfiler(renderer) {
             .filter(([, d]) => d > 0)
         : [];
       prevResources = res;
+      const programs = renderer.info.programs ?? [];
+      const newPrograms = created.length ? programs.filter((p) => !seenPrograms.has(p)) : [];
+      seenPrograms = new Set(programs);
       if (inFrame + between < HITCH_MS) return;
 
       const top = [...sections]
@@ -119,7 +129,8 @@ export function createHitchProfiler(renderer) {
         .join(' · ');
       report(
         `Hitch ${(inFrame + between).toFixed(0)} ms (in frame ${inFrame.toFixed(0)}, between frames ${between.toFixed(0)}): ${top || '-'}` +
-          (created.length ? ` | new ${created.map(([key, d]) => `${key} +${d}`).join(', ')}` : ''),
+          (created.length ? ` | new ${created.map(([key, d]) => `${key} +${d}`).join(', ')}` : '') +
+          (newPrograms.length ? ` (${newPrograms.map(programLabel).join(', ')})` : ''),
         windowStart,
         now
       );

@@ -29,7 +29,7 @@ export function createSurfacePanel(editor) {
   const { state } = editor;
   const root = document.getElementById('surface-panel');
 
-  const toggle = button('Surfaces', () => root.classList.toggle('collapsed'), { className: 'editor-toggle' });
+  const toggle = button('Surfaces', null, { className: 'editor-toggle debug-fold-title' });
   const newButtons = surfaceButtons((id) => editor.setNewSectionSurface(id));
   const startButton = button('Start at car', () => editor.markSectionStart(), {
     title: 'The new section starts where the car is on the stage road (from the start through splits and passage controls to the finish).',

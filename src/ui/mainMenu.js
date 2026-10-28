@@ -3,7 +3,7 @@ import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode, getStart, keepsProgress 
 import { getLatest, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, getActiveStartId, isEditorSession } from '../lib/saves.js';
 import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
-// Main menu: Continue / Game mode / Settings. Picks the game mode (and so the save slot)
+// Main menu: Continue / Game mode / Settings / About. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
 // so every subsystem starts from the new slot.
 
@@ -100,7 +100,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   /** Mode card: the blurb, each saving game's progress, then Resume / New buttons per start. */
   function renderModes() {
     modesEl.replaceChildren(
-      ...GAME_MODES.map((mode) => {
+      ...GAME_MODES.filter((mode) => !mode.hidden).map((mode) => {
         const card = document.createElement('div');
         card.className = 'menu-mode';
         card.classList.toggle('unavailable', !mode.available);
@@ -182,7 +182,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
       launch(modeId, startId, false, editor);
     }
     else if (action === 'save') save();
-    else if (action === 'modes' || action === 'settings') showScreen(action);
+    else if (action === 'modes' || action === 'settings' || action === 'about') showScreen(action);
     else if (action === 'back') showScreen('root');
   });
 

@@ -6,7 +6,7 @@
 // SURFACE_RADIUS_M of the car. Stage surface sections (lib/rally/stageSurfaces.js) are extra stripes
 // over all of them, first in surfaceAt().
 
-import { Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector2 } from 'three';
+import { Color, Mesh, MeshBasicMaterial, MeshStandardMaterial, ShaderChunk, Vector2 } from 'three';
 import { createVectorLineLayer } from './vectorLineLayer.js';
 import { classifyRoad, ROAD_CLASSES, ROAD_HIERARCHY } from './roadClasses.js';
 import { DETAIL_BOX, DETAIL_ZOOM, GROUND_RENDER_ORDER, applyGroundHaze } from './terrain.js';
@@ -15,6 +15,7 @@ import { tileSizeMeters, lon2tileX, lat2tileY } from './geo.js';
 import { tileKey } from './tiles/vectorTileLayer.js';
 import { STAGE_SURFACES } from './rally/stageSurfaces.js';
 import { getWetness, onWeatherChange } from './weather.js';
+import { GLINT_GLSL, GLINT_SLOTS, GLINT_UNIFORMS } from './lampGlints.js';
 
 // The transportation layer's maxzoom.
 const STREET_TILE_ZOOM = 14;
@@ -96,7 +97,9 @@ const MARKING = {
 // Gloss (dry): setts / grain / slick mark matte gaps and per-piece polish; gloss = what matte parts get
 // (roughness, specular share). grain = gravel stones on a world grid (cellM, stone radius share range,
 // how far a stone strays from its cell's centre (share of a cell, up to 1), colour swing, gap shade, polish swing,
-// wetFade = gone by the wetness puddles start at); slick = wet glossy blotches on the puddle noise (how far below its threshold, roughness scale, darken).
+// wetFade = gone by the wetness puddles start at); glitter = ice facets on a world grid that flash in the sun / lamps
+// (cellM, facet radius share of a cell, tilt = facet normal swing, sharpness = highlight exponent, strength, gone by
+// the wetness puddles start at); slick = wet glossy blotches on the puddle noise (how far below its threshold, roughness scale, darken).
 // edge = ragged sides frayed up to depthM in; the stripe is drawn depthM wider than the road for it, so the
 // mean edge stays where the tyres feel it.
 // puddles: wet look overrides (wetness they start at, noise threshold from start to soaked, cell sizes).
@@ -118,7 +121,7 @@ const SURFACE_LOOKS = {
   },
   // Stage sections only.
   cobblestone: {
-    color: 0x6f6a62, roughness: 0.7, specular: 0.3, lift: 0, depthBias: 0.13, patches: 0.2,
+    color: 0x6f6a62, roughness: 0.7, specular: 0.8, lift: 0, depthBias: 0.13, patches: 0.2,
     setts: { widthM: 0.33, lengthM: 0.48, joint: 0.036, swing: 0.16, jointShade: 0.55, polishSwing: 0.25, wetSwing: 0.5, jointSheen: 0.35 },
     gloss: { roughness: 1, specular: 0.15 },
     wet: { darken: 0.6, roughness: 0.35, sheen: 0.14 },
@@ -134,17 +137,17 @@ const SURFACE_LOOKS = {
     gloss: { roughness: 0.95, specular: 0.4 },
   },
   snow: {
-    color: 0xdfe4ea, roughness: 0.88, specular: 0.25, lift: 0, depthBias: 0.13, patches: 0.12,
+    color: 0xdfe4ea, roughness: 0.9, specular: 20.0, lift: 0, depthBias: 0.13, patches: 0.12,
     wet: { darken: 0.82, roughness: 0.5, sheen: 0.06 },
     puddles: { from: 0.6, threshold: { from: 0.78, soaked: 0.66 }, cellsM: [3, 0.75] },
     blobs: [{ diameterM: 1.6, density: 0.4, swing: 0.06 }],
     edge: { depthM: 0.5 },
-    grain: { cellM: 0.024, radius: [0.25, 0.45], jitter: 0.9, swing: 0.06, gapShade: 0.92, polishSwing: 0.4 },
+    glitter: { cellM: 0.2, radius: 0.002, tilt: 0.5, sharpness: 300, strength: 30 },
     gloss: { roughness: 1, specular: 0.5 },
   },
   ice: {
     color: 0x9fb8c8, roughness: 0.18, specular: 0.6, lift: 0, depthBias: 0.13, patches: 0.3,
-    wet: { darken: 0.85, roughness: 0.08, sheen: 0.2 },
+    wet: { darken: 0.85, roughness: 0.92, sheen: 1.45 },
     blobs: [{ diameterM: 2, density: 0.45, swing: 0.12 }, { diameterM: 0.3, density: 0.5, swing: 0.08 }],
     edge: { depthM: 0.25 },
   },
@@ -185,7 +188,7 @@ function depthRankOf(key) {
 const SECTION_FADE_M = 8;
 
 /** Surface view material of a look; `sectionEnds`: stage section stripes, faded out towards their ends (stripe attribute's z). */
-function createSurfaceMaterial(surface, { color, roughness, specular, depthBias, markings, patches, blobs, setts, grain, slick, gloss, edge, wet, puddles }, sectionEnds) {
+function createSurfaceMaterial(surface, { color, roughness, specular, depthBias, markings, patches, blobs, setts, grain, glitter, slick, gloss, edge, wet, puddles }, sectionEnds) {
   const material = new MeshStandardMaterial({ color, roughness, fog: false, depthWrite: false });
   // Terrain haze; specular scaled (1 = three.js default) so a low sun glints instead of blowing out.
   material.onBeforeCompile = (shader) => {
@@ -217,11 +220,13 @@ function createSurfaceMaterial(surface, { color, roughness, specular, depthBias,
     applyBlobs(shader, blobs);
     if (setts) applySetts(shader, setts);
     if (grain) applyGrain(shader, grain, puddles?.from ?? PUDDLES_FROM);
+    if (glitter) applyGlitter(shader, glitter, puddles?.from ?? PUDDLES_FROM);
     if (slick) applySlick(shader, slick, puddles);
     if (sectionEnds) applySectionEnds(shader);
     if (edge) applyRaggedEdge(shader, edge);
     applyWetness(shader, wet, puddles);
     if (gloss) applyGloss(shader, gloss); // after: its roughness lands before the wet look's
+    applyLampGlints(shader, wet); // after applyGlitter: the pools keep their snow sparkle
   };
   material.customProgramCacheKey = () => `roadSurface-${surface}${sectionEnds ? '-section' : ''}`;
   return material;
@@ -357,7 +362,7 @@ function applySetts(shader, { widthM, lengthM, joint, swing, jointShade, polishS
         float aa = max(fwidth(vSett.x), fwidth(vSett.y));
         float jointMask = 1.0 - smoothstep(${f(joint)}, ${f(joint)} + aa, min(edge.x, edge.y));
         float settShade = (1.0 + (settHash(floor(q)) - 0.5) * ${f(swing * 2)}) * mix(1.0, ${f(jointShade)}, jointMask);
-        float settFar = smoothstep(0.25, 0.5, aa / ${f(Math.min(widthM, lengthM))});
+        float settFar = smoothstep(1.0, 4.0, aa / ${f(Math.min(widthM, lengthM))});
         diffuseColor.rgb *= mix(settShade, ${f(mean)}, settFar);
         surfaceMatte = max(surfaceMatte, jointMask * (1.0 - settFar));
         surfacePolish *= mix(1.0 + (settHash(floor(q) + 17.3) - 0.5) * ${f(polishSwing * 2)}, 1.0, settFar);
@@ -414,6 +419,122 @@ function applyGrain(shader, { cellM, radius: [rMin, rMax], jitter, swing, gapSha
         surfaceMatte = max(surfaceMatte, (1.0 - stone) * near);
         surfacePolish *= mix(1.0, 1.0 + (k.y - 0.5) * ${f(polishSwing * 2)}, stone * near);
       }`
+    );
+}
+
+/**
+ * Snow glitter: a small facet per world grid cell with its own tilted normal; it adds a sharp highlight
+ * from every direct light (sun, moon, lamps, headlights; shadows included) when it mirrors one into the
+ * camera, so it twinkles as the view moves. Fades out once a cell is about a pixel, and as the snow gets wet.
+ */
+function applyGlitter(shader, { cellM, radius, tilt, sharpness, strength }, wetFrom) {
+  const glint = `RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );`;
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      float glitterMask = 0.0;
+      vec2 glitterTilt = vec2(0.0);
+      vec3 glitterHash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+        p3 += dot(p3, p3.yxz + 27.13);
+        return fract((p3.xxy + p3.yzz) * p3.zyx);
+      }`
+    )
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      {
+        vec2 p = (vSurfaceXZ + patchOffset) / ${f(cellM)};
+        float aa = length(fwidth(p));
+        float near = (1.0 - smoothstep(0.5, 1.5, aa)) * (1.0 - smoothstep(0.0, ${f(wetFrom)}, roadWetness));
+        if (near > 0.0) {
+          vec2 id = mod(floor(p), ${f(Math.round(PATCH_PERIOD_M / cellM))});
+          vec3 h = glitterHash(id);
+          vec2 centre = 0.5 + (h.xy - 0.5) * ${f(1 - 2 * radius)};
+          glitterMask = (1.0 - smoothstep(${f(radius)} - aa, ${f(radius)} + aa, length(fract(p) - centre))) * near;
+          glitterTilt = (glitterHash(id + 71.9).xy - 0.5) * ${f(tilt * 2)};
+        }
+      }`
+    )
+    .replace('#include <lights_fragment_begin>', ShaderChunk.lights_fragment_begin)
+    .replaceAll(
+      glint,
+      `${glint}
+      if (glitterMask > 0.0) {
+        vec3 facetNormal = normalize(geometryNormal + mat3(viewMatrix) * vec3(glitterTilt.x, 0.0, glitterTilt.y));
+        float mirror = saturate(dot(reflect(-directLight.direction, facetNormal), geometryViewDir));
+        reflectedLight.directSpecular += directLight.color * (glitterMask * ${f(strength)} * pow(mirror, ${f(sharpness)}) * step(0.0, dot(geometryNormal, directLight.direction)));
+      }`
+    );
+}
+
+// Glints off the wet film: water (F0 0.02) this rough across, GLINT_STREAK times along the view
+// (long reflections down a wet road); puddles sharper, barely stretched. Full film at the asphalt sheen.
+const GLINT_FILM_ROUGHNESS = 0.28;
+const GLINT_PUDDLE_ROUGHNESS = 0.08;
+const GLINT_STREAK = 4;
+const GLINT_FULL_SHEEN = 0.15;
+
+/**
+ * Lamp glints (lampGlints.js): one specular glint per lamp / emitter, while the local car's two pool
+ * spotlights only light the road here, so a pair of lamps shows two glints, not three. Wet, they come
+ * off the water film instead of the surface, by the look's wet sheen.
+ */
+function applyLampGlints(shader, { sheen }) {
+  Object.assign(shader.uniforms, GLINT_UNIFORMS);
+  const direct = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', ShaderChunk.lights_fragment_begin);
+  const spot = shader.fragmentShader.indexOf('getSpotLightInfo(');
+  const at = shader.fragmentShader.indexOf(direct, spot);
+  shader.fragmentShader =
+    shader.fragmentShader.slice(0, at) +
+    `if (glintsOn > 0.5 && isCarPool(spotLight.position)) {
+      ReflectedLight poolLit = ReflectedLight(vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
+      RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, poolLit );
+      reflectedLight.directDiffuse += poolLit.directDiffuse;
+    } else ${direct}` +
+    shader.fragmentShader.slice(at + direct.length);
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      'void main() {',
+      `${GLINT_GLSL}
+      bool isCarPool(vec3 viewPos) {
+        return distance((viewMatrix * vec4(carPoolPos[0], 1.0)).xyz, viewPos) < 0.01
+          || distance((viewMatrix * vec4(carPoolPos[1], 1.0)).xyz, viewPos) < 0.01;
+      }
+      // GGX stretched along t (the view across the surface) by stretch.
+      vec3 wetFilmGlint(vec3 l, vec3 v, vec3 n, float rough, float stretch) {
+        vec3 h = normalize(l + v);
+        vec3 t = v - n * dot(n, v);
+        t = dot(t, t) > 1e-6 ? normalize(t) : normalize(cross(n, vec3(1.0, 0.0, 0.0)));
+        vec3 b = cross(n, t);
+        float ab = pow2(rough);
+        float at = ab * stretch;
+        float x = dot(h, t) / at;
+        float y = dot(h, b) / ab;
+        float d = x * x + y * y + pow2(saturate(dot(n, h)));
+        float D = RECIPROCAL_PI / (at * ab * d * d);
+        float V = V_GGX_SmithCorrelated(sqrt(at * ab), saturate(dot(n, l)), saturate(dot(n, v)));
+        return F_Schlick(vec3(0.02), 1.0, saturate(dot(v, h))) * (V * D);
+      }
+      void main() {`
+    )
+    .replace(
+      '#include <lights_fragment_maps>',
+      `float glintFilm = mix(roadWetness * min(1.0, ${f(sheen / GLINT_FULL_SHEEN)} * surfaceSheen), 1.0, wetPuddle);
+      float glintRough = mix(${f(GLINT_FILM_ROUGHNESS)}, ${f(GLINT_PUDDLE_ROUGHNESS)}, wetPuddle);
+      float glintStretch = mix(${f(GLINT_STREAK)}, 1.5, wetPuddle);
+      for (int i = 0; i < ${GLINT_SLOTS}; i++) {
+        if (glintsOn < 0.5) break;
+        vec3 l;
+        float e = glintIrradiance(i, geometryPosition, geometryNormal, l);
+        if (e <= 0.0) continue;
+        vec3 surface = BRDF_GGX(l, geometryViewDir, geometryNormal, material);
+        vec3 film = glintFilm > 0.0 ? wetFilmGlint(l, geometryViewDir, geometryNormal, glintRough, glintStretch) : vec3(0.0);
+        reflectedLight.directSpecular += glintColor[i] * e * mix(surface, film, glintFilm);
+      }
+      #include <lights_fragment_maps>`
     );
 }
 

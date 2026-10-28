@@ -1,10 +1,12 @@
 // Rally scenario files (format in the scenarios repo README): stages are ordered gates
 // (plus optional pacenotes, lib/rally/pacenoteCalls.js),
 // rallies are a base plus an itinerary of gates, stage references (stage file keys,
-// lib/scenarios/paths.js) and point references ({ point: id } = the gate with that `id` again;
+// lib/scenarios/paths.js; `reverse: true` = driven the other way, lib/rally/stageReverse.js) and point references ({ point: id } = the gate with that `id` again;
 // a repeated parc fermé can carry its own `nextStart`).
 // Either can carry course `objects` (hay bales, tapes, warning signs: lib/rally/courseProps.js);
-// stages also surface sections (`surfaces`, lib/rally/stageSurfaces.js).
+// stages also surface sections (`surfaces`, lib/rally/stageSurfaces.js) and their reverse version's
+// `reversePacenotes`, and each version's saved road line (`route`, `reverseRoute`, lib/rally/savedRoute.js);
+// their passage controls and objects can be in one version only (`only`, lib/rally/stageReverse.js).
 // Both sit in a country / region-or-theme folder. Also the editor's
 // definition for the mode: file kinds, point types and their fields.
 
@@ -13,6 +15,7 @@ import { boardSpots } from '../rally/controlScenery.js';
 import { BOARD_COLORS } from '../rally/fiaBoards.js';
 import { DIRS, GRADES } from '../rally/pacenoteCalls.js';
 import { STAGE_SURFACES } from '../rally/stageSurfaces.js';
+import { VERSIONS, drivenType } from '../rally/stageReverse.js';
 
 const DEFAULT_GATE_WIDTH_M = 10;
 const NARROW_GATE_WIDTH_M = 4; // service zones: about one lane
@@ -31,7 +34,8 @@ export function parseClockTime(text) {
 }
 
 // gate: placed across the nearest road (file `snap: false` = exactly at its lat/lon), facing along it or its optional heading (compass degrees of travel), and has a width (defaultWidth, else DEFAULT_GATE_WIDTH_M); single: at most one per file;
-// routed: a stage route point (pacenotes, editor route line); file `straight: true` = the route reaches it in a straight line from the point before, not by road;
+// routed: a stage route point (pacenotes, editor route line); file `straight: true` = the route reaches it in a straight line from the point before, not by road
+// (`straightReverse: true` = the same driving the reverse version, where its type routes there); versions: file `only` = in one stage version;
 // stop: a liaison point done by stopping in its zone instead of driving through; tyres: passing it fits fresh tyres; refuel: passing it offers fuel;
 // service: passing it opens that lib/serviceRepairs.js SERVICE_ZONES repair menu; endsDay: passing it ends the rally day (`nextStart` field);
 // description: what the point does in the game (editor tooltips).
@@ -49,7 +53,7 @@ const POINT_TYPES = {
     description: 'Intermediate timing point between start and finish: crossing it records a split time compared with the best run. Flags, fireworks and sparkles.',
   },
   passageControl: {
-    label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true, routed: true,
+    label: 'Passage control', short: 'PC', color: 0x9b4dff, gate: true, routed: true, versions: true,
     description: 'Required checkpoint: the stage only counts it when crossed in order, so use it to block shortcuts. Small purple PC flags, sparkles when passed; not timed.',
   },
   finish: {
@@ -126,7 +130,9 @@ const RALLY_POINTS = ['base', 'serviceParkIn', 'service', 'serviceParkOut', 'reg
 const round = (v) => Number(v.toFixed(COORD_DECIMALS));
 const defaultWidth = (type) => POINT_TYPES[type].defaultWidth ?? DEFAULT_GATE_WIDTH_M;
 const normalHeading = (deg) => Number((((deg % 360) + 360) % 360).toFixed(HEADING_DECIMALS)) % 360;
-const gate = ({ type, id, lat, lon, width, heading, snap, straight, nextStart }) => ({
+const routedReverse = (type) => !!POINT_TYPES[drivenType(type, true)]?.routed;
+const onlyField = (entry) => (VERSIONS.includes(entry.only) ? { only: entry.only } : {});
+const gate = ({ type, id, lat, lon, width, heading, snap, straight, straightReverse, only, nextStart }) => ({
   type,
   ...(id ? { id } : {}),
   lat: round(lat),
@@ -135,6 +141,8 @@ const gate = ({ type, id, lat, lon, width, heading, snap, straight, nextStart })
   ...(Number.isFinite(heading) ? { heading: normalHeading(heading) } : {}),
   ...(snap === false ? { snap: false } : {}),
   ...(straight && POINT_TYPES[type].routed ? { straight: true } : {}),
+  ...(straightReverse && routedReverse(type) ? { straightReverse: true } : {}),
+  ...(POINT_TYPES[type].versions ? onlyField({ only }) : {}),
   ...(POINT_TYPES[type].endsDay && parseClockTime(nextStart) != null ? { nextStart: nextStart.trim() } : {}),
 });
 
@@ -144,6 +152,8 @@ function readGate(entry) {
   if (Number.isFinite(entry.heading)) point.heading = normalHeading(entry.heading);
   if (entry.snap === false) point.snap = false;
   if (entry.straight === true && POINT_TYPES[entry.type].routed) point.straight = true;
+  if (entry.straightReverse === true && routedReverse(entry.type)) point.straightReverse = true;
+  if (POINT_TYPES[entry.type].versions) Object.assign(point, onlyField(entry));
   if (typeof entry.id === 'string' && entry.id) point.id = entry.id;
   if (POINT_TYPES[entry.type].endsDay && parseClockTime(entry.nextStart) != null) point.nextStart = entry.nextStart;
   return point;
@@ -152,7 +162,7 @@ function readGate(entry) {
 function readObject(entry) {
   const def = OBJECT_TYPES[entry?.type];
   if (!def || !Number.isFinite(entry.lat) || !Number.isFinite(entry.lon)) return null;
-  const object = { type: entry.type, lat: entry.lat, lon: entry.lon, heading: normalHeading(Number.isFinite(entry.heading) ? entry.heading : 0) };
+  const object = { type: entry.type, lat: entry.lat, lon: entry.lon, heading: normalHeading(Number.isFinite(entry.heading) ? entry.heading : 0), ...onlyField(entry) };
   if (def.chain) object.length = entry.length > 0 ? entry.length : def.defaultLength;
   return object;
 }
@@ -160,12 +170,13 @@ function readObject(entry) {
 const writeObjects = (objects) =>
   objects?.length
     ? {
-        objects: objects.map(({ type, lat, lon, heading, length }) => ({
+        objects: objects.map(({ type, lat, lon, heading, length, only }) => ({
           type,
           lat: round(lat),
           lon: round(lon),
           heading: normalHeading(heading),
           ...(OBJECT_TYPES[type].chain ? { length: Number(length.toFixed(LENGTH_DECIMALS)) } : {}),
+          ...onlyField({ only }),
         })),
       }
     : {};
@@ -214,9 +225,9 @@ function readPacenotes(entry) {
   return { length: entry.length, notes };
 }
 
-const writePacenotes = (pacenotes) =>
+const writePacenotes = (pacenotes, key = 'pacenotes') =>
   pacenotes?.notes.length
-    ? { pacenotes: { length: pacenotes.length, notes: pacenotes.notes.map((n) => ({ ...n, lat: round(n.lat), lon: round(n.lon), show: writeRoutePoint(n.show), apex: writeRoutePoint(n.apex) })) } }
+    ? { [key]: { length: pacenotes.length, notes: pacenotes.notes.map((n) => ({ ...n, lat: round(n.lat), lon: round(n.lon), show: writeRoutePoint(n.show), apex: writeRoutePoint(n.apex) })) } }
     : {};
 
 const isSurfacePoint = (p) => Array.isArray(p) && p.length >= 3 && p.every(Number.isFinite) && p[2] > 0;
@@ -234,6 +245,18 @@ const writeSurfaces = (surfaces) =>
   surfaces?.length
     ? { surfaces: surfaces.map(({ surface, from, to, points }) => ({ surface, from, to, points: points.map(([lat, lon, width]) => [round(lat), round(lon), Number(width.toFixed(LENGTH_DECIMALS))]) })) }
     : {};
+
+const isRouteVertex = (p) => Array.isArray(p) && p.length === 3 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && (p[2] === 0 || p[2] === 1);
+
+/** Stage file `route` / `reverseRoute` -> { key, length, points } (lib/rally/savedRoute.js), or null. */
+function readRoute(entry) {
+  if (typeof entry?.key !== 'string' || !Number.isFinite(entry.length) || !Array.isArray(entry.points)) return null;
+  if (entry.points.length < 2 || !entry.points.every(isRouteVertex)) return null;
+  return { key: entry.key, length: entry.length, points: entry.points.map(([lat, lon, unpaved]) => [lat, lon, unpaved]) };
+}
+
+const writeRoute = (route, key) =>
+  route ? { [key]: { key: route.key, length: route.length, points: route.points.map(([lat, lon, unpaved]) => [round(lat), round(lon), unpaved]) } } : {};
 
 const fileMeta = (doc) => ({ country: doc.country, region: doc.region, id: doc.id, name: doc.name });
 const docMeta = (json) => ({ country: json.country ?? '', region: json.region ?? '', id: json.id ?? '', name: json.name ?? '' });
@@ -272,15 +295,21 @@ export const rallyFormat = {
         ...fileMeta(doc),
         points: doc.items.map(gate),
         ...writePacenotes(doc.pacenotes),
+        ...writePacenotes(doc.reversePacenotes, 'reversePacenotes'),
         ...writeSurfaces(doc.surfaces),
         ...writeObjects(doc.objects),
+        ...writeRoute(doc.route, 'route'),
+        ...writeRoute(doc.reverseRoute, 'reverseRoute'),
       }),
       fromFile: (json) => ({
         ...docMeta(json),
         items: (json.points ?? []).map(readGate).filter(Boolean),
         pacenotes: readPacenotes(json.pacenotes),
+        reversePacenotes: readPacenotes(json.reversePacenotes),
         surfaces: readSurfaces(json.surfaces),
         objects: readObjects(json),
+        route: readRoute(json.route),
+        reverseRoute: readRoute(json.reverseRoute),
       }),
       validate(doc) {
         const problems = [];
@@ -316,7 +345,11 @@ export const rallyFormat = {
           itinerary: doc.items
             .filter((item) => item.type !== 'base')
             .map((item) =>
-              item.type === 'ref' ? { stage: item.ref, ...(item.name ? { name: item.name } : {}) } : isPointRef(item) ? writePointRef(item) : gate(item)
+              item.type === 'ref'
+                ? { stage: item.ref, ...(item.name ? { name: item.name } : {}), ...(item.reverse ? { reverse: true } : {}) }
+                : isPointRef(item)
+                  ? writePointRef(item)
+                  : gate(item)
             ),
           ...writeObjects(doc.objects),
         };
@@ -327,7 +360,7 @@ export const rallyFormat = {
           items.push({ type: 'base', lat: json.base.lat, lon: json.base.lon, name: json.base.name ?? '' });
         }
         for (const entry of json.itinerary ?? []) {
-          if (typeof entry?.stage === 'string') items.push({ type: 'ref', ref: entry.stage, name: entry.name ?? '' });
+          if (typeof entry?.stage === 'string') items.push({ type: 'ref', ref: entry.stage, name: entry.name ?? '', ...(entry.reverse === true ? { reverse: true } : {}) });
           else if (typeof entry?.point === 'string') items.push({ type: 'pointRef', ref: entry.point, ...(parseClockTime(entry.nextStart) != null ? { nextStart: entry.nextStart } : {}) });
           else {
             const point = readGate(entry);

@@ -1,10 +1,11 @@
 // Street lamp lighting at night (streetLamps.js). Every lamp gets a glowing
 // bulb; a fixed pool of real spotlights follows the lamps nearest the car,
-// the nearest one casting shadows. Lights stay in the scene permanently so the light count (and so
+// the nearest one casting shadows; the next ones only glint on the wet road (lampGlints.js). Lights stay in the scene permanently so the light count (and so
 // every shader) never changes; by day they sit at zero.
 
 import * as THREE from 'three';
 import { LAMP_HEAD } from './streetLamps.js';
+import { addGlintSource, glintCone } from './lampGlints.js';
 
 const ON_ELEVATION_DEG = 3; // sun below this: lamps on (a little before headlights)
 const FADE_S = 2;
@@ -17,6 +18,9 @@ const LIGHT_ANGLE_RAD = 1.1;
 const LIGHT_PENUMBRA = 0.6;
 const SHADOW_MAP_SIZE = 512;
 const BULB_INTENSITY = 3;
+const GLINT_AIM = { x: 0, y: -1, z: 0 };
+const GLINT_CONE = glintCone(LIGHT_ANGLE_RAD, LIGHT_PENUMBRA, LIGHT_DECAY);
+const GLINT_COLOR = new THREE.Color(LIGHT_COLOR);
 
 /**
  * @param {object} deps
@@ -44,6 +48,14 @@ export function createStreetLights({ scene, terrain, roadside, lampKind }) {
   let heads = []; // [{ x, y, z, groundY }] world coords, from the last roadside version
   let version = -1;
   let level = 0;
+  let real = new Set(); // heads indices with a real spotlight
+
+  addGlintSource((add, x, z, rangeSq) => {
+    if (level <= 0) return;
+    heads.forEach((h, i) => {
+      if (!real.has(i) && (h.x - x) ** 2 + (h.z - z) ** 2 <= rangeSq) add(h, GLINT_AIM, GLINT_CONE, LIGHT_DISTANCE_M, LIGHT_INTENSITY * level, GLINT_COLOR);
+    });
+  });
 
   function rebuildHeads(transforms) {
     heads = [];
@@ -81,6 +93,7 @@ export function createStreetLights({ scene, terrain, roadside, lampKind }) {
           .slice(0, REAL_LIGHTS)
           .map(({ i }) => i)
       : [];
+    real = new Set(nearest);
     lights.forEach((light, slot) => {
       const h = heads[nearest[slot]];
       light.intensity = h ? LIGHT_INTENSITY * level : 0;

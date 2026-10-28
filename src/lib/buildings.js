@@ -512,11 +512,14 @@ export class BuildingsManager {
 
   /** Pending work for the streaming indicator: tile builds and far tiles, plus one for a region fetch. */
   pendingWork() {
+    const near = this.nearWork();
     const far = this._far.pendingWork();
-    return {
-      downloads: (this._regionPending ? Math.max(1, this._regionTilesLeft) : 0) + far.downloads,
-      builds: this._buildQueue.length + this._inProgressBuilds.size + far.builds,
-    };
+    return { downloads: near.downloads + far.downloads, builds: near.builds + far.builds };
+  }
+
+  /** The region fetch and near tile builds a load waits on (gameplayLoad.js); far boxes are cosmetic. */
+  nearWork() {
+    return { downloads: this._regionPending ? Math.max(1, this._regionTilesLeft) : 0, builds: this._buildQueue.length + this._inProgressBuilds.size };
   }
 
   /** True once a tile is built (not just fetched) - for the debug stats HUD. */
@@ -643,7 +646,7 @@ export class BuildingsManager {
 
   /**
    * Ensures the region, queues in-range tiles whose terrain is ready,
-   * builds until `deadline` (unbounded if awaitAll), and stages
+   * builds until `deadline` (awaitAll waits for the region first), and stages
    * out-of-range tiles for delayed unload.
    */
   async update(centerTx, centerTy, awaitAll = false, deadline = Infinity) {
@@ -668,7 +671,6 @@ export class BuildingsManager {
       }
     }
 
-    if (awaitAll) deadline = Infinity;
     // Finish tiles paused mid-build before starting new ones.
     for (const [key, build] of this._inProgressBuilds) {
       if (performance.now() >= deadline) break;

@@ -1,13 +1,15 @@
 // Static map of a rally plan (app/rally/rallySession.js) for the stage / rally picker: OSM
 // tiles fitted to the plan, the road route through every point (OSRM) with the timed
-// sections (start -> finish) in red and liaisons dashed, plus markers: a rally's stages by
-// their start, a single stage with all its controls.
+// sections (start -> finish) in red - a stage's saved route where it has one - and liaisons dashed, plus markers: a rally's stages by
+// their start, a single stage with all its controls. Below it the timed roads' surface shares.
 
 import { lon2tileX, lat2tileY } from '../lib/geo.js';
 import { fetchRouteVia } from '../lib/routing.js';
 import { rallyFormat } from '../lib/scenarios/rally.js';
 import { TILE_SIZE, createMapTileCache } from '../hud/mapTiles.js';
 import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
+import { stageSurfaceMetres } from '../lib/rally/pacenotes.js';
+import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 16;
@@ -63,7 +65,38 @@ function planWaypoints(plan) {
   return out;
 }
 
+// Surface metres per stage (points + sections), so re-selecting a plan doesn't refetch its roads.
+const surfaceCache = new Map();
+
+function surfaceMetresCached(stage) {
+  const key = JSON.stringify([stage.points.map((p) => [p.lat, p.lon, p.type, !!p.straight]), stage.surfaces ?? []]);
+  if (!surfaceCache.has(key)) {
+    const pending = stageSurfaceMetres(stage.points, stage.surfaces ?? [], stage.route);
+    pending.catch(() => surfaceCache.delete(key));
+    surfaceCache.set(key, pending);
+  }
+  return surfaceCache.get(key);
+}
+
+/** Every stage's surface metres summed: { id: metres }. */
+async function planSurfaceMetres(plan) {
+  const total = {};
+  const stages = plan.items.filter((item) => item.type === 'stage');
+  for (const metres of await Promise.all(stages.map((item) => surfaceMetresCached(item.stage)))) {
+    for (const [id, m] of Object.entries(metres)) total[id] = (total[id] ?? 0) + m;
+  }
+  return total;
+}
+
 const isSsLeg = (waypoints, i) => waypoints[i].ss && waypoints[i + 1].stage === waypoints[i].stage;
+
+/** Each stage's saved route (lib/rally/savedRoute.js) as { mx, my, length }, null without one; by stage index. */
+const savedLines = (plan) =>
+  plan.items
+    .filter((item) => item.type === 'stage')
+    .map(({ stage: { route } }) =>
+      route ? { mx: route.points.map(([, lon]) => toMercX(lon)), my: route.points.map(([lat]) => toMercY(lat)), length: route.length } : null
+    );
 
 export function createRallyPlanMap() {
   const root = Object.assign(document.createElement('div'), { className: 'rally-plan-map' });
@@ -71,14 +104,16 @@ export function createRallyPlanMap() {
   const canvas = document.createElement('canvas');
   const attribution = Object.assign(document.createElement('div'), { className: 'rally-plan-map-attribution', textContent: '© OpenStreetMap contributors' });
   const info = Object.assign(document.createElement('div'), { className: 'rally-plan-map-info' });
+  const surfaces = Object.assign(document.createElement('div'), { className: 'rally-plan-surfaces' });
   view.append(canvas, attribution);
-  root.append(view, info);
+  root.append(view, info, surfaces);
   const ctx = canvas.getContext('2d');
   const tiles = createMapTileCache({ maxSize: 200, pruneTo: 120 });
 
   let plan = null;
   let waypoints = [];
   let route = null; // fetchRouteVia result for `waypoints`, null while loading / failed
+  let saved = []; // savedLines(plan)
   let showSeq = 0;
   let rafId = 0;
   let widthCss = 0;
@@ -91,9 +126,9 @@ export function createRallyPlanMap() {
   function describe() {
     if (!route) return;
     const legEnd = (i) => (i + 1 < route.legStarts.length ? route.legStarts[i + 1] : route.cum.length - 1);
-    let ss = 0;
+    let ss = saved.reduce((sum, line) => sum + (line?.length ?? 0), 0);
     for (let i = 0; i < route.legStarts.length; i++) {
-      if (isSsLeg(waypoints, i)) ss += route.cum[legEnd(i)] - route.cum[route.legStarts[i]];
+      if (isSsLeg(waypoints, i) && !saved[waypoints[i].stage]) ss += route.cum[legEnd(i)] - route.cum[route.legStarts[i]];
     }
     const stages = plan.items.filter((item) => item.type === 'stage').length;
     setInfo(
@@ -103,13 +138,51 @@ export function createRallyPlanMap() {
     );
   }
 
+  function setSurfaces(metres) {
+    const total = Object.values(metres ?? {}).reduce((sum, m) => sum + m, 0);
+    if (!total) {
+      surfaces.replaceChildren();
+      return;
+    }
+    const shares = Object.entries(metres)
+      .map(([id, m]) => ({ id, share: m / total }))
+      .filter(({ share }) => share >= 0.005)
+      .sort((a, b) => b.share - a.share);
+    const bar = Object.assign(document.createElement('div'), { className: 'rally-plan-surfaces-bar' });
+    const legend = Object.assign(document.createElement('div'), { className: 'rally-plan-surfaces-legend' });
+    for (const { id, share } of shares) {
+      const { label, color } = STAGE_SURFACES[id] ?? { label: id, color: '#808080' };
+      const part = Object.assign(document.createElement('span'), { title: `${label} ${Math.round(share * 100)}%` });
+      part.style.flexGrow = share;
+      part.style.background = color;
+      bar.append(part);
+      const item = Object.assign(document.createElement('span'), { textContent: `${label} ${Math.round(share * 100)}%` });
+      item.style.setProperty('--swatch', color);
+      legend.append(item);
+    }
+    surfaces.replaceChildren(bar, legend);
+  }
+
   /** @param {object | null} next - plan from rallySession's buildPlan; null clears the map. */
   function show(next, message = '') {
     const seq = ++showSeq;
     plan = next;
     waypoints = next ? planWaypoints(next) : [];
+    saved = next ? savedLines(next) : [];
     route = null;
     setInfo(message);
+    setSurfaces(null);
+    if (next) {
+      surfaces.textContent = 'Surfaces…';
+      planSurfaceMetres(next).then(
+        (metres) => {
+          if (seq === showSeq) setSurfaces(metres);
+        },
+        (err) => {
+          if (seq === showSeq) surfaces.textContent = `Surfaces unknown (${err.message})`;
+        }
+      );
+    }
     if (waypoints.length < 2) return;
     setInfo('Routing…');
     fetchCached(waypoints).then(
@@ -148,7 +221,7 @@ export function createRallyPlanMap() {
       maxY = Math.max(maxY, my);
     };
     for (const w of waypoints) add(toMercX(w.lon), toMercY(w.lat));
-    if (route) for (let i = 0; i < route.mx.length; i++) add(route.mx[i], route.my[i]);
+    for (const line of [route, ...saved]) if (line) for (let i = 0; i < line.mx.length; i++) add(line.mx[i], line.my[i]);
     const besideInset = INSET_MARGIN * 2 + INSET_W;
     const padLeft = widthCss - besideInset - FIT_PAD_PX >= MIN_PLAN_W ? besideInset : FIT_PAD_PX;
     const fitW = widthCss - padLeft - FIT_PAD_PX;
@@ -184,8 +257,13 @@ export function createRallyPlanMap() {
     ctx.lineCap = 'round';
     // Liaisons first so the timed sections sit on top.
     for (const ss of [false, true]) {
+      if (ss) {
+        for (const line of saved) {
+          if (line) strokeLine(Array.from(line.mx, (mx, v) => toScreen(mx, line.my[v])), true);
+        }
+      }
       for (let i = 0; i < waypoints.length - 1; i++) {
-        if (isSsLeg(waypoints, i) !== ss) continue;
+        if (isSsLeg(waypoints, i) !== ss || (ss && saved[waypoints[i].stage])) continue;
         const points = [];
         if (route) {
           const end = i + 1 < route.legStarts.length ? route.legStarts[i + 1] : route.mx.length - 1;

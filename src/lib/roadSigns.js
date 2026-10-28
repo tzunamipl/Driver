@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { latLonToLocal, localToLatLon } from './geo.js';
 import { isRoadsideRoad } from './roadside.js';
+import { makeRetroreflective } from './lampGlints.js';
 
 const DEG = Math.PI / 180;
 const CURVE_WINDOW_M = 50; // road length a curve's turn is summed over; also the minimum gap between signs
@@ -32,6 +33,9 @@ const POLE_SINK_M = 0.1;
 const DEBRIS_SPHERE_RADIUS = 0.08;
 const BOARD_RED = '#d01818';
 const BOARD_WHITE = '#f4f4f4';
+
+// Face centre height and its mean colour (red with white arrows), for signGlints.js.
+export const CURVE_SIGN_FACE = { y: BOARD_BOTTOM_M + BOARD_HEIGHT_M / 2, color: new THREE.Color('#e06a64') };
 
 const TIERS = {
   sharp: { arrows: 1, poles: [0], mass: 8 },
@@ -249,7 +253,7 @@ export function createRoadSignKinds(streets) {
       ]),
     ];
     for (const arrow of [1, -1]) {
-      const front = new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.85, flatShading: true });
+      const front = makeRetroreflective(new THREE.MeshStandardMaterial({ map: createBoardTexture(tier.arrows, arrow), roughness: 0.85, flatShading: true }));
       kinds.push({
         group: 'curveSigns',
         hitSound: 'metal',

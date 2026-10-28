@@ -126,3 +126,25 @@
   margin-top: 10px;
 }
 .menu-footer button { min-width: 75px; }
+#menu-about {
+  width: min(360px, calc(100vw - 56px));
+  min-height: 0;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+#menu-about p { margin: 0 0 8px; }
+.menu-about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.menu-about-links a {
+  color: #000;
+  background: var(--w95-face);
+  box-shadow: var(--w95-raised);
+  text-decoration: none;
+  line-height: 23px;
+  padding: 0 10px;
+}
+.menu-about-links a:active { box-shadow: var(--w95-pressed); }

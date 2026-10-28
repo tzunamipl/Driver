@@ -6,6 +6,26 @@ import { longDistanceUnit } from '../lib/units.js';
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text != null ? { textContent: text } : {}) });
 const MARKS = { done: '✓', current: '▶' };
 
+function table(head, rows) {
+  const t = el('table', 'rally-info-table');
+  const tr = el('tr');
+  for (const text of head) tr.append(el('th', '', text));
+  t.append(tr);
+  for (const { cells, className = '' } of rows) {
+    const row = el('tr', className);
+    for (const text of cells) row.append(el('td', '', text));
+    t.append(row);
+  }
+  return t;
+}
+
+/** Forecast table: {state, label, sky, temp, rain, wind} rows (also the rally picker's preview). */
+export const forecastTable = (forecast) =>
+  table(
+    ['', 'Forecast', 'Sky', 'Temp', 'Rain', 'Wind'],
+    forecast.map((f) => ({ cells: [MARKS[f.state] ?? '', f.label, f.sky, f.temp, f.rain, f.wind], className: f.state }))
+  );
+
 /**
  * @param {object} [opts]
  * @param {() => void} [opts.onOpen] - e.g. park the car while the dialog covers the game.
@@ -19,19 +39,6 @@ export function createRallyInfoDialog({ onOpen, onClose } = {}) {
     root.hidden = true;
     open = false;
     onClose?.();
-  }
-
-  function table(head, rows) {
-    const t = el('table', 'rally-info-table');
-    const tr = el('tr');
-    for (const text of head) tr.append(el('th', '', text));
-    t.append(tr);
-    for (const { cells, className = '' } of rows) {
-      const row = el('tr', className);
-      for (const text of cells) row.append(el('td', '', text));
-      t.append(row);
-    }
-    return t;
   }
 
   return {
@@ -51,14 +58,7 @@ export function createRallyInfoDialog({ onOpen, onClose } = {}) {
       );
       const totals = table(['Totals', ''], info.totals.map((cells) => ({ cells })));
       const scroll = el('div', 'rally-info-scroll');
-      if (info.forecast.length) {
-        scroll.append(
-          table(
-            ['', 'Forecast', 'Sky', 'Temp', 'Rain', 'Wind'],
-            info.forecast.map((f) => ({ cells: [MARKS[f.state] ?? '', f.label, f.sky, f.temp, f.rain, f.wind], className: f.state }))
-          )
-        );
-      }
+      if (info.forecast.length) scroll.append(forecastTable(info.forecast));
       scroll.append(itinerary, totals);
       const footer = el('div', 'menu-footer');
       footer.append(Object.assign(el('button', '', 'Close'), { type: 'button', onclick: close }));

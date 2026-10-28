@@ -1,3 +1,5 @@
+import { getWetness, onWeatherChange } from './weather.js';
+
 // Tyre grip per ground surface (classified in terrainSurface.js), applied
 // in wheeledVehicle.js's applyFriction on top of each vehicle's own tuning:
 //   staticMu  = frictionSlip * frictionMultiplier
@@ -17,6 +19,8 @@
 // wetSensitivity: share of a wet tyre's grip loss felt here; dirtLevel: how caked a tyre
 // rolling here ends up (more when wet: mud); dirtSensitivity: share of a dirty tyre's
 // grip loss felt here (tyres/condition.js).
+// dry: values reached as the ground dries (weather.js getWetness 1 -> 0), the listed ones
+// blended linearly; tyreGripAs = surface whose tyre compound grip (tyres/compounds.js) dry ground matches.
 export const SURFACE_COMPOUNDS = {
   // Paved roads: the baseline every vehicle is tuned for. Rubber on asphalt
   // drops off noticeably once it breaks loose.
@@ -66,7 +70,8 @@ export const SURFACE_COMPOUNDS = {
     dirtLevel: 0.05,
     dirtSensitivity: 1,
   },
-  // Mud (stage surface sections): slippery and draggy, cakes the tyres; already wet, so rain adds little.
+  // Mud (stage surface sections): slippery and draggy when wet, cakes the tyres; dried out it
+  // grips and dirties nearly like gravel. Rain on it adds little on the tyre side.
   mud: {
     frictionMultiplier: 0.5,
     dynamicFrictionRatio: 0.85,
@@ -80,6 +85,7 @@ export const SURFACE_COMPOUNDS = {
     wetSensitivity: 0.25,
     dirtLevel: 0.95,
     dirtSensitivity: 0.2,
+    dry: { frictionMultiplier: 0.85, dirtLevel: 0.35, tyreGripAs: 'unpaved' },
   },
   // Packed snow (stage surface sections): little grip, slides evenly, draggy; packs into the tread.
   snow: {
@@ -227,6 +233,25 @@ export const REFERENCE_TYRE_WIDTH_M = 0.225;
 
 // Fallback for an unset surface: off-road, not road.
 export const DEFAULT_SURFACE_KEY = 'normal';
+
+const WET_VALUES = new Map();
+for (const compound of Object.values(SURFACE_COMPOUNDS)) {
+  if (!compound.dry) continue;
+  const keys = Object.keys(compound.dry).filter((k) => k in compound);
+  WET_VALUES.set(compound, Object.fromEntries(keys.map((k) => [k, compound[k]])));
+}
+
+/** 0 soaked .. 1 dry: how far a surface with `dry` values has moved to them. */
+export const surfaceDryness = () => 1 - getWetness();
+
+function applyDryness() {
+  const d = surfaceDryness();
+  for (const [compound, wet] of WET_VALUES) {
+    for (const k in wet) compound[k] = wet[k] + (compound.dry[k] - wet[k]) * d;
+  }
+}
+applyDryness();
+onWeatherChange(applyDryness);
 
 /** Compound for a surface key (unknown -> DEFAULT_SURFACE_KEY). */
 export function getSurfaceCompound(key) {

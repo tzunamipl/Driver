@@ -7,6 +7,7 @@
 // `fireAndJump`: F shoots and J jumps (keyboard only); off unless set.
 // `teleport: false`: no teleport from the Navigation tab (editors still have it).
 // `directionSignHud: false`: no top-centre copy of direction signs (also off in every editor).
+// `hidden`: left out of the mode selection.
 // `editor`: the mode gets an Editor button; `editorAvailable` enables it (needs a format in lib/scenarios/formats.js).
 
 export const GAME_MODES = [
@@ -48,6 +49,7 @@ export const GAME_MODES = [
   {
     id: 'pathsOfHate',
     label: 'Paths of Hate',
+    hidden: true,
     blurb: 'Missions across a scorched, lawless wasteland, where fuel is worth more than life. Armour up and survive the roads.',
     available: false,
     starts: [
@@ -59,6 +61,7 @@ export const GAME_MODES = [
   {
     id: 'chariotsOfFire',
     label: 'Chariots of Fire',
+    hidden: true,
     blurb: 'Race jet-powered chariots at insane speeds. Hold the line or end up in pieces.',
     available: false,
     starts: [

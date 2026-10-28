@@ -20,7 +20,7 @@ export const VEHICLE_NAMES = {
   C017: 'V8 Eagle',
   C018: 'President SX',
   C019: 'ZX2',
-  C020: 'Seagul',
+  C020: 'Yamamoto',
   C021: 'Explorer',
   C022: 'Spring',
   C023: 'Attacker',

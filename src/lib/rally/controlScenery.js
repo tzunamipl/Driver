@@ -24,6 +24,7 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three';
+import { addGlintSource, glintCone } from '../lampGlints.js';
 import * as CANNON from 'cannon-es';
 import { createTrigger, launchDebris, settleDebris } from '../knockable.js';
 import { BUILDING_COLLISION_GROUP, BUILDING_MATERIAL } from '../buildings.js';
@@ -53,9 +54,8 @@ const FLAG_WIDTH_M = 0.9;
 const FLAG_IDLE_COLOR = '#8a8a8a';
 const LIT_AHEAD = 2; // the next point and the one after have flags in colour and glowing dots on their poles
 const BOARD_DOT_COLOR = '#ffc400';
-const DOT_RADIUS_M = 0.12;
+const DOT_RADIUS_M = 0.25;
 const DOT_PULSE_HZ = 1.5;
-const DOT_SPIN = 6; // rad/s round the pole
 // Further than this from the car the dots grow with distance, so they stay visible far ahead.
 const DOT_GROW_FROM_M = 40;
 const DOT_MAX_SCALE = 15;
@@ -70,6 +70,12 @@ const LAMPS = 5;
 const LAMP_OFF = 0x222222;
 const LAMP_RED = 0xff1a1a;
 const LAMP_GREEN = 0x1aff3a;
+const LAMP_GLINT = { intensity: 3 }; // lit start lamp's wet road glint, coloured as the lamp
+const GLINT_CONE = glintCone(1.4, 0.5, 2); // glowing faces and lamps: wide, facing the approach
+const GLINT_DISTANCE_M = 25;
+const DOT_GLINT_INTENSITY = 3; // pole-top ball's wet road glint, coloured as the ball
+const DOT_GLINT_CONE = glintCone(1.5, 0.3, 2); // aimed down: the ball glows all round
+const DOWN = new Vector3(0, -1, 0);
 const TRIGGER_RADIUS_M = 40; // knock triggers only near the car
 const RESTAND_M = 200; // a knocked object stands again once the car is this far from it
 const POST_HALF_M = 0.06;
@@ -117,7 +123,7 @@ postGeometry.translate(0, (BOARD_HEIGHT_M + BOARD_SIZE_M / 2) / 2, 0);
 const poleGeometry = new CylinderGeometry(0.06, 0.06, FLAG_POLE_M, 6);
 poleGeometry.translate(0, FLAG_POLE_M / 2, 0);
 const boardGeometry = new PlaneGeometry(BOARD_SIZE_M, BOARD_SIZE_M);
-const dotGeometry = new SphereGeometry(DOT_RADIUS_M, 10, 8);
+const dotGeometry = new SphereGeometry(DOT_RADIUS_M, 16, 12);
 dotGeometry.userData.shared = true;
 const lampGeometry = new SphereGeometry(0.11, 10, 8);
 const greyMaterial = new MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.6 });
@@ -216,6 +222,7 @@ function makeLights() {
   const lamps = [];
   for (let i = 0; i < LAMPS; i++) {
     const lamp = new Mesh(lampGeometry, new MeshBasicMaterial({ color: LAMP_OFF }));
+    lamp.userData.glint = LAMP_GLINT;
     lamp.position.set(0, 2.5 - i * 0.26, 0.22);
     group.add(lamp);
     lamps.push(lamp);
@@ -253,17 +260,11 @@ function dotMaterial(color) {
   return dotMaterials.get(color);
 }
 
-/** Glowing dots in a ring round a pole top at `height`, shown while the point is lit. */
+/** A glowing ball on a pole top at `height`, shown while the point is lit; reads as a circle from any side. */
 function makeDots(color, height) {
-  const dots = new Group();
-  for (let n = 0; n < 4; n++) {
-    const a = (n / 4) * Math.PI * 2;
-    const dot = new Mesh(dotGeometry, n % 2 ? dotMaterial('#ffffff') : dotMaterial(color));
-    dot.position.set(Math.cos(a) * 0.18, 0, Math.sin(a) * 0.18);
-    dots.add(dot);
-  }
-  dots.add(new Mesh(dotGeometry, dotMaterial('#ffffff')));
+  const dots = new Mesh(dotGeometry, dotMaterial(color));
   dots.userData.height = height;
+  dots.userData.glint = { intensity: DOT_GLINT_INTENSITY, down: true };
   dots.visible = false;
   return dots;
 }
@@ -440,6 +441,23 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       } else if (object.trigger && !object.debris) knockOver(object, by);
     }
   }
+
+  // Glowing parts (userData.glint: { intensity, color? = the material's }) of standing, shown objects.
+  addGlintSource((add, x, z, rangeSq) => {
+    for (const entry of baseEntry ? [...entries, baseEntry] : entries) {
+      for (const object of entry.resolved?.objects ?? []) {
+        if (!object.group.visible) continue;
+        const p = positionOf(object);
+        if ((p.x - x) ** 2 + (p.z - z) ** 2 > rangeSq) continue;
+        object.group.traverseVisible((obj) => {
+          const glint = obj.userData.glint;
+          if (!glint || (!glint.color && obj.material.color.getHex() === LAMP_OFF)) return;
+          const aim = glint.down ? DOWN : obj.getWorldDirection(new Vector3());
+          add(obj.getWorldPosition(new Vector3()), aim, glint.down ? DOT_GLINT_CONE : GLINT_CONE, GLINT_DISTANCE_M, glint.intensity, glint.color ?? obj.material.color);
+        });
+      }
+    }
+  });
 
   function anchor(group, x, z, dirX, dirZ) {
     group.traverse((obj) => (obj.castShadow = true));
@@ -669,7 +687,7 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       else dropSolid(object);
     }
     for (const span of entry.resolved?.spans ?? []) updateSpan(span, focus);
-    // Only the next point's dots pulse and spin; the one after holds still.
+    // Only the next point's dot pulses; the one after holds still.
     const moving = entry.index === lit;
     const pulse = moving ? 1 + 0.35 * Math.sin(time * DOT_PULSE_HZ * Math.PI * 2) : 1;
     for (const flag of entry.resolved?.flags ?? []) if (flag.group.visible) waveFlag(flag.group.userData.cloth, time);
@@ -680,9 +698,9 @@ export function createControlScenery({ scene, world, streets, terrain, viewFrame
       const dist = focus ? Math.hypot(x - focus.x, z - focus.z) : 0;
       const scale = pulse * Math.min(DOT_MAX_SCALE, Math.max(1, dist / DOT_GROW_FROM_M));
       dots.scale.setScalar(scale);
-      // Ring bottom stays on the pole top as it grows.
+      dots.userData.glint.intensity = DOT_GLINT_INTENSITY * pulse;
+      // Ball bottom stays on the pole top as it grows.
       dots.position.y = dots.userData.height + DOT_RADIUS_M * scale;
-      dots.rotation.y = moving ? time * DOT_SPIN : 0;
     }
   }
 

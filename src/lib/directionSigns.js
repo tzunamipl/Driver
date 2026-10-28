@@ -13,6 +13,7 @@ import { latLonToLocal, localToLatLon, lon2tileX, lat2tileY, tileX2lon, tileY2la
 import { ROAD_HIERARCHY } from './roadClasses.js';
 import { DIRECTION_SIGN_JUNCTIONS, DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL } from '../config.js';
 import { longDistanceValue, longDistanceUnit } from './units.js';
+import { makeRetroreflective } from './lampGlints.js';
 
 const DEG = Math.PI / 180;
 const SIGNED_CLASSES = new Set(Object.entries(DIRECTION_SIGN_JUNCTIONS).flat(2));
@@ -387,7 +388,7 @@ function buildSignMesh(item) {
     const y = top - (k + 1) * BOARD_H - k * BOARD_GAP;
     const front = new THREE.Mesh(
       boardGeometry(board.dir, w).translate(0, y, BOARD_DEPTH / 2),
-      new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.85, flatShading: true })
+      makeRetroreflective(new THREE.MeshStandardMaterial({ map: boardTexture(board, w), roughness: 0.85, flatShading: true }))
     );
     // Mirrored outline turned round = the same outline seen from behind.
     const mirrored = board.dir === 'left' ? 'right' : board.dir === 'right' ? 'left' : 'straight';
@@ -405,6 +406,8 @@ function buildSignMesh(item) {
   );
   group.add(pole);
   group.traverse((o) => (o.castShadow = true));
+  // Face centre and colour for signGlints.js.
+  group.userData.glint = { y: (BOARD_BOTTOM + top) / 2, color: new THREE.Color(boardColor(item.boards[0].cls).bg) };
   return group;
 }
 

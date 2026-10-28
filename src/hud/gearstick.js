@@ -165,7 +165,6 @@ export function createGearstickHud() {
   const hand = { x: 0, y: 0 }; // where the pointer is pulling the knob (gate coordinates)
   let dragging = null; // 'gear' | 'range' | null
   let lastPointer = null;
-  let userVisible = true;
   let shown = false;
   let drawnKey = '';
   // On-screen travel (fraction of the canvas width / height) per gate column, row and range step.
@@ -173,7 +172,6 @@ export function createGearstickHud() {
   let rowFraction = 0.3;
   let rangeFraction = 0.3;
   let splitNdcX = Infinity; // pointer NDC x right of this grabs the range lever
-  let toggleWasPressed = false;
   let rangeUpWasPressed = false;
   let rangeDownWasPressed = false;
 
@@ -406,15 +404,11 @@ export function createGearstickHud() {
 
   /**
    * Per frame. Shown while the vehicle's engine runs the manual box. `keys` /
-   * `typing` from input.js for G (show/hide) and X / Z (range up / down).
+   * `typing` from input.js for X / Z (range up / down).
    */
   function update(dt, { vehicle, keys, typing }) {
     const engine = vehicle?.engine;
     const manual = !!engine?.manual;
-    const togglePressed = !typing && keys.has('KeyG');
-    if (togglePressed && !toggleWasPressed && manual) userVisible = !userVisible;
-    toggleWasPressed = togglePressed;
-
     if (manual && engine !== gateEngine) buildGate(engine);
     if (manual) range = engine.range;
     const rangeUp = !typing && keys.has('KeyX');
@@ -426,7 +420,7 @@ export function createGearstickHud() {
     rangeUpWasPressed = rangeUp;
     rangeDownWasPressed = rangeDown;
 
-    const show = manual && userVisible;
+    const show = manual;
     if (show !== shown) {
       shown = show;
       root.hidden = !show;

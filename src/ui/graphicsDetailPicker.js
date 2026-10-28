@@ -1,6 +1,7 @@
 // Settings "Detail level" select: low / medium / high, remembered in localStorage.
 
 import { DEFAULT_GRAPHICS_DETAIL, GRAPHICS_DETAIL_LEVELS, GRAPHICS_DETAIL_STORAGE_KEY } from '../config.js';
+import { setGlintsEnabled } from '../lib/lampGlints.js';
 
 /** Fills the select now (the main menu shows it before the world exists); `bind` applies levels. */
 export function createGraphicsDetailPicker() {
@@ -20,6 +21,7 @@ export function createGraphicsDetailPicker() {
     trees.setDetail(level.trees);
     bushes.setDetail(level.bushes);
     rocks.setDetail(level.rocks);
+    setGlintsEnabled(level.lampGlints);
   }
 
   select.addEventListener('change', () => {

@@ -1,3 +1,5 @@
+import { getSurfaceCompound, surfaceDryness } from '../surfaceCompounds.js';
+
 // Tyre compounds (types) a vehicle can be fitted with; tyres.js + tyres/condition.js read them.
 //   grip: multiplier per ground surface (surfaceCompounds.js keys) on top of the surface's own
 //     friction; the road tyre is the 1.0 baseline every vehicle is tuned on. Unlisted = 1.
@@ -247,6 +249,10 @@ export const TYRE_COMPOUND_IDS = Object.keys(TYRE_COMPOUNDS);
 
 export const getTyreCompound = (id) => TYRE_COMPOUNDS[id] ?? TYRE_COMPOUNDS[DEFAULT_TYRE_COMPOUND];
 
-export const compoundGripOn = (compound, surfaceKey) => compound.grip[surfaceKey] ?? 1;
+export function compoundGripOn(compound, surfaceKey) {
+  const grip = compound.grip[surfaceKey] ?? 1;
+  const as = getSurfaceCompound(surfaceKey).dry?.tyreGripAs;
+  return as ? grip + ((compound.grip[as] ?? 1) - grip) * surfaceDryness() : grip;
+}
 export const compoundWearOn = (compound, surfaceKey) => (compound.wear ?? 1) * (compound.wearOn?.[surfaceKey] ?? 1);
 export const compoundRollingOn = (compound, surfaceKey) => compound.rollingOn?.[surfaceKey] ?? compound.rolling ?? 1;

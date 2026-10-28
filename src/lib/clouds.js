@@ -131,23 +131,26 @@ const DECK_DISSOLVE_CELL_METERS = 1_500;
 
 /**
  * onBeforeCompile hook adding the dissolve. `world`: noise in world metres (the deck follows the car,
- * so its own space would slide), else in the cloud's unit geometry offset by its position.
+ * so its own space would slide), else in the cloud's unit geometry. Returns the `dissolve` uniform and
+ * `offset` added to the noise input: a per-cloud seed, or for `world` the floating-origin shift in metres.
  */
 function dissolveShading(material, { hazed = false, world = false, cellsPerUnit = DISSOLVE_CELLS_PER_UNIT } = {}) {
   const dissolve = { value: 1 };
+  const offset = { value: new THREE.Vector3() };
   material.onBeforeCompile = (shader) => {
     if (hazed) applyGroundHaze(shader);
     else applyFogVeil(shader);
     shader.uniforms.dissolve = dissolve;
+    shader.uniforms.dissolveOffset = offset;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vDissolvePos;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDissolvePos;\nuniform vec3 dissolveOffset;')
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vDissolvePos = ${world
-          ? `(modelMatrix * vec4(transformed, 1.0)).xyz / ${DECK_DISSOLVE_CELL_METERS.toFixed(1)}`
-          // Offset by the cloud's position so clouds sharing a shape dissolve differently.
-          : `position * ${cellsPerUnit.toFixed(1)} + modelMatrix[3].xyz * 0.001`};`
+          ? `((modelMatrix * vec4(transformed, 1.0)).xyz + dissolveOffset) / ${DECK_DISSOLVE_CELL_METERS.toFixed(1)}`
+          // Not seeded by the world position: that moves on every floating-origin shift.
+          : `position * ${cellsPerUnit.toFixed(1)} + dissolveOffset`};`
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -182,7 +185,7 @@ function dissolveShading(material, { hazed = false, world = false, cellsPerUnit 
   };
   // Same hook source for every variant: key the program by the variant.
   material.customProgramCacheKey = () => `cloud-dissolve-${hazed}-${world}-${cellsPerUnit}`;
-  return dissolve;
+  return { dissolve, offset };
 }
 
 const CUMULUS_GEOMETRIES = Array.from({ length: CLOUD_SHAPE_VARIANTS }, buildCumulusGeometry);
@@ -194,13 +197,8 @@ const LAYERS = {
     poolSize: CUMULUS_POOL,
     spawnRadiusMax: SPAWN_RADIUS_MAX,
     hazed: true,
-    // Translucent, yet overlapping puffs must hide each other's inner faces: a depth-only pass
-    // first, then the colour pass keeps just the front surface.
-    depthPrepass: true,
+    // Opaque: fades in and out by the dissolve alone.
     material: () => new THREE.MeshStandardMaterial({
-      transparent: true,
-      opacity: 0,
-      depthWrite: true,
       roughness: 1,
       metalness: 0,
       flatShading: true,
@@ -215,7 +213,6 @@ const LAYERS = {
       slot.mesh.geometry = CUMULUS_GEOMETRIES[Math.floor(Math.random() * CUMULUS_GEOMETRIES.length)];
       slot.mesh.scale.set(size * spread, size * randomRange(0.7, 1.0), size * spread);
       slot.material.color.set(CUMULUS_STYLES[style].color);
-      slot.targetOpacity = randomRange(0.55, 0.85);
     },
   },
   cirrus: {
@@ -256,19 +253,11 @@ export function createClouds(scene, { onOvercast } = {}) {
       for (let i = 0; i < def.poolSize; i++) {
         // Own material per cloud for independent fading.
         const material = def.material();
-        const dissolves = [dissolveShading(material, { hazed: def.hazed, cellsPerUnit: def.dissolveCellsPerUnit })];
-        let depthMesh = null;
-        if (def.depthPrepass) {
-          const depthMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true });
-          dissolves.push(dissolveShading(depthMaterial));
-          // Created before the colour mesh: same depth in the transparent sort, so the lower id draws first.
-          depthMesh = new THREE.Mesh(CUMULUS_GEOMETRIES[0], depthMaterial);
-        }
+        const { dissolve, offset: dissolveSeed } = dissolveShading(material, { hazed: def.hazed, cellsPerUnit: def.dissolveCellsPerUnit });
         const mesh = new THREE.Mesh(CUMULUS_GEOMETRIES[0], material);
-        if (depthMesh) mesh.add(depthMesh);
         mesh.visible = false;
         scene.add(mesh);
-        pool.push({ mesh, depthMesh, material, dissolves, maxDissolve: def.maxDissolve ?? 1, active: false, fadingOut: false, fade: 0, targetOpacity: 0, style: null });
+        pool.push({ mesh, material, dissolve, dissolveSeed, maxDissolve: def.maxDissolve ?? 1, active: false, fadingOut: false, fade: 0, targetOpacity: 0, style: null });
       }
       return [name, { def, pool, target: 0, style: 'high', filling: false, spawnTimer: 0 }];
     })
@@ -283,7 +272,7 @@ export function createClouds(scene, { onOvercast } = {}) {
     metalness: 0,
     fog: false,
   });
-  const deckDissolve = dissolveShading(deckMaterial, { hazed: true, world: true });
+  const { dissolve: deckDissolve, offset: deckOrigin } = dissolveShading(deckMaterial, { hazed: true, world: true });
   // Faces down (lit by the ambient only, like a cloud base).
   const deck = new THREE.Mesh(new THREE.CircleGeometry(FAR_RADIUS_METERS, 48), deckMaterial);
   deck.rotation.x = Math.PI / 2;
@@ -295,8 +284,8 @@ export function createClouds(scene, { onOvercast } = {}) {
 
   function setFade(slot, fade) {
     slot.fade = fade;
-    slot.material.opacity = slot.targetOpacity * fade;
-    for (const dissolve of slot.dissolves) dissolve.value = fade * slot.maxDissolve;
+    if (slot.material.transparent) slot.material.opacity = slot.targetOpacity * fade;
+    slot.dissolve.value = fade * slot.maxDissolve;
   }
 
   /** True if (x, y, z) clears `minSeparation` from every active cloud in `pool`. */
@@ -336,7 +325,8 @@ export function createClouds(scene, { onOvercast } = {}) {
     slot.mesh.rotation.y = Math.random() * Math.PI * 2;
     layer.def.place(slot, layer.style);
     slot.mesh.position.set(x, y, z);
-    if (slot.depthMesh) slot.depthMesh.geometry = slot.mesh.geometry;
+    // So clouds sharing a shape dissolve differently.
+    slot.dissolveSeed.value.set(Math.random(), Math.random(), Math.random()).multiplyScalar(1000);
     setFade(slot, 0);
     slot.mesh.visible = true;
     slot.active = true;
@@ -414,6 +404,12 @@ export function createClouds(scene, { onOvercast } = {}) {
     onOvercast?.(deckCover);
   }
 
+  /** Floating origin: keeps the deck's world-space dissolve pattern in place. */
+  function shiftOrigin(dx, dz) {
+    deckOrigin.value.x += dx;
+    deckOrigin.value.z += dz;
+  }
+
   setPreset('cumulus');
-  return { update, setPreset };
+  return { update, setPreset, shiftOrigin };
 }

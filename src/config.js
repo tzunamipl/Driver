@@ -253,12 +253,14 @@ export const STREAMING_BUDGET_MS = 6;
 
 // ---------- Graphics detail (Settings) ----------
 // Foliage: drawDistance in m, areaPerItem = m² of landcover per tree / bush / rock (density).
+// lampGlints: per-lamp wet road reflections (lib/lampGlints.js); off = plain pool spotlight glints.
 export const GRAPHICS_DETAIL_LEVELS = {
   low: {
     label: 'Low',
     terrainCells: 15,
     streamingBudgetMs: 3,
     roadsideDrawDistance: 100,
+    lampGlints: false,
     trees: { drawDistance: 350, areaPerItem: 800 },
     bushes: { drawDistance: 150, areaPerItem: 3000 },
     rocks: { drawDistance: 150, areaPerItem: 3000 },
@@ -268,6 +270,7 @@ export const GRAPHICS_DETAIL_LEVELS = {
     terrainCells: 40,
     streamingBudgetMs: 4.5,
     roadsideDrawDistance: 150,
+    lampGlints: false,
     trees: { drawDistance: 550, areaPerItem: 450 },
     bushes: { drawDistance: 250, areaPerItem: 1800 },
     rocks: { drawDistance: 250, areaPerItem: 1800 },
@@ -277,6 +280,7 @@ export const GRAPHICS_DETAIL_LEVELS = {
     terrainCells: 80,
     streamingBudgetMs: STREAMING_BUDGET_MS,
     roadsideDrawDistance: ROADSIDE_DRAW_DISTANCE_M,
+    lampGlints: true,
     trees: { drawDistance: TREE_DRAW_DISTANCE_M, areaPerItem: TREE_AREA_PER_TREE_M2 },
     bushes: { drawDistance: BUSH_DRAW_DISTANCE_M, areaPerItem: BUSH_AREA_PER_BUSH_M2 },
     rocks: { drawDistance: ROCK_DRAW_DISTANCE_M, areaPerItem: ROCK_AREA_PER_ROCK_M2 },
@@ -319,7 +323,9 @@ export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old e
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
 export const UNITS_STORAGE_KEY = 'driver.units.v1'; // Settings > Gameplay: 'metric' | 'imperial' (lib/units.js)
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
+export const EDITOR_PACENOTES_BOTH_STORAGE_KEY = 'driver.editorPacenotesBoth.v1'; // '1' = Generate does both stage versions
 export const EDITOR_STAGE_ROUTE_STORAGE_KEY = 'driver.editorStageRoute.v1'; // '0' = editor hides the stage route line
+export const EDITOR_REVERSE_ROUTE_STORAGE_KEY = 'driver.editorReverseRoute.v1'; // '1' = editor shows the reverse run's route line
 
 // ---------- Scenarios ----------
 // Official scenarios: this repo's main branch. Custom ones: any fork/branch, as `owner/repo@branch`.
