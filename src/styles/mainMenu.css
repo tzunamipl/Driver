@@ -47,6 +47,12 @@
   width: min(220px, calc(100vw - 56px));
   padding: 8px 0 2px;
 }
+.menu-version {
+  margin-top: 8px;
+  margin-bottom: 0;
+  color: #555;
+  text-align: right;
+}
 #main-menu .menu-buttons button {
   min-height: 34px;
   font-size: 22px;

@@ -197,6 +197,7 @@ const graphicsDetailPicker = createGraphicsDetailPicker();
 const gameplaySettings = createGameplaySettings();
 const graphicsToggles = createGraphicsToggles();
 // Picks the game mode, and so the save slot everything below resumes from.
+createVersionBadge();
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();
 
@@ -514,7 +515,6 @@ const minimapHud = createMinimapHud({
   getRouteState: routeGuidance.getState,
   ...(isRallyGame && { defaultZoom: MINIMAP_RALLY_DEFAULT_ZOOM, storageKey: `${MINIMAP_STORAGE_KEY}.rally` }),
 });
-createVersionBadge();
 createFpsCounter();
 createFpsGraph();
 

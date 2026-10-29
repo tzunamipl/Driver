@@ -32,6 +32,8 @@ export function createHitchProfiler(renderer) {
   const observers = [];
   let prevResources = null;
   let seenPrograms = new Set();
+  // What the previous frame created: a long wait before a frame is usually the GPU process working through it.
+  let prevCreatedLabel = '';
   // The browser stops frames for a hidden tab: that gap isn't a hitch.
   let wasHidden = false;
   document.addEventListener('visibilitychange', () => {
@@ -164,6 +166,11 @@ export function createHitchProfiler(renderer) {
       const programs = renderer.info.programs ?? [];
       const newPrograms = created.length ? programs.filter((p) => !seenPrograms.has(p)) : [];
       seenPrograms = new Set(programs);
+      const createdLabel = created.length
+        ? `new ${created.map(([key, d]) => `${key} +${d}`).join(', ')}` + (newPrograms.length ? ` (${newPrograms.map(programLabel).join(', ')})` : '')
+        : '';
+      const createdBefore = prevCreatedLabel;
+      prevCreatedLabel = createdLabel;
       if (inFrame + between < HITCH_MS) return;
 
       const top = [...sections]
@@ -173,8 +180,8 @@ export function createHitchProfiler(renderer) {
         .join(' · ');
       report(
         `Hitch ${(inFrame + between).toFixed(0)} ms (in frame ${inFrame.toFixed(0)}, between frames ${between.toFixed(0)}): ${top || '-'}` +
-          (created.length ? ` | new ${created.map(([key, d]) => `${key} +${d}`).join(', ')}` : '') +
-          (newPrograms.length ? ` (${newPrograms.map(programLabel).join(', ')})` : ''),
+          (createdLabel ? ` | ${createdLabel}` : '') +
+          (between && createdBefore ? ` | frame before: ${createdBefore}` : ''),
         windowStart,
         now,
         gap,
