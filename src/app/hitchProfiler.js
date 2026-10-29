@@ -1,4 +1,4 @@
-// Debug (?profile in the URL): logs every frame over HITCH_MS with where the time went -
+// Debug (?profile in the URL, ?profile=80 = threshold in ms): logs every frame over HITCH_MS with where the time went -
 // main-loop sections, streaming tasks, time between frames (async callbacks: tile decodes,
 // worker results, GC) and GPU resources created (texture uploads, shader compiles).
 // Chrome also names the scripts behind it (Long Animation Frames API). GPU time per frame where
@@ -7,7 +7,6 @@
 // "main thread stalled" = longest gap in a 10 ms timer heartbeat (any browser): JS / GC blocked it;
 // a big idle with a small stall = the main thread was free and the GPU process / compositor / OS held the frame.
 
-const HITCH_MS = 150;
 const SECTION_MIN_MS = 1; // smaller sections are left out of the log
 const SCRIPT_MIN_MS = 5;
 const MAX_SCRIPTS = 5;
@@ -16,7 +15,9 @@ const REPORT_DELAY_MS = 200;
 const GPU_FRAMES_KEPT = 120; // per-frame GPU times kept for the delayed report
 const TICK_MS = 10;
 
-export const PROFILE_ENABLED = new URLSearchParams(location.search).has('profile');
+const PROFILE_PARAM = new URLSearchParams(location.search).get('profile');
+export const PROFILE_ENABLED = PROFILE_PARAM !== null;
+const HITCH_MS = Number(PROFILE_PARAM) || 150;
 
 const NOOP = { begin() {}, mark() {}, end() {} };
 
