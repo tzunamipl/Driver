@@ -6,15 +6,15 @@
 
 const LOST_POWER_FACTOR = 0.8;
 // Impact speed (m/s, along the contact normal) that starts to hurt, and the one that takes HIT_MAX_WEAR.
-const TAIL_MIN_MS = 4;
-const TAIL_FULL_MS = 14;
-const UNDER_MIN_MS = 3;
-const UNDER_FULL_MS = 12;
-const HIT_MAX_WEAR = 0.6;
+const TAIL_MIN_MS = 5;
+const TAIL_FULL_MS = 18;
+const UNDER_MIN_MS = 4;
+const UNDER_FULL_MS = 16;
+const HIT_MAX_WEAR = 0.35;
 const FRONT_UNDER_SHARE = 0.4; // floor strikes ahead of the middle mostly miss the pipe
 // One crash fires contacts over several steps: within this window only the hardest one counts.
 const HIT_WINDOW_S = 0.5;
-const SCRAPE_WEAR_PER_M = 0.0015;
+const SCRAPE_WEAR_PER_M = 0.0008;
 const DEBUG_WEAR = 0.25;
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));

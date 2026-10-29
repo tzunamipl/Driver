@@ -39,6 +39,7 @@ import { createPostHitSound } from './lib/audio/postHit.js';
 import { createPedestrianSounds } from './lib/audio/pedestrian.js';
 import { createSuspensionThud } from './lib/audio/suspensionThud.js';
 import { createTyrePopSound } from './lib/audio/tyrePop.js';
+import { createPartClunkSound } from './lib/audio/partClunk.js';
 import { createRimGrindSound } from './lib/audio/rimGrind.js';
 import { createHandbrakeSound } from './lib/audio/handbrake.js';
 import { createLightSwitchSound } from './lib/audio/lightSwitch.js';
@@ -302,6 +303,7 @@ const gravelSpinSound = createGravelSpinSound();
 const bodyScrapeSound = createBodyScrapeSound();
 const impactSound = createImpactSound();
 const tyrePopSound = createTyrePopSound();
+const partClunkSound = createPartClunkSound();
 const postHitSound = createPostHitSound();
 const places = createPlaces();
 const streetLampKind = createStreetLampKind(streets, builtUpAreas);
@@ -434,6 +436,7 @@ const carManager = createCarManager({
   bodyScrapeSound,
   impactSound,
   tyrePopSound,
+  partClunkSound,
   rimSparks,
   playerSpawnPos,
   startQuat: START_QUAT,

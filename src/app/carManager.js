@@ -13,6 +13,8 @@ import { getAirTempC } from '../lib/weather.js';
 
 // Impact speed (m/s, audio/impact.js) a breaking rim sounds like.
 const RIM_BREAK_THUD = 8;
+// Health share a single hit takes (radiator / sump / gearbox) that plays the loudest clunk.
+const PART_CLUNK_FULL_LOSS = 0.3;
 
 /**
  * initialFuel / initialTyres / initialHeat / initialBrakes / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
@@ -20,7 +22,7 @@ const RIM_BREAK_THUD = 8;
  * refillWhenEmpty false: an empty tank stays empty (no power) until refuelled.
  * noDamage: the car is repaired on spawn and takes no damage (editor).
  */
-export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialBrakes = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true, noDamage = false }) {
+export function createCarManager({ world, scene, pedestrians, debugVisuals, bodyDust, bodyScrapeSound, impactSound, tyrePopSound, partClunkSound, rimSparks, playerSpawnPos, startQuat, playerSpawnQuat, initialFuel = null, initialTyres = null, initialHeat = null, initialBrakes = null, initialDamage = null, repairOnReset = true, refillWhenEmpty = true, noDamage = false }) {
   let vehicle = null;
   let chassisMesh = null;
   // Chariot pod mesh (null for wheeled cars), for the pod camera view.
@@ -125,6 +127,9 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       const hitGroup = event.body.collisionFilterGroup;
       if (body === nextVehicle.chassisBody && nextVehicle.heat && !nextVehicle.noDamage && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
         const hit = endImpact(body, event.contact);
+        const { heat } = nextVehicle;
+        const gearbox = nextVehicle.engine.gearbox;
+        const before = [heat.radiatorHealth, heat.sumpHealth, gearbox.health];
         if (hit.end === 1) nextVehicle.heat.hitRadiator(hit.speed);
         if (hit.under) {
           nextVehicle.heat.hitSump(hit.speed);
@@ -133,6 +138,8 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
         nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
         nextVehicle.engine.gearbox.hit(hit.speed);
         nextVehicle.exhaust?.hit(hit);
+        const loss = Math.max(before[0] - heat.radiatorHealth, before[1] - heat.sumpHealth, before[2] - gearbox.health);
+        if (loss > 0) partClunkSound?.play(loss / PART_CLUNK_FULL_LOSS);
       }
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);

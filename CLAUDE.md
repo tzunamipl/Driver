@@ -63,7 +63,7 @@ cannon-es (physics), MQTT (multiplayer), Vite. No tests, no TS, no framework.
   - Audio: `audio/audioContext.js` = the one shared `AudioContext` (unlock on first gesture,
     `music`/`sfx`/`engine` buses, shared noise buffer); one file per sound in `audio/`
     (`engine.js` voices from `descriptor.engineSound`, `horn.js`, `music.js`, `tireSqueal.js`, `gravelSpin.js`, `bodyScrape.js`,
-    `waterWade.js`, `impact.js`, `postHit.js`, `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `coolantHiss.js`, `sparklePop.js`, `startBeep.js`, `repairTool.js` = impact-wrench sound on any repair). Never create another `AudioContext`.
+    `waterWade.js`, `impact.js`, `postHit.js`, `partClunk.js` (radiator / sump / gearbox damaged by a hit), `tyrePop.js`, `rimGrind.js`, `gearShift.js`, `backfire.js`, `coolantHiss.js`, `sparklePop.js`, `startBeep.js`, `repairTool.js` = impact-wrench sound on any repair). Never create another `AudioContext`.
   - Gameplay/net: `net.js` (MQTT room), `remoteCollisions.js`, `pedestrians.js` + points (`app/scoring.js`) both off via config `PEDESTRIANS_ENABLED` / `SCORING_ENABLED`; `hud/playersPanel.js` shows each player's distance (roster keeps their last network-frame x/z), `ball.js`,
     `shots.js`, `jump.js`, `carState.js` / `playerId.js` / `vehicleOdometers.js` (per-car km) (localStorage). `cloudSave.js` backs up save slots, profile and odometers through the worker (newer copy wins at launch).
 - Scenarios (data in the separate public repo `SCENARIOS_REPO`, format in its README; sources are `owner/repo@branch`):

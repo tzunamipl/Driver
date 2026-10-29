@@ -60,6 +60,7 @@ const NEAR_ZONE_M = 80;
 // Turn-around hint: straight-line distance to the next point growing this long.
 const WRONG_WAY_S = 5;
 const WRONG_WAY_RATE = 0.5; // m/s: slower changes (stopped, sliding about) neither count nor clear it
+const WRONG_WAY_TEXT = 'Wrong way – turn around';
 const PROGRESS_SAVE_S = 1; // throttle for the live stage's clock, alongside the car state
 // m/s: Inspect car shows once this slow, kept until faster than the second.
 const INSPECT_SHOW_SPEED = 0.8;
@@ -801,6 +802,10 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       status = next?.type === 'start' ? 'Stop at the start line' : near ? `Stop in the ${pointLabel(next?.type).toLowerCase()} zone` : `Drive to the ${pointLabel(next?.type).toLowerCase()}`;
     } else if (state.phase === 'countdown') status = 'Get ready…';
     else if (state.phase === 'afterFinish') status = 'Stop in the stop control zone';
+    const wrong = state.phase !== 'countdown' && wrongWay(`${itemIndex}|${state.next}`, next ? dist : null);
+    // Only the live stage gets the big centre warning; off it, the status line says so.
+    const onStage = state.phase === 'running';
+    if (wrong && !onStage) status = WRONG_WAY_TEXT;
     if (flash && simTime < flash.until) status = flash.text;
     return {
       title: `SS${ss} · ${stage.name}`,
@@ -808,7 +813,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       lights: state.phase === 'countdown' || run.lights().green ? run.lights() : null,
       status,
       next: next && dist != null && state.phase !== 'countdown' ? `Next: ${pointLabel(next.type)} · ${formatDistance(dist)}` : '',
-      warning: state.phase !== 'countdown' && wrongWay(`${itemIndex}|${state.next}`, next ? dist : null) ? 'Wrong way – turn around' : '',
+      warning: wrong && onStage ? WRONG_WAY_TEXT : '',
       penaltyMs: run.penaltyMs(),
       buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : []), ...(run.isLive() ? ['retire'] : [])],
     };
@@ -1015,11 +1020,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const gate = scenery.getGate(0);
     const pos = carPosition();
     const dist = gate && pos ? Math.hypot(gate.x - pos.x, gate.z - pos.z) : null;
+    const wrong = wrongWay(`${itemIndex}`, dist);
     return {
       title: plan.name,
-      status: flash && simTime < flash.until ? flash.text : liaisonStatus(item.point.type, dist),
+      status: flash && simTime < flash.until ? flash.text : wrong ? WRONG_WAY_TEXT : liaisonStatus(item.point.type, dist),
       next: dist == null ? '' : `${pointLabel(item.point.type)} · ${formatDistance(dist)}`,
-      warning: wrongWay(`${itemIndex}`, dist) ? 'Wrong way – turn around' : '',
       buttons: [...(stopped && onInspect ? ['inspect'] : []), ...(skipTarget() ? ['skipLiaison'] : [])],
     };
   }
