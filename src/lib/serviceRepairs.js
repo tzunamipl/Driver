@@ -10,6 +10,7 @@ import { repairPlan, applyRepair } from './partRepair.js';
 import { SPARE_FIT_PENALTY_MS } from './spareTyres.js';
 import { CAN_L, SUPPLY_KEYS, fullSupplies } from './supplies.js';
 import { RESERVE_FRACTION } from './fuel.js';
+import { METAL_DEPTH } from './bodyScratches.js';
 import { formatVolume, formatTemp, volumeValue, volumeUnit } from './units.js';
 
 export const SERVICE_ZONES = {
@@ -45,6 +46,9 @@ const DISC_REPLACE_MIN = 5;
 const PIPE_FIX_MIN = 4;
 const PIPE_REPLACE_MIN = 8;
 const BLEED_MIN = 3;
+const POLISH_MIN = 4;
+const RESPRAY_MIN = 15;
+const WASH_MIN = 3;
 // A service adds at most this much fuel (refuel zones fill the tank).
 const SERVICE_FUEL_L = 5;
 const FIX_HINT = { fix: 'Fixes 40-60% of the damage, 20-40% of new damage after that', field: 'Fixes 10-30% of the damage, 5-15% of new damage after that' };
@@ -58,6 +62,20 @@ const LOW_FUEL = 0.125;
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 // Brake rotor shown hot from this share of its pad fade (lib/brakes.js fade()).
 const HOT_BRAKE_FADE = 0.95;
+
+function washCar(vehicle) {
+  vehicle.bodyDirt.wash();
+  for (const wheel of vehicle.wheelInfos) wheel.rimDirt = 0;
+}
+
+/** Paint condition for repair lists: how many scratches and how deep the worst goes. */
+export function paintNote(scratches) {
+  const count = scratches.patches.length;
+  if (!count) return 'clean';
+  const deepest = scratches.deepest();
+  const depth = deepest >= METAL_DEPTH ? 'bare metal' : 'scuffed';
+  return `${count} ${count === 1 ? 'scratch' : 'scratches'} · ${depth}`;
+}
 
 export const latePenaltyMs = (usedMin, budgetMin) => Math.ceil(Math.max(0, usedMin - budgetMin)) * LATE_PENALTY_MS_PER_MIN;
 
@@ -340,6 +358,37 @@ export function carParts(vehicle) {
       verdict: exhaust.detached ? 'bad' : verdictOf(h),
       anchor: 'exhaust',
       actions: h < GOOD ? [...fixes, { kind: 'replace', label: 'New exhaust', minutes: EXHAUST_REPLACE_MIN, remote: false, apply: () => exhaust.repair() }] : [],
+    });
+  }
+
+  const scratches = vehicle.bodyScratches;
+  if (scratches) {
+    const deepest = scratches.deepest();
+    const scuffs = scratches.patches.some((p) => p.depth < METAL_DEPTH);
+    const actions = [];
+    if (scuffs) actions.push({ kind: 'fix', label: 'Polish', minutes: POLISH_MIN, remote: true, hint: 'Polishes out the scuffs; bare metal stays', apply: () => scratches.polish() });
+    if (deepest > 0) actions.push({ kind: 'replace', label: 'Respray', minutes: RESPRAY_MIN, remote: false, apply: () => scratches.repair() });
+    parts.push({
+      group: 'Body',
+      label: 'Paintwork',
+      level: 1 - deepest,
+      note: paintNote(scratches),
+      verdict: deepest <= 0 ? 'good' : deepest < METAL_DEPTH ? 'warn' : 'bad',
+      anchor: scratches.anchor() ? { local: scratches.anchor() } : null,
+      actions,
+    });
+  }
+
+  const dirt = vehicle.bodyDirt;
+  if (dirt) {
+    parts.push({
+      group: 'Body',
+      label: 'Body dirt',
+      level: 1 - dirt.level,
+      note: `dirt ${pct(dirt.level)}`,
+      verdict: dirt.level < 1 - GOOD ? 'good' : dirt.level < 1 - POOR ? 'warn' : 'bad',
+      anchor: null,
+      actions: dirt.level >= 0.02 || vehicle.wheelInfos.some((w) => w.rimDirt >= 0.02) ? [{ kind: 'fix', label: 'Wash', minutes: WASH_MIN, remote: true, hint: 'Body and rims', apply: () => washCar(vehicle) }] : [],
     });
   }
 

@@ -74,7 +74,7 @@ import { loadOrCreatePlayerId } from './lib/playerId.js';
 import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
 import { migrateStoredVehicleIds } from './lib/vehicleIdMigration.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, SCORE_PER_CAR_HIT, SCORING_ENABLED, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, TIME_SCALE, SCORE_PER_CAR_HIT, SCORING_ENABLED, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -234,7 +234,7 @@ const rallyStart = planStart(rallyInitialPick?.plan);
 const { renderer, scene, camera, renderView, compileView, colorGrade } = createSceneEnvironment();
 const daylight = createDaylight({ scene, ...createLighting(scene), onFog: (share) => colorGrade?.setFog(share) });
 // Free roam runs on the real time of day; other modes keep the fast cycle (or their own clock, rally).
-if (isFreeRoam) daylight.setClock(Date.now);
+if (isFreeRoam && TIME_SCALE === 1) daylight.setClock(Date.now);
 const weatherFeed = createWeatherFeed();
 
 // ---------- View frame ----------
@@ -500,7 +500,7 @@ const gearstickHud = createGearstickHud();
 const terrainStatsHud = createTerrainStatsHud();
 const streamingStatus = createStreamingStatus();
 const suspensionHud = createSuspensionHud();
-const engineHud = createEngineHud();
+const engineHud = createEngineHud({ partClunkSound });
 const tyreHud = createTyreHud();
 const bodyHud = createBodyHud();
 const brakeHud = createBrakeHud();

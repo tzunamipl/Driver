@@ -5,6 +5,7 @@ const NARROW = '(max-width: 800px)';
 
 const el = (tag, className, textContent = '') => Object.assign(document.createElement(tag), { className, textContent });
 const MARKS = { done: '✓', current: '▶' };
+const ICONS = { service: '🔧', refuel: '⛽', tyres: '🛞', parc: '🅿️', podium: '🏆', parkIn: '↘', parkOut: '↗' };
 
 export function createRallyPlanHud() {
   const root = document.getElementById('rally-plan');
@@ -19,7 +20,7 @@ export function createRallyPlanHud() {
 
   return {
     /**
-     * @param {{title: string, rows: {label: string, value?: string, state: 'done' | 'current' | ''}[]} | null} view
+     * @param {{title: string, rows: {label: string, value?: string, state: 'done' | 'current' | '', icon?: 'service' | 'refuel' | 'tyres' | 'parc' | 'podium' | 'parkIn' | 'parkOut' | '', endsDay?: boolean}[]} | null} view
      *   - null hides the panel.
      */
     render(view) {
@@ -27,9 +28,12 @@ export function createRallyPlanHud() {
       if (!view) return;
       name.textContent = view.title;
       list.replaceChildren(
-        ...view.rows.map(({ label, value, state }) => {
-          const row = el('div', `rally-plan-row${state ? ` ${state}` : ''}`);
-          row.append(el('span', 'rally-plan-mark', MARKS[state] ?? ''), el('span', 'rally-plan-label', label), el('span', 'rally-plan-value', value ?? ''));
+        ...view.rows.map(({ label, value, state, icon, endsDay }) => {
+          const row = el('div', `rally-plan-row${state ? ` ${state}` : ''}${endsDay ? ' ends-day' : ''}`);
+          // The tick replaces the icon once passed; the current row is already highlighted.
+          const iconMark = state !== 'done' && ICONS[icon];
+          const mark = el('span', `rally-plan-mark${iconMark ? ' icon' : ''}`, iconMark || (MARKS[state] ?? ''));
+          row.append(mark, el('span', 'rally-plan-label', label), el('span', 'rally-plan-value', value ?? ''));
           return row;
         })
       );

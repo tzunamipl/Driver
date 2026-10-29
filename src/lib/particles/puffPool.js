@@ -18,11 +18,12 @@ const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 /**
  * @param {THREE.Scene} scene
- * @param {{size: number, lifetime: number, startScale: number, drag: number, colors: [number, number], glow?: boolean}} opts
+ * @param {{size: number, lifetime: number, startScale: number, drag: number, colors: [number, number], glow?: boolean, buoyancy?: number}} opts
  *   drag multiplies velocity each second; colors are picked 50/50 per puff;
- *   glow = additive and untinted (self-lit, e.g. flames).
+ *   glow = additive and untinted (self-lit, e.g. flames);
+ *   buoyancy = steady upward acceleration (m/s²), so puffs keep drifting up after drag.
  */
-export function createPuffPool(scene, { size, lifetime, startScale, drag, colors, glow = false }) {
+export function createPuffPool(scene, { size, lifetime, startScale, drag, colors, glow = false, buoyancy = 0 }) {
   const pool = [];
   const blending = glow ? THREE.AdditiveBlending : THREE.NormalBlending;
   for (let i = 0; i < size; i++) {
@@ -82,6 +83,7 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
         continue;
       }
       p.velocity.multiplyScalar(dragFactor);
+      p.velocity.y += buoyancy * dt;
       p.mesh.position.addScaledVector(p.velocity, dt);
       const t = 1 - p.life / lifetime;
       p.mesh.scale.setScalar(startScale + (p.endScale - startScale) * t);

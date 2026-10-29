@@ -28,7 +28,7 @@ function localBounds(body) {
 /**
  * Anchors: { wheel: i } (its centre), { shock: i } (its top mount), { lamp: 'head' | 'tail', side }, { circuit: 'front' | 'rear' } (brake pipe under that end),
  * 'front' (radiator), 'engine' (under the bonnet), 'under' (the floor's middle), 'filler' (left rear quarter),
- * 'exhaust' (vehicle.exhaust.anchor, else the rear bottom).
+ * 'exhaust' (vehicle.exhaust.anchor, else the rear bottom), { local: [x, y, z] } (a chassis-local point).
  * @param {object} deps
  * @param {HTMLCanvasElement} deps.canvas
  * @param {THREE.Camera} deps.camera
@@ -47,7 +47,8 @@ export function createPartCallouts({ canvas, camera }) {
     if (anchor.shock != null) return vehicle.wheelInfos[anchor.shock].connectionPointWorld;
     const { min, max } = bounds;
     const midY = (min.y + max.y) / 2;
-    if (anchor.lamp) local.set((anchor.side === 0 ? 1 : -1) * max.x * LAMP_SIDE_SHARE, midY, anchor.lamp === 'head' ? max.z : min.z);
+    if (anchor.local) local.fromArray(anchor.local);
+    else if (anchor.lamp) local.set((anchor.side === 0 ? 1 : -1) * max.x * LAMP_SIDE_SHARE, midY, anchor.lamp === 'head' ? max.z : min.z);
     else if (anchor.circuit) local.set(0, min.y, (anchor.circuit === 'front' ? max.z : min.z) * CIRCUIT_SHARE);
     else if (anchor === 'front') local.set(0, midY, max.z);
     else if (anchor === 'engine') local.set(0, max.y, max.z * 0.6);

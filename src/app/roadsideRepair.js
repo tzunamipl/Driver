@@ -1,11 +1,12 @@
 // Free roam: with the car nearly stopped, a floating button points at each damaged part
 // (flat or worn tyre, broken rim, worn shock, worn brake disc / drum, leaking brake pipe / low brake fluid, leaking radiator / low coolant,
-// worn skid plate, cracked sump / low oil, worn engine, broken lamp, worn gearbox, loose or lost exhaust, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
+// worn skid plate, cracked sump / low oil, worn engine, broken lamp, worn gearbox, loose or lost exhaust, scratched paint, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
 // With two or more, a big Fix all button fixes everything at once. Resets and teleports don't fix the car.
 
 import { createPartCallouts } from './partCallouts.js';
 import { RESERVE_FRACTION } from '../lib/fuel.js';
 import { formatVolume } from '../lib/units.js';
+import { paintNote } from '../lib/serviceRepairs.js';
 
 // Tread below this offers a fresh tyre (the tyre service dialog's "Worn").
 const WORN_TREAD = 0.35;
@@ -86,6 +87,11 @@ function damagedParts(vehicle) {
   const exhaust = vehicle.exhaust;
   if (exhaust && exhaust.health < WORN_EXHAUST) {
     parts.push({ label: 'Replace exhaust', note: exhaust.detached ? 'Fell off · power -20%' : `Health ${pct(exhaust.health)}`, anchor: 'exhaust', fix: () => exhaust.repair() });
+  }
+  const scratches = vehicle.bodyScratches;
+  if (scratches?.patches.length) {
+    const at = scratches.anchor();
+    parts.push({ label: 'Respray body', note: paintNote(scratches), anchor: at ? { local: at } : 'front', fix: () => scratches.repair() });
   }
   return parts;
 }

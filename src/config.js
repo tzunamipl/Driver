@@ -18,15 +18,13 @@ export const ORIGIN_LON = 17.0385;
 
 // Day-night cycle speed outside free roam (real time) and rally (own clock): 1 = real time. Faster cycles wrap within today's
 // real date, so the sun's seasonal path always matches the actual date.
-export const TIME_SCALE = 24;
+export const TIME_SCALE = 1;
 // Sun / moon disc colour by the body's own elevation above the horizon (deg),
 // blended linearly between keys and held past the ends. Keys sorted by `el`.
 export const SUN_DISC_COLORS = [
-  { el: -2, color: 0xff6a30 },
-  { el: 2, color: 0xff8a40 },
-  { el: 8, color: 0xffd070 },
-  { el: 20, color: 0xfff2a0 },
-  { el: 40, color: 0xfffbe0 },
+  { el: -2, color: 0xff4810 },
+  { el: 3, color: 0xff6418 },
+  { el: 8, color: 0xffffff },
 ];
 export const MOON_DISC_COLORS = [
   { el: -2, color: 0xffa060 },
@@ -335,6 +333,7 @@ export const SCENARIO_FORMAT = 3; // files with a newer format are rejected; 3 =
 export const EDITOR_SNAP_RADIUS_M = 40; // placed gates snap to a road centreline within this
 export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // worker/; unset = no online times or editor saves
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }
+export const RALLY_RUNS_STORAGE_KEY = 'driver.rallyRuns.v1'; // stage / rally run history: { key: [{ totalMs, vehicle, at }] }
 
 // ---------- Cloud save ----------
 // Backup of save slots, profile and odometers through the worker (lib/cloudSave.js), keyed by the player id.

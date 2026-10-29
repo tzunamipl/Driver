@@ -6,6 +6,8 @@
 //     surface's dirtLevel (higher when wet: mud); tyres fling it off faster with speed.
 //   wheel.wetness 0 dry .. 1 soaked: soaked in water, dries as it rolls; never
 //     below the weather's wetness.
+//   wheel.rimDirt 0 clean .. 1 caked: the rim, flung on by its own tyre's dirt plus
+//     slow grime / brake dust, rinsed in water; clean again on a new wheel.
 import { getAirTempC, getWetness } from '../weather.js';
 import { getTyreCompound } from './compounds.js';
 import { getSurfaceCompound } from '../surfaceCompounds.js';
@@ -36,6 +38,10 @@ const DIRT_SHED_PER_M = 1 / 500;
 const DIRT_FLING_SPEED = 20;
 // Water washes dirt off per metre (or per second standing in it).
 const WASH_PER_M = 1 / 8;
+// Rim dirt per metre rolled: share of the clean rim caked at tyre dirt 1, grime on any surface, rinse in water.
+const RIM_FLING_PER_M = 1 / 1500;
+const RIM_GRIME_PER_M = 1 / 100_000;
+const RIM_RINSE_PER_M = 1 / 30;
 // Wet surfaces cake up to this much more (mud).
 const MUD_DIRT_GAIN = 1;
 // Wetness: soaking per second in water, drying per metre rolled and per second.
@@ -58,6 +64,7 @@ export function initCondition(wheel) {
 export function freshCondition(wheel) {
   wheel.tempC = getAirTempC();
   wheel.dirt = 0;
+  wheel.rimDirt = 0;
   wheel.wetness = getWetness();
 }
 
@@ -121,8 +128,10 @@ export function updateCondition(wheel, surfaceKey, frictionForceN, slipSpeed, ro
   if (!surface) return;
   if (inWater) {
     wheel.dirt = Math.max(0, wheel.dirt - Math.max(rolledM, dt) * WASH_PER_M);
+    wheel.rimDirt *= Math.max(0, 1 - Math.max(rolledM, dt) * RIM_RINSE_PER_M);
     return;
   }
+  wheel.rimDirt += (1 - wheel.rimDirt) * rolledM * (wheel.dirt * RIM_FLING_PER_M + RIM_GRIME_PER_M);
   const target = Math.min(1, (surface.dirtLevel ?? 0) * (1 + MUD_DIRT_GAIN * wheel.wetness));
   if (wheel.dirt < target) {
     wheel.dirt = Math.min(target, wheel.dirt + rolledM * DIRT_PICKUP_PER_M * (c.dirtPickup ?? 1));
@@ -132,7 +141,7 @@ export function updateCondition(wheel, surfaceKey, frictionForceN, slipSpeed, ro
 }
 
 /** Saved condition fields. */
-export const conditionState = (wheel) => ({ tempC: wheel.tempC, dirt: wheel.dirt, wetness: wheel.wetness });
+export const conditionState = (wheel) => ({ tempC: wheel.tempC, dirt: wheel.dirt, rimDirt: wheel.rimDirt, wetness: wheel.wetness });
 
 /** Restores saved condition; `parkedS` cools the tread back towards outside temperature. */
 export function setConditionState(wheel, s, parkedS = 0) {
@@ -143,5 +152,6 @@ export function setConditionState(wheel, s, parkedS = 0) {
     wheel.tempC = getAirTempC() + (tempC - getAirTempC()) * Math.exp((-still * Math.max(0, parkedS)) / wheel.treadHeatCapacity);
   }
   wheel.dirt = num(s?.dirt, 0, 1) ?? wheel.dirt;
+  wheel.rimDirt = num(s?.rimDirt, 0, 1) ?? wheel.rimDirt;
   wheel.wetness = Math.max(getWetness(), num(s?.wetness, 0, 1) ?? wheel.wetness);
 }

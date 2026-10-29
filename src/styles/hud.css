@@ -272,7 +272,22 @@
   text-align: center;
   pointer-events: auto;
 }
-.repair-callout-fit { color: #000; font-weight: bold; }
+.repair-callout-fit {
+  padding: 2px 10px;
+  border: 1px solid #f6c900;
+  font-weight: bold;
+}
+.repair-callout-fit,
+#repair-fix-all {
+  color: #000;
+  background: #efefef;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.repair-callout-fit:hover,
+#repair-fix-all:hover { background: #ffe680; }
+.repair-callout-fit:active,
+#repair-fix-all:active { background: #f6c900; }
 .repair-callout-note { margin-top: 4px; font-size: 11px; color: #ffd7a0; }
 /* Free roam: fixes every damaged part at once (app/roadsideRepair.js). */
 #repair-fix-all {
@@ -285,8 +300,9 @@
   font-family: var(--w95-font);
   font-size: 18px;
   font-weight: bold;
-  color: #000;
   border: 3px solid #f6c900;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.72);
 }
 #repair-fix-all[hidden] { display: none; }
+/* The unfolded Navigation panel covers the screen; don't float repairs over it. */
+body:has(#nav-panel:not(.collapsed)) :is(#repair-callouts, #repair-fix-all) { display: none; }

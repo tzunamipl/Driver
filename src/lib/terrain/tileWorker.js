@@ -16,8 +16,10 @@ const ELEVATION_CACHE_SIZE = 96;
 // Zoom levels to step up for a missing aerial tile (6: one ancestor pixel per 4x4 output pixels).
 const AERIAL_FALLBACK_LEVELS = 6;
 const ELEVATION_MAX_ZOOM = 15; // Terrarium's deepest level; finer tiles crop their ancestor
-// Terrarium serves some holes as HTTP 200 all-black PNGs (-32768 m); nothing real is this deep.
-const ELEVATION_NODATA_BELOW = -12000;
+// Terrarium serves some holes as HTTP 200 all-black PNGs (-32768 m) and some coasts with deep spikes;
+// below the lowest dry land (~-430 m) is treated as no-data, since the sea draws flat over it anyway.
+const ELEVATION_NODATA_BELOW = -500;
+const ELEVATION_HOLE_BELOW = -12000; // genuine holes, logged as a fallback (deep sea fills silently)
 const elevationCache = new Map(); // "z/x/y" -> Promise<{heights, width, height} | {error}>
 
 const controllers = new Map(); // job id -> AbortController
@@ -98,7 +100,11 @@ async function decodeFilledElevation(z, x, y) {
   if (elev.error) return elev;
   const { heights, width: W, height: H } = elev;
   if (!heights.some((h) => h < ELEVATION_NODATA_BELOW)) return elev;
-  if (z === 0) return { error: `no data for ${z}/${x}/${y}`, nodata: true };
+  if (z === 0) {
+    for (let i = 0; i < heights.length; i++) heights[i] = Math.max(heights[i], ELEVATION_NODATA_BELOW);
+    return elev;
+  }
+  const holes = heights.some((h) => h < ELEVATION_HOLE_BELOW);
   const parent = await cachedElevation(z - 1, x >> 1, y >> 1);
   if (parent.error) return parent;
   const { heights: ph, width: PW, height: PH } = parent;
@@ -119,7 +125,7 @@ async function decodeFilledElevation(z, x, y) {
       heights[i] = top * (1 - v) + bottom * v;
     }
   }
-  return { heights, width: W, height: H, fallbackZoom: parent.fallbackZoom ?? z - 1 };
+  return { heights, width: W, height: H, fallbackZoom: holes ? (parent.fallbackZoom ?? z - 1) : parent.fallbackZoom };
 }
 
 /** Cached decode of tile (z, x, y); the result is shared - never transfer or mutate it. */
@@ -130,8 +136,8 @@ function cachedElevation(z, x, y) {
     elevationCache.delete(key); // re-insert as most recent
   } else {
     promise = decodeFilledElevation(z, x, y);
-    // Failures aren't cached, so a retry refetches; no-data is a permanent answer.
-    promise.then((elev) => elev.error && !elev.nodata && elevationCache.get(key) === promise && elevationCache.delete(key));
+    // Failures aren't cached, so a retry refetches.
+    promise.then((elev) => elev.error && elevationCache.get(key) === promise && elevationCache.delete(key));
   }
   elevationCache.set(key, promise);
   while (elevationCache.size > ELEVATION_CACHE_SIZE) elevationCache.delete(elevationCache.keys().next().value);

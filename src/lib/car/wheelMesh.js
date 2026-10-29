@@ -12,6 +12,11 @@ const TYRE_COLOR = new THREE.Color(0x1a1a1a);
 const MUD_COLOR = new THREE.Color(0x6b4a2b);
 // Dirt (0..1) at which the tread is fully brown; the sidewalls brown from there to fully caked.
 const TREAD_BROWN_AT = 0.5;
+// Rim at rim dirt 1 (tyres/condition.js wheel.rimDirt): this share of the colour turned to grime, and dull.
+const RIM_GRIME_COLOR = new THREE.Color(0x5a4632);
+const RIM_GRIME_SHARE = 0.8;
+const RIM_DIRTY_ROUGHNESS = 0.9;
+const RIM_DIRTY_METALNESS = 0.15;
 // Wet rubber: a water film (clearcoat) reflecting the sky, smoother underneath.
 const DRY_ROUGHNESS = 0.9;
 const WET_ROUGHNESS = 0.5;
@@ -91,6 +96,25 @@ function setRim(wheel, rimStyle, rimColor) {
   }
   rim.group = buildRim(rimStyle, rimColor, rim.radius, rim.width, rim.segments, rim.side);
   rim.oval.add(rim.group);
+  const mat = rim.group.userData.paintMat;
+  rim.clean = { color: mat.color.clone(), roughness: mat.roughness, metalness: mat.metalness };
+  applyRimDirt(rim, rim.dirt ?? 0);
+}
+
+function applyRimDirt(rim, dirt) {
+  rim.dirt = dirt;
+  const mat = rim.group.userData.paintMat;
+  mat.color.lerpColors(rim.clean.color, RIM_GRIME_COLOR, dirt * RIM_GRIME_SHARE);
+  mat.roughness = THREE.MathUtils.lerp(rim.clean.roughness, RIM_DIRTY_ROUGHNESS, dirt);
+  mat.metalness = THREE.MathUtils.lerp(rim.clean.metalness, RIM_DIRTY_METALNESS, dirt);
+}
+
+/** Dulls and browns a wheel set's rims by its wheel's rim dirt 0..1. */
+export function setRimDirt(wheelSet, dirt) {
+  wheelSet.traverse((obj) => {
+    const rim = obj.userData.rim;
+    if (rim && rim.dirt !== dirt) applyRimDirt(rim, dirt);
+  });
 }
 
 /** Swaps the rims of a wheel set (one wheel or a dual set) for `spec`'s (rims.js resolveRim). */

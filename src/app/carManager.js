@@ -15,6 +15,7 @@ import { getAirTempC } from '../lib/weather.js';
 const RIM_BREAK_THUD = 8;
 // Health share a single hit takes (radiator / sump / gearbox) that plays the loudest clunk.
 const PART_CLUNK_FULL_LOSS = 0.3;
+const PART_CLUNK_NAMES = ['radiator', 'sump', 'gearbox'];
 
 /**
  * initialFuel / initialTyres / initialHeat / initialBrakes / initialDamage: { vehicleId, ... } from the save; respawns of that vehicle keep them.
@@ -50,7 +51,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   let currentTyreSetup = null; // null: the mode's pick for the vehicle (lib/garage.js)
   let carriedBrakes = initialBrakes; // { vehicleId, savedAt?, ...lib/brakes.js getState() }; savedAt (save only) cools the rotors by the time away
   let carriedHeat = initialHeat; // { vehicleId, savedAt?, ...engineHeat getState() }; savedAt (save only) cools the engine by the time away
-  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, exhaust: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level }
+  let carriedDamage = initialDamage; // { vehicleId, shocks: [health per wheel], lamps: lampDamage getState(), gearbox: health, exhaust: health, repairs: car.js getRepairState(), supplies, dirt: body dirt level, scratches: bodyScratches getState() }
   let carVehicleId = null; // vehicle id the current car was built as
 
   /** Takes no damage for `seconds` (a teleport drop landing), unless already noDamage for good. */
@@ -77,7 +78,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
   function getDamageState() {
     if (!vehicle?.lamps) return null;
     const { getShockState, lamps, engine, getRepairState, supplies } = vehicle;
-    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), exhaust: vehicle.exhaust.getState(), repairs: getRepairState(), supplies, dirt: vehicle.bodyDirt.getState() };
+    return { vehicleId: carVehicleId, shocks: getShockState(), lamps: lamps.getState(), gearbox: engine.gearbox.getState(), exhaust: vehicle.exhaust.getState(), repairs: getRepairState(), supplies, dirt: vehicle.bodyDirt.getState(), scratches: vehicle.bodyScratches.getState() };
   }
 
   function getTyreState() {
@@ -116,6 +117,7 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
       nextVehicle.setRepairState(carriedDamage.repairs);
       nextVehicle.setSupplies(carriedDamage.supplies);
       nextVehicle.bodyDirt.setState(carriedDamage.dirt);
+      nextVehicle.bodyScratches.setState(carriedDamage.scratches);
     }
     if (noDamage) nextVehicle.setNoDamage?.();
     nextVehicle.onTyrePop = (i) => {
@@ -138,8 +140,12 @@ export function createCarManager({ world, scene, pedestrians, debugVisuals, body
         nextVehicle.lamps?.hit(hit.end, hit.x, hit.speed);
         nextVehicle.engine.gearbox.hit(hit.speed);
         nextVehicle.exhaust?.hit(hit);
-        const loss = Math.max(before[0] - heat.radiatorHealth, before[1] - heat.sumpHealth, before[2] - gearbox.health);
-        if (loss > 0) partClunkSound?.play(loss / PART_CLUNK_FULL_LOSS);
+        const losses = [before[0] - heat.radiatorHealth, before[1] - heat.sumpHealth, before[2] - gearbox.health];
+        const loss = Math.max(...losses);
+        if (loss > 0) partClunkSound?.play(loss / PART_CLUNK_FULL_LOSS, PART_CLUNK_NAMES[losses.indexOf(loss)]);
+      }
+      if (nextVehicle.bodyScratches && !nextVehicle.noDamage && (hitGroup === BUILDING_COLLISION_GROUP || hitGroup === GROUND_COLLISION_GROUP)) {
+        nextVehicle.bodyScratches.contact(body, event.contact, body === nextVehicle.chassisBody ? 0 : 1);
       }
       if (event.body.collisionFilterGroup === BUILDING_COLLISION_GROUP) {
         applyImpactRoll(body, event.contact);

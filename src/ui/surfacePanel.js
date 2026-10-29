@@ -4,6 +4,7 @@
 
 import { STAGE_SURFACES, STAGE_SURFACE_IDS } from '../lib/rally/stageSurfaces.js';
 import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
+import { iconButton } from './editorPanel.js';
 
 function el(tag, props = {}, children = []) {
   const node = Object.assign(document.createElement(tag), props);
@@ -31,10 +32,10 @@ export function createSurfacePanel(editor) {
 
   const toggle = button('Surfaces', null, { className: 'editor-toggle debug-fold-title' });
   const newButtons = surfaceButtons((id) => editor.setNewSectionSurface(id));
-  const startButton = button('Start at car', () => editor.markSectionStart(), {
+  const startButton = iconButton('startAt', 'Start at car', () => editor.markSectionStart(), {
     title: 'The new section starts where the car is on the stage road (from the start through splits and passage controls to the finish).',
   });
-  const endButton = button('End at car', () => editor.markSectionEnd(), {
+  const endButton = iconButton('endAt', 'End at car', () => editor.markSectionEnd(), {
     title: 'The new section ends where the car is. It wins over the sections it overlaps; touching ones of the same surface join.',
   });
   const cancelButton = button('Cancel', () => editor.cancelSectionStart());
@@ -45,8 +46,8 @@ export function createSurfacePanel(editor) {
   const selectedEl = el('div', { className: 'editor-selected' }, [
     el('div', { className: 'editor-buttons editor-kinds editor-place' }, surfaceEls),
     el('div', { className: 'editor-buttons' }, [
-      button('Go to', () => editor.goToSection(), { title: 'Teleport to the start of this section' }),
-      button('Delete', () => editor.deleteSection()),
+      iconButton('goTo', 'Go to', () => editor.goToSection(), { title: 'Teleport to the start of this section' }),
+      iconButton('delete', 'Delete', () => editor.deleteSection()),
     ]),
   ]);
   const hintEl = el('p', {

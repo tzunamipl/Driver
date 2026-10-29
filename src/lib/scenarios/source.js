@@ -1,8 +1,9 @@
 // Scenario sources: a GitHub repo + branch, written `owner/repo@branch`. The branch is
 // resolved to a commit first, so files come from raw.githubusercontent.com by sha and a
-// just-pushed change isn't hidden behind the branch URL's cache.
+// just-pushed change isn't hidden behind the branch URL's cache. GitHub API reads ask the worker
+// (worker/) first: anonymous browser calls get only 60 an hour; GitHub directly when it fails.
 
-import { SCENARIO_FORMAT } from '../../config.js';
+import { SCENARIO_FORMAT, LEADERBOARD_URL } from '../../config.js';
 
 const SOURCE_RE = /^([\w.-]+)\/([\w.-]+)(?:@(.+))?$/;
 
@@ -15,14 +16,53 @@ export function parseSource(text) {
 
 export const formatSource = ({ owner, repo, ref }) => `${owner}/${repo}@${ref}`;
 
+const notFound = (source) => Object.assign(new Error(`${formatSource(source)} not found`), { notFound: true });
+
+function rateLimitError(res) {
+  const reset = Number(res.headers.get('x-ratelimit-reset'));
+  const at = reset ? ` at ${new Date(reset * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' later';
+  return new Error(`GitHub rate limit reached, try again${at}`);
+}
+
+/** Anonymous GitHub API GET -> JSON (or text for a non-JSON `accept`). */
+export async function githubApi(path, accept = 'application/vnd.github+json') {
+  const res = await fetch(`https://api.github.com${path}`, { headers: { Accept: accept } });
+  if ((res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0') throw rateLimitError(res);
+  if (!res.ok) throw Object.assign(new Error(`GitHub: ${res.status}`), { status: res.status });
+  return accept.endsWith('json') ? res.json() : res.text();
+}
+
+async function workerApi(path) {
+  const res = await fetch(`${LEADERBOARD_URL}${path}`);
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error ?? `${res.status}`);
+  return body;
+}
+
+/** Worker GET -> JSON; `fromGithub()` instead when there is no worker or it fails (down, older deploy). */
+export async function viaWorkerOr(path, fromGithub) {
+  if (LEADERBOARD_URL) {
+    try {
+      return await workerApi(path);
+    } catch (err) {
+      console.warn(`Scenarios worker ${path} failed (${err.message}), asking GitHub directly`);
+    }
+  }
+  return fromGithub();
+}
+
 async function resolveSha(source) {
   const { owner, repo, ref } = source;
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, {
-    headers: { Accept: 'application/vnd.github.sha' },
+  const { sha } = await viaWorkerOr(`/scenarios/commit?${new URLSearchParams({ owner, repo, ref })}`, async () => {
+    try {
+      return { sha: (await githubApi(`/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, 'application/vnd.github.sha')).trim() };
+    } catch (err) {
+      if (err.status === 404 || err.status === 422) return { sha: null };
+      throw err;
+    }
   });
-  if (res.status === 404 || res.status === 422) throw Object.assign(new Error(`${formatSource(source)} not found`), { notFound: true });
-  if (!res.ok) throw new Error(`GitHub: ${res.status}`);
-  return (await res.text()).trim();
+  if (!sha) throw notFound(source);
+  return sha;
 }
 
 /**

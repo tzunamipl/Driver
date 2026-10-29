@@ -45,14 +45,14 @@ const FADE_C = { road: 400, race: 600, drum: 280 };
 const FADE_SPAN_C = 300;
 const FADE_FLOOR = 0.5;
 // Rotor warps above fade + this (°C); health lost per s per 100 K above.
-const DAMAGE_OVER_FADE_C = 220;
-const OVERHEAT_WEAR_PER_S = 1 / 1800;
+const DAMAGE_OVER_FADE_C = 280;
+const OVERHEAT_WEAR_PER_S = 1 / 3600;
 // Thermal shock: cooling faster than SHOCK_SAFE_KPS while above SHOCK_MIN_C cracks the disc,
 // SHOCK_WEAR health per s at SHOCK_FULL_KPS and over (squared ramp).
 const SHOCK_MIN_C = 250;
 const SHOCK_SAFE_KPS = 40;
 const SHOCK_FULL_KPS = 300;
-const SHOCK_WEAR_PER_S = 0.3;
+const SHOCK_WEAR_PER_S = 0.15;
 // A worn-out rotor (health 0) keeps this much brake, and pulses by this share at worst.
 const WORN_FRICTION = 0.6;
 const JUDDER = 0.35;
@@ -72,7 +72,7 @@ const CRACK_PRESSURE_LOSS = 0.3;
 // the chance at full, the leak a crack opens (share of the max), a skid plate's chance multiplier.
 const PIPE_MIN_HIT_MS = 4;
 const PIPE_FULL_HIT_MS = 16;
-const PIPE_CRACK_CHANCE = 0.2;
+const PIPE_CRACK_CHANCE = 0.1;
 const PIPE_CRACK_LEAK = [0.2, 0.6];
 const SKID_PLATE_CHANCE = 0.5;
 const HIT_WINDOW_S = 0.5;

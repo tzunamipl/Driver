@@ -4,6 +4,8 @@
 // Chrome also names the scripts behind it (Long Animation Frames API). GPU time per frame where
 // EXT_disjoint_timer_query_webgl2 exists (not Safari); "idle" = time between frames no long task covers
 // (the GPU or compositor holding the next frame back, when the GPU numbers are high).
+// "main thread stalled" = longest gap in a 10 ms timer heartbeat (any browser): JS / GC blocked it;
+// a big idle with a small stall = the main thread was free and the GPU process / compositor / OS held the frame.
 
 const HITCH_MS = 150;
 const SECTION_MIN_MS = 1; // smaller sections are left out of the log
@@ -12,6 +14,7 @@ const MAX_SCRIPTS = 5;
 // Observer entries for a frame arrive after it's painted: wait for them before logging.
 const REPORT_DELAY_MS = 200;
 const GPU_FRAMES_KEPT = 120; // per-frame GPU times kept for the delayed report
+const TICK_MS = 10;
 
 export const PROFILE_ENABLED = new URLSearchParams(location.search).has('profile');
 
@@ -36,6 +39,9 @@ export function createHitchProfiler(renderer) {
   // Chrome only: long tasks, and long animation frames with the scripts that ran in them.
   const longTasks = [];
   const scripts = [];
+  let hasLongTasks = false;
+  const ticks = [];
+  setInterval(() => ticks.push(performance.now()), TICK_MS);
   for (const [type, onEntry] of [
     ['longtask', (e) => longTasks.push(e)],
     ['long-animation-frame', (e) => scripts.push(...e.scripts)],
@@ -44,6 +50,7 @@ export function createHitchProfiler(renderer) {
       const observer = new PerformanceObserver((list) => list.getEntries().forEach(onEntry));
       observer.observe({ type });
       observers.push([observer, onEntry]);
+      if (type === 'longtask') hasLongTasks = true;
     } catch {
       // unsupported
     }
@@ -67,6 +74,20 @@ export function createHitchProfiler(renderer) {
     return `${what}${where ? ` @${where}` : ''} ${Math.round(s.duration)}`;
   }
 
+  /** Longest stretch of [from, to] without a heartbeat tick; drops ticks before `cutoff`. */
+  function longestStall(from, to, cutoff) {
+    while (ticks.length && ticks[0] < cutoff) ticks.shift();
+    let prev = from;
+    let longest = 0;
+    for (const t of ticks) {
+      if (t <= from) continue;
+      longest = Math.max(longest, Math.min(t, to) - prev);
+      prev = t;
+      if (t >= to) break;
+    }
+    return Math.max(longest, to - prev);
+  }
+
   /** Long-task time inside [from, to]. */
   function coveredMs(tasks, from, to) {
     return tasks.reduce((sum, e) => sum + Math.max(0, Math.min(to, e.startTime + e.duration) - Math.max(from, e.startTime)), 0);
@@ -79,6 +100,7 @@ export function createHitchProfiler(renderer) {
       const cutoff = performance.now() - 10_000;
       const tasks = takeOverlapping(longTasks, from, to, cutoff);
       const idle = gap ? gap.to - gap.from - coveredMs(tasks, gap.from, gap.to) : 0;
+      const stall = gap ? longestStall(gap.from, gap.to, cutoff) : 0;
       const gpuMs = gpu?.frameMs(frameId);
       const gpuPrev = gpu?.frameMs(frameId - 1);
       const top = takeOverlapping(scripts, from, to, cutoff)
@@ -88,7 +110,8 @@ export function createHitchProfiler(renderer) {
       console.warn(
         message +
           (gpu ? ` | gpu ${gpuMs?.toFixed(1) ?? '?'} (frame before ${gpuPrev?.toFixed(1) ?? '?'})` : '') +
-          (idle >= SECTION_MIN_MS ? ` | idle ${Math.round(idle)} ms` : '') +
+          (idle >= SECTION_MIN_MS ? ` | ${hasLongTasks ? 'idle' : 'unattributed (no long-task API)'} ${Math.round(idle)} ms` : '') +
+          (gap ? ` | main thread stalled ${Math.round(stall)} ms` : '') +
           (tasks.length ? ` | long tasks ${tasks.map((e) => Math.round(e.duration)).join(', ')} ms` : '') +
           (top.length ? ` | scripts ${top.map(scriptLabel).join(' · ')}` : '')
       );

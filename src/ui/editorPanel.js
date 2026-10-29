@@ -3,6 +3,7 @@
 // road orientation and a heading dial for gates), save/export, and an Open window with the scenario tree.
 // Built once and patched on change, so typing in a field keeps its focus.
 
+import { menuIcon } from './menuIcons.js';
 import { branchNameFor } from '../lib/scenarios/publish.js';
 import { splitKey, slugLabel } from '../lib/scenarios/paths.js';
 import { createScenarioTree } from './scenarioTree.js';
@@ -16,6 +17,17 @@ function el(tag, props = {}, children = []) {
 }
 
 const button = (text, onClick, props = {}) => el('button', { type: 'button', textContent: text, onclick: onClick, ...props });
+
+// Item actions that share a row: narrow side padding so more fit.
+const COMPACT_ICONS = new Set(['moveToCar', 'goTo', 'delete']);
+
+/** A button led by a menuIcons.js icon. */
+export function iconButton(icon, text, onClick, props = {}) {
+  const btn = button(text, onClick, props);
+  btn.prepend(menuIcon(icon, 'editor-icon'));
+  btn.classList.toggle('editor-compact', COMPACT_ICONS.has(icon));
+  return btn;
+}
 
 /** Marks `node` for the panel's hover tooltip: a bold heading over the text. */
 export function setTip(node, heading, text) {
@@ -188,7 +200,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     return btn;
   });
   const versionEl = el('div', { className: 'editor-buttons editor-kinds' }, [el('span', { textContent: 'Version' }), ...versionButtons]);
-  const itemsEl = el('ol', { className: 'editor-items' });
+  const itemsEl = el('ol', { className: 'editor-items editor-numbered' });
   const routeInput = el('input', { type: 'checkbox' });
   routeInput.addEventListener('change', () => editor.setShowRoute(routeInput.checked));
   const routeNote = el('p', { className: 'editor-note' });
@@ -212,12 +224,12 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
       button('Close', () => (exportEl.hidden = true)),
     ]),
   ]);
-  const saveButton = button('Publish', async () => {
+  const saveButton = iconButton('save', 'Publish', async () => {
     await editor.save();
     tree.reload();
   });
   const actionsEl = el('div', { className: 'editor-buttons' }, [
-    button('Go to', () => editor.goToSelected(), { title: 'Teleport to the selected point' }),
+    iconButton('goTo', 'Go to', () => editor.goToSelected(), { title: 'Teleport to the selected point' }),
     button('Export', () => {
       exportText.value = editor.exportJson();
       exportEl.hidden = false;
@@ -329,9 +341,9 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
   }
 
   const orderButtons = () => [
-    button('▲', () => editor.shiftSelected(-1), { title: 'Earlier' }),
-    button('▼', () => editor.shiftSelected(1), { title: 'Later' }),
-    button('Delete', () => editor.deleteSelected()),
+    button('▲', () => editor.shiftSelected(-1), { title: 'Earlier', className: 'editor-compact' }),
+    button('▼', () => editor.shiftSelected(1), { title: 'Later', className: 'editor-compact' }),
+    iconButton('delete', 'Delete', () => editor.deleteSelected()),
   ];
 
   /** Parc fermé `nextStart` label + input; repeats have their own. */
@@ -418,7 +430,7 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     selectedEl.replaceChildren(
       ...fields,
       el('div', { className: 'editor-buttons' }, [
-        ...(isRef ? [] : [button('Move to car', () => editor.moveSelectedToCar())]),
+        ...(isRef ? [] : [iconButton('moveToCar', 'Move to car', () => editor.moveSelectedToCar())]),
         ...(repeatable ? [button('Repeat', () => editor.repeatSelected(), { title: 'Drive this gate again: adds a linked copy after the selection' })] : []),
         ...orderButtons(),
       ])
@@ -488,10 +500,11 @@ export function createEditorPanel(editor, { title, getPlayerName, openSettings }
     itemsEl.replaceChildren(
       ...editor.listItems().map(({ index: i, point, driven }, n) => {
         const def = typeDef(point, i);
-        const label = itemLabel(point, i);
+        // Numbered like its 3D marker: a gate with the repeats of it.
+        const label = `${[n + 1, ...editor.repeatNumbers(state.doc.items[i])].join('·')}. ${itemLabel(point, i)}`;
         const li = el('li', { textContent: label, onclick: () => editor.select(i) });
         const tip = point.type === 'pointRef' ? 'The same gate as the one numbered in brackets, driven again here.' : def?.description;
-        setTip(li, `${n + 1}. ${label}`, driven ? tip ?? 'A stage driven at this point of the rally.' : `Not in the ${state.reverse ? 'reverse' : 'forward'} version.`);
+        setTip(li, label, driven ? tip ?? 'A stage driven at this point of the rally.' : `Not in the ${state.reverse ? 'reverse' : 'forward'} version.`);
         li.classList.toggle('selected', i === state.selected);
         li.classList.toggle('is-other', !driven);
         if (def) li.style.setProperty('--editor-swatch', hex(def.color));

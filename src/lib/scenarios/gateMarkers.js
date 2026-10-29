@@ -155,7 +155,7 @@ export function createGateMarkers(scene) {
       const seen = new Set();
       for (const entry of entries) {
         seen.add(entry.key);
-        const noteSig = entry.note ? `${entry.note.dir}${entry.note.grade}${entry.note.junction}|${entry.gap}|${entry.hover}` : '';
+        const noteSig = entry.note ? `${entry.note.dir}${entry.note.grade}${entry.note.junction}${entry.note.descent}${entry.note.caution}${entry.note.crest}|${entry.gap}|${entry.hover}` : '';
         const signature = `${entry.gate}|${entry.board}|${entry.tag}|${noteSig}|${entry.width}|${entry.color}|${entry.label}|${entry.selected}`;
         let marker = markers.get(entry.key);
         if (marker?.signature !== signature) {

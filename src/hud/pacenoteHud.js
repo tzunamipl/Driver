@@ -1,9 +1,10 @@
 // Pacenote strip under the rally clock: the next few notes as tiles, the coming one first -
 // an arrow bent by the grade, the call (L4, R2, Straight) and what follows it (a distance,
-// into, and), with a fork icon at junctions. Surface calls show a swatch of the surface instead of the arrow.
+// into, and), with a fork icon at junctions. Surface calls show a swatch of the surface instead of the arrow,
+// crest / jump calls the road's profile; a steep descent or care warning sign sits beside the call.
 
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
-import { arrowPaths, ARROW_VIEWBOX, FORK_PATH } from '../lib/rally/pacenoteIcon.js';
+import { arrowPaths, crestPaths, ARROW_VIEWBOX, FORK_PATH, SIGN_VIEWBOX, SIGN_TRIANGLE, SIGN_SLOPE, SIGN_CAR, SIGN_CAR_AT, SIGN_EXCLAIM, noteSign } from '../lib/rally/pacenoteIcon.js';
 import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -21,6 +22,26 @@ function arrowIcon(note) {
   return icon;
 }
 
+function crestIcon(note) {
+  const icon = svg('svg', { viewBox: ARROW_VIEWBOX, class: 'pacenote-arrow' });
+  const { line, flight } = crestPaths(note);
+  icon.append(svg('path', { d: line, class: 'pacenote-arrow-line' }));
+  if (flight) icon.append(svg('path', { d: flight, class: 'pacenote-arrow-line pacenote-flight' }));
+  return icon;
+}
+
+/** Warning sign 'care' | 'descent'. */
+function warningSign(kind) {
+  const sign = svg('svg', { viewBox: SIGN_VIEWBOX, class: 'pacenote-sign' });
+  sign.append(svg('path', { d: SIGN_TRIANGLE, class: 'pacenote-sign-board' }));
+  if (kind === 'care') sign.append(svg('path', { d: SIGN_EXCLAIM }));
+  else {
+    const { x, y, deg, scale } = SIGN_CAR_AT;
+    sign.append(svg('path', { d: SIGN_SLOPE }), svg('path', { d: SIGN_CAR, transform: `translate(${x} ${y}) rotate(${deg}) scale(${scale})` }));
+  }
+  return sign;
+}
+
 const el = (tag, className, text = '') => Object.assign(document.createElement(tag), { className, textContent: text });
 
 const ENTER = { duration: 260, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' };
@@ -30,6 +51,7 @@ const ENTER_DX = 56;
 const LEAVE_DX = -72;
 
 function gradeClass(note) {
+  if (note.crest) return note.crest === 'jump' ? ' grade-2-3' : '';
   if (note.surface || note.dir === 'S') return '';
   if (note.grade === 1) return ' grade-1';
   return note.grade <= 3 ? ' grade-2-3' : '';
@@ -44,9 +66,17 @@ function buildTile(pacenotes, i) {
     fork.append(svg('path', { d: FORK_PATH }));
     gap.append(fork);
   }
-  const icon = note.surface ? el('div', 'pacenote-surface') : arrowIcon(note);
+  const icon = note.surface ? el('div', 'pacenote-surface') : note.crest ? crestIcon(note) : arrowIcon(note);
   if (note.surface) icon.style.background = STAGE_SURFACES[note.surface].color;
-  tile.append(icon, el('div', 'pacenote-call', noteLabel(note)), gap);
+  const label = noteLabel(note);
+  const call = el('div', 'pacenote-call', label);
+  const sign = noteSign(note);
+  if (sign) {
+    call.append(warningSign(sign));
+    // Long calls (Crest, Straight) shrink to fit beside the sign.
+    if (label.length > 3) call.classList.add('long');
+  }
+  tile.append(icon, call, gap);
   return tile;
 }
 

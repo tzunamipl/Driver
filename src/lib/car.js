@@ -25,6 +25,7 @@ import { createExhaustDamage } from './exhaustDamage.js';
 import { createBrakes, brakeUnit } from './brakes.js';
 import { buildBrakeMesh, setBrakeGlow, disposeBrakeMesh } from './car/brakeMesh.js';
 import { createBodyDirt } from './bodyDirt.js';
+import { createBodyScratches } from './bodyScratches.js';
 import { MAX_STEER } from '../config.js';
 import { getAirTempC } from './weather.js';
 import { GRAVITY } from './physicsConstants.js';
@@ -37,7 +38,7 @@ import {
   applyFootprintInertia,
   buildChassisHitboxMeshes,
 } from './car/chassis.js';
-import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness, setTyreVisible, setWheelSetRims, setWheelOval } from './car/wheelMesh.js';
+import { wheelRadiusOf, buildWheelSet, setTyreDirt, setTyreWetness, setRimDirt, setTyreVisible, setWheelSetRims, setWheelOval } from './car/wheelMesh.js';
 import { resolveAxles, layoutWheels, createSteeringGeometry, wheelSetWidth } from './car/axles.js';
 import { createTrailerHitch, placeTrailer } from './car/trailer.js';
 import { createRemoteWheeledCar } from './car/remote.js';
@@ -338,7 +339,8 @@ export function createCar(
   vehicle.repairOnReset = true; // off: resets and teleports keep the damage (carManager)
   vehicle.lamps = createLampDamage(); // broken by carManager's collisions, read by headlights.js
   vehicle.brakes = createBrakes(brakeLayout(tractorWheels, trailer?.wheels ?? []), descriptor, getAirTempC()); // heated by the wheels, updated by mainLoop
-  vehicle.bodyDirt = createBodyDirt([chassisMesh, trailer?.mesh].filter(Boolean)); // built up by mainLoop
+  vehicle.bodyScratches = createBodyScratches(); // marked by carManager's collisions
+  vehicle.bodyDirt = createBodyDirt([chassisMesh, trailer?.mesh].filter(Boolean), vehicle.bodyScratches.uniforms); // built up by mainLoop
   /** Partial repair records (lib/partRepair.js) of every part, for the save. */
   vehicle.getRepairState = () => ({
     shocks: vehicle.wheelInfos.map((w) => w.shockRepair),
@@ -356,7 +358,7 @@ export function createCar(
     vehicle.heat.sumpRepair = readRepairRecord(state?.sump);
     vehicle.exhaust.repairRecord = readRepairRecord(state?.exhaust);
   };
-  /** New radiator and sump (topped up), fresh shocks, working lamps, mended gearbox, new brake rotors and pipes, new exhaust. */
+  /** New radiator and sump (topped up), fresh shocks, working lamps, mended gearbox, new brake rotors and pipes, new exhaust, resprayed body. */
   vehicle.repairDamage = () => {
     vehicle.heat.repair();
     vehicle.brakes.repair();
@@ -364,12 +366,14 @@ export function createCar(
     vehicle.lamps.repair();
     vehicle.engine.gearbox.repair();
     vehicle.exhaust.repair();
+    vehicle.bodyScratches.repair();
   };
   /** Repaired with fresh tyres, and takes no damage from then on (editor). */
   vehicle.setNoDamage = () => {
     vehicle.noDamage = true;
     vehicle.engine.gearbox.noWear = true;
     vehicle.exhaust.noWear = true;
+    vehicle.bodyScratches.noWear = true;
     vehicle.heat.sealed = true;
     vehicle.brakes.noDamage = true;
     vehicle.repairDamage();
@@ -383,6 +387,14 @@ export function createCar(
     vehicle.heat.warmUp();
     vehicle.fuel.setLitres(vehicle.fuel.capacityL);
     vehicle.bodyDirt.wash();
+  };
+  /** Parked overnight: engine, brakes and tyres at the outside air temperature. */
+  vehicle.coolToAir = () => {
+    const airC = getAirTempC();
+    vehicle.heat.ambientC = airC;
+    for (const key of ['blockTempC', 'coolantTempC', 'oilTempC']) vehicle.heat[key] = airC;
+    for (const disc of vehicle.brakes.discs) disc.tempC = airC;
+    for (const wheel of vehicle.wheelInfos) wheel.tempC = airC;
   };
   vehicle.driveWheels = tractorWheels.flatMap((w, i) => (w.axle.driven ? [i] : [])); // indices into wheelInfos
   vehicle.brakeForce = descriptor.brakeForce ?? DEFAULT_BRAKE_FORCE;
@@ -593,6 +605,7 @@ export function createCar(
       mesh.quaternion.slerpQuaternions(prevWheelQuat[i], currWheelQuat[i], alpha);
       setTyreDirt(mesh, Math.round(vehicle.wheelInfos[i].dirt * 100) / 100); // rounded: recolour only on visible change
       setTyreWetness(mesh, Math.round(vehicle.wheelInfos[i].wetness * 50) / 50);
+      setRimDirt(mesh, vehicle.bodyDirt.enabled ? Math.round(vehicle.wheelInfos[i].rimDirt * 50) / 50 : 0);
       const wheel = vehicle.wheelInfos[i];
       setTyreVisible(mesh, !wheel.tyreShed);
       setWheelOval(mesh, rimOval(wheel));

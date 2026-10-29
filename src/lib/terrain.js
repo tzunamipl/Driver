@@ -17,6 +17,7 @@ import {
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
 import './terrain/heightfieldRayFix.js';
+import { skyUniforms, SKY_GRADIENT_GLSL } from './skyDome.js';
 
 // Terrain is one quadtree of Web Mercator tiles around the player: ROOT_ZOOM
 // tiles out to FAR_RADIUS_METERS, refined down to DETAIL_ZOOM next to the
@@ -171,23 +172,25 @@ export function applyFogVeil(shader) {
 
 /** onBeforeCompile hook adding the ground haze (one shared program for every tile and cloud). */
 export function applyGroundHaze(shader) {
+  Object.assign(shader.uniforms, skyUniforms);
   shader.uniforms.hazeColor = hazeColorUniform;
   shader.uniforms.fogFar = fogFarUniform;
   shader.vertexShader = shader.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
+    .replace('#include <common>', '#include <common>\nvarying vec3 vHazeWorldPos;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHazeWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying float vHazeWorldY;\nuniform vec3 hazeColor;\nuniform float fogFar;')
+    .replace('#include <common>', `#include <common>\nvarying vec3 vHazeWorldPos;\nuniform vec3 hazeColor;\nuniform float fogFar;\n${SKY_GRADIENT_GLSL}`)
     .replace(
       '#include <opaque_fragment>',
       `
       float hazeDist = length(vViewPosition);
-      float hazeHeight = 1.0 - smoothstep(${(HAZE_MAX_HEIGHT_METERS - 500).toFixed(1)}, ${HAZE_MAX_HEIGHT_METERS.toFixed(1)}, vHazeWorldY);
+      float hazeHeight = 1.0 - smoothstep(${(HAZE_MAX_HEIGHT_METERS - 500).toFixed(1)}, ${HAZE_MAX_HEIGHT_METERS.toFixed(1)}, vHazeWorldPos.y);
       float groundHaze = max(
         (1.0 - exp(-hazeDist / ${HAZE_DISTANCE_METERS.toFixed(1)})) * hazeHeight,
         max(smoothstep(${HAZE_EDGE_START_METERS.toFixed(1)}, ${FAR_RADIUS_METERS.toFixed(1)}, hazeDist), clamp(hazeDist / fogFar, 0.0, 1.0))
       );
-      outgoingLight = mix(outgoingLight, hazeColor, groundHaze);
+      vec3 hazeSky = skyGradient(normalize(vHazeWorldPos - cameraPosition)) * 0.99;
+      outgoingLight = mix(outgoingLight, hazeSky, groundHaze);
       #include <opaque_fragment>`
     );
 }

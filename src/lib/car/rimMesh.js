@@ -110,6 +110,7 @@ export function buildRim(style, color, radius, width, segments, side = 1) {
 
   const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness: 0.35, flatShading: true, side: THREE.DoubleSide });
   const group = new THREE.Group();
+  group.userData.paintMat = mat;
   for (const geo of [bodyGeo, beltGeo, hubGeo]) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;

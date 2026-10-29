@@ -14,6 +14,7 @@ import { ROAD_HIERARCHY } from './roadClasses.js';
 import { DIRECTION_SIGN_JUNCTIONS, DIRECTION_SIGN_CITY_CLASSES_WHEN_EQUAL } from '../config.js';
 import { longDistanceValue, longDistanceUnit } from './units.js';
 import { makeRetroreflective } from './lampGlints.js';
+import { SIGN_HIT_GAIN } from './audio/postHit.js';
 
 const DEG = Math.PI / 180;
 const SIGNED_CLASSES = new Set(Object.entries(DIRECTION_SIGN_JUNCTIONS).flat(2));
@@ -518,6 +519,7 @@ export function createDirectionSignKind({ streets, builtUpAreas, places }) {
   return {
     group: 'directionSigns',
     hitSound: 'metal',
+    hitGain: SIGN_HIT_GAIN,
     buildMesh: buildSignMesh,
     halfExtents: { x: 0.2, y: HALF_HEIGHT, z: 0.2 },
     debrisSpheres: [

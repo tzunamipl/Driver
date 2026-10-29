@@ -11,6 +11,7 @@
 // from its format (lib/scenarios/formats.js); the panels are ui/editorPanel.js, ui/courseObjectsPanel.js and ui/surfacePanel.js. The draft
 // lives in the editor's save slot; Publish commits it to the player's branch (lib/scenarios/publish.js).
 
+import * as CANNON from 'cannon-es';
 import {
   OFFICIAL_SCENARIO_SOURCE,
   SCENARIOS_REPO,
@@ -23,11 +24,12 @@ import {
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 import { parseSource, formatSource, openSource } from '../lib/scenarios/source.js';
 import { publishScenario, publishEnabled, branchNameFor } from '../lib/scenarios/publish.js';
+import { bodyHash, stampMeta } from '../lib/scenarios/fileMeta.js';
 import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
 import { createControlScenery } from '../lib/rally/controlScenery.js';
 import { fileKey, filePath, indexPath, splitKey } from '../lib/scenarios/paths.js';
-import { generatePacenotes, pacenoteAt, stageLine, spotOnLine, withSurfaceNotes, reverseSections } from '../lib/rally/pacenotes.js';
+import { generatePacenotes, pacenoteAt, crestNoteAt, stageLine, spotOnLine, withSurfaceNotes, reverseSections } from '../lib/rally/pacenotes.js';
 import { encodeRoute, routeKey, savedRouteFor } from '../lib/rally/savedRoute.js';
 import { noteLabel, gapLabel } from '../lib/rally/pacenoteCalls.js';
 import { placeSection } from '../lib/rally/surfaceSections.js';
@@ -39,6 +41,7 @@ import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 
 // Points without a known road direction retry the snap this often (streets still loading).
 const DIR_RETRY_MS = 1000;
+const GO_TO_DROP_M = 1.5; // the car is dropped this far above the point after Go to
 const NOTE_MARKER_M = 300; // pacenote markers within this of the car
 const NOTE_COLOR = 0xffffff; // minimap dot
 const OBJECT_LABEL_M = 150; // course object labels within this of the car
@@ -440,10 +443,13 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
     }
   }
 
-  function toFileJson() {
+  /** The file as saved: `meta` stamped unless only it would change since the file was opened / saved (doc `base`). */
+  function toFile() {
     const doc = state.doc.kind === 'stage' ? { ...state.doc, route: freshRoute(false), reverseRoute: freshRoute(true) } : state.doc;
-    return `${JSON.stringify(kind().toFile(doc), null, 2)}\n`;
+    const base = state.doc.base;
+    return stampMeta(kind().toFile(doc), { meta: doc.meta, baseHash: base?.hash, isNew: base?.key !== fileKey(doc), name: getPlayerName() });
   }
+  const toFileJson = (file = toFile()) => `${JSON.stringify(file, null, 2)}\n`;
 
   /** Routes and saves each version's route not saved for the stage's current points; one that can't be routed isn't saved. */
   async function refreshRoutes() {
@@ -672,10 +678,25 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
     /** The gate item i drives again (a repeat), or null. */
     repeatTarget: (i) => (isPointRef(state.doc.items[i]) ? pointOf(state.doc.items[i]) : null),
     repeatNumbers,
-    goToSelected() {
+    /** Teleports to the selected point; a gate also turns the car to face its way (as its marker, in the edited version). */
+    async goToSelected() {
       const item = pointOf(state.doc.items[state.selected]) ?? state.doc.items.find(isPoint);
       if (!item) return;
-      addressSearch.teleport(item.lat, item.lon, format.pointTypes[item.type].label);
+      if (!(await addressSearch.teleport(item.lat, item.lon, format.pointTypes[item.type].label))) return;
+      if (!format.pointTypes[item.type].gate) return;
+      const view = listItems().filter((entry) => entry.driven);
+      let k = view.findIndex((entry) => entry.index === state.selected);
+      if (k < 0) k = view.findIndex((entry) => entry.item === item);
+      if (k < 0) return;
+      const at = viewFrame.fromLatLon(item.lat, item.lon);
+      const frame = resolveFrame(view, k, at.x, at.z);
+      if (frame?.dirX == null) return;
+      const pos = frame.lat != null ? viewFrame.fromLatLon(frame.lat, frame.lon) : at;
+      const y = (terrain.surfaceHeightAt(pos.x, pos.z) ?? 0) + GO_TO_DROP_M;
+      const quat = new CANNON.Quaternion();
+      // Chassis forward is local +z.
+      quat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.atan2(frame.dirX, frame.dirZ));
+      carManager.getReset()?.(new CANNON.Vec3(pos.x, y, pos.z), quat);
     },
 
     /** Stage: pacenotes from the start through splits / passage controls to the finish, over OSM roads. */
@@ -690,6 +711,7 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
         let pacenotes = await generatePacenotes(drivenPoints(reverse), {
           surfaces: reverse ? [] : state.doc.surfaces ?? [],
           onProgress: (n, total) => setStatus(`${what}: fetching roads ${n}/${total}…`),
+          onElevation: (n, total) => setStatus(`${what}: fetching elevation ${n}/${total}…`),
         });
         if (reverse) {
           const line = await lineFor(true, what);
@@ -700,7 +722,7 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       }
       state.selectedNote = -1;
       changed();
-      setStatus(`${done.join(', ')}. Move a point? Generate again.`);
+      setStatus(`${done.join(', ')} have been generated.`);
     }),
     /** Stage: Generate does both versions (on) or only the edited one. */
     setGenerateBoth(on) {
@@ -708,15 +730,16 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       writeStored(EDITOR_PACENOTES_BOTH_STORAGE_KEY, on ? '1' : null);
       changed({ save: false });
     },
-    /** Stage: one note where the car is, on the stage road, slotted in by distance and selected. */
-    addNote: guard(async () => {
+    /** Stage: one note where the car is, on the stage road, slotted in by distance and selected; `crest`: a crest / jump call. */
+    addNote: guard(async (crest = false) => {
       const pos = carManager.getVehicle()?.chassisBody.position;
       if (!pos) return;
       const { lat, lon } = viewFrame.toLatLon(pos.x, pos.z);
       setStatus('Pacenote: fetching roads…');
       const reverse = reversed();
-      const { length, note } = await pacenoteAt(drivenPoints(reverse), lat, lon, {
+      const { length, note } = await (crest ? crestNoteAt : pacenoteAt)(drivenPoints(reverse), lat, lon, {
         onProgress: (done, total) => setStatus(`Pacenote: fetching roads ${done}/${total}…`),
+        onElevation: (done, total) => setStatus(`Pacenote: fetching elevation ${done}/${total}…`),
       });
       state.doc[notesKey(reverse)] ??= { length, notes: [] };
       const { notes } = state.doc[notesKey(reverse)];
@@ -765,10 +788,26 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       if (!on) state.hoverNote = -1;
       changed({ save: false });
     },
-    /** Selected note: dir ('L' | 'R' | 'S'), grade (1..6) or junction (boolean). */
+    /**
+     * Selected note: dir ('L' | 'R' | 'S'), grade (1..6), junction (boolean), descent (whole %, 0 = none),
+     * caution (boolean; one sign per note: it and descent clear each other); crest calls: crest ('crest' | 'jump'), caution.
+     */
     setNoteField(field, value) {
       const note = editedNotes()?.notes[state.selectedNote];
       if (!note) return;
+      if (field === 'caution' || field === 'descent') {
+        if (value) {
+          note[field] = field === 'caution' ? true : value;
+          delete note[field === 'caution' ? 'descent' : 'caution'];
+        } else delete note[field];
+        changed();
+        return;
+      }
+      if (note.crest) {
+        if (field === 'crest') note.crest = value;
+        changed();
+        return;
+      }
       if (field === 'junction') {
         if (value) note.junction = true;
         else delete note.junction;
@@ -776,6 +815,7 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       // Straight on is only a junction call; a corner needs a grade.
       if (note.dir === 'S') {
         delete note.grade;
+        delete note.descent;
         note.junction = true;
       } else note.grade ??= 6;
       changed();
@@ -914,6 +954,8 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       await loadIndex();
       // The file's folder is where it's saved back to.
       state.doc = { kind: kindId, objects: [], surfaces: [], ...kindById.get(kindId).fromFile(json), ...splitKey(key) };
+      // What the file holds now: saving it back unchanged keeps its meta.
+      state.doc.base = { key: fileKey(state.doc), hash: bodyHash(json) };
       state.selected = -1;
       state.selectedNote = -1;
       state.selectedSection = -1;
@@ -934,13 +976,18 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       await refreshRoutes();
       const branch = branchNameFor(getPlayerName());
       setStatus(`Publishing to branch ${branch}…`);
+      const file = toFile();
+      const key = fileKey(state.doc);
       const result = await publishScenario({
         branch,
         folder: format.folder,
         kindFolder: kind().folder,
-        key: fileKey(state.doc),
-        content: toFileJson(),
+        key,
+        content: toFileJson(file),
       });
+      state.doc.meta = file.meta ?? null;
+      state.doc.base = { key, hash: bodyHash(file) };
+      writeSaveField('editorDraft', state.doc);
       await useIndexOf(await openSource({ owner: result.owner, repo: result.repo, ref: result.branch }, result.sha));
       setStatus(result.unchanged ? 'No changes to publish' : `Published, sent for review. Play it from source ${state.source}`);
     }),

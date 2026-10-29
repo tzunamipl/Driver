@@ -1,10 +1,11 @@
-// Body debug panel: broken lamps (lampDamage.js) and exhaust health (exhaustDamage.js), with Break / Wear / Fix buttons.
+// Body debug panel: broken lamps (lampDamage.js), exhaust health (exhaustDamage.js) and paint scratches (bodyScratches.js), with Break / Wear / Fix buttons.
 
 export function createBodyHud() {
   const panel = document.getElementById('body-hud');
   const headVal = document.getElementById('body-lamps-head');
   const tailVal = document.getElementById('body-lamps-tail');
   const exhaustVal = document.getElementById('body-exhaust');
+  const paintVal = document.getElementById('body-paint');
   let vehicle = null;
   // Blur so Space (handbrake) doesn't re-click the focused button.
   function onClick(id, part, action) {
@@ -18,6 +19,8 @@ export function createBodyHud() {
   onClick('body-lamps-fix', 'lamps', (lamps) => lamps.repair());
   onClick('body-exhaust-wear', 'exhaust', (exhaust) => exhaust.wear());
   onClick('body-exhaust-fix', 'exhaust', (exhaust) => exhaust.repair());
+  onClick('body-paint-scratch', 'bodyScratches', (scratches) => scratches.addRandom());
+  onClick('body-paint-fix', 'bodyScratches', (scratches) => scratches.repair());
 
   const marks = (sides) => sides.map((b) => (b ? '✗' : '✓')).join(' ');
 
@@ -30,6 +33,8 @@ export function createBodyHud() {
     headVal.textContent = marks(broken.head);
     tailVal.textContent = marks(broken.tail);
     const exhaust = vehicle.exhaust;
+    const scratches = vehicle.bodyScratches;
+    if (paintVal && scratches) paintVal.textContent = `${scratches.patches.length} · deepest ${Math.round(scratches.deepest() * 100)}%`;
     if (exhaustVal && exhaust) exhaustVal.textContent = !exhaust.breakable ? 'none' : exhaust.detached ? 'fell off' : `${Math.round(exhaust.health * 100)}%`;
   }
 

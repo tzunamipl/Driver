@@ -2,7 +2,7 @@
 // buttons, the file's object list, and the selected object's heading dial, tape length, stage versions
 // (lib/rally/stageReverse.js; out of the edited one: dimmed) and actions. Built once and patched on change, so typing in a field keeps its focus.
 
-import { attachTips, createHeadingDial, patchValue, setTip } from './editorPanel.js';
+import { attachTips, createHeadingDial, iconButton, patchValue, setTip } from './editorPanel.js';
 
 const hex = (color) => `#${color.toString(16).padStart(6, '0')}`;
 
@@ -35,7 +35,7 @@ export function createCourseObjectsPanel(editor) {
       return btn;
     })
   );
-  const listEl = el('ol', { className: 'editor-items course-objects-list' });
+  const listEl = el('ol', { className: 'editor-items editor-numbered course-objects-list' });
 
   const dial = createHeadingDial((degrees) => editor.setObjectField('heading', degrees ?? 0), HEADING_TIP);
   const lengthInput = el('input', { type: 'number', min: 1, max: 200, step: 1 });
@@ -61,9 +61,9 @@ export function createCourseObjectsPanel(editor) {
     lengthRow,
     onlyRow,
     el('div', { className: 'editor-buttons' }, [
-      button('Move to car', () => editor.moveObjectToCar(), { title: 'Moves it where the car is; the heading stays' }),
-      button('Go to', () => editor.goToObject(), { title: 'Teleport to this object' }),
-      button('Delete', () => editor.deleteObject()),
+      iconButton('moveToCar', 'Move to car', () => editor.moveObjectToCar(), { title: 'Moves it where the car is; the heading stays' }),
+      iconButton('goTo', 'Go to', () => editor.goToObject(), { title: 'Teleport to this object' }),
+      iconButton('delete', 'Delete', () => editor.deleteObject()),
     ]),
   ]);
   const hintEl = el('p', { className: 'editor-note', textContent: 'Saved with the file: shown for the whole stage, or the whole rally.' });
@@ -80,7 +80,7 @@ export function createCourseObjectsPanel(editor) {
     listEl.replaceChildren(
       ...objects.map((object, i) => {
         const def = types[object.type];
-        const text = `${def.label}${def.chain ? ` · ${object.length} m` : ''} · ${Math.round(object.heading)}°${object.only ? ` · ${object.only} only` : ''}`;
+        const text = `${i + 1}. ${def.label}${def.chain ? ` · ${object.length} m` : ''} · ${Math.round(object.heading)}°${object.only ? ` · ${object.only} only` : ''}`;
         const li = el('li', { textContent: text, onclick: () => editor.selectObject(i) });
         li.classList.toggle('selected', i === state.selectedObject);
         li.classList.toggle('is-other', isStage && object.only === (state.reverse ? 'forward' : 'reverse'));

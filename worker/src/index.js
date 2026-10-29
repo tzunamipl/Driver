@@ -5,6 +5,8 @@
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
 //        -> { board, rank, improved }
 //   POST /scenarios { branch, folder, kindFolder, key, content } -> { owner, repo, branch, sha, unchanged, pr }
+//   GET  /scenarios/sources -> { sources: [{ label, official, source: { owner, repo, ref }, sha }] }
+//   GET  /scenarios/commit?owner=&repo=&ref= -> { sha }  (null = no such repo / branch)
 //   POST /player/load { playerId } -> { save: { updatedAt, data } | null }
 //   POST /player/save { playerId, updatedAt, data } -> { stored }  (also sent as a text/plain beacon)
 
@@ -370,6 +372,82 @@ async function saveScenario(env, save) {
   return { owner, repo, branch: exists ? save.branch : env.SCENARIOS_BRANCH, sha, unchanged, pr: exists ? await ensurePullRequest(env, save.branch) : null };
 }
 
+// ---------- Scenario sources ----------
+// Read with the scenarios token (5000 requests / h, also reads public forks) instead of each
+// browser's 60 / h anonymous limit, and kept a little while in the isolate.
+
+const SOURCES_CACHE_MS = 60_000;
+const COMMIT_CACHE_MS = 30_000;
+const REPO_PART_RE = /^[\w.-]{1,100}$/;
+const REF_RE = /^[\w./-]{1,100}$/;
+const memo = new Map(); // key -> { at, value: Promise }
+
+function remembered(key, ttlMs, load) {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value;
+  const value = load();
+  value.catch(() => memo.get(key)?.value === value && memo.delete(key));
+  memo.set(key, { at: Date.now(), value });
+  return value;
+}
+
+/** Public GitHub read; 404 -> null. */
+async function githubRead(env, path) {
+  const res = await github(env.SCENARIOS_TOKEN, 'GET', path);
+  if (res.status === 404 || res.status === 422) return null;
+  if (!res.ok) throw new HttpError(502, `GitHub: ${res.status}`);
+  return res.json();
+}
+
+const branchesOf = (env, owner, repo) => githubRead(env, `/repos/${owner}/${repo}/branches?per_page=100`).then((list) => list ?? []);
+
+/** Mirrors what src/lib/scenarios/catalog.js listSources returns. */
+async function loadSources(env) {
+  const [owner, repo] = env.SCENARIOS_REPO.split('/');
+  const [info, branches, forks] = await Promise.all([
+    githubRead(env, `/repos/${owner}/${repo}`),
+    branchesOf(env, owner, repo),
+    githubRead(env, `/repos/${owner}/${repo}/forks?per_page=100`).catch(() => []),
+  ]);
+  if (!info) throw new HttpError(502, 'Scenarios repo not found');
+  const sources = branches.map((b) => {
+    const official = b.name === info.default_branch;
+    return { label: official ? 'Official' : b.name, official, source: { owner, repo, ref: b.name }, sha: b.commit.sha };
+  });
+  const forkBranches = await Promise.all(
+    (forks ?? []).map((fork) =>
+      branchesOf(env, fork.owner.login, fork.name)
+        .then((list) => list.filter((b) => b.name !== fork.default_branch).map((b) => ({ fork, b })))
+        .catch(() => [])
+    )
+  );
+  for (const { fork, b } of forkBranches.flat()) {
+    const label = b.name.toLowerCase() === fork.owner.login.toLowerCase() ? fork.owner.login : `${fork.owner.login} · ${b.name}`;
+    sources.push({ label, official: false, source: { owner: fork.owner.login, repo: fork.name, ref: b.name }, sha: b.commit.sha });
+  }
+  return sources;
+}
+
+const getSources = (env) => remembered('sources', SOURCES_CACHE_MS, () => loadSources(env));
+
+/** Commit of `owner/repo@ref`, null when the repo / branch doesn't exist. */
+function getCommit(env, params) {
+  const owner = params.get('owner') ?? '';
+  const repo = params.get('repo') ?? '';
+  const ref = params.get('ref') ?? '';
+  if (!REPO_PART_RE.test(owner) || !REPO_PART_RE.test(repo) || !REF_RE.test(ref)) throw new HttpError(400, 'Bad source');
+  return remembered(`commit:${owner}/${repo}@${ref}`.toLowerCase(), COMMIT_CACHE_MS, async () => {
+    const commit = await githubRead(env, `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
+    return commit?.sha ?? null;
+  });
+}
+
+/** After an editor save: the branch's new commit shows up straight away. */
+function forgetScenarioCommits(env, branch) {
+  memo.delete('sources');
+  memo.delete(`commit:${env.SCENARIOS_REPO}@${branch}`.toLowerCase());
+}
+
 // ---------- HTTP ----------
 
 function corsHeaders(env, request) {
@@ -406,7 +484,15 @@ export default {
         const save = readScenarioSave(await request.json().catch(() => null), env);
         const ip = request.headers.get('CF-Connecting-IP') ?? '';
         if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: ip })).success) throw new HttpError(429, 'Too many saves, wait a minute');
-        return json(await saveScenario(env, save), 200, cors);
+        const saved = await saveScenario(env, save);
+        forgetScenarioCommits(env, save.branch);
+        return json(saved, 200, cors);
+      }
+      if (request.method === 'GET' && url.pathname === '/scenarios/sources') {
+        return json({ sources: await getSources(env) }, 200, cors);
+      }
+      if (request.method === 'GET' && url.pathname === '/scenarios/commit') {
+        return json({ sha: await getCommit(env, url.searchParams) }, 200, cors);
       }
       if (request.method === 'POST' && url.pathname === '/player/load') {
         return json(await loadPlayer(env, await request.json().catch(() => null)), 200, cors);

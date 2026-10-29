@@ -11,9 +11,10 @@
 // definition for the mode: file kinds, point types and their fields.
 
 import { SCENARIO_FORMAT } from '../../config.js';
+import { readMeta } from './fileMeta.js';
 import { boardSpots } from '../rally/controlScenery.js';
 import { BOARD_COLORS } from '../rally/fiaBoards.js';
-import { DIRS, GRADES } from '../rally/pacenoteCalls.js';
+import { DIRS, GRADES, CRESTS } from '../rally/pacenoteCalls.js';
 import { STAGE_SURFACES } from '../rally/stageSurfaces.js';
 import { VERSIONS, drivenType } from '../rally/stageReverse.js';
 
@@ -203,6 +204,7 @@ const writeRoutePoint = (p) => ({ lat: round(p.lat), lon: round(p.lon), s: p.s }
 
 const isCornerNote = (n) => DIRS.includes(n.dir) && (n.dir === 'S' || GRADES.includes(n.grade));
 const readSurfaceNote = (n) => ({ lat: n.lat, lon: n.lon, s: n.s, len: 0, surface: n.surface, show: readRoutePoint(n.show), apex: readRoutePoint(n.apex) });
+const readCrestNote = (n) => ({ lat: n.lat, lon: n.lon, s: n.s, len: 0, crest: n.crest, ...(n.caution ? { caution: true } : {}), show: readRoutePoint(n.show), apex: readRoutePoint(n.apex) });
 const readCornerNote = (n) => ({
   lat: n.lat,
   lon: n.lon,
@@ -211,6 +213,7 @@ const readCornerNote = (n) => ({
   dir: n.dir,
   ...(n.dir === 'S' ? {} : { grade: n.grade }),
   ...(n.junction ? { junction: true } : {}),
+  ...(n.caution ? { caution: true } : n.dir !== 'S' && n.descent > 0 ? { descent: Math.round(n.descent) } : {}),
   show: readRoutePoint(n.show),
   apex: readRoutePoint(n.apex),
 });
@@ -219,8 +222,8 @@ const readCornerNote = (n) => ({
 function readPacenotes(entry) {
   if (!Number.isFinite(entry?.length) || !Array.isArray(entry.notes)) return null;
   const notes = entry.notes
-    .filter((n) => isRoutePoint(n) && isRoutePoint(n.show) && isRoutePoint(n.apex) && (STAGE_SURFACES[n.surface] || isCornerNote(n)))
-    .map((n) => (n.surface ? readSurfaceNote(n) : readCornerNote(n)))
+    .filter((n) => isRoutePoint(n) && isRoutePoint(n.show) && isRoutePoint(n.apex) && (STAGE_SURFACES[n.surface] || Object.hasOwn(CRESTS, n.crest ?? '') || isCornerNote(n)))
+    .map((n) => (n.surface ? readSurfaceNote(n) : n.crest ? readCrestNote(n) : readCornerNote(n)))
     .sort((p, q) => p.s - q.s);
   return { length: entry.length, notes };
 }
@@ -258,8 +261,8 @@ function readRoute(entry) {
 const writeRoute = (route, key) =>
   route ? { [key]: { key: route.key, length: route.length, points: route.points.map(([lat, lon, unpaved]) => [round(lat), round(lon), unpaved]) } } : {};
 
-const fileMeta = (doc) => ({ country: doc.country, region: doc.region, id: doc.id, name: doc.name });
-const docMeta = (json) => ({ country: json.country ?? '', region: json.region ?? '', id: json.id ?? '', name: json.name ?? '' });
+const fileMeta = (doc) => ({ country: doc.country, region: doc.region, id: doc.id, name: doc.name, ...(doc.meta ? { meta: doc.meta } : {}) });
+const docMeta = (json) => ({ country: json.country ?? '', region: json.region ?? '', id: json.id ?? '', name: json.name ?? '', meta: readMeta(json.meta) });
 
 function validateCommon(doc, problems) {
   if (!ID_RE.test(doc.country ?? '')) problems.push('Country: lowercase letters, digits and dashes only');

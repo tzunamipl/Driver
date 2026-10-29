@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { latLonToLocal, localToLatLon } from './geo.js';
 import { isRoadsideRoad } from './roadside.js';
 import { makeRetroreflective } from './lampGlints.js';
+import { SIGN_HIT_GAIN } from './audio/postHit.js';
 
 const DEG = Math.PI / 180;
 const CURVE_WINDOW_M = 50; // road length a curve's turn is summed over; also the minimum gap between signs
@@ -257,6 +258,7 @@ export function createRoadSignKinds(streets) {
       kinds.push({
         group: 'curveSigns',
         hitSound: 'metal',
+        hitGain: SIGN_HIT_GAIN,
         geometry,
         material: [front, back],
         halfExtents: { x: width / 2, y: cy, z: 0.1 },

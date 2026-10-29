@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SKY_COLOR } from '../lib/terrain.js';
 import { createStars } from '../lib/stars.js';
+import { createSkyDome } from '../lib/skyDome.js';
 import { REVERSED_DEPTH } from '../config.js';
 import { createColorGrade } from './colorGrade.js';
 
@@ -151,5 +152,6 @@ export function createLighting(scene) {
   );
   scene.add(moonDisc);
 
+  createSkyDome(scene);
   return { sun, ambient, sunDisc, moonDisc, stars: createStars(scene) };
 }

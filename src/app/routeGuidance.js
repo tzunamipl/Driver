@@ -39,8 +39,8 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
     onStatusChange?.(state);
   }
 
-  /** Routes from the car to `destination`, replacing any current route. */
-  async function start(destination) {
+  /** Routes from the car to `destination`, replacing any current route; `avoid`: routing.js fetchRoute. */
+  async function start(destination, { avoid = null } = {}) {
     if (isBlocked()) return;
     abort?.abort();
     const from = getCarLatLon();
@@ -51,7 +51,7 @@ export function createRouteGuidance({ getCarLatLon, onStatusChange }) {
     state.progress = null;
     setStatus('loading');
     try {
-      const route = await fetchRoute(from, destination, controller.signal);
+      const route = await fetchRoute(from, destination, controller.signal, avoid);
       if (abort !== controller) return;
       state.route = route;
       setStatus('active');

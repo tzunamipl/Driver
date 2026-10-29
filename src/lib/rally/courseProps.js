@@ -7,6 +7,7 @@
 import { CanvasTexture, CircleGeometry, CylinderGeometry, DoubleSide, Group, Mesh, MeshStandardMaterial, PlaneGeometry, RepeatWrapping, SRGBColorSpace } from 'three';
 import * as CANNON from 'cannon-es';
 import { bakeProps, paint } from './zoneProps.js';
+import { SIGN_HIT_GAIN } from '../audio/postHit.js';
 
 const BALE_RADIUS_M = 0.75;
 const BALE_HEIGHT_M = 1.2;
@@ -160,6 +161,7 @@ export function makeWarningSign() {
     shape: new CANNON.Box(new CANNON.Vec3(SIGN_WIDTH_M / 2, SIGN_LEG_M / 2, 0.3)),
     mass: 6,
     hitSound: 'metal',
+    hitGain: SIGN_HIT_GAIN,
     debrisRadius: 0.08,
     debrisSpheres: [[-0.45, -0.4, 0], [0.45, -0.4, 0], [-0.45, 0.4, 0], [0.45, 0.4, 0]],
   };

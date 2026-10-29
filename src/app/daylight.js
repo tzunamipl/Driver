@@ -5,6 +5,7 @@ import { setPaintReflection } from '../lib/vehicles/geometry/paint.js';
 import { setPuffTint } from '../lib/particles/puffPool.js';
 import { TIME_SCALE, SUN_DISC_COLORS, MOON_DISC_COLORS } from '../config.js';
 import { createWeatherFog } from './weatherFog.js';
+import { skyUniforms } from '../lib/skyDome.js';
 
 // Day-night cycle: sun direction from the simulated clock and the car's
 // lat/lon, with sky, fog, haze and light colours keyed to sun elevation.
@@ -33,16 +34,20 @@ const OVERCAST_AMBIENT_BOOST = 0.5;
 
 // Palette by sun elevation (deg), linearly interpolated. Night keeps a
 // bluish ambient floor so the map stays drivable; moonI is the moonlight.
+// `sky` = sun-side sky (and haze / fog / reflections), `away` = anti-sun side and zenith,
+// `glow` = horizon towards the sun (skyDome.js).
 const PALETTE = [
-  { el: -12, sky: 0x0a1020, fog: 0x080c16, sun: 0xff6a30, sunI: 0, moonI: 0.6, amb: 0x7080b0, ambI: 0.42 },
-  { el: -6, sky: 0x1c2848, fog: 0x141c30, sun: 0xff6a30, sunI: 0, moonI: 0.45, amb: 0x8a8fb8, ambI: 0.45 },
-  { el: -1, sky: 0x9a7088, fog: 0x4a4050, sun: 0xff6a30, sunI: 0, moonI: 0, amb: 0xa898b0, ambI: 0.45 },
-  { el: 2, sky: 0xe8a07a, fog: 0x7a6050, sun: 0xff8844, sunI: 1.4, moonI: 0, amb: 0xe0c0b0, ambI: 0.4 },
-  { el: 8, sky: 0xa8c8e0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.3 },
-  { el: 20, sky: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 4.2, moonI: 0, amb: 0xffffff, ambI: 0.1 },
+  { el: -12, sky: 0x0a1020, away: 0x0a1020, glow: 0x0c1428, fog: 0x080c16, sun: 0xff6a30, sunI: 0, moonI: 0.6, amb: 0x7080b0, ambI: 0.42 },
+  { el: -6, sky: 0x1c2848, away: 0x161e3a, glow: 0x4a3450, fog: 0x141c30, sun: 0xff6a30, sunI: 0, moonI: 0.45, amb: 0x8a8fb8, ambI: 0.45 },
+  { el: -1, sky: 0x9a7088, away: 0x4a5078, glow: 0xe8743c, fog: 0x4a4050, sun: 0xff6a30, sunI: 0, moonI: 0, amb: 0xa898b0, ambI: 0.45 },
+  { el: 2, sky: 0xe8a07a, away: 0x8a9cc0, glow: 0xff9448, fog: 0x7a6050, sun: 0xff8844, sunI: 1.4, moonI: 0, amb: 0xe0c0b0, ambI: 0.4 },
+  { el: 8, sky: 0xa8c8e0, away: 0x98bcdc, glow: 0xf0d4b0, fog: 0x3a5058, sun: 0xffd8a8, sunI: 2.6, moonI: 0, amb: 0xffffff, ambI: 0.3 },
+  { el: 20, sky: 0x87ceeb, away: 0x87ceeb, glow: 0x87ceeb, fog: 0x38616b, sun: 0xffffff, sunI: 4.2, moonI: 0, amb: 0xffffff, ambI: 0.1 },
 ].map((k) => ({
   ...k,
   sky: new THREE.Color(k.sky),
+  away: new THREE.Color(k.away),
+  glow: new THREE.Color(k.glow),
   fog: new THREE.Color(k.fog),
   sun: new THREE.Color(k.sun),
   amb: new THREE.Color(k.amb),
@@ -156,6 +161,15 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars, 
     scene.background.copy(sky);
     setHazeColor(sky);
     setPaintReflection(sky);
+    // Overcast / fog flatten the gradient back to the plain sky.
+    const flat = Math.max(overcast, fog.dim);
+    skyUniforms.skyBase.value.copy(sky);
+    skyUniforms.skyAway.value.lerpColors(a.away, b.away, t);
+    greyOut(skyUniforms.skyAway.value);
+    skyUniforms.skyAway.value.lerp(sky, flat);
+    skyUniforms.skyGlow.value.lerpColors(a.glow, b.glow, t);
+    greyOut(skyUniforms.skyGlow.value);
+    skyUniforms.skyGlow.value.lerp(sky, flat);
     scene.fog.color.lerpColors(a.fog, b.fog, t);
     greyOut(scene.fog.color);
     scene.fog.color.lerp(sky, fog.tint); // objects vanish into the same colour as the ground
@@ -185,6 +199,7 @@ export function createDaylight({ scene, sun, ambient, sunDisc, moonDisc, stars, 
     const { east, north, up } = sunDirection(timeMs, lat, lon);
     // World axes: x = east, y = up, z = south.
     sunDir.set(east, up, -north);
+    skyUniforms.skySunDir.value.copy(sunDir).normalize();
     const elevationDeg = Math.asin(THREE.MathUtils.clamp(up, -1, 1)) / (Math.PI / 180);
     sunElevationDeg = elevationDeg;
 

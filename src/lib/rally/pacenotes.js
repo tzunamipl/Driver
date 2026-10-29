@@ -4,11 +4,13 @@
 // so shallow kinks come out fast. Junctions where the stage leaves the obvious road are marked.
 // Each note carries a point SHOW_M before the corner and its apex (where the HUD hides it).
 // Surface calls where the driven surface changes: a surface section's (stageSurfaces.js), else OSM's paved / unpaved.
+// From the ground heights along the line (stageElevation.js): a corner's steep descent, and crest / jump calls at tops.
 // Note format: pacenoteCalls.js.
 
 import { localToLatLon, latLonToLocal } from '../geo.js';
 import { routeStage } from './stageRoute.js';
 import { osmStageSurface } from './stageSurfaces.js';
+import { stageHeights } from './stageElevation.js';
 
 const STEP_M = 2;
 const SMOOTH_SIGMA_M = 8; // OSM roads are polygons: heading changes spread over this
@@ -30,6 +32,13 @@ const SHOW_M = 100; // a note's show point is this far along the road before its
 const ADD_SNAP_M = 30; // an added note's spot (the car) this close to the stage road
 const ADD_LOOK_M = 60; // an added note's corner: the first one starting within this past the spot
 const SURFACE_MIN_RUN_M = 30; // OSM paved / unpaved stretches shorter than this aren't called (mapping noise)
+const PROFILE_SIGMA_M = 6; // elevation data noise smoothed over this before slopes and tops are read
+const DESCENT_FROM_M = 40; // a corner's descent: the steepest drop from this far before it to its end...
+const DESCENT_WINDOW_M = 10; // ...each measured over this...
+const DESCENT_MIN = 0.1; // ...called from 10 %
+const CREST_LOOK_M = 25; // grade before / after a top measured over this
+const CREST_MIN_TURN = 0.12; // grade change over a top (climb + drop) called a crest...
+const JUMP_MIN_TURN = 0.2; // ...and a jump (vertical radius ~125 m: airborne from ~120 km/h)
 const HINT_WEIGHT = 0.05; // spotOnLine: metres of distance a metre away from the hint costs (roads passed twice)
 
 // Stage points the route goes through, in order.
@@ -67,6 +76,26 @@ function resample(nodes) {
   return { x, z, w, u, nodeS, length: total };
 }
 
+/** Per-sample values Gaussian-smoothed over `sigmaM` metres. */
+function smoothed(values, sigmaM) {
+  const n = values.length;
+  const sigma = sigmaM / STEP_M;
+  const reach = Math.ceil(sigma * 3);
+  const kernel = Array.from({ length: reach * 2 + 1 }, (_, k) => Math.exp(-((k - reach) ** 2) / (2 * sigma * sigma)));
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let weight = 0;
+    for (let k = -reach; k <= reach; k++) {
+      const j = Math.max(0, Math.min(n - 1, i + k));
+      sum += values[j] * kernel[k + reach];
+      weight += kernel[k + reach];
+    }
+    out[i] = sum / weight;
+  }
+  return out;
+}
+
 /** Signed curvature per sample (positive = right), from the smoothed heading. */
 function curvature({ x, z }) {
   const n = x.length;
@@ -76,20 +105,7 @@ function curvature({ x, z }) {
     const raw = Math.atan2(z[j + 1] - z[j], x[j + 1] - x[j]);
     heading[i] = i ? heading[i - 1] + wrap(raw - heading[i - 1]) : raw;
   }
-  const sigma = SMOOTH_SIGMA_M / STEP_M;
-  const reach = Math.ceil(sigma * 3);
-  const kernel = Array.from({ length: reach * 2 + 1 }, (_, k) => Math.exp(-((k - reach) ** 2) / (2 * sigma * sigma)));
-  const smooth = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    let sum = 0;
-    let weight = 0;
-    for (let k = -reach; k <= reach; k++) {
-      const j = Math.max(0, Math.min(n - 1, i + k));
-      sum += heading[j] * kernel[k + reach];
-      weight += kernel[k + reach];
-    }
-    smooth[i] = sum / weight;
-  }
+  const smooth = smoothed(heading, SMOOTH_SIGMA_M);
   const kappa = new Float64Array(n);
   for (let i = 1; i < n - 1; i++) kappa[i] = (smooth[i + 1] - smooth[i - 1]) / (2 * STEP_M);
   return { kappa, heading: smooth };
@@ -220,18 +236,51 @@ function lineOf(origin, nodes) {
   return { origin, nodes, samples, step: STEP_M, corners: findCorners(samples), routePoint };
 }
 
+/** Smoothed ground height (m) per sample of a stage line. */
+const heightProfile = async (line, onProgress) => smoothed(await stageHeights(line, onProgress), PROFILE_SIGMA_M);
+
+/** Steepest descent (whole %) over DESCENT_WINDOW_M from DESCENT_FROM_M before sample `at` to `end` when steep enough to call, else 0. */
+function descentInto(profile, at, end) {
+  const from = Math.max(0, at - Math.round(DESCENT_FROM_M / STEP_M));
+  const window = Math.round(DESCENT_WINDOW_M / STEP_M);
+  const last = Math.min(Math.max(end, at), profile.length - 1) - window;
+  let steepest = 0;
+  for (let i = from; i <= last; i++) steepest = Math.max(steepest, (profile[i] - profile[i + window]) / DESCENT_WINDOW_M);
+  return steepest >= DESCENT_MIN ? Math.round(steepest * 100) : 0;
+}
+
+/** Tops the road goes over: { at (sample), kind: 'crest' | 'jump' }; at most one per CREST_LOOK_M either side. */
+function findCrests(profile) {
+  const look = Math.round(CREST_LOOK_M / STEP_M);
+  const crests = [];
+  for (let i = look; i + look < profile.length; i++) {
+    const h = profile[i];
+    if (!(h > profile[i - 1] && h >= profile[i + 1])) continue;
+    let top = true;
+    for (let k = i - look; k <= i + look && top; k++) top = profile[k] <= h;
+    if (!top) continue;
+    const turn = (2 * h - profile[i - look] - profile[i + look]) / CREST_LOOK_M;
+    if (turn >= CREST_MIN_TURN) crests.push({ at: i, kind: turn >= JUMP_MIN_TURN ? 'jump' : 'crest' });
+  }
+  return crests;
+}
+
 /** A note in the file format, from sample indices along the line. */
-function noteFromSamples(routePoint, { at, apex, len, dir, grade, junction }) {
+function noteFromSamples(routePoint, { at, apex, len, dir, grade, junction, descent }) {
   return {
     ...routePoint(at),
     len: Math.round(len),
     dir,
     ...(dir === 'S' ? {} : { grade }),
     ...(junction ? { junction: true } : {}),
+    ...(dir !== 'S' && descent ? { descent } : {}),
     show: routePoint(at - Math.round(SHOW_M / STEP_M)),
     apex: routePoint(apex),
   };
 }
+
+/** A crest / jump call at sample `at` (the top). */
+const crestNote = (routePoint, { at, kind }) => ({ ...routePoint(at), len: 0, crest: kind, show: routePoint(at - Math.round(SHOW_M / STEP_M)), apex: routePoint(at) });
 
 /**
  * Metres along the stage line nearest to (lat, lon), and how far off it that is. `hintS`: prefer
@@ -308,10 +357,12 @@ export function withSurfaceNotes(pacenotes, line, sections) {
  * Pacenotes for a stage's points (rally.js items, in order), from the start to the finish, with
  * surface calls for its `surfaces` (stageSurfaces.js sections).
  * @param {(done: number, total: number) => void} [onProgress] - road tiles fetched.
+ * @param {(done: number, total: number) => void} [onElevation] - elevation tiles fetched.
  * @returns {Promise<{length: number, notes: object[]}>}
  */
-export async function generatePacenotes(points, { surfaces = [], onProgress } = {}) {
+export async function generatePacenotes(points, { surfaces = [], onProgress, onElevation } = {}) {
   const line = await stageLine(points, onProgress);
+  const profile = await heightProfile(line, onElevation);
   const { nodes, samples, corners, routePoint } = line;
   const notes = [];
   for (const j of findJunctions(nodes, samples.nodeS)) {
@@ -325,41 +376,57 @@ export async function generatePacenotes(points, { surfaces = [], onProgress } = 
       .filter((c) => c.dir === dir && sOf(c.a) - JUNCTION_CORNER_M <= j.s && j.s <= sOf(c.b) + JUNCTION_CORNER_M)
       .sort((p, q) => Math.abs(sOf(p.a + p.b) / 2 - j.s) - Math.abs(sOf(q.a + q.b) / 2 - j.s))[0];
     if (near) near.junction = true;
-    else notes.push({ at, apex: at, len: 0, dir, grade: JUNCTION_GRADE, junction: true });
+    else notes.push({ at, apex: at, len: 0, dir, grade: JUNCTION_GRADE, junction: true, descent: descentInto(profile, at, at) });
   }
   for (const c of corners) {
-    if (c.grade || c.junction) notes.push({ at: c.a, apex: c.apex, len: sOf(c.b - c.a), dir: c.dir, grade: c.grade ?? JUNCTION_GRADE, junction: !!c.junction });
+    if (c.grade || c.junction) {
+      notes.push({ at: c.a, apex: c.apex, len: sOf(c.b - c.a), dir: c.dir, grade: c.grade ?? JUNCTION_GRADE, junction: !!c.junction, descent: descentInto(profile, c.a, c.b) });
+    }
   }
-  notes.sort((p, q) => p.at - q.at);
-  return withSurfaceNotes({ length: Math.round(samples.length), notes: notes.map((n) => noteFromSamples(routePoint, n)) }, line, surfaces);
+  const all = notes.map((n) => noteFromSamples(routePoint, n)).concat(findCrests(profile).map((c) => crestNote(routePoint, c)));
+  return withSurfaceNotes({ length: Math.round(samples.length), notes: all }, line, surfaces);
 }
 
 /** Surface sections as met driving the stage the other way (`length`: that run's line), for its surface calls. */
 export const reverseSections = (sections, length) =>
   sections.map((section) => ({ ...section, from: length - section.to, to: length - section.from, points: section.points.slice().reverse() }));
 
+/** Sample of the stage line nearest to (lat, lon); throws when that's off the road. */
+function spotSample(line, lat, lon) {
+  const { s, dist } = spotOnLine(line, lat, lon);
+  if (dist > ADD_SNAP_M) throw new Error(`Drive onto the stage road first (${Math.round(dist)} m off it)`);
+  return Math.round(s / STEP_M);
+}
+
 /**
  * One note starting at a spot on the stage road (the car): the first corner from there (its apex,
- * direction and grade, flat ones as grade 6), else a grade 6 at the spot. Throws off the road.
+ * direction, grade and descent, flat ones as grade 6), else a grade 6 at the spot. Throws off the road.
  * @returns {Promise<{length: number, note: object}>} - stage length and a pacenoteCalls.js note.
  */
-export async function pacenoteAt(points, lat, lon, { onProgress } = {}) {
-  const { origin, samples, corners, routePoint } = await stageLine(points, onProgress);
-  const spot = latLonToLocal(lat, lon, origin.lat, origin.lon);
-  let at = 0;
-  let best = Infinity;
-  samples.x.forEach((x, i) => {
-    const d = Math.hypot(x - spot.x, samples.z[i] - spot.z);
-    if (d < best) {
-      best = d;
-      at = i;
-    }
-  });
-  if (best > ADD_SNAP_M) throw new Error(`Drive onto the stage road first (${Math.round(best)} m off it)`);
+export async function pacenoteAt(points, lat, lon, { onProgress, onElevation } = {}) {
+  const line = await stageLine(points, onProgress);
+  const { samples, corners, routePoint } = line;
+  const at = spotSample(line, lat, lon);
+  const profile = await heightProfile(line, onElevation);
   const corner = corners.find((c) => c.b >= at && c.a <= at + ADD_LOOK_M / STEP_M);
   const length = Math.round(samples.length);
-  if (!corner) return { length, note: noteFromSamples(routePoint, { at, apex: at, len: 0, dir: 'L', grade: JUNCTION_GRADE, junction: false }) };
+  if (!corner) return { length, note: noteFromSamples(routePoint, { at, apex: at, len: 0, dir: 'L', grade: JUNCTION_GRADE, junction: false, descent: descentInto(profile, at, at) }) };
   const apex = Math.max(at, corner.apex);
-  const fields = { at, apex, len: sOf(Math.max(0, corner.b - at)), dir: corner.dir, grade: corner.grade ?? JUNCTION_GRADE, junction: false };
+  const fields = { at, apex, len: sOf(Math.max(0, corner.b - at)), dir: corner.dir, grade: corner.grade ?? JUNCTION_GRADE, junction: false, descent: descentInto(profile, at, corner.b) };
   return { length, note: noteFromSamples(routePoint, fields) };
+}
+
+/**
+ * A crest / jump call at a spot on the stage road (the car): the nearest top found within ADD_LOOK_M
+ * (its kind and place), else a crest at the spot. Throws off the road.
+ * @returns {Promise<{length: number, note: object}>}
+ */
+export async function crestNoteAt(points, lat, lon, { onProgress, onElevation } = {}) {
+  const line = await stageLine(points, onProgress);
+  const at = spotSample(line, lat, lon);
+  const look = ADD_LOOK_M / STEP_M;
+  const top = findCrests(await heightProfile(line, onElevation))
+    .filter((c) => Math.abs(c.at - at) <= look)
+    .sort((p, q) => Math.abs(p.at - at) - Math.abs(q.at - at))[0];
+  return { length: Math.round(line.samples.length), note: crestNote(line.routePoint, top ?? { at, kind: 'crest' }) };
 }

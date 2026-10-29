@@ -1,9 +1,9 @@
-// Stage / rally picker, in two steps: the car (the shared ui/carSelect.js, with spare wheels and, for a
-// single stage, tyres), then the stage / rally from a folding tree of the official scenarios and every
+// Stage / rally picker, in two steps: the stage / rally from a folding tree of the official scenarios and every
 // player's branch (ui/scenarioTree.js; stages listed again in reverse), reopened at the last file picked; picking a file shows its plan
 // on a map (ui/rallyPlanMap.js) with its best times (ui/rallyBestTimes.js), and a single stage its time
 // of day + weather (ui/stageConditionsPicker.js), and the forecast it would start in (a rally's, or a
-// single stage's in Live weather). Start (or a double-click) drives it.
+// single stage's in Live weather). Next (or a double-click) goes on to the car (the shared ui/carSelect.js,
+// with spare wheels and, for a single stage, tyres); Start drives it.
 
 import { formatSource } from '../lib/scenarios/source.js';
 import { createScenarioTree } from './scenarioTree.js';
@@ -76,13 +76,16 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
         car.stop();
         map.stop();
         onClose?.();
+        sizeLock.disconnect();
         resolve(result);
       };
       let selected = null; // { opened, key, plan (null while loading) }
-      let startWhenLoaded = false;
-      const start = Object.assign(el('button', '', 'Start'), { type: 'button', disabled: true });
-      const startSelected = () => finish({ plan: selected.plan, vehicleId: car.getVehicleId(), ...(pickTyres ? { conditions: stageConditions.get() } : {}) });
-      start.onclick = startSelected;
+      let nextWhenLoaded = false;
+      const button = (text, onclick) => Object.assign(el('button', '', text), { type: 'button', onclick });
+      const next = Object.assign(button('Next', () => showCarStep()), { disabled: true });
+      const cancel = button('Back', () => finish(null));
+      const toPlan = button('Back', () => showPlanStep());
+      const start = button('Start', () => finish({ plan: selected.plan, vehicleId: car.getVehicleId(), ...(pickTyres ? { conditions: stageConditions.get() } : {}) }));
       map.show(null, `Pick a ${kind.label.toLowerCase()} to see its map`);
       times.show(null);
       forecastFor = forecast;
@@ -92,8 +95,8 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
         if (selected?.opened === opened && selected.key === key) return;
         const current = { opened, key, plan: null };
         selected = current;
-        startWhenLoaded = false;
-        start.disabled = true;
+        nextWhenLoaded = false;
+        next.disabled = true;
         map.show(null, 'Loading…');
         times.show(null);
         showForecast(null);
@@ -103,11 +106,11 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
           (plan) => {
             if (selected !== current) return;
             current.plan = plan;
-            start.disabled = false;
+            next.disabled = false;
             map.show(plan);
             times.show(plan);
             showForecast(plan);
-            if (startWhenLoaded) startSelected();
+            if (nextWhenLoaded) showCarStep();
           },
           (err) => {
             if (selected === current) map.show(null, err.message);
@@ -116,48 +119,58 @@ export function createRallyPicker({ playerId, onOpen, onClose }) {
       }
 
       car.show(vehicleId, { tyres: pickTyres, spares: true });
-      // Built with the car step, so the tree (and the remembered file) loads while the car is picked.
       const tree = createScenarioTree({
         folder,
         kinds: [kind],
         onPick: select,
         onActivate(picked) {
           select(picked);
-          if (selected.plan) startSelected();
-          else startWhenLoaded = true;
+          if (selected.plan) showCarStep();
+          else nextWhenLoaded = true;
         },
         initialFile: lastFile ? { ...lastFile, kindId: kind.id } : null,
         reverseKinds: ['stage'], // every stage also driven the other way
       });
       const planPick = el('div', 'rally-plan');
       planPick.append(tree.el, map.el, times.el);
-      const planStep = [el('div', 'rally-picker-heading', `2 / 2 · ${kind.label}`), planPick, ...(pickTyres ? [stageConditions.el] : []), forecastBox];
-      const carStep = [el('div', 'rally-picker-heading', '1 / 2 · Car'), car.el];
+      const planStep = [el('div', 'rally-picker-heading', `1 / 2 · ${kind.label}`), planPick, ...(pickTyres ? [stageConditions.el] : []), forecastBox];
+      const carStep = [el('div', 'rally-picker-heading', '2 / 2 · Car'), car.el];
 
       const win = el('div', 'menu-window rally-picker-window');
       const body = el('div', 'rally-picker-body');
       const footer = el('div', 'menu-footer');
-      const button = (text, onclick) => Object.assign(el('button', '', text), { type: 'button', onclick });
-      const next = button('Next', () => showPlanStep());
-      const cancel = button('Back', () => finish(null));
-      const toCar = button('Back', () => showCarStep());
-      function showCarStep() {
-        map.stop();
-        body.replaceChildren(...carStep);
-        footer.replaceChildren(next, cancel);
-        car.start();
-      }
+      // Grows to the tallest the step has been, so emptied boxes while a file loads don't resize it.
+      let lockedHeight = 0;
+      const sizeLock = new ResizeObserver(() => {
+        const h = win.getBoundingClientRect().height;
+        if (h <= lockedHeight) return;
+        lockedHeight = h;
+        win.style.minHeight = `${h}px`;
+      });
+      const unlockSize = () => {
+        lockedHeight = 0;
+        win.style.minHeight = '';
+      };
       function showPlanStep() {
+        unlockSize();
         car.stop();
         body.replaceChildren(...planStep);
-        footer.replaceChildren(start, toCar);
+        footer.replaceChildren(next, cancel);
         map.start();
         tree.el.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+      }
+      function showCarStep() {
+        unlockSize();
+        map.stop();
+        body.replaceChildren(...carStep);
+        footer.replaceChildren(start, toPlan);
+        car.start();
       }
       win.append(el('h1', 'menu-titlebar', title), body, footer);
       root.replaceChildren(win);
       root.hidden = false;
-      showCarStep();
+      showPlanStep();
+      sizeLock.observe(win);
       onOpen?.();
     });
   }

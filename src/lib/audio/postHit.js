@@ -17,14 +17,16 @@ const CLANG_PARTIALS = [
 const CLANG_BASE_HZ = 520; // at REF_MASS
 const CLANG_REF_MASS = 4; // kg
 const CLANG_GAIN = 0.35;
+/** Hit sound volume (kind `hitGain`) for sign boards: thin sheet, quieter than lamps and rails. */
+export const SIGN_HIT_GAIN = 0.4;
 
-function playClang(level, mass) {
+function playClang(level, mass, volume) {
   const audio = getAudio();
   if (!audio) return;
   const { ctx, buses, noise } = audio;
   const now = ctx.currentTime;
   const out = ctx.createGain();
-  out.gain.value = CLANG_GAIN * (0.4 + 0.6 * level);
+  out.gain.value = volume * CLANG_GAIN * (0.4 + 0.6 * level);
   out.connect(buses.carSfx);
   // Heavier boards ring lower; random detune so a row of hits doesn't repeat one note.
   const base = CLANG_BASE_HZ * (CLANG_REF_MASS / mass) ** 0.3 * (0.92 + Math.random() * 0.16);
@@ -65,12 +67,13 @@ export function createPostHitSound() {
       if (now - lastAt < COOLDOWN_S) return;
       lastAt = now;
       const level = MIN_LEVEL + (1 - MIN_LEVEL) * Math.min(1, speed / SPEED_FOR_MAX);
+      const volume = kind?.hitGain ?? 1;
       if (kind?.hitSound === 'metal') {
-        playThud(level, { gain: 0.4 + 0.4 * level, pitch: 1.4, crunch: 0.4, length: 0.4, knock: 1 });
-        playClang(level, kind.mass ?? CLANG_REF_MASS);
+        playThud(level, { gain: volume * (0.4 + 0.4 * level), pitch: 1.4, crunch: 0.4, length: 0.4, knock: 1 });
+        playClang(level, kind.mass ?? CLANG_REF_MASS, volume);
         return;
       }
-      playThud(level, { gain: 0.5 + 0.5 * level, pitch: 2.4, crunch: 0.6, length: 0.35, knock: 1.2 });
+      playThud(level, { gain: volume * (0.5 + 0.5 * level), pitch: 2.4, crunch: 0.6, length: 0.35, knock: 1.2 });
     },
   };
 }

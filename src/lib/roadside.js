@@ -7,7 +7,7 @@
 // A kind: { geometry (origin on the ground), material, halfExtents {x, y, z}
 // (trigger box, standing on the ground), debrisSpheres [[x, y, z]] (from the
 // box centre), debrisRadius, mass, group (visibility toggle name), hitSound
-// ('metal' or default plastic), followSlope (sheared along local x to the ground's slope, posts stay upright),
+// ('metal' or default plastic), hitGain (hit sound volume, default 1), followSlope (sheared along local x to the ground's slope, posts stay upright),
 // place(seg) -> [{ lat, lon, yaw, ...data }] or null (not ready, asked again later) }.
 // Kinds whose items differ (sign text) give buildMesh(item) -> Object3D (origin
 // on the ground) instead of geometry/material and get one mesh per item.

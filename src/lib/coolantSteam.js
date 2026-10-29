@@ -7,13 +7,15 @@ import { createPuffPool } from './particles/puffPool.js';
 import { localBounds } from './vehicleShared.js';
 
 const POOL_SIZE = 48;
-const PARTICLE_LIFETIME_S = 1.4;
+const PARTICLE_LIFETIME_S = 2.4;
 const START_SCALE = 0.1;
 const END_SCALE = [0.35, 0.9]; // trickle .. full leak
 const OPACITY = [0.25, 0.5];
-const RISE_SPEED = [0.5, 1.3];
+const RISE_SPEED = [0.15, 0.35];
 const OUTWARD_SPEED = [0.1, 0.4];
 const DRAG = 0.35;
+// Steady lift: settles at ~0.4 m/s up against the drag, so the steam drifts slowly upward.
+const BUOYANCY = 0.45;
 const VELOCITY_INHERIT_FRACTION = 0.7;
 const COLORS = [0xf4f4f4, 0xd8dcdf];
 // Loss rate (L/s) treated as the full effect: an open radiator at full pressure.
@@ -34,6 +36,7 @@ export function createCoolantSteam(scene, { onLeak } = {}) {
     lifetime: PARTICLE_LIFETIME_S,
     startScale: START_SCALE,
     drag: DRAG,
+    buoyancy: BUOYANCY,
     colors: COLORS,
   });
   let boundsFor = null; // chassis mesh the cached bounds belong to

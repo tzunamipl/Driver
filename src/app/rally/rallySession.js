@@ -24,9 +24,10 @@ import { rallyFormat, resolvePointRefs, parseClockTime, DEFAULT_START_TIME } fro
 import { filePath } from '../../lib/scenarios/paths.js';
 import { reverseKey, splitReverseKey, drivenStagePoints, inVersion } from '../../lib/rally/stageReverse.js';
 import { savedRouteFor } from '../../lib/rally/savedRoute.js';
+import { bearingDeg } from '../../lib/routing.js';
 import { controlFrame } from '../../lib/scenarios/roadSnap.js';
 import { createControlScenery } from '../../lib/rally/controlScenery.js';
-import { readLocalBests, writeLocalBests, localBestKey } from '../../lib/rally/localBest.js';
+import { readLocalBests, writeLocalBests, localBestKey, localRallyKey, addLocalRun } from '../../lib/rally/localBest.js';
 import { createRallyHud, formatTime, formatDelta } from '../../hud/rallyHud.js';
 import { createRallyPlanHud } from '../../hud/rallyPlanHud.js';
 import { createStageRun } from './stageRun.js';
@@ -51,6 +52,7 @@ const LIAISON_STOP_SPEED = 0.6; // m/s: counts as stopped
 const REFUEL_MENU_SPEED = 1.5; // m/s: a passed refuel point's menu opens once the car is this slow
 const REFUEL_WAIT_M = 60; // ...unless it drives on further than this first
 const ROUTE_MIN_M = 250; // closer targets aren't worth a navigation route
+const LEAVE_STAGE_NEAR_M = 1000; // the liaison leaves heading on past the last stage's end while the car is this near it
 const JUMP_GUARD_M = 50; // a step moving the car further (teleport, reset) checks nothing
 const SPLIT_SHOW_S = 5;
 const WORLD_TOP_N = 10; // world times on the finished plan's results card
@@ -67,7 +69,7 @@ const INSPECT_SHOW_SPEED = 0.8;
 const INSPECT_HIDE_SPEED = 1.5;
 const SKIP_LIAISON_M = 3000; // straight line to the next point
 const SKIP_ROAD_FACTOR = 1.3; // road distance per straight-line metre, for a skip's fuel
-const SKIP_MIN_PART_LEVEL = 0.3; // any part (tyre tread, shock, gearbox, fluids...) below this blocks a skip
+const SKIP_MIN_PART_LEVEL = 0.3; // any mechanical part (tyre tread, shock, gearbox, fluids...) below this blocks a skip
 const SKIP_SPEED_KMH = 50; // a skipped liaison's average speed, for the clock
 const TYRE_FITTING_MIN = 10; // clock minutes at a tyre fitting zone
 const REFUEL_MIN = 5; // ...and at a refuel zone
@@ -83,6 +85,8 @@ const DEFAULT_START_MIN = parseClockTime(DEFAULT_START_TIME);
 const stageKind = rallyFormat.kinds.find((k) => k.id === 'stage');
 const rallyKind = rallyFormat.kinds.find((k) => k.id === 'rally');
 const pointLabel = (type) => rallyFormat.pointTypes[type]?.label ?? type;
+// Itinerary icons for point types without a flag to key them on.
+const NAMED_ICONS = { podium: 'podium', serviceParkIn: 'parkIn', serviceParkOut: 'parkOut' };
 
 /**
  * A stage file's version (lib/rally/stageReverse.js) -> { id (its file key, + the reverse suffix), name, points,
@@ -107,8 +111,9 @@ function readStage(doc, key, reverse = false) {
 async function buildPlan(kind, source, opened, key, json) {
   if (kind === 'stage') {
     const { key: fileKey, reverse } = splitReverseKey(key);
-    const stage = readStage(stageKind.fromFile(json), fileKey, reverse);
-    return { kind, source, sha: opened.sha, id: key, name: stage.name, items: [{ type: 'stage', stage }], objects: [] };
+    const doc = stageKind.fromFile(json);
+    const stage = readStage(doc, fileKey, reverse);
+    return { kind, source, sha: opened.sha, id: key, name: stage.name, meta: doc.meta, items: [{ type: 'stage', stage }], objects: [] };
   }
   const rally = rallyKind.fromFile(json);
   const docs = new Map(); // stage key -> its file read
@@ -131,7 +136,7 @@ async function buildPlan(kind, source, opened, key, json) {
     items.push({ type: 'stage', stage: { ...stage, name: item.name || stage.name } });
   }
   const base = rally.items.find((item) => item.type === 'base') ?? null;
-  return { kind, source, sha: opened.sha, id: key, name: rally.name, startTime: rally.startTime, base, items, objects: rally.objects };
+  return { kind, source, sha: opened.sha, id: key, name: rally.name, meta: rally.meta, startTime: rally.startTime, base, items, objects: rally.objects };
 }
 
 /** The plan's course objects: the rally's own and each stage's once, however often (and whichever way) it's driven. */
@@ -420,6 +425,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const day = conditions.getDay();
     if (!screenFade) {
       conditions.endDay(startMin);
+      carManager.getVehicle()?.coolToAir?.();
       itemMark = conditions.snapshot();
       flash = { text: `Day ${conditions.getDay()} · ${minutesText(startMin)}`, until: simTime + SPLIT_SHOW_S };
       return saveProgress();
@@ -429,6 +435,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       parkCar();
       await screenFade.out(`End of day ${day}\nDay ${day + 1} starts at ${minutesText(startMin)}`);
       conditions.endDay(startMin);
+      carManager.getVehicle()?.coolToAir?.();
       // The next item begins in the new day.
       itemMark = conditions.snapshot();
       saveProgress();
@@ -487,7 +494,19 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const pos = carPosition();
     if (!target || !pos || plan.kind === 'stage') return;
     const { x, z } = viewFrame.fromLatLon(target.lat, target.lon);
-    if (Math.hypot(x - pos.x, z - pos.z) > ROUTE_MIN_M) routeGuidance.start({ lat: target.lat, lon: target.lon, label: pointLabel(target.type) });
+    if (Math.hypot(x - pos.x, z - pos.z) <= ROUTE_MIN_M) return;
+    routeGuidance.start({ lat: target.lat, lon: target.lon, label: pointLabel(target.type) }, { avoid: avoidLastStage(pos) });
+  }
+
+  /** Keeps the liaison off the last stage's road: fewest metres along it, and not turning back into it near its end. */
+  function avoidLastStage(pos) {
+    const stage = plan.items.slice(0, itemIndex).findLast((item) => item.type === 'stage')?.stage;
+    if (!stage) return null;
+    const line = stage.route ? stage.route.points.map(([lat, lon]) => ({ lat, lon })) : stage.points;
+    const [a, b] = stage.points.slice(-2);
+    const end = viewFrame.fromLatLon(b.lat, b.lon);
+    const near = Math.hypot(end.x - pos.x, end.z - pos.z) < LEAVE_STAGE_NEAR_M;
+    return { line, bearing: near ? bearingDeg(a, b) : null };
   }
 
   function onStageEvent(stage, best, event) {
@@ -523,6 +542,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         all[bestKey(stage)] = { totalMs: event.ms, splits: run.state.splits };
         writeLocalBests(all);
       }
+      addLocalRun(bestKey(stage), { totalMs: event.ms, vehicle: getVehicleId() });
       const result = { name: stage.name, ms: event.ms, splits: run.state.splits, penaltyMs: run.penaltyMs(), best };
       submitOnline(stage, result);
       if (plan.kind === 'rally') showStageDone(result);
@@ -590,6 +610,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     itemIndex++;
     if (itemIndex >= plan.items.length) {
       finished = true;
+      if (plan.kind === 'rally' && !results.some((r) => r.ms == null)) addLocalRun(localRallyKey(plan.source, plan.id), { totalMs: rallyTotalMs(), vehicle: getVehicleId() });
       resultRows = null;
       loadWorldTop();
       saveProgress();
@@ -739,8 +760,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     const skip = skipTarget();
     if (!skip) return;
     const vehicle = carManager.getVehicle();
-    // Fuel and cans are checked by the litres below, not as wear.
-    const worn = vehicle ? carParts(vehicle).find((p) => p.group !== 'Fuel & spares' && p.level != null && p.level < SKIP_MIN_PART_LEVEL) : null;
+    // Fuel and cans are checked by the litres below, not as wear; paint and dirt are cosmetic.
+    const worn = vehicle ? carParts(vehicle).find((p) => p.group !== 'Fuel & spares' && p.group !== 'Body' && p.level != null && p.level < SKIP_MIN_PART_LEVEL) : null;
     if (worn) {
       const flat = vehicle.wheelInfos?.some((w) => w.punctured);
       const rim = vehicle.wheelInfos?.some((w) => w.rimBroken);
@@ -904,8 +925,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
       if (item.type !== 'stage') {
         const visit = services[i];
         const value = !visit ? '' : visit.penaltyMs ? `+${formatTime(visit.penaltyMs)}` : `${visit.usedMin} min`;
-        rows.push({ label: pointLabel(item.point.type), value, state });
-        if (rallyFormat.pointTypes[item.point.type]?.endsDay && i < plan.items.length - 1) rows.push({ label: `End of day ${++day}`, value: '', state });
+        const type = rallyFormat.pointTypes[item.point.type];
+        const icon = type?.service ? 'service' : type?.refuel ? 'refuel' : type?.tyres ? 'tyres' : type?.endsDay ? 'parc' : (NAMED_ICONS[item.point.type] ?? '');
+        const endsDay = type?.endsDay && i < plan.items.length - 1;
+        const label = endsDay ? `${pointLabel(item.point.type)} · end of day ${++day}` : pointLabel(item.point.type);
+        rows.push({ label, value, state, icon, endsDay });
         return;
       }
       // Results hold one entry per stage driven, in itinerary order.

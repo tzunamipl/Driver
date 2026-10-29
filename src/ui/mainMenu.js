@@ -2,6 +2,7 @@ import { IS_DEV_MODE, LAUNCH_STORAGE_KEY } from '../config.js';
 import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode, getStart, keepsProgress } from '../app/gameModes.js';
 import { getLatest, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, getActiveStartId, isEditorSession } from '../lib/saves.js';
 import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
+import { menuIcon } from './menuIcons.js';
 
 // Main menu: Continue / Game mode / Settings / About. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
@@ -34,8 +35,9 @@ const formatDate = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium'
 const describeSave = (info) =>
   `${info.status ?? `${longDistanceValue(info.odoKm).toFixed(1)} ${longDistanceUnit()} driven`}${info.savedAt ? `\nLast played ${formatDate(info.savedAt)}` : ''}`;
 
-const button = (label, disabled, onClick) => {
+const button = (label, disabled, onClick, icon = null) => {
   const el = Object.assign(document.createElement('button'), { type: 'button', textContent: label, disabled });
+  if (icon) el.prepend(menuIcon(icon, 'menu-action-icon'));
   el.addEventListener('click', onClick);
   return el;
 };
@@ -55,6 +57,10 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   const modesEl = document.getElementById('menu-modes');
   const settingsEl = document.getElementById('menu-settings');
   const settingsHome = { parent: settingsBodyEl.parentElement, next: settingsBodyEl.nextSibling };
+  for (const btn of menuEl.querySelectorAll('.menu-buttons [data-action]')) {
+    const icon = menuIcon(btn.dataset.action);
+    if (icon) btn.prepend(icon);
+  }
 
   let inGame = false;
   let resolveLaunch = null;
@@ -112,6 +118,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
         body.className = 'menu-mode-body';
         const blurb = document.createElement('p');
         blurb.textContent = mode.blurb ?? '';
+        const icon = menuIcon(mode.id, 'menu-mode-icon');
+        if (icon) body.append(icon);
         body.append(blurb);
         const actions = document.createElement('div');
         actions.className = 'menu-mode-actions';
@@ -123,13 +131,13 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
           const info = playable ? getSaveInfo(mode.id, st?.id) : null;
           const text = !playable ? 'Coming soon' : info ? describeSave(info) : 'No save yet';
           if (mode.available) status(st ? `${st.name}: ${text}` : text);
-          if (!info?.done) actions.append(button(st ? `Resume ${st.name.toLowerCase()}` : 'Continue', !info, () => launch(mode.id, st?.id ?? null, false)));
+          if (!info?.done) actions.append(button(st ? `Resume ${st.name.toLowerCase()}` : 'Continue', !info, () => launch(mode.id, st?.id ?? null, false), 'continue'));
         }
         for (const st of mode.starts ?? [null]) {
           const label = st ? `New ${st.name.toLowerCase()}` : 'Start new';
-          actions.append(button(label, !mode.available || !(st?.available ?? true), () => launch(mode.id, st?.id ?? null, true)));
+          actions.append(button(label, !mode.available || !(st?.available ?? true), () => launch(mode.id, st?.id ?? null, true), 'new'));
         }
-        if (mode.editor) actions.append(button('Editor', !mode.editorAvailable, () => launch(mode.id, null, false, true)));
+        if (mode.editor) actions.append(button('Editor', !mode.editorAvailable, () => launch(mode.id, null, false, true), 'editor'));
         card.append(title, body, actions);
         return card;
       })

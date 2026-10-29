@@ -85,9 +85,15 @@
 .pacenote-arrow-line { fill: none; stroke: var(--pacenote-tint); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
 .pacenote-arrow-head { fill: var(--pacenote-tint); transition: fill 0.3s; }
 .pacenote-surface { box-sizing: border-box; width: 56px; height: 56px; margin: 12px auto; border: 6px solid var(--pacenote-tint); transition: border-color 0.3s; }
-.pacenote-call { font: bold 27px/1.1 monospace; }
+.pacenote-call { display: flex; align-items: center; justify-content: center; gap: 5px; font: bold 27px/1.1 monospace; }
 .pacenote-gap { display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 18px; color: #ddd; white-space: nowrap; }
 .pacenote-fork { width: 15px; height: 18px; }
+.pacenote-flight { stroke-width: 2.5; stroke-dasharray: 3 4; }
+/* Warning sign (steep descent / care) beside the call. */
+.pacenote-call.long { font-size: 16px; }
+.pacenote-sign { flex: none; width: 38px; height: 34px; }
+.pacenote-call.long .pacenote-sign { width: 30px; height: 27px; }
+.pacenote-sign-board { fill: #fff; stroke: #e01010; stroke-width: 3.5; stroke-linejoin: round; }
 .pacenote-fork path { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
 
 /* Rally plan (hud/rallyPlanHud.js), in #top-right-stack under the players panel;
@@ -140,10 +146,12 @@
 }
 .rally-plan-row { display: flex; gap: 4px; padding: 1px 0; }
 .rally-plan-row + .rally-plan-row { border-top: 1px solid rgba(255, 255, 255, 0.15); }
+.rally-plan-row.ends-day + .rally-plan-row { border-top: 3px solid rgba(255, 255, 255, 0.7); }
 .rally-plan-row.done { color: rgba(255, 255, 255, 0.5); }
 .rally-plan-row.current { margin: 0 -4px; padding: 1px 4px; background: #f6c900; color: #000; font-weight: bold; }
 .rally-plan-mark { flex: 0 0 1.2em; text-align: center; }
 .rally-plan-row.done .rally-plan-mark { color: #2fb82f; }
+.rally-plan-mark.icon { font-size: 10px; }
 .rally-plan-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rally-plan-value { font-family: monospace; white-space: nowrap; }
 
@@ -288,6 +296,7 @@
 .service-inspect > :not(.menu-titlebar) { margin-left: 0; margin-right: 0; }
 .service-inspect .service-group { background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px solid rgba(246, 201, 0, 0.35); }
 .service-inspect .tyre-setup-title { color: #f6c900; }
+.service-group-icon { display: inline-block; width: 1.4em; text-align: center; margin-right: 4px; }
 .service-inspect .service-row + .service-row { border-top-color: rgba(255, 255, 255, 0.15); }
 .service-inspect .service-note { color: #ffd7a0; }
 .service-inspect .tyre-setup-bar { box-shadow: none; --empty: rgba(255, 255, 255, 0.2); background: linear-gradient(90deg, #f6c900 var(--fill), var(--empty) var(--fill)); }
@@ -304,12 +313,15 @@
 @media (max-width: 560px) {
   .tyre-service-body-grid { flex-direction: column; }
 }
-.rally-picker-window { width: min(900px, 100%); gap: 4px; overflow-y: auto; }
+.rally-picker-window { width: min(1200px, 100%); gap: 4px; overflow-y: auto; }
+.rally-picker-window .rally-vehicle-list { grid-template-columns: repeat(3, 1fr); }
+/* Takes the locked height's slack, so the footer stays at the bottom. */
+.rally-picker-body { flex: 1 0 auto; }
 /* Stage / rally tree beside its plan map (ui/rallyPlanMap.js). */
 .rally-plan { display: flex; gap: 10px; }
 .rally-plan .scenario-tree { flex: 1 1 0; min-width: 0; height: min(400px, 45dvh); overflow-y: auto; }
 .rally-plan .scenario-tree-files button.selected { box-shadow: var(--w95-pressed); font-weight: bold; }
-.rally-plan-map { flex: 1.3 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rally-plan-map { flex: 2.4 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .rally-plan-map-view {
   position: relative;
   height: min(400px, 45dvh);
@@ -342,15 +354,15 @@
   outline: 1px solid #404040;
 }
 /* Best times (ui/rallyBestTimes.js) beside the map. */
-.rally-best { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rally-best { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .rally-best-box {
-  height: min(400px, 45dvh);
+  height: calc(min(400px, 45dvh) - 19px); /* with the tabs, as tall as the tree */
   display: flex;
   flex-direction: column;
   background: #fff;
   box-shadow: var(--w95-sunken);
 }
-.rally-best-title { padding: 3px 6px; font-weight: bold; border-bottom: 1px solid #c0c0c0; }
+.rally-best-tabs { margin-bottom: -3px; }
 .rally-best-list { flex: 1 1 auto; overflow-y: auto; padding: 2px 4px; }
 .rally-best-row { display: flex; gap: 6px; padding: 1px 2px; font-variant-numeric: tabular-nums; }
 .rally-best-row.mine { background: var(--w95-select); color: #fff; }
@@ -363,7 +375,9 @@
 .rally-best-time { font-family: monospace; white-space: nowrap; }
 .rally-best-gap { padding-left: 2.4em; color: #808080; }
 .rally-best-message { padding: 4px 2px; color: #444; }
-.rally-best-local { min-height: 13px; font-variant-numeric: tabular-nums; }
+.rally-best-details { width: 100%; border-collapse: collapse; }
+.rally-best-details th { text-align: left; font-weight: normal; color: #444; padding: 2px 6px 2px 2px; white-space: nowrap; vertical-align: top; }
+.rally-best-details td { padding: 2px; overflow-wrap: anywhere; }
 .rally-picker-heading { margin: 6px 0 2px; font-weight: bold; }
 /* Car: tabs + list beside the turning model and stats, laid out by lobby.css. */
 .rally-car-pick { display: flex; flex-direction: column; }
@@ -380,6 +394,7 @@
   .rally-plan { flex-direction: column; }
   .rally-plan .scenario-tree { height: auto; max-height: 25dvh; }
   .rally-plan-map-view { height: 180px; }
+  .rally-picker-window .rally-vehicle-list { grid-template-columns: 1fr 1fr; }
   .rally-best-box { height: auto; max-height: 30dvh; }
 }
 /* Menus over a parked car (main.js menuPark): left of centre, the car in view on the right.

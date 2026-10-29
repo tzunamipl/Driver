@@ -273,7 +273,7 @@ export function createWheeledVehicle({ chassisBody, indexRightAxis = 0, indexFor
       if (Number.isFinite(health)) setShockHealth(vehicle.wheelInfos[i], health);
     });
   }
-  /** Per-wheel [{ tread, punctured, tyreShed, rimBroken, tempC, dirt, wetness }], for the save. */
+  /** Per-wheel [{ tread, punctured, tyreShed, rimBroken, tempC, dirt, rimDirt, wetness }], for the save. */
   function getTyreState() {
     return vehicle.wheelInfos.map((w) => ({ tread: w.tread, punctured: w.punctured, tyreShed: w.tyreShed, rimBroken: w.rimBroken, ...conditionState(w) }));
   }

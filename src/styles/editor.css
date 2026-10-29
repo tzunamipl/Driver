@@ -80,6 +80,8 @@
   box-shadow: var(--w95-field);
 }
 .editor-items:empty { display: none; }
+/* Number in the row text (as on the 3D markers), not the list marker. */
+.editor-items.editor-numbered { list-style: none; padding-left: 2px; }
 .editor-items li { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .editor-items li.selected { background: var(--w95-select); color: #fff; }
 .editor-items li.is-other { opacity: 0.5; }
@@ -175,7 +177,10 @@
 }
 #pacenote-panel[hidden],
 .pacenote-selected[hidden],
-.pacenote-corner[hidden] { display: none; }
+.pacenote-corner[hidden],
+.pacenote-selected .editor-kinds[hidden],
+.pacenote-selected .editor-check[hidden] { display: none; }
+.pacenote-descent-value { width: 3.5em; margin-left: auto; }
 .pacenote-corner { display: flex; flex-direction: column; gap: 3px; }
 .pacenote-body { min-height: 0; display: flex; flex-direction: column; gap: 3px; padding: 4px 2px 0; }
 .editor-notes { flex: 1 1 auto; min-height: 60px; max-height: none; padding-left: 30px; font-family: monospace; }
@@ -220,3 +225,7 @@
 .course-objects-list { max-height: 160px; }
 .course-objects-length { display: flex; align-items: center; gap: 6px; }
 .course-objects-length input { width: 7ch; font: inherit; }
+/* Action icon before the button text (ui/menuIcons.js). */
+.editor-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -3px; }
+button:disabled .editor-icon { filter: grayscale(1) opacity(0.5); }
+.editor-compact { padding: 0 4px; }

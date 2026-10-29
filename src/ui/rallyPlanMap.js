@@ -13,13 +13,17 @@ import { STAGE_SURFACES } from '../lib/rally/stageSurfaces.js';
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 16;
-const FIT_PAD_PX = 28;
+// Share of the free map area left empty on each side of the fitted plan.
+const FIT_MARGIN = 0.1;
 const SS_COLOR = '#e02020';
 const LIAISON_COLOR = '#2f7cff';
 // Locator inset (top-left): where on the continent the plan is.
-const INSET_ZOOM = 2;
-const INSET_W = 128;
-const INSET_H = 96;
+const INSET_ZOOM = 1;
+const INSET_W = 64;
+const INSET_H = 48;
+const INSET_SEA = [31, 74, 122];
+// OSM Standard's water colour; pixels near it read as sea, the rest as white land.
+const OSM_WATER = [170, 211, 223];
 const INSET_MARGIN = 6;
 // The plan fits right of the world inset, unless that leaves it narrower than this.
 const MIN_PLAN_W = 160;
@@ -27,6 +31,25 @@ const MIN_PLAN_W = 160;
 const toMercX = (lon) => lon2tileX(lon, 0);
 const toMercY = (lat) => lat2tileY(lat, 0);
 const km = (m) => `${longDistanceValue(m / 1000).toFixed(1)} ${longDistanceUnit()}`;
+
+/** The tile as a two-tone locator: dark sea, white land (blended over the coast's antialiasing). */
+function recolorInsetTile(img) {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const c = canvas.getContext('2d');
+  c.drawImage(img, 0, 0);
+  const data = c.getImageData(0, 0, canvas.width, canvas.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const d = Math.hypot(px[i] - OSM_WATER[0], px[i + 1] - OSM_WATER[1], px[i + 2] - OSM_WATER[2]);
+    const land = Math.min(1, Math.max(0, (d - 12) / 36));
+    for (let k = 0; k < 3; k++) px[i + k] = INSET_SEA[k] + (255 - INSET_SEA[k]) * land;
+    px[i + 3] = 255;
+  }
+  c.putImageData(data, 0, 0);
+  return canvas;
+}
 const hex = (color) => `#${(color & 0xffffff).toString(16).padStart(6, '0')}`;
 const typeColor = (type) => hex(rallyFormat.pointTypes[type]?.color ?? 0x808080);
 
@@ -109,6 +132,7 @@ export function createRallyPlanMap() {
   root.append(view, info, surfaces);
   const ctx = canvas.getContext('2d');
   const tiles = createMapTileCache({ maxSize: 200, pruneTo: 120 });
+  const insetTiles = new WeakMap(); // tile entry -> recoloured canvas
 
   let plan = null;
   let waypoints = [];
@@ -223,12 +247,15 @@ export function createRallyPlanMap() {
     for (const w of waypoints) add(toMercX(w.lon), toMercY(w.lat));
     for (const line of [route, ...saved]) if (line) for (let i = 0; i < line.mx.length; i++) add(line.mx[i], line.my[i]);
     const besideInset = INSET_MARGIN * 2 + INSET_W;
-    const padLeft = widthCss - besideInset - FIT_PAD_PX >= MIN_PLAN_W ? besideInset : FIT_PAD_PX;
-    const fitW = widthCss - padLeft - FIT_PAD_PX;
-    const span = Math.max((maxX - minX) / Math.max(1, fitW), (maxY - minY) / Math.max(1, heightCss - 2 * FIT_PAD_PX));
-    const zoom = span > 0 ? Math.floor(Math.log2(1 / (span * TILE_SIZE))) : MAX_ZOOM;
+    const freeLeft = (widthCss - besideInset) * (1 - 2 * FIT_MARGIN) >= MIN_PLAN_W ? besideInset : 0;
+    const freeW = widthCss - freeLeft;
+    const fitW = freeW * (1 - 2 * FIT_MARGIN);
+    const fitH = heightCss * (1 - 2 * FIT_MARGIN);
+    const span = Math.max((maxX - minX) / Math.max(1, fitW), (maxY - minY) / Math.max(1, fitH));
+    // Fractional, so the plan fills the area; tiles are scaled from the nearest level.
+    const zoom = span > 0 ? Math.log2(1 / (span * TILE_SIZE)) : MAX_ZOOM;
     // screenX: where the plan's centre sits, mid-way across the free area.
-    return { zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, screenX: padLeft + fitW / 2 };
+    return { zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, screenX: freeLeft + freeW / 2 };
   }
 
   function strokeLine(points, ss) {
@@ -330,14 +357,16 @@ export function createRallyPlanMap() {
     ctx.translate(INSET_MARGIN, INSET_MARGIN);
     ctx.beginPath();
     ctx.rect(0, 0, INSET_W, INSET_H);
-    ctx.fillStyle = '#aad3df';
+    ctx.fillStyle = `rgb(${INSET_SEA})`;
     ctx.fill();
     ctx.save();
     ctx.clip();
     for (let ty = Math.floor(top / TILE_SIZE); ty <= Math.floor((top + INSET_H) / TILE_SIZE); ty++) {
       for (let tx = Math.floor(left / TILE_SIZE); tx <= Math.floor((left + INSET_W) / TILE_SIZE); tx++) {
         const entry = tiles.get(INSET_ZOOM, tx, ty);
-        if (entry?.ready) ctx.drawImage(entry.img, tx * TILE_SIZE - left, ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
+        if (!entry?.ready) continue;
+        if (!insetTiles.has(entry)) insetTiles.set(entry, recolorInsetTile(entry.img));
+        ctx.drawImage(insetTiles.get(entry), tx * TILE_SIZE - left, ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
       }
     }
     ctx.restore();
@@ -346,12 +375,19 @@ export function createRallyPlanMap() {
     ctx.strokeRect(0.5, 0.5, INSET_W - 1, INSET_H - 1);
     const x = cx * world - left;
     const y = cy * world - top;
+    // Crosshair: four arms around a gap, with a single point in the middle.
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.lineWidth = 2;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.moveTo(x + dx * 2.5, y + dy * 2.5);
+      ctx.lineTo(x + dx * 7, y + dy * 7);
+    }
+    ctx.lineWidth = 1.5;
     ctx.strokeStyle = SS_COLOR;
     ctx.stroke();
-    drawDot({ x, y }, SS_COLOR);
+    ctx.beginPath();
+    ctx.arc(x, y, 1, 0, Math.PI * 2);
+    ctx.fillStyle = SS_COLOR;
+    ctx.fill();
     ctx.restore();
   }
 
@@ -367,14 +403,19 @@ export function createRallyPlanMap() {
     const world = TILE_SIZE * 2 ** zoom;
     const left = cx * world - screenX;
     const top = cy * world - heightCss / 2;
-    const x0 = Math.floor(left / TILE_SIZE);
-    const y0 = Math.floor(top / TILE_SIZE);
-    const x1 = Math.floor((left + widthCss) / TILE_SIZE);
-    const y1 = Math.floor((top + heightCss) / TILE_SIZE);
+    const tileZoom = Math.round(zoom);
+    const tileSize = TILE_SIZE * 2 ** (zoom - tileZoom);
+    const x0 = Math.floor(left / tileSize);
+    const y0 = Math.floor(top / tileSize);
+    const x1 = Math.floor((left + widthCss) / tileSize);
+    const y1 = Math.floor((top + heightCss) / tileSize);
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
-        const entry = tiles.get(zoom, tx, ty);
-        if (entry?.ready) ctx.drawImage(entry.img, tx * TILE_SIZE - left, ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
+        const entry = tiles.get(tileZoom, tx, ty);
+        // Rounded edges avoid hairline seams between scaled tiles.
+        const sx = Math.round(tx * tileSize - left);
+        const sy = Math.round(ty * tileSize - top);
+        if (entry?.ready) ctx.drawImage(entry.img, sx, sy, Math.round((tx + 1) * tileSize - left) - sx, Math.round((ty + 1) * tileSize - top) - sy);
       }
     }
     tiles.prune();

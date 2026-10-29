@@ -10,6 +10,7 @@ import { penaltyText } from '../app/rally/fieldRepair.js';
 const el = (tag, className, text) => Object.assign(document.createElement(tag), { className, ...(text ? { textContent: text } : {}) });
 const VERDICT_TEXT = { good: 'OK', warn: 'Worn', bad: 'Bad' };
 const minText = (m) => `${m} min`;
+const GROUP_ICONS = { Tyres: '🛞', Suspension: '🔩', Cooling: '🌡️', Engine: '🛢️', Lamps: '💡', Drivetrain: '⚙️', Brakes: '🛑', 'Fuel & spares': '⛽' };
 
 /**
  * @param {object} [opts]
@@ -140,7 +141,9 @@ export function createServiceDialog({ onOpen, onClose } = {}) {
         for (const part of parts) {
           if (!groups.has(part.group)) {
             const box = el('div', 'service-group');
-            box.append(el('div', 'tyre-setup-title', part.group));
+            const title = el('div', 'tyre-setup-title', part.group);
+            if (GROUP_ICONS[part.group]) title.prepend(el('span', 'service-group-icon', GROUP_ICONS[part.group]));
+            box.append(title);
             groups.set(part.group, box);
             body.append(box);
           }

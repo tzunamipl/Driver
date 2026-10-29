@@ -1,6 +1,6 @@
 // Engine debug panel: fuel consumption, cooling, oil and gearbox wear, with Leak / Wear / Fix buttons.
 
-export function createEngineHud() {
+export function createEngineHud({ partClunkSound } = {}) {
   const fuelRow = document.getElementById('susp-fuel');
   const fuelPer100 = document.getElementById('susp-fuel-per100');
   const fuelPerHour = document.getElementById('susp-fuel-perhour');
@@ -15,9 +15,9 @@ export function createEngineHud() {
   );
   let heatVehicle = null; // for the debug Leak / Fix buttons
   for (const [id, action] of [
-    ['susp-heat-leak', (h) => h.startLeak()],
+    ['susp-heat-leak', (h) => { h.startLeak(); partClunkSound?.play(1, 'radiator'); }],
     ['susp-heat-fix', (h) => h.repairRadiator()],
-    ['susp-oil-leak', (h) => h.startOilLeak()],
+    ['susp-oil-leak', (h) => { h.startOilLeak(); partClunkSound?.play(1, 'sump'); }],
     ['susp-oil-fix', (h) => { h.repairSump(); h.repairEngine(); }],
   ]) {
     const button = document.getElementById(id);

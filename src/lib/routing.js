@@ -5,9 +5,9 @@ import { isImperial, longDistanceValue, FT_PER_M } from './units.js';
 // flattened into one polyline with per-vertex distance/time so the car's
 // progress along it is a nearest-segment lookup.
 
-const OSRM_ROUTE_URL = (points) =>
+const OSRM_ROUTE_URL = (points, query = '') =>
   `https://router.project-osrm.org/route/v1/driving/${points.map((p) => `${p.lon},${p.lat}`).join(';')}` +
-  '?overview=false&steps=true&geometries=geojson';
+  `?overview=false&steps=true&geometries=geojson${query}`;
 
 const EARTH_RADIUS = 6371000;
 const DEG = Math.PI / 180;
@@ -15,6 +15,12 @@ const DEG = Math.PI / 180;
 const LOCAL_MATCH_M = 50;
 const LOCAL_WINDOW_BACK = 20;
 const LOCAL_WINDOW_AHEAD = 400;
+// Avoided roads: alternatives asked for, departure heading tolerance, route vertices this near the line count as on it.
+const AVOID_ALTERNATIVES = 3;
+const AVOID_BEARING_RANGE = 90;
+const AVOID_ON_LINE_M = 25;
+// An alternative must cut the metres on the avoided line by this much to beat OSRM's own pick.
+const AVOID_MIN_GAIN_M = 50;
 
 /**
  * @typedef {{ type: string, modifier?: string, exit?: number, name: string, index: number, along: number }} RouteStep
@@ -25,9 +31,80 @@ const LOCAL_WINDOW_AHEAD = 400;
  * }} Route
  */
 
-/** @returns {Promise<Route>} */
-export function fetchRoute(from, to, signal) {
-  return fetchRouteVia([from, to], signal);
+/**
+ * `avoid`: { line: [{ lat, lon }], bearing?: deg from north } - leave `from` within AVOID_BEARING_RANGE of
+ * `bearing`, and of OSRM's alternatives take the one with the fewest metres along `line`.
+ * @returns {Promise<Route>}
+ */
+export async function fetchRoute(from, to, signal, avoid = null) {
+  if (!avoid) return fetchRouteVia([from, to], signal);
+  const query = `&alternatives=${AVOID_ALTERNATIVES}`;
+  let routes = null;
+  if (avoid.bearing != null) {
+    const bearing = Math.round(((avoid.bearing % 360) + 360) % 360);
+    // No road leaving that way near `from` (NoSegment / NoRoute): routed without the heading.
+    routes = await requestRoutes([from, to], signal, `${query}&bearings=${bearing},${AVOID_BEARING_RANGE};`).catch((err) => {
+      if (signal?.aborted) throw err;
+      return null;
+    });
+  }
+  routes ??= await requestRoutes([from, to], signal, query);
+  const options = routes.map((r) => r.legs.flatMap((leg) => leg.steps)).filter((steps) => steps.length);
+  if (!options.length) throw new Error('no road route found');
+  const onLine = options.map((steps) => metresOnLine(steps, avoid.line));
+  let pick = 0;
+  onLine.forEach((m, i) => {
+    if (m < onLine[pick] - AVOID_MIN_GAIN_M) pick = i;
+  });
+  return buildRoute(options[pick], to);
+}
+
+async function requestRoutes(points, signal, query = '') {
+  const res = await fetch(OSRM_ROUTE_URL(points, query), { signal, headers: { Accept: 'application/json' } });
+  const data = await res.json().catch(() => null);
+  if (data?.code !== 'Ok' || !data.routes?.length) {
+    throw new Error(data?.code === 'NoRoute' ? 'no road route found' : data?.message || `routing failed (${res.status})`);
+  }
+  return data.routes;
+}
+
+/** Metres of the OSRM steps' geometry within AVOID_ON_LINE_M of the polyline `line`. */
+function metresOnLine(steps, line) {
+  if (!line?.length) return 0;
+  const lat0 = line[0].lat;
+  const kx = Math.cos(lat0 * DEG) * DEG * EARTH_RADIUS;
+  const ky = DEG * EARTH_RADIUS;
+  const lx = line.map((p) => (p.lon - line[0].lon) * kx);
+  const ly = line.map((p) => (p.lat - lat0) * ky);
+  const near = (x, y) => {
+    if (lx.length === 1) return Math.hypot(x - lx[0], y - ly[0]) < AVOID_ON_LINE_M;
+    for (let i = 0; i + 1 < lx.length; i++) {
+      const ex = lx[i + 1] - lx[i];
+      const ey = ly[i + 1] - ly[i];
+      const len2 = ex * ex + ey * ey;
+      const t = len2 > 0 ? Math.min(1, Math.max(0, ((x - lx[i]) * ex + (y - ly[i]) * ey) / len2)) : 0;
+      if (Math.hypot(x - lx[i] - ex * t, y - ly[i] - ey * t) < AVOID_ON_LINE_M) return true;
+    }
+    return false;
+  };
+  let metres = 0;
+  for (const step of steps) {
+    const pts = step.geometry.coordinates.map(([lon, lat]) => [(lon - line[0].lon) * kx, (lat - lat0) * ky]);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, ay] = pts[i];
+      const [bx, by] = pts[i + 1];
+      if (near((ax + bx) / 2, (ay + by) / 2)) metres += Math.hypot(bx - ax, by - ay);
+    }
+  }
+  return metres;
+}
+
+/** Initial bearing from a to b ({ lat, lon }), degrees clockwise from north. */
+export function bearingDeg(a, b) {
+  const dLon = (b.lon - a.lon) * DEG;
+  const y = Math.sin(dLon) * Math.cos(b.lat * DEG);
+  const x = Math.cos(a.lat * DEG) * Math.sin(b.lat * DEG) - Math.sin(a.lat * DEG) * Math.cos(b.lat * DEG) * Math.cos(dLon);
+  return Math.atan2(y, x) / DEG;
 }
 
 /**
@@ -36,12 +113,7 @@ export function fetchRoute(from, to, signal) {
  * @returns {Promise<Route & { legStarts: number[] }>}
  */
 export async function fetchRouteVia(points, signal) {
-  const res = await fetch(OSRM_ROUTE_URL(points), { signal, headers: { Accept: 'application/json' } });
-  const data = await res.json().catch(() => null);
-  if (data?.code !== 'Ok' || !data.routes?.length) {
-    throw new Error(data?.code === 'NoRoute' ? 'no road route found' : data?.message || `routing failed (${res.status})`);
-  }
-  const legs = data.routes[0].legs;
+  const [{ legs }] = await requestRoutes(points, signal);
   const steps = legs.flatMap((leg) => leg.steps);
   if (!steps.length) throw new Error('no road route found');
   const route = buildRoute(steps, points[points.length - 1]);

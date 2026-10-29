@@ -36,6 +36,7 @@ import { CLOCK_HEIGHT_M, makeClock, setClockTime } from './timingClock.js';
 import * as props from './zoneProps.js';
 import { bakeProps } from './zoneProps.js';
 import { TAPE_HEIGHT_M, TAPE_STAKE_SPACING_M, makeHayBale, makeTapeSpan, makeTapeStake, makeWarningSign, tapeSpanShape } from './courseProps.js';
+import { SIGN_HIT_GAIN } from '../audio/postHit.js';
 
 const SNAP_RADIUS_M = 40;
 const RESOLVE_RETRY_S = 1;
@@ -176,6 +177,7 @@ function makeBoard(color, symbol, height = BOARD_HEIGHT_M, twoFaced = false) {
   group.userData.knock = knockSpec([0, top / 2, 0], [POST_HALF_M, top / 2, POST_HALF_M], {
     mass: 8,
     hitSound: 'metal',
+    hitGain: SIGN_HIT_GAIN,
     debrisRadius: 0.08,
     // Along the post, plus the board's ends, so it lies on them.
     debrisSpheres: [[0, -top * 0.35, 0], [0, 0, 0], ...[-1, 1].map((s) => [s * 0.4, top / 2 - BOARD_SIZE_M / 2, 0])],

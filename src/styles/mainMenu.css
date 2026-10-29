@@ -50,6 +50,24 @@
 #main-menu .menu-buttons button {
   min-height: 34px;
   font-size: 22px;
+  /* Icon in its own column, label (+ status line) left-aligned beside it. */
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  column-gap: 10px;
+  align-items: center;
+  justify-items: start;
+  text-align: left;
+  padding-left: 10px;
+}
+.menu-icon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 24px;
+  height: 24px;
+}
+.menu-buttons button:disabled .menu-icon,
+.menu-mode.unavailable .menu-mode-icon {
+  filter: grayscale(1) opacity(0.5);
 }
 .menu-continue-mode:not(:empty),
 .menu-save-status:not(:empty) {
@@ -89,6 +107,12 @@
   padding: 8px 6px;
   overflow-y: auto;
 }
+.menu-mode-icon {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 4px auto 10px;
+}
 .menu-mode-body p {
   margin: 0 0 8px;
   line-height: 1.4;
@@ -103,6 +127,18 @@
   gap: 4px;
   padding: 0 4px 4px;
 }
+.menu-mode-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+}
+.menu-action-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.menu-mode-actions button:disabled .menu-action-icon { filter: grayscale(1) opacity(0.5); }
 .menu-mode.unavailable { color: var(--w95-shadow); }
 .menu-mode.unavailable .menu-mode-title {
   background: var(--w95-shadow);
