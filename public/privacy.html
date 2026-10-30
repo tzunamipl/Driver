@@ -63,7 +63,7 @@
       <p class="updated">Driver, a browser driving game · last updated 30 October 2026</p>
 
       <div class="box">
-        <p><strong>In short:</strong> Driver has no accounts and asks for no email. Your saves stay in your browser. The game sends data only for multiplayer, the online leaderboards (if you agree), stage editor saves (if you publish one), Google Analytics (only if you allow it), and the map, terrain and weather services it needs to draw the world. Your player name is public, so don't use your real name.</p>
+        <p><strong>In short:</strong> Driver has no accounts and asks for no email. Your saves stay in your browser. The game sends data only for multiplayer, the online leaderboards (unless you turn them off), stage editor saves (if you publish one), Google Analytics (only if you allow it), and the map, terrain and weather services it needs to draw the world. Your player name is public, so don't use your real name.</p>
       </div>
 
       <h2>1. Who is responsible</h2>
@@ -79,8 +79,8 @@
       <p>While you play, the game sends your player name, car, paint colour, random player ID and your car's position and state in the game world (speed, steering, lights, horn) about ten times a second through a public MQTT message broker, <code>broker.emqx.io</code>, run by EMQ Technologies. Anyone connected to that broker can see these messages. Other players' browsers remember names they saw for 24 hours. The position is in the game world. Driver never reads your device's location.</p>
       <p>Legal basis: legitimate interest in providing the shared world you joined (GDPR art. 6(1)(f)).</p>
 
-      <h3>Online leaderboards (only if you agree)</h3>
-      <p>When you first start an official stage or rally, the game asks whether to send your times. If you agree, each finished official stage sends your player name, car, stage time, split times, penalties, game version and random player ID to the game's server (a Cloudflare Worker). The server stores your name, car, times, date and a shortened one-way hash of your player ID in its database (Cloudflare D1), and shows them publicly on the in-game leaderboards. Only your best time per stage and car is kept, and a board is emptied when its stage is changed.</p>
+      <h3>Online leaderboards (on unless you turn them off)</h3>
+      <p>Unless you turn it off in Settings &gt; Gameplay &gt; Privacy, each finished official stage sends your player name, car, stage time, split times, penalties, game version and random player ID to the game's server (a Cloudflare Worker). The server stores your name, car, times, date and a shortened one-way hash of your player ID in its database (Cloudflare D1), and shows them publicly on the in-game leaderboards. Only your best time per stage and car is kept, and a board is emptied when its stage is changed.</p>
       <p>Legal basis: your consent (GDPR art. 6(1)(a)). You can switch this off at any time in Settings &gt; Gameplay &gt; Privacy. Switching it off stops new submissions. Ask the author (section 1) to remove times already published.</p>
 
       <h3>Stage editor saves (only when you publish)</h3>
@@ -128,7 +128,7 @@
       <p>You may also complain to the Polish supervisory authority: Prezes Urzędu Ochrony Danych Osobowych, ul. Stawki 2, 00-193 Warszawa, <a href="https://uodo.gov.pl" target="_blank" rel="noopener noreferrer">uodo.gov.pl</a>, or to the authority in your own EU country.</p>
 
       <h2>6. Children</h2>
-      <p>If you are under 16, ask a parent or guardian before allowing Google Analytics or sending times to the leaderboards, and don't use your real name as your player name.</p>
+      <p>If you are under 16, ask a parent or guardian before allowing Google Analytics, and consider turning off sending times to the leaderboards, and don't use your real name as your player name.</p>
 
       <h2>7. Changes</h2>
       <p>This policy may change as the game develops. The date at the top shows the latest version.</p>

@@ -1,5 +1,5 @@
 import { PRIVACY_POLICY_URL } from '../config.js';
-import { getConsent, setConsent, onConsentChange } from '../lib/privacy.js';
+import { getConsent, setConsent, onConsentChange, leaderboardAllowed } from '../lib/privacy.js';
 import { enableAnalytics, disableAnalytics } from '../lib/analytics.js';
 
 // Analytics consent banner (until answered) + Settings > Gameplay > Privacy checkboxes.
@@ -21,7 +21,7 @@ export function createPrivacySettings() {
     leaderboard: document.getElementById('leaderboard-consent-input'),
   };
   for (const [kind, input] of Object.entries(inputs)) {
-    input.checked = !!getConsent(kind);
+    input.checked = kind === 'leaderboard' ? leaderboardAllowed() : !!getConsent(kind);
     input.addEventListener('change', () => {
       setConsent(kind, input.checked);
       input.blur(); // Space is the handbrake, not a checkbox toggle

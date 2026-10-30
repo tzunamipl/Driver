@@ -1,7 +1,7 @@
 import { ANALYTICS_CONSENT_STORAGE_KEY, LEADERBOARD_CONSENT_STORAGE_KEY, EDITOR_PUBLISH_CONSENT_STORAGE_KEY } from '../config.js';
 
 // Player choices on data that leaves the browser: analytics, online leaderboards, editor saves.
-// Each is true / false, or null while not asked yet.
+// Each is true / false, or null while not asked yet (leaderboard: null = on).
 
 export const CONSENTS = {
   analytics: ANALYTICS_CONSENT_STORAGE_KEY,
@@ -34,17 +34,9 @@ export function onConsentChange(fn) {
   listeners.add(fn);
 }
 
-/** Asked when the first official stage or rally starts; the answer is kept (Settings can change it). */
-export function askLeaderboardConsent() {
-  const known = getConsent('leaderboard');
-  if (known !== null) return known;
-  const granted = window.confirm(
-    'Send your stage times to the online leaderboard?\n\n' +
-      'Your player name, car and times will be stored on the game server and shown publicly on the leaderboards. ' +
-      'You can change this later in Settings > Gameplay > Privacy.'
-  );
-  setConsent('leaderboard', granted);
-  return granted;
+/** On unless the player turned it off in Settings (no prompt). */
+export function leaderboardAllowed() {
+  return getConsent('leaderboard') !== false;
 }
 
 /** Asked before each editor save until accepted once. */
