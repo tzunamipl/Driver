@@ -3,8 +3,9 @@ import { GAME_MODES, DEFAULT_GAME_MODE_ID, getGameMode, getStart, keepsProgress 
 import { getLatest, getLastLaunch, getSaveInfo, clearSave, setActiveMode, getActiveModeId, getActiveStartId, isEditorSession } from '../lib/saves.js';
 import { longDistanceValue, longDistanceUnit } from '../lib/units.js';
 import { menuIcon } from './menuIcons.js';
+import { exportSaveFile, queueSaveImport } from '../lib/saveFile.js';
 
-// Main menu: Continue / Game mode / Settings / About. Picks the game mode (and so the save slot)
+// Main menu: Continue / Game mode / Settings / Export / Import save / About. Picks the game mode (and so the save slot)
 // before the world loads; Esc reopens it mid-game, where switching mode reloads the page
 // so every subsystem starts from the new slot.
 
@@ -53,7 +54,11 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   const continueBtn = menuEl.querySelector('[data-action="continue"]');
   const continueLabel = menuEl.querySelector('.menu-continue-mode');
   const saveBtn = menuEl.querySelector('[data-action="save"]');
-  const saveStatus = menuEl.querySelector('.menu-save-status');
+  const saveStatus = saveBtn.querySelector('.menu-save-status');
+  const exportStatus = menuEl.querySelector('.menu-save-status[data-for="export"]');
+  const importStatus = menuEl.querySelector('.menu-save-status[data-for="import"]');
+  const importInput = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json', hidden: true });
+  menuEl.append(importInput);
   const modesEl = document.getElementById('menu-modes');
   const settingsEl = document.getElementById('menu-settings');
   const settingsHome = { parent: settingsBodyEl.parentElement, next: settingsBodyEl.nextSibling };
@@ -65,7 +70,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
   let inGame = false;
   let resolveLaunch = null;
   let hooks = {}; // in game: { onOpen, onClose }
-  let saveNow = null; // in game: () => Promise<'sent' | 'unchanged' | 'failed' | 'off'>
+  let saveNow = null; // in game: () => void, writes every save now
 
   function showScreen(name) {
     for (const el of screens) el.hidden = el.dataset.screen !== name;
@@ -99,7 +104,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     const name = getStart(mode, startId)?.name;
     continueBtn.disabled = !playable;
     saveBtn.hidden = !saveNow;
-    if (!saveBtn.disabled) saveStatus.textContent = '';
+    for (const el of [saveStatus, exportStatus, importStatus]) el.textContent = '';
     continueLabel.textContent = !playable ? '' : editor ? `${mode.label} editor` : name ? `${mode.label} · ${name}` : mode.label;
   }
 
@@ -171,17 +176,35 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     resolveLaunch?.();
   }
 
-  const SAVE_STATUS = { sent: 'Saved and backed up', unchanged: 'Saved, backup up to date', failed: 'Saved here, backup failed', off: 'Saved (no cloud backup)' };
+  function save() {
+    saveNow();
+    saveStatus.textContent = 'Saved';
+  }
 
-  async function save() {
-    saveBtn.disabled = true;
-    saveStatus.textContent = 'Saving…';
+  function exportSave() {
+    saveNow?.();
     try {
-      saveStatus.textContent = SAVE_STATUS[await saveNow()] ?? SAVE_STATUS.failed;
-    } finally {
-      saveBtn.disabled = false;
+      exportSaveFile();
+      exportStatus.textContent = 'Downloaded';
+    } catch (err) {
+      exportStatus.textContent = `Export failed: ${err.message}`;
     }
   }
+
+  // The import replaces this browser's data on the next load (lib/saveFile.js).
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files[0];
+    importInput.value = '';
+    if (!file) return;
+    if (!window.confirm('Import this save? It replaces every save, setting and best time in this browser, and the game reloads.')) return;
+    try {
+      await queueSaveImport(file);
+    } catch (err) {
+      importStatus.textContent = err.message;
+      return;
+    }
+    reloadToMenu('root');
+  });
 
   menuEl.addEventListener('click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -190,6 +213,8 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
       launch(modeId, startId, false, editor);
     }
     else if (action === 'save') save();
+    else if (action === 'export') exportSave();
+    else if (action === 'import') importInput.click();
     else if (action === 'modes' || action === 'settings' || action === 'about') showScreen(action);
     else if (action === 'back') showScreen('root');
   });
@@ -236,7 +261,7 @@ export function createMainMenu({ ensureProfile, settingsBodyEl }) {
     /**
      * From now on Esc toggles the menu and Continue resumes.
      * @param {{onOpen?: () => void, onClose?: () => void}} [inGameHooks] - run as the menu covers / uncovers the game.
-     * @param {() => Promise<string>} [onSave] - Save button: writes every save now and pushes the cloud backup.
+     * @param {() => void} [onSave] - Save button (and before an export): writes every save now.
      */
     setInGame(inGameHooks = {}, onSave = null) {
       hooks = inGameHooks;

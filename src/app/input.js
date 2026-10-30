@@ -47,7 +47,7 @@ function isSpaceActivated(el) {
  * @param {{ onHandbrakeLatch?: () => void, initialHandbrakeLatched?: boolean,
  *   holdLatchesHandbrake?: () => boolean, onGearEvent?: (type: string, engine: object) => void }} [options]
  */
-export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, holdLatchesHandbrake = () => true, onGearEvent } = {}) {
+export function createInputController({ onHandbrakeLatch, initialHandbrakeLatched = false, holdLatchesHandbrake = () => true, onGearEvent, enabledGearModes = () => GEAR_MODES } = {}) {
   const keys = new Set();
   const noKeys = new Set();
   // Locked (a menu over the game): the car gets no keys, as if nothing were pressed.
@@ -90,6 +90,12 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
   let shiftDownWasPressed = false;
   // Cruise mode target, set each frame from the road under the car.
   let cruiseLimitKmh = 0;
+
+  /** The chosen mode, or the first enabled one while it's switched off in Settings. */
+  function activeGearMode() {
+    const enabled = enabledGearModes();
+    return enabled.includes(gearMode) ? gearMode : enabled[0];
+  }
 
   /**
    * Applies key state to the vehicle (engine, steering, brake, R reset).
@@ -151,7 +157,7 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
     shiftDownWasPressed = shiftDown;
     const engineMagnitude = vehicle.engine
       ? vehicle.engine.update(dt, {
-          mode: gearMode,
+          mode: activeGearMode(),
           cruiseSpeed: cruiseLimitKmh / 3.6,
           direction: manual ? (forward ? 1 : 0) : pedalBraking ? 0 : forward ? 1 : backward ? -1 : 0,
           throttle: manual ? (forward ? 1 : 0) : pedalBraking || !(forward || backward) ? 0 : 1,
@@ -288,13 +294,14 @@ export function createInputController({ onHandbrakeLatch, initialHandbrakeLatche
       locked = on;
     },
     isLocked: () => locked,
-    getGearMode: () => gearMode,
+    getGearMode: activeGearMode,
     setCruiseLimitKmh(kmh) {
       cruiseLimitKmh = kmh;
     },
     getCruiseLimitKmh: () => cruiseLimitKmh,
     toggleGearMode() {
-      gearMode = GEAR_MODES[(GEAR_MODES.indexOf(gearMode) + 1) % GEAR_MODES.length];
+      const enabled = enabledGearModes();
+      gearMode = enabled[(enabled.indexOf(activeGearMode()) + 1) % enabled.length];
       saveChoice(GEAR_MODE_STORAGE_KEY, gearMode);
     },
     setGearMode(mode) {

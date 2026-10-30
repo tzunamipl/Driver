@@ -1,8 +1,10 @@
 // Pooled smoke/dust puffs: spheres reused round-robin that drift with drag,
 // grow from startScale to their endScale and fade out over their lifetime.
-// Each particle owns its material so it can fade independently.
+// One InstancedMesh per pool (one draw call); live puffs are packed to the front each frame,
+// with per-instance colour and opacity.
 
 import * as THREE from 'three';
+import { keepParticle } from './particleDetail.js';
 
 const PUFF_GEO = new THREE.SphereGeometry(1, 6, 5);
 // Puffs are unlit, so the day-night cycle tints them at spawn instead (white = daylight).
@@ -16,6 +18,19 @@ export function setPuffTint(color) {
 const randIn = ([min, max]) => min + Math.random() * (max - min);
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
+/** Basic material reading alpha from the `instanceOpacity` attribute. */
+function createPuffMaterial(blending) {
+  const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'attribute float instanceOpacity;\nvarying float vOpacity;\nvoid main() {\n  vOpacity = instanceOpacity;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'varying float vOpacity;\nvoid main() {')
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse, opacity * vOpacity );');
+  };
+  return material;
+}
+
 /**
  * @param {THREE.Scene} scene
  * @param {{size: number, lifetime: number, startScale: number, drag: number, colors: [number, number], glow?: boolean, buoyancy?: number}} opts
@@ -24,16 +39,24 @@ const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
  *   buoyancy = steady upward acceleration (m/s²), so puffs keep drifting up after drag.
  */
 export function createPuffPool(scene, { size, lifetime, startScale, drag, colors, glow = false, buoyancy = 0 }) {
+  const geometry = PUFF_GEO.clone(); // the opacity attribute is per pool
+  const opacities = new THREE.InstancedBufferAttribute(new Float32Array(size), 1);
+  opacities.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('instanceOpacity', opacities);
+  const mesh = new THREE.InstancedMesh(geometry, createPuffMaterial(glow ? THREE.AdditiveBlending : THREE.NormalBlending), size);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.setColorAt(0, tint); // allocates instanceColor
+  mesh.frustumCulled = false; // instances drift anywhere around the car
+  mesh.count = 0;
+  scene.add(mesh);
+
+  // Puff positions are relative to the mesh, so the floating origin's shift of it carries them.
   const pool = [];
-  const blending = glow ? THREE.AdditiveBlending : THREE.NormalBlending;
   for (let i = 0; i < size; i++) {
-    const material = new THREE.MeshBasicMaterial({ color: colors[0], transparent: true, opacity: 0, depthWrite: false, blending });
-    const mesh = new THREE.Mesh(PUFF_GEO, material);
-    mesh.visible = false;
-    scene.add(mesh);
-    pool.push({ mesh, material, velocity: new THREE.Vector3(), life: 0, opacity: 0, endScale: startScale });
+    pool.push({ position: new THREE.Vector3(), velocity: new THREE.Vector3(), color: new THREE.Color(), life: 0, opacity: 0, endScale: startScale });
   }
   let nextSlot = 0;
+  const dummy = new THREE.Object3D();
 
   /**
    * Spawns one puff, overwriting the oldest slot.
@@ -48,17 +71,15 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
    * @param {[number, number]} [o.colors] - overrides the pool's colours for this puff.
    */
   function spawn(x, y, z, { opacity, endScale, out, rise, inherit, inheritFraction = 0, extra, colors: puffColors = colors }) {
+    if (!keepParticle()) return;
     const p = pool[nextSlot];
     nextSlot = (nextSlot + 1) % size;
     p.life = lifetime;
     p.opacity = opacity;
     p.endScale = endScale;
-    p.mesh.visible = true;
-    p.mesh.scale.setScalar(startScale);
-    p.mesh.position.set(x, y, z);
-    p.material.color.setHex(puffColors[Math.random() < 0.5 ? 0 : 1]);
-    if (!glow) p.material.color.multiply(tint);
-    p.material.opacity = opacity;
+    p.position.set(x - mesh.position.x, y - mesh.position.y, z - mesh.position.z);
+    p.color.setHex(puffColors[Math.random() < 0.5 ? 0 : 1]);
+    if (!glow) p.color.multiply(tint);
     const angle = Math.random() * Math.PI * 2;
     const h = randIn(out);
     p.velocity.set(Math.cos(angle) * h, randIn(rise), Math.sin(angle) * h);
@@ -75,20 +96,28 @@ export function createPuffPool(scene, { size, lifetime, startScale, drag, colors
   /** Ages, moves, grows and fades every live puff. Call once per frame. */
   function update(dt) {
     const dragFactor = Math.pow(drag, dt);
+    let n = 0;
     for (const p of pool) {
       if (p.life <= 0) continue;
       p.life -= dt;
-      if (p.life <= 0) {
-        p.mesh.visible = false;
-        continue;
-      }
+      if (p.life <= 0) continue;
       p.velocity.multiplyScalar(dragFactor);
       p.velocity.y += buoyancy * dt;
-      p.mesh.position.addScaledVector(p.velocity, dt);
+      p.position.addScaledVector(p.velocity, dt);
       const t = 1 - p.life / lifetime;
-      p.mesh.scale.setScalar(startScale + (p.endScale - startScale) * t);
-      p.material.opacity = p.opacity * (1 - t);
+      dummy.position.copy(p.position);
+      dummy.scale.setScalar(startScale + (p.endScale - startScale) * t);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(n, dummy.matrix);
+      mesh.setColorAt(n, p.color);
+      opacities.array[n] = p.opacity * (1 - t);
+      n++;
     }
+    if (n === 0 && mesh.count === 0) return;
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    opacities.needsUpdate = true;
   }
 
   return { spawn, update };

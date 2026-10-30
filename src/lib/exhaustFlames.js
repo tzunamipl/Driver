@@ -157,5 +157,11 @@ export function createExhaustFlames(scene, { onPop, getTips } = {}) {
     if (Math.random() < rate * dt) pop(chassisMesh, vehicle.chassisBody.velocity, OVERRUN_STRENGTH[0] + (OVERRUN_STRENGTH[1] - OVERRUN_STRENGTH[0]) * k);
   }
 
-  return { update };
+  return {
+    update,
+    /** Graphics detail: the flash light on / off (hidden = out of every shader). */
+    setFlashLight(on) {
+      light.visible = on;
+    },
+  };
 }

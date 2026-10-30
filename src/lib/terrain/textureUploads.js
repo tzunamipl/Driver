@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 
-// Mosaics too big for one upload arrive split into pieces (tileWorker.js) and go to the GPU a few per frame:
+// Texture upgrades go to the GPU a few pieces per frame (levels over 1024 px arrive split, tileWorker.js):
 // a 4096 px mosaic in one go held Chrome's GPU process, and so the next frame, for ~70 ms.
 const PIXELS_PER_FRAME = 1024 * 1024;
 
 /** Textures filled piece by piece, oldest first; `update(renderer)` once per frame. */
-export function createMosaicUploads() {
+export function createTextureUploads() {
   const queue = []; // { owner, texture, pieces: [{ level, x, y, bitmap }], onDone, allocated }
   const source = new THREE.Texture(); // never uploaded itself: copyTextureToTexture texSubImages its image
   const at = new THREE.Vector2();
@@ -19,6 +19,10 @@ export function createMosaicUploads() {
       texture.source.dataReady = false;
       const pieces = mips.flatMap((mip, level) => (mip.pieces ?? [{ x: 0, y: 0, bitmap: mip }]).map((piece) => ({ level, ...piece })));
       queue.push({ owner, texture, pieces, onDone, allocated: false });
+    },
+
+    pending() {
+      return queue.length;
     },
 
     cancel(owner) {

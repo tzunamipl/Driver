@@ -16,7 +16,7 @@ import {
 } from './terrain/tileMesh.js';
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
-import { createMosaicUploads } from './terrain/mosaicUpload.js';
+import { createTextureUploads } from './terrain/textureUploads.js';
 import './terrain/heightfieldRayFix.js';
 import { skyUniforms, SKY_GRADIENT_GLSL } from './skyDome.js';
 
@@ -257,6 +257,7 @@ export class TerrainManager {
     this.roadBedInspection = null; // debug: { tile, vertex, record, cause, group }, see inspectRoadBedAt
     this.roadBed = true; // debug: false builds detail tiles without carved roads
     this.detailCells = DEFAULT_DETAIL_CELLS; // graphics detail setting, see setDetailCells
+    this.nearDetailCells = DEFAULT_DETAIL_CELLS; // same, for the HIGH_DETAIL_RADIUS block around the player
 
     this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, border, wireframe, roadProfile, roadProfileLines, aerialBoost, texBytes, meshBytes, hiddenSince }
     this._loadedBelow = new Map(); // key -> number of loaded tiles strictly inside it
@@ -268,8 +269,8 @@ export class TerrainManager {
     this._leafKeys = new Set();
     this._visible = new Set();
     this.dissolve = null; // optional createDissolve(): shown tiles burst into particles as they go
-    this.renderer = null; // set by main.js: pieced mosaics upload through it
-    this._mosaics = createMosaicUploads();
+    this.renderer = null; // set by main.js: texture upgrades upload through it
+    this._uploads = createTextureUploads();
     this._displayDirty = false; // a load finished; _updateDisplay() runs on the next update()
     this._detailWaiters = [];
     // Bumped by recenter() so in-flight loads for the old origin bail out.
@@ -745,7 +746,7 @@ export class TerrainManager {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'tile';
-      } else if (leaf.detail && (tile.roadBed !== this.roadBed || tile.detailCells !== this.detailCells)) {
+      } else if (leaf.detail && (tile.roadBed !== this.roadBed || tile.detailCells !== this._detailCellsAt(leaf.x, leaf.y))) {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'surface';
@@ -833,7 +834,7 @@ export class TerrainManager {
           if (!aborted && tile && !mips) this._failedAt.set(key, performance.now()); // keeps the old texture
           return;
         }
-        this._setTileTexture(tile, mips, job.aerialBoost);
+        this._setTileTexture(tile, mips, job.aerialBoost, true);
         tile.swatch = swatch ?? tile.swatch;
         return;
       }
@@ -911,11 +912,17 @@ export class TerrainManager {
     return {
       widthMeters: se.x - nw.x,
       heightMeters: se.z - nw.z,
-      cells: this.detailCells,
+      cells: this._detailCellsAt(x, y),
       heightOffset: this.heightOffset,
       skirtDepth: DETAIL_SKIRT_DEPTH,
       roadBed: this.roadBed,
     };
+  }
+
+  /** Cells across the DETAIL_ZOOM tile (x, y): finer in the block around the player. */
+  _detailCellsAt(x, y) {
+    const level = detailLevelForOffset(x - this._centerX, y - this._centerY);
+    return level === DetailLevel.HIGH ? this.nearDetailCells : this.detailCells;
   }
 
   /** Records (and logs once) a tile whose elevation source had no data, so it stood in a coarser zoom's. */
@@ -1031,15 +1038,15 @@ export class TerrainManager {
   }
 
   /** Swaps in a texture from the worker's mip chain (none: untextured); the bitmaps are freed once on the GPU. */
-  _setTileTexture(tile, mips, aerialBoost) {
-    this._mosaics.cancel(tile);
+  _setTileTexture(tile, mips, aerialBoost, upgrade = false) {
+    this._uploads.cancel(tile);
     tile.aerialBoost = aerialBoost;
     if (!mips) return;
     tile.texBytes = Math.round(mips[0].width * mips[0].height * 4 * (4 / 3)); // + mipmaps
-    if (mips[0].pieces) {
-      // Too big for one frame's upload: the old texture stays until every piece is on the GPU.
+    if (upgrade || mips[0].pieces) {
+      // Uploaded over a few frames (several landing at once stall the GPU); the old texture stays meanwhile.
       const tex = aerialTexture(mips.map(({ width, height }) => ({ width, height })));
-      this._mosaics.start(tile, tex, mips, () => this._applyTileTexture(tile, tex));
+      this._uploads.start(tile, tex, mips, () => this._applyTileTexture(tile, tex));
       return;
     }
     const tex = aerialTexture(mips);
@@ -1060,7 +1067,7 @@ export class TerrainManager {
   }
 
   _disposeTile(tile) {
-    this._mosaics.cancel(tile);
+    this._uploads.cancel(tile);
     if (tile.mesh.visible) this.dissolve?.dissolveMesh(tile.mesh);
     this.scene.remove(tile.mesh);
     tile.mesh.geometry.dispose();
@@ -1112,7 +1119,7 @@ export class TerrainManager {
       const failedAt = this._failedAt.get(key);
       if (failedAt == null || now - failedAt >= FAILED_RETRY_MS) missing++;
     }
-    return { downloads: this.loading.size + missing, builds: 0 };
+    return { downloads: this.loading.size + missing, builds: this._uploads.pending() };
   }
 
   /** Startup progress for the loading screen: baseline sample, then the physics footprint init() waits on. */
@@ -1164,10 +1171,11 @@ export class TerrainManager {
     this._pump();
   }
 
-  /** Cells across a detail tile (graphics detail setting); loaded tiles rebuild in place. */
-  setDetailCells(cells) {
-    if (cells === this.detailCells) return;
+  /** Cells across a detail tile, and across the ones around the player (graphics detail setting); loaded tiles rebuild in place. */
+  setDetailCells(cells, nearCells = cells) {
+    if (cells === this.detailCells && nearCells === this.nearDetailCells) return;
     this.detailCells = cells;
+    this.nearDetailCells = nearCells;
     this._pump();
   }
 
@@ -1257,7 +1265,7 @@ export class TerrainManager {
       this._updateDisplay();
     }
 
-    if (this.renderer) this._mosaics.update(this.renderer);
+    if (this.renderer) this._uploads.update(this.renderer);
 
     const now = performance.now();
     if (now - this._lastUnloadCheck > UNLOAD_CHECK_INTERVAL_MS) {

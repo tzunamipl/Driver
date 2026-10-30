@@ -204,7 +204,7 @@ async function cropMosaic(z, ax, ay, own, x0, y0, w, border) {
 }
 
 const SWATCH_SIZE = 16; // px per side
-// Bigger levels go out in pieces of this size, uploaded a few per frame (terrain/mosaicUpload.js).
+// Bigger levels go out in pieces of this size, uploaded a few per frame (terrain/textureUploads.js).
 const MOSAIC_PIECE = 1024; // px per side
 
 /**

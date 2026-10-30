@@ -1,13 +1,10 @@
 # Leaderboard + scenario save API (src/index.js). Deployed by .github/workflows/worker.yml. Secrets (local: worker/.dev.vars):
-#   DATA_TOKEN: fine-grained GitHub token, Contents: Read and write on DATA_REPO only.
 #   SCENARIOS_TOKEN: fine-grained GitHub token, Contents + Pull requests: Read and write on SCENARIOS_REPO only.
 name = "driver-leaderboard"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
 [vars]
-DATA_REPO = "tzunamipl/Driver-persistent-data"
-DATA_BRANCH = "main"
 SCENARIOS_REPO = "tzunamipl/Driver-scenarios"
 SCENARIOS_BRANCH = "main"
 ALLOWED_ORIGINS = "https://tzunamipl.github.io,http://localhost:5173"
@@ -24,8 +21,15 @@ name = "SAVE_LIMIT"
 namespace_id = "1002"
 simple = { limit = 6, period = 60 }
 
-# Player backups, per player + IP.
+# Scenario commit lookups that reach GitHub, per IP.
 [[ratelimits]]
-name = "PLAYER_LIMIT"
-namespace_id = "1003"
-simple = { limit = 6, period = 60 }
+name = "COMMIT_LIMIT"
+namespace_id = "1004"
+simple = { limit = 30, period = 60 }
+
+# Stage leaderboards; schema in migrations/, applied by the deploy workflow.
+[[d1_databases]]
+binding = "DB"
+database_name = "driver-leaderboard"
+database_id = "b732e2fa-45d5-4670-8ec0-546a224ab482" # from `npx wrangler d1 create driver-leaderboard`
+migrations_dir = "migrations"

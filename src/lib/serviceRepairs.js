@@ -63,7 +63,7 @@ const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 // Brake rotor shown hot from this share of its pad fade (lib/brakes.js fade()).
 const HOT_BRAKE_FADE = 0.95;
 
-function washCar(vehicle) {
+export function washCar(vehicle) {
   vehicle.bodyDirt.wash();
   for (const wheel of vehicle.wheelInfos) wheel.rimDirt = 0;
 }

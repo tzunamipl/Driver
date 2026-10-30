@@ -1,23 +1,32 @@
-// Settings "Graphics" checkboxes: road surface view and car dirt, remembered in localStorage.
+// Settings "Graphics" checkboxes: road surface view, car dirt and road signs + posts + barriers, remembered in localStorage.
 // The debug layers panel mirrors them through the same toggles.
 
-import { CAR_DIRT_STORAGE_KEY, ROAD_SURFACE_STORAGE_KEY } from '../config.js';
+import { CAR_DIRT_STORAGE_KEY, ROAD_SIGNS_STORAGE_KEY, ROAD_SURFACE_STORAGE_KEY } from '../config.js';
+
+const ROAD_SIGN_GROUPS = ['curveSigns', 'directionSigns', 'roadPosts', 'guardRails'];
 
 /** Reads the boxes now (the main menu shows them before the world exists); `bind` applies them. */
 export function createGraphicsToggles() {
   let targets = null;
   const roadSurface = createToggle('road-surface-input', ROAD_SURFACE_STORAGE_KEY, false);
   const carDirt = createToggle('car-dirt-input', CAR_DIRT_STORAGE_KEY, true);
+  const roadSigns = createToggle('road-signs-input', ROAD_SIGNS_STORAGE_KEY, true);
+  const applyRoadSigns = (on) => {
+    for (const group of ROAD_SIGN_GROUPS) targets?.roadside.setGroupAllowed(group, on);
+  };
   roadSurface.onChange((on) => targets?.streets.setSurfaceVisible(on));
+  roadSigns.onChange(applyRoadSigns);
 
   return {
-    /** Applies the road surface view now and on every change. */
+    /** Applies the road surface view and road signs now and on every change. */
     bind(subsystems) {
       targets = subsystems;
       targets.streets.setSurfaceVisible(roadSurface.get());
+      applyRoadSigns(roadSigns.get());
     },
     roadSurface,
     carDirt,
+    roadSigns,
   };
 }
 

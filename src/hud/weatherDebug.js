@@ -82,7 +82,7 @@ function buttonRow(listEl, items, onPick) {
 }
 
 /**
- * @param {HTMLElement} hudEl - #debug-layers-hud
+ * @param {HTMLElement} hudEl - #debug-weather-hud
  * @param {{ setCloudOverride: (id: string | null) => void, getCloudOverride: () => string | null, hasForecast: () => boolean,
  *   setLiveWetness: (on: boolean) => void, getLiveWetness: () => boolean }} weatherFeed
  */

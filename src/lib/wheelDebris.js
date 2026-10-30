@@ -4,6 +4,7 @@
 // with slip speed. Two InstancedMeshes (flat bits, chunks); visual only.
 
 import { Color, DoubleSide, FrontSide, IcosahedronGeometry, InstancedMesh, MeshStandardMaterial, Object3D, PlaneGeometry } from 'three';
+import { keepParticle } from './particles/particleDetail.js';
 import { isWheelGrounded } from './wheelContact.js';
 
 const MAX_LEAVES = 500;
@@ -70,7 +71,7 @@ export function createWheelDebris(scene) {
   let enabled = true;
 
   function spawn(layer, x, y, z, vx, vy, vz, floorY, d, isLeaf) {
-    if (layer.bits.length >= layer.max) return;
+    if (layer.bits.length >= layer.max || !keepParticle()) return;
     const size = isLeaf ? rand(LEAF_SIZE) : rand(d.size);
     layer.bits.push({
       x, y, z, vx, vy, vz, floorY,

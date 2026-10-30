@@ -52,7 +52,9 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       mesh: null,
       debrisGeometry: kind.buildMesh ? null : kind.geometry.clone().translate(0, -h.y, 0), // origin at the box centre
       itemMeshes: kind.buildMesh ? new Map() : null, // item -> Object3D
-      enabled: true,
+      enabled: true, // shown && allowed
+      shown: true, // debug layers
+      allowed: true, // Settings
       triggerShape: new CANNON.Box(new CANNON.Vec3(h.x + TRIGGER_PAD_M, h.y, h.z + TRIGGER_PAD_M)),
     };
   });
@@ -296,6 +298,18 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
     return complete;
   }
 
+  function setGroupFlag(group, flag, value) {
+    for (const set of sets) {
+      if (set.kind.group !== group) continue;
+      set[flag] = value;
+      const enabled = set.shown && set.allowed;
+      if (set.enabled !== enabled) {
+        set.enabled = enabled;
+        dirty = true;
+      }
+    }
+  }
+
   return {
     /** Call once per frame with the car's world position; places new objects until `deadline`. */
     update(dt, x, z, deadline = Infinity) {
@@ -331,14 +345,14 @@ export function createRoadside({ scene, world, streets, terrain, kinds, onHit = 
       return counts;
     },
 
-    /** Shows/hides (and stops colliding with) every kind of a `group`. */
+    /** Debug layers: shows/hides (and stops colliding with) every kind of a `group`. */
     setGroupVisible(group, visible) {
-      for (const set of sets) {
-        if (set.kind.group === group && set.enabled !== visible) {
-          set.enabled = visible;
-          dirty = true;
-        }
-      }
+      setGroupFlag(group, 'shown', visible);
+    },
+
+    /** Settings toggle over the debug layers: a group is drawn only when both allow it. */
+    setGroupAllowed(group, allowed) {
+      setGroupFlag(group, 'allowed', allowed);
     },
 
     /** Standing per-item objects of a `group`: [{ item, object }] (object at its world position). */

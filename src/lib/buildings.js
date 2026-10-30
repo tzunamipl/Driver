@@ -543,6 +543,11 @@ export class BuildingsManager {
     this.stats.removed++;
   }
 
+  /** Graphics detail: how far the plain far boxes reach. */
+  setFarRadius(meters) {
+    this._far.setRadius(meters);
+  }
+
   /** K-key debug toggle for hitbox wireframes. */
   setHitboxesVisible(visible) {
     this._hitboxesVisible = visible;

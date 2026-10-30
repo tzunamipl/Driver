@@ -3,6 +3,7 @@
 // One InstancedMesh; visual only.
 
 import { AdditiveBlending, BoxGeometry, Color, InstancedMesh, MeshBasicMaterial, Object3D } from 'three';
+import { keepParticle } from './particleDetail.js';
 
 const MAX_SPARKS = 800;
 const SPARKS_PER_THROW = 40;
@@ -49,6 +50,7 @@ export function createSparkles(scene) {
       { count = SPARKS_PER_THROW, speed: speedRange = LAUNCH_SPEED, up: upRange = UP, life = LIFE_S, inherit, size = 1, spread = 0 } = {}
     ) {
       for (let i = 0; i < count && sparks.length < MAX_SPARKS; i++) {
+        if (!keepParticle()) continue;
         const offA = Math.random() * Math.PI * 2;
         const offR = spread * Math.sqrt(Math.random());
         const a = Math.random() * Math.PI * 2;

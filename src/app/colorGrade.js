@@ -32,6 +32,7 @@ export function createColorGrade(map) {
   };
   const material = new THREE.ShaderMaterial({
     uniforms,
+    defines: { GRADE: '' },
     depthTest: false,
     depthWrite: false,
     vertexShader: /* glsl */ `
@@ -48,10 +49,12 @@ export function createColorGrade(map) {
       varying vec2 vUv;
       void main() {
         vec3 c = texture2D(map, vUv).rgb;
+        #ifdef GRADE
         float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = mix(c, vec3(luma), desaturate);
         c = max(mix(c, vec3(${CONTRAST_PIVOT}), flatten), 0.0);
         c *= gain;
+        #endif
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -61,8 +64,10 @@ export function createColorGrade(map) {
   let fog = 0;
   let tint = tintForTemp(getAirTempC());
   let lastMs = performance.now();
+  let enabled = true;
 
   function update() {
+    if (!enabled) return;
     const now = performance.now();
     const dt = Math.min(1, (now - lastMs) / 1000);
     lastMs = now;
@@ -84,6 +89,14 @@ export function createColorGrade(map) {
     /** Fog grey share 0..1 (daylight.js). */
     setFog(share) {
       fog = share;
+    },
+    /** Graphics detail: off = a plain copy. */
+    setEnabled(on) {
+      if (on === enabled) return;
+      enabled = on;
+      material.defines = on ? { GRADE: '' } : {};
+      material.needsUpdate = true;
+      lastMs = performance.now();
     },
   };
 }

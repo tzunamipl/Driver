@@ -97,7 +97,7 @@ for (const v of VEHICLES) {
   if (v.trailer && trailerGloss !== undefined) v.trailer.buildBody = withGloss(v.trailer.buildBody, trailerGloss);
 }
 
-export const DEFAULT_VEHICLE_ID = bigfoot.id;
+export const DEFAULT_VEHICLE_ID = klikKlak.id;
 
 const byId = new Map(VEHICLES.map((v) => [v.id, v]));
 

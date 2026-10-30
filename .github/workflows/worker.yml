@@ -25,8 +25,10 @@ jobs:
           workingDirectory: worker
           # Uploaded as worker secrets from the env below.
           secrets: |
-            DATA_TOKEN
             SCENARIOS_TOKEN
+          # The token needs D1 Edit on top of Workers Scripts Edit.
+          command: |
+            d1 migrations apply driver-leaderboard --remote
+            deploy
         env:
-          DATA_TOKEN: ${{ secrets.LEADERBOARD_DATA_TOKEN }}
           SCENARIOS_TOKEN: ${{ secrets.SCENARIOS_WRITE_TOKEN }}

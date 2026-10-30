@@ -18,6 +18,7 @@ import { getAirTempC, getWetness, getRainMmH } from '../../lib/weather.js';
 import { formatDistance, formatVolume, formatTemp, formatRain, formatSpeed, longDistanceValue, longDistanceUnit } from '../../lib/units.js';
 import { skyLabel } from '../../lib/rally/rallyWeather.js';
 import { leaderboardEnabled, submitStageTime, fetchStageBoard, playerHash, rallyTotals, bestPerPlayer } from '../../lib/leaderboard.js';
+import { askLeaderboardConsent, getConsent } from '../../lib/privacy.js';
 import { readSaveField, writeSaveField, getActiveStartId } from '../../lib/saves.js';
 import { parseSource, openSource } from '../../lib/scenarios/source.js';
 import { rallyFormat, resolvePointRefs, parseClockTime, DEFAULT_START_TIME } from '../../lib/scenarios/rally.js';
@@ -551,9 +552,10 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
     if (event.type === 'retired') itemDone({ name: stage.name, ms: null, splits: run.state.splits, penaltyMs: 0, best });
   }
 
-  /** Official stages only; the results card shows the rank once it's back. */
+  /** Official stages only, once the player agreed (asked in startPlan); the results card shows the rank once it's back. */
   function submitOnline(stage, result) {
     if (!leaderboardEnabled() || plan.source !== OFFICIAL_SCENARIO_SOURCE || !plan.sha) return;
+    if (!getConsent('leaderboard')) return;
     online.set(result, null);
     const vehicle = getVehicleId();
     const submit = submitStageTime({
@@ -664,6 +666,8 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
    */
   async function startPlan(newPlan, index = 0, previousResults = [], spawn = 'teleport', savedRun = null, savedServices = {}, savedConditions = null) {
     plan = newPlan;
+    // Asked here, not at the finish: a dialog mid-drive would swallow the key-ups of held keys.
+    if (leaderboardEnabled() && plan.source === OFFICIAL_SCENARIO_SOURCE) askLeaderboardConsent();
     await startConditions(savedConditions);
     services = Object.fromEntries(Object.entries(savedServices ?? {}).filter(([i]) => Number(i) < index));
     scenery.setPoints(plan.items.flatMap(itemPoints));

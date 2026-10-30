@@ -1,4 +1,4 @@
-// Far buildings: every footprint out to FAR_RADIUS_METERS as one box (its
+// Far buildings: every footprint out to the far radius as one box (its
 // minimum-area rectangle x height), instanced per z14 tile, no physics. A
 // box hides in the shader once buildings.js has built the detail tile
 // holding it, so near and far never draw the same building twice.
@@ -8,7 +8,7 @@ import { tileSizeMeters, tileX2lon, tileY2lat, latLonToLocal } from '../geo.js';
 import { DETAIL_ZOOM, DETAIL_BOX, UNLOAD_MARGIN } from '../terrain.js';
 import { BUILDING_TILE_ZOOM, MAX_FOOTPRINT_METERS, fetchBuildingFeatures, convexHull2D } from './features.js';
 
-const FAR_RADIUS_METERS = 1500;
+const DEFAULT_FAR_RADIUS_METERS = 1500;
 const UNLOAD_EXTRA_METERS = 500; // hysteresis before a tile is dropped
 const MAX_CONCURRENT_FETCHES = 2;
 const RETRY_COOLDOWN_MS = 8000;
@@ -102,6 +102,7 @@ export class FarBuildingsManager {
     this.originLat = originLat;
     this.originLon = originLon;
     this.scaleLat = originLat; // see geo.js; kept by shiftOrigin()
+    this.radius = DEFAULT_FAR_RADIUS_METERS; // graphics detail, see setRadius
     this.tiles = new Map(); // "tx_ty" (z14) -> { tx, ty, key, state, features, index, mesh, count, sinks, dist }
     this._failedAt = new Map(); // key -> time of the last failed fetch
     this._fetching = 0;
@@ -112,7 +113,7 @@ export class FarBuildingsManager {
       uNearCenter: { value: new THREE.Vector2() },
       uNearMask: { value: new Float32Array(NEAR_SIZE * NEAR_SIZE) },
       uFarCenter: { value: new THREE.Vector2() },
-      uFarRadius: { value: FAR_RADIUS_METERS },
+      uFarRadius: { value: this.radius },
     };
     this.material = createFarMaterial(this._uniforms);
   }
@@ -146,7 +147,13 @@ export class FarBuildingsManager {
     }
   }
 
-  /** Adds tiles within FAR_RADIUS_METERS, drops ones past it plus the hysteresis; (cfx, cfy) in z14 tiles. */
+  /** Graphics detail: far boxes out to `meters`; tiles past it unload on the next update. */
+  setRadius(meters) {
+    this.radius = meters;
+    this._uniforms.uFarRadius.value = meters;
+  }
+
+  /** Adds tiles within the radius, drops ones past it plus the hysteresis; (cfx, cfy) in z14 tiles. */
   _select(cfx, cfy, tileMeters) {
     const distMeters = (tx, ty) => {
       const dx = Math.max(tx - cfx, 0, cfx - (tx + 1));
@@ -155,16 +162,16 @@ export class FarBuildingsManager {
     };
     for (const [key, tile] of this.tiles) {
       tile.dist = distMeters(tile.tx, tile.ty);
-      if (tile.dist > FAR_RADIUS_METERS + UNLOAD_EXTRA_METERS) this._unload(key);
+      if (tile.dist > this.radius + UNLOAD_EXTRA_METERS) this._unload(key);
     }
-    const r = Math.ceil(FAR_RADIUS_METERS / tileMeters);
+    const r = Math.ceil(this.radius / tileMeters);
     const now = performance.now();
     for (let ty = Math.floor(cfy) - r; ty <= Math.floor(cfy) + r; ty++) {
       for (let tx = Math.floor(cfx) - r; tx <= Math.floor(cfx) + r; tx++) {
         const key = `${tx}_${ty}`;
         if (this.tiles.has(key)) continue;
         const dist = distMeters(tx, ty);
-        if (dist > FAR_RADIUS_METERS) continue;
+        if (dist > this.radius) continue;
         const failedAt = this._failedAt.get(key);
         if (failedAt != null && now - failedAt < RETRY_COOLDOWN_MS) continue;
         this.tiles.set(key, { tx, ty, key, state: 'wanted', dist });

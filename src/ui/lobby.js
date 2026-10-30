@@ -5,6 +5,7 @@ import { createVehicleColorPicker } from './vehicleColorPicker.js';
 import { createTyreSetupPicker } from './tyreSetupPicker.js';
 import { getVehicleColor, setVehicleColor, hasCustomVehicleColor } from '../lib/vehicleColors.js';
 import { readSaveField, writeSaveField } from '../lib/saves.js';
+import { isForbiddenPlayerName } from '../lib/playerNames.js';
 
 // Saved name/colour/vehicle pick (the profile); prefills the lobby, and its vehicle starts new games.
 function loadSavedChoices() {
@@ -13,6 +14,8 @@ function loadSavedChoices() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.name !== 'string' || typeof parsed.color !== 'string') return null;
+    // A forbidden name (e.g. saved in dev mode) counts as no profile, so the lobby asks again.
+    if (isForbiddenPlayerName(parsed.name)) return null;
     return parsed;
   } catch {
     return null;
@@ -213,6 +216,11 @@ export function createLobby({ net, getCarManager, onJoined, onReset, originChain
     e.preventDefault();
     const name = lobbyName.value.trim();
     if (!name || lobbyJoin.disabled) return;
+    if (isForbiddenPlayerName(name)) {
+      setLobbyStatus('This name is reserved, pick another one');
+      lobbyName.focus();
+      return;
+    }
     const color = colorPicker.getColor();
     const vehicleId = vehiclePicker.getSelectedId();
     if (joined) {

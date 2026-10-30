@@ -2,6 +2,7 @@
 
 import { DEFAULT_GRAPHICS_DETAIL, GRAPHICS_DETAIL_LEVELS, GRAPHICS_DETAIL_STORAGE_KEY } from '../config.js';
 import { setGlintsEnabled } from '../lib/lampGlints.js';
+import { setParticleShare } from '../lib/particles/particleDetail.js';
 
 /** Fills the select now (the main menu shows it before the world exists); `bind` applies levels. */
 export function createGraphicsDetailPicker() {
@@ -12,9 +13,9 @@ export function createGraphicsDetailPicker() {
 
   function apply(id) {
     if (!targets) return;
-    const { terrain, mainLoop, roadside, curbs, trees, bushes, rocks } = targets;
+    const { terrain, mainLoop, roadside, curbs, trees, bushes, rocks, buildings, shadowLights, streetLights, exhaustFlames, setAntialias, colorGrade } = targets;
     const level = GRAPHICS_DETAIL_LEVELS[id];
-    terrain.setDetailCells(level.terrainCells);
+    terrain.setDetailCells(level.terrainCells, level.terrainNearCells);
     mainLoop.setStreamingBudgetMs(level.streamingBudgetMs);
     roadside.setDrawDistance(level.roadsideDrawDistance);
     curbs.setDrawDistance(level.roadsideDrawDistance);
@@ -22,6 +23,14 @@ export function createGraphicsDetailPicker() {
     bushes.setDetail(level.bushes);
     rocks.setDetail(level.rocks);
     setGlintsEnabled(level.lampGlints);
+    setParticleShare(level.particles);
+    // Changing the shadow-casting light count recompiles every lit material on its next draw.
+    for (const light of shadowLights) light.castShadow = level.shadows;
+    streetLights.setEnabled(level.lights);
+    exhaustFlames.setFlashLight(level.lights);
+    setAntialias(level.antialias);
+    colorGrade?.setEnabled(level.colorGrade);
+    buildings.setFarRadius(level.farBuildingsM);
   }
 
   select.addEventListener('change', () => {

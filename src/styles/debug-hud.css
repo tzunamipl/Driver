@@ -309,8 +309,9 @@
   z-index: 20;
   pointer-events: none;
 }
-/* Which debug overlays show in the debug view (persisted per browser). */
-#debug-layers-hud {
+/* Which debug overlays show in the debug view (persisted per browser); time + weather overrides. */
+#debug-layers-hud,
+#debug-weather-hud {
   color: #000;
   font-size: 11px;
   background: var(--w95-face);
@@ -319,7 +320,8 @@
   z-index: 10;
   pointer-events: auto; /* #top-left-stack is click-through */
 }
-#debug-layers-hud .susp-title {
+#debug-layers-hud .susp-title,
+#debug-weather-hud .susp-title {
   margin-bottom: 6px;
   font-weight: bold;
 }
@@ -381,42 +383,42 @@
   background: #fff;
   outline: 2px solid var(--swatch);
 }
-#debug-layers-hud .debug-time-title {
+#debug-weather-hud .debug-time-title {
   margin-top: 8px;
 }
-#debug-layers-hud .debug-time-list {
+#debug-weather-hud .debug-time-list {
   display: flex;
   gap: 3px;
 }
-#debug-layers-hud .debug-time-btn {
+#debug-weather-hud .debug-time-btn {
   flex: 1;
   padding: 0 4px;
 }
-#debug-layers-hud .debug-weather-readout {
+#debug-weather-hud .debug-weather-readout {
   margin-bottom: 3px;
   white-space: pre;
 }
-#debug-layers-hud .debug-weather-road,
-#debug-layers-hud .debug-weather-clouds,
-#debug-layers-hud .debug-weather-temp {
+#debug-weather-hud .debug-weather-road,
+#debug-weather-hud .debug-weather-clouds,
+#debug-weather-hud .debug-weather-temp {
   flex-wrap: wrap;
   margin-top: 3px;
 }
-#debug-layers-hud .debug-weather-temp {
+#debug-weather-hud .debug-weather-temp {
   align-items: center;
 }
-#debug-layers-hud .debug-weather-temp .debug-time-btn {
+#debug-weather-hud .debug-weather-temp .debug-time-btn {
   flex: 0 0 auto;
 }
-#debug-layers-hud .debug-weather-temp input {
+#debug-weather-hud .debug-weather-temp input {
   flex: 1;
   min-width: 0;
 }
-#debug-layers-hud .debug-weather-temp-value {
+#debug-weather-hud .debug-weather-temp-value {
   width: 4.5em;
   text-align: right;
 }
-#debug-layers-hud .debug-time-btn.active {
+#debug-weather-hud .debug-time-btn.active {
   background: repeating-conic-gradient(#fff 0 25%, var(--w95-face) 0 50%) 0 0 / 2px 2px;
   box-shadow: var(--w95-pressed);
 }

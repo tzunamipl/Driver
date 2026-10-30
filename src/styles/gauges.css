@@ -147,6 +147,18 @@
 #gearstick-canvas:active { cursor: grabbing; }
 /* Ranged boxes add the range lever's plate on the right. */
 #gearstick.ranged { width: 285px; }
+/* Gear strip of automatic-only boxes (hud/gearLcd.js), where the gearstick would pop up. */
+#gear-lcd {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  gap: 6px;
+  pointer-events: none;
+}
+.gear-lcd-cell { color: rgba(159, 232, 112, 0.15); text-shadow: none; }
+.gear-lcd-cell.lit { color: #9fe870; text-shadow: 0 0 3px rgba(159, 232, 112, 0.6); }
+/* Popped up by a Q/E shift on the automatic: shows the gear, can't be dragged. */
+#gearstick.preview { pointer-events: none; }
 /* Dial scale (hud/gauges.js buildDialScale): each tick's wrapper covers the
    whole dial so rotating it swings the tick around the dial centre; labels
    are placed upright from JS. */

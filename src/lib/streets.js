@@ -102,10 +102,12 @@ const MARKING = {
 // the wetness puddles start at); slick = wet glossy blotches on the puddle noise (how far below its threshold, roughness scale, darken).
 // edge = ragged sides frayed up to depthM in; the stripe is drawn depthM wider than the road for it, so the
 // mean edge stays where the tyres feel it.
+// shoulder = darker band along the sides (untrafficked, dirtier): widthM in from the side, colour share kept, inner border frayed by raggedM.
 // puddles: wet look overrides (wetness they start at, noise threshold from start to soaked, cell sizes).
 const SURFACE_LOOKS = {
   paved: {
     color: 0x47484c, roughness: 0.78, specular: 0.35, lift: 0, depthBias: 0.12, markings: true, patches: 0.14,
+    shoulder: { widthM: 0.7, darken: 0.72, raggedM: 0.3 },
     wet: { darken: 0.55, roughness: 0.42, sheen: 0.15 },
     blobs: [{ diameterM: 2.5, density: 0.35, swing: 0.2 }, { diameterM: 0.6, density: 0.5, swing: 0.08 }],
     grain: { cellM: 0.03, radius: [0.22, 0.42], jitter: 0.9, swing: 0.12, gapShade: 0.85, polishSwing: 0.25 },
@@ -188,7 +190,7 @@ function depthRankOf(key) {
 const SECTION_FADE_M = 8;
 
 /** Surface view material of a look; `sectionEnds`: stage section stripes, faded out towards their ends (stripe attribute's z). */
-function createSurfaceMaterial(surface, { color, roughness, specular, depthBias, markings, patches, blobs, setts, grain, glitter, slick, gloss, edge, wet, puddles }, sectionEnds) {
+function createSurfaceMaterial(surface, { color, roughness, specular, depthBias, markings, patches, blobs, setts, grain, glitter, slick, gloss, edge, shoulder, wet, puddles }, sectionEnds) {
   const material = new MeshStandardMaterial({ color, roughness, fog: false, depthWrite: false });
   // Terrain haze; specular scaled (1 = three.js default) so a low sun glints instead of blowing out.
   material.onBeforeCompile = (shader) => {
@@ -198,7 +200,7 @@ function createSurfaceMaterial(surface, { color, roughness, specular, depthBias,
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurfaceXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
-    if (markings || setts || sectionEnds || edge) shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 stripe;');
+    if (markings || setts || sectionEnds || edge || shoulder) shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 stripe;');
     applyDepthBias(shader, depthBias, true);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vSurfaceXZ;\nuniform vec2 surfaceCenter;\nuniform vec2 patchOffset;\nfloat surfaceMatte = 0.0;\nfloat surfacePolish = 1.0;\nfloat surfaceSheen = 1.0;')
@@ -218,6 +220,7 @@ function createSurfaceMaterial(surface, { color, roughness, specular, depthBias,
     if (markings) applyMarkings(shader);
     applyPatches(shader, patches); // after: its code lands before the markings'
     applyBlobs(shader, blobs);
+    if (shoulder) applyShoulder(shader, shoulder);
     if (setts) applySetts(shader, setts);
     if (grain) applyGrain(shader, grain, puddles?.from ?? PUDDLES_FROM);
     if (glitter) applyGlitter(shader, glitter, puddles?.from ?? PUDDLES_FROM);
@@ -620,6 +623,32 @@ function applyRaggedEdge(shader, { depthM }) {
           n = mix(n, 0.5, smoothstep(${f(depthM * 0.25)}, ${f(depthM * 0.5)}, fwidth(fromSide)));
           if (fromSide < ${f(depthM)} * n) discard;
         }
+      }`
+    );
+}
+
+/**
+ * Darker band along the sides (needs applyPatches' noise; stripe x = metres across, z = junction clearance, w = half width),
+ * cleared at junctions like the markings, so it doesn't cross the side road's mouth.
+ */
+function applyShoulder(shader, { widthM, darken, raggedM }) {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vShoulder;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvShoulder = stripe.xzw;');
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vShoulder;')
+    .replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      {
+        float fromSide = vShoulder.z - abs(vShoulder.x);
+        vec2 shoulderXZ = vSurfaceXZ + patchOffset;
+        float n = 0.6 * surfacePatchNoise(shoulderXZ / 3.0, ${f(PATCH_PERIOD_M / 3)}) + 0.4 * surfacePatchNoise(shoulderXZ / 0.75, ${f(PATCH_PERIOD_M / 0.75)});
+        float border = ${f(widthM)} + ${f(raggedM)} * (n - 0.5);
+        float aa = max(fwidth(fromSide), 0.05);
+        float band = 1.0 - smoothstep(border - aa, border + aa, fromSide);
+        float clear = smoothstep(${f(MARKING.junctionGap)}, ${f(MARKING.junctionGap + MARKING.junctionRamp)}, vShoulder.y);
+        diffuseColor.rgb *= mix(1.0, ${f(darken)}, band * clear);
       }`
     );
 }

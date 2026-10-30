@@ -8,7 +8,7 @@ import {
 import { currentVehicleId } from './vehicles/legacyIds.js';
 
 // Rewrites legacy vehicle ids (vehicles/legacyIds.js) in stored data. Idempotent; run after the
-// cloud restore, which may bring back an old copy.
+// save import, which may bring back an old copy.
 
 const renameKeys = (map) => Object.fromEntries(Object.entries(map).map(([id, v]) => [currentVehicleId(id), v]));
 

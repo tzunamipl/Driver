@@ -1,5 +1,5 @@
 // Driver API: checks stage times against the official stage files and keeps each player's best
-// per vehicle in a GitHub data repo, one JSON file per stage; commits editor saves to a player's
+// per vehicle in D1 (binding DB, schema in migrations/); commits editor saves to a player's
 // branch of the scenarios repo, with a PR into the official branch. The tokens stay here.
 //   GET  /board?stage=<country/region/id>  -> { board }  (stage ids + `~reverse` = driven the other way, own board)
 //   POST /results { stage, sha, playerId, name, vehicle, totalMs, splits, penaltyMs, version }
@@ -7,8 +7,6 @@
 //   POST /scenarios { branch, folder, kindFolder, key, content } -> { owner, repo, branch, sha, unchanged, pr }
 //   GET  /scenarios/sources -> { sources: [{ label, official, source: { owner, repo, ref }, sha }] }
 //   GET  /scenarios/commit?owner=&repo=&ref= -> { sha }  (null = no such repo / branch)
-//   POST /player/load { playerId } -> { save: { updatedAt, data } | null }
-//   POST /player/save { playerId, updatedAt, data } -> { stored }  (also sent as a text/plain beacon)
 
 import { currentVehicleId } from '../../src/lib/vehicles/legacyIds.js';
 import { REVERSE_SUFFIX, splitReverseKey, drivenStagePoints } from '../../src/lib/rally/stageReverse.js';
@@ -29,9 +27,6 @@ const STAGE_CACHE_S = 300;
 const BRANCH_RE = new RegExp(`^${SLUG}$`);
 const BRANCH_MAX = 40;
 const SCENARIO_MAX_BYTES = 256 * 1024;
-const PLAYER_SAVE_MAX_BYTES = 128 * 1024;
-// localStorage keys a player backup may hold (src/lib/cloudSave.js).
-const PLAYER_SAVE_KEYS = new Set(['driver.saves.v1', 'driver.lobby.v1', 'driver.vehicleOdometers.v1']);
 // `<mode folder>/<kind folder>` the editor may save -> its index.json list and commit label.
 const SCENARIO_KINDS = {
   'rally/stages': { indexKey: 'stages', label: 'Stage' },
@@ -50,7 +45,6 @@ const stageFilePath = (key) => {
   const parts = key.split('/');
   return parts.length === 1 ? `rally/stages/${key}.json` : `rally/${parts[0]}/${parts[1]}/stages/${parts[2]}.json`;
 };
-const boardPath = (key) => `rally/${key}.json`;
 
 async function sha256Hex(text) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -123,14 +117,8 @@ function readSubmission(body) {
   return { stage, sha, playerId, name: cleanName, vehicle: currentVehicleId(vehicle), totalMs, splits, penaltyMs, version };
 }
 
-// ---------- GitHub data repo ----------
+// ---------- GitHub ----------
 
-const toBase64 = (text) => {
-  const bytes = new TextEncoder().encode(text);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-};
 const fromBase64 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
 
 const github = (token, method, path, body) =>
@@ -145,32 +133,31 @@ const github = (token, method, path, body) =>
     body: body ? JSON.stringify(body) : undefined,
   });
 
-const gh = (env, method, path, body) => github(env.DATA_TOKEN, method, `/repos/${env.DATA_REPO}${path}`, body);
+// ---------- Boards (D1) ----------
 
-/** Board file + its blob sha (null when the file doesn't exist yet). */
-async function readBoard(env, key) {
-  const res = await gh(env, 'GET', `/contents/${boardPath(key)}?ref=${encodeURIComponent(env.DATA_BRANCH)}`);
-  if (res.status === 404) return { board: null, sha: null };
-  if (!res.ok) throw new HttpError(502, `Data repo: ${res.status}`);
-  const file = await res.json();
-  return { board: migrateBoard(JSON.parse(fromBase64(file.content))), sha: file.sha };
-}
+/** Drops the entries of a board set for another stage version (its points changed). */
+const dropStaleEntries = (env, key, print) =>
+  env.DB.prepare('DELETE FROM entries WHERE stage = ?1 AND EXISTS (SELECT 1 FROM boards WHERE stage = ?1 AND fingerprint != ?2)').bind(key, print);
 
-/** Legacy vehicle ids renamed (written back with the next result); the sorted board keeps each player's best per car. */
-function migrateBoard(board) {
-  if (!Array.isArray(board?.entries)) return board;
-  const best = new Map();
-  for (const e of board.entries) {
-    const entry = { ...e, vehicle: currentVehicleId(e.vehicle) };
-    const key = `${entry.player}|${entry.vehicle}`;
-    if (!best.has(key)) best.set(key, entry);
-  }
-  return { ...board, entries: [...best.values()] };
-}
+const selectEntries = (env, key) =>
+  env.DB.prepare(
+    'SELECT player, name, vehicle, total_ms, splits, penalty_ms, at, version FROM entries WHERE stage = ? ORDER BY total_ms, at LIMIT ?'
+  ).bind(key, MAX_ENTRIES);
 
-/** Board as it stands for this stage version: one stale from an older version reads empty. */
-const currentBoard = (board, key, print) =>
-  board?.fingerprint === print ? board : { stage: key, fingerprint: print, entries: [] };
+const boardOf = (key, print, rows) => ({
+  stage: key,
+  fingerprint: print,
+  entries: rows.map((r) => ({
+    player: r.player,
+    name: r.name,
+    vehicle: r.vehicle,
+    totalMs: r.total_ms,
+    splits: JSON.parse(r.splits),
+    penaltyMs: r.penalty_ms,
+    at: r.at,
+    version: r.version,
+  })),
+});
 
 async function submit(env, sub) {
   const [atRun, atHead] = await Promise.all([fetchStage(env, sub.stage, sub.sha), fetchStage(env, sub.stage, env.SCENARIOS_BRANCH)]);
@@ -180,94 +167,34 @@ async function submit(env, sub) {
   checkTimes(atHead, sub);
 
   const player = await playerHash(sub.playerId);
-  const entry = {
-    player,
-    name: sub.name,
-    vehicle: sub.vehicle,
-    totalMs: sub.totalMs,
-    splits: sub.splits,
-    penaltyMs: sub.penaltyMs,
-    at: new Date().toISOString(),
-    version: sub.version,
-  };
-  for (let attempt = 0; ; attempt++) {
-    const { board: stored, sha } = await readBoard(env, sub.stage);
-    const board = currentBoard(stored, sub.stage, print);
-    const mine = (e) => e.player === player && e.vehicle === sub.vehicle;
-    const own = board.entries.find(mine);
-    if (own && own.totalMs <= entry.totalMs) return { board, improved: false };
-    const entries = [...board.entries.filter((e) => !mine(e)), entry]
-      .sort((a, b) => a.totalMs - b.totalMs || a.at.localeCompare(b.at))
-      .slice(0, MAX_ENTRIES);
-    const next = { stage: sub.stage, fingerprint: print, entries };
-    const res = await gh(env, 'PUT', `/contents/${boardPath(sub.stage)}`, {
-      message: `${sub.stage}: ${sub.name} ${(sub.totalMs / 1000).toFixed(1)} s`,
-      content: toBase64(`${JSON.stringify(next, null, 1)}\n`),
-      branch: env.DATA_BRANCH,
-      ...(sha ? { sha } : {}),
-    });
-    if (res.ok) return { board: next, improved: true };
-    // Someone else wrote the file in between: read it again.
-    if ((res.status === 409 || res.status === 422) && attempt < PUT_RETRIES) continue;
-    throw new HttpError(502, `Data repo: ${res.status}`);
-  }
+  // One transaction: the entry is only replaced by a faster time, the board keeps the MAX_ENTRIES fastest.
+  const [, , upsert, , read] = await env.DB.batch([
+    dropStaleEntries(env, sub.stage, print),
+    env.DB.prepare('INSERT INTO boards (stage, fingerprint) VALUES (?1, ?2) ON CONFLICT (stage) DO UPDATE SET fingerprint = excluded.fingerprint').bind(
+      sub.stage,
+      print
+    ),
+    env.DB.prepare(
+      `INSERT INTO entries (stage, player, vehicle, name, total_ms, splits, penalty_ms, at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (stage, player, vehicle) DO UPDATE SET name = excluded.name, total_ms = excluded.total_ms, splits = excluded.splits,
+         penalty_ms = excluded.penalty_ms, at = excluded.at, version = excluded.version
+       WHERE excluded.total_ms < entries.total_ms`
+    ).bind(sub.stage, player, sub.vehicle, sub.name, sub.totalMs, JSON.stringify(sub.splits), sub.penaltyMs, new Date().toISOString(), sub.version),
+    env.DB.prepare(
+      'DELETE FROM entries WHERE stage = ?1 AND rowid NOT IN (SELECT rowid FROM entries WHERE stage = ?1 ORDER BY total_ms, at LIMIT ?2)'
+    ).bind(sub.stage, MAX_ENTRIES),
+    selectEntries(env, sub.stage),
+  ]);
+  return { board: boardOf(sub.stage, print, read.results), improved: upsert.meta.changes > 0 };
 }
 
 async function getBoard(env, key) {
   if (!STAGE_ID_RE.test(key ?? '')) throw new HttpError(400, 'Bad stage');
   const head = await fetchStage(env, key, env.SCENARIOS_BRANCH);
   if (!head) throw new HttpError(404, 'Not an official stage');
-  const { board } = await readBoard(env, key);
-  return currentBoard(board, key, await fingerprint(head));
-}
-
-// ---------- Player backups ----------
-
-const playerSavePath = (player) => `players/${player}.json`;
-
-function readPlayerSave(body) {
-  const { playerId, updatedAt, data } = body ?? {};
-  if (!PLAYER_ID_RE.test(playerId ?? '')) throw new HttpError(400, 'Bad playerId');
-  if (!Number.isInteger(updatedAt) || updatedAt <= 0) throw new HttpError(400, 'Bad updatedAt');
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new HttpError(400, 'Bad data');
-  for (const [key, value] of Object.entries(data)) {
-    if (!PLAYER_SAVE_KEYS.has(key) || (value !== null && typeof value !== 'string')) throw new HttpError(400, 'Bad data');
-  }
-  if (JSON.stringify(data).length > PLAYER_SAVE_MAX_BYTES) throw new HttpError(413, 'Save too large');
-  return { playerId, updatedAt, data };
-}
-
-/** Backup file + its blob sha (null when the player has none). */
-async function readPlayerFile(env, player) {
-  const res = await gh(env, 'GET', `/contents/${playerSavePath(player)}?ref=${encodeURIComponent(env.DATA_BRANCH)}`);
-  if (res.status === 404) return { save: null, sha: null };
-  if (!res.ok) throw new HttpError(502, `Data repo: ${res.status}`);
-  const file = await res.json();
-  return { save: JSON.parse(fromBase64(file.content)), sha: file.sha };
-}
-
-async function loadPlayer(env, body) {
-  if (!PLAYER_ID_RE.test(body?.playerId ?? '')) throw new HttpError(400, 'Bad playerId');
-  const { save } = await readPlayerFile(env, await playerHash(body.playerId));
-  return { save: save && { updatedAt: save.updatedAt, data: save.data } };
-}
-
-/** Keeps the newer copy: one older than the stored backup (another tab, a late beacon) is dropped. */
-async function savePlayer(env, sub) {
-  const player = await playerHash(sub.playerId);
-  for (let attempt = 0; ; attempt++) {
-    const { save, sha } = await readPlayerFile(env, player);
-    if (save && save.updatedAt >= sub.updatedAt) return { stored: false };
-    const res = await gh(env, 'PUT', `/contents/${playerSavePath(player)}`, {
-      message: `player ${player}`,
-      content: toBase64(`${JSON.stringify({ updatedAt: sub.updatedAt, data: sub.data })}\n`),
-      branch: env.DATA_BRANCH,
-      ...(sha ? { sha } : {}),
-    });
-    if (res.ok) return { stored: true };
-    if ((res.status === 409 || res.status === 422) && attempt < PUT_RETRIES) continue;
-    throw new HttpError(502, `Data repo: ${res.status}`);
-  }
+  const print = await fingerprint(head);
+  const [, read] = await env.DB.batch([dropStaleEntries(env, key, print), selectEntries(env, key)]);
+  return boardOf(key, print, read.results);
 }
 
 // ---------- Scenario saves ----------
@@ -380,11 +307,15 @@ const SOURCES_CACHE_MS = 60_000;
 const COMMIT_CACHE_MS = 30_000;
 const REPO_PART_RE = /^[\w.-]{1,100}$/;
 const REF_RE = /^[\w./-]{1,100}$/;
+const MEMO_MAX = 500;
 const memo = new Map(); // key -> { at, value: Promise }
 
+const isRemembered = (key, ttlMs) => Date.now() - (memo.get(key)?.at ?? -Infinity) < ttlMs;
+
 function remembered(key, ttlMs, load) {
-  const hit = memo.get(key);
-  if (hit && Date.now() - hit.at < ttlMs) return hit.value;
+  if (isRemembered(key, ttlMs)) return memo.get(key).value;
+  // Oldest first: callers choose the keys, so the cache can't grow without bound.
+  while (memo.size >= MEMO_MAX) memo.delete(memo.keys().next().value);
   const value = load();
   value.catch(() => memo.get(key)?.value === value && memo.delete(key));
   memo.set(key, { at: Date.now(), value });
@@ -430,13 +361,20 @@ async function loadSources(env) {
 
 const getSources = (env) => remembered('sources', SOURCES_CACHE_MS, () => loadSources(env));
 
-/** Commit of `owner/repo@ref`, null when the repo / branch doesn't exist. */
-function getCommit(env, params) {
+/**
+ * Commit of `owner/repo@ref`, null when the repo / branch doesn't exist. Any repo may be asked for, so lookups
+ * that reach GitHub are limited per IP: they spend the token's quota (the client then asks GitHub itself).
+ */
+async function getCommit(env, params, ip) {
   const owner = params.get('owner') ?? '';
   const repo = params.get('repo') ?? '';
   const ref = params.get('ref') ?? '';
   if (!REPO_PART_RE.test(owner) || !REPO_PART_RE.test(repo) || !REF_RE.test(ref)) throw new HttpError(400, 'Bad source');
-  return remembered(`commit:${owner}/${repo}@${ref}`.toLowerCase(), COMMIT_CACHE_MS, async () => {
+  const key = `commit:${owner}/${repo}@${ref}`.toLowerCase();
+  if (!isRemembered(key, COMMIT_CACHE_MS) && env.COMMIT_LIMIT && !(await env.COMMIT_LIMIT.limit({ key: ip })).success) {
+    throw new HttpError(429, 'Too many lookups');
+  }
+  return remembered(key, COMMIT_CACHE_MS, async () => {
     const commit = await githubRead(env, `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`);
     return commit?.sha ?? null;
   });
@@ -492,19 +430,7 @@ export default {
         return json({ sources: await getSources(env) }, 200, cors);
       }
       if (request.method === 'GET' && url.pathname === '/scenarios/commit') {
-        return json({ sha: await getCommit(env, url.searchParams) }, 200, cors);
-      }
-      if (request.method === 'POST' && url.pathname === '/player/load') {
-        return json(await loadPlayer(env, await request.json().catch(() => null)), 200, cors);
-      }
-      if (request.method === 'POST' && url.pathname === '/player/save') {
-        // Read as text: beacons come as text/plain.
-        const sub = readPlayerSave(await request.text().then(JSON.parse).catch(() => null));
-        const ip = request.headers.get('CF-Connecting-IP') ?? '';
-        if (env.PLAYER_LIMIT && !(await env.PLAYER_LIMIT.limit({ key: `${sub.playerId}|${ip}` })).success) {
-          throw new HttpError(429, 'Too many saves');
-        }
-        return json(await savePlayer(env, sub), 200, cors);
+        return json({ sha: await getCommit(env, url.searchParams, request.headers.get('CF-Connecting-IP') ?? '') }, 200, cors);
       }
       return json({ error: 'Not found' }, 404, cors);
     } catch (err) {

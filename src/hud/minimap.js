@@ -229,6 +229,8 @@ export function createMinimapHud({ getRouteState, defaultZoom = MINIMAP_DEFAULT_
 
   function draw(lat, lon, headingDeg, peers) {
     resize();
+    // Hidden (Settings > HUD): no box to draw in, and a negative dial radius would throw.
+    if (!dialSizeCss) return;
     const size = sizeCss;
     const center = size / 2;
     // Decorations were tuned at 190px; scale with the CSS size.

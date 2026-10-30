@@ -1,15 +1,6 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-M4VWHN7709"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-M4VWHN7709');
-    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -43,6 +34,15 @@
         <p class="loading-slow" hidden>Taking longer than usual: the elevation / imagery servers may be slow.</p>
       </div>
     </div>
+    <div id="consent-banner" class="menu-window" role="dialog" aria-label="Usage statistics" hidden>
+      <h1 class="menu-titlebar">Usage statistics</h1>
+      <p>May Driver use Google Analytics to count visits and see which parts of the game get played? It sets cookies and sends your IP address and device details to Google (USA). The game works the same either way, and you can change this later in Settings &gt; Gameplay &gt; Privacy.</p>
+      <div class="consent-actions">
+        <a class="privacy-link" target="_blank" rel="noopener">Privacy policy</a>
+        <button type="button" data-consent="no">Decline</button>
+        <button type="button" data-consent="yes">Allow</button>
+      </div>
+    </div>
     <div id="main-menu" hidden>
       <div class="menu-screen menu-window" data-screen="root">
         <h1 class="menu-titlebar">Driver</h1>
@@ -51,6 +51,8 @@
           <button type="button" data-action="save" hidden>Save<span class="menu-save-status"></span></button>
           <button type="button" data-action="modes">Game mode</button>
           <button type="button" data-action="settings">Settings</button>
+          <button type="button" data-action="export">Export save<span class="menu-save-status" data-for="export"></span></button>
+          <button type="button" data-action="import">Import save<span class="menu-save-status" data-for="import"></span></button>
           <button type="button" data-action="about">About</button>
         </div>
         <p class="menu-version"></p>
@@ -72,8 +74,9 @@
           <p>The game is still in development, so expect rough edges, missing features and frequent changes.</p>
           <p>It is coded with the help of AI assistants: GitHub Copilot and Claude.</p>
           <div class="menu-about-links">
-            <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
-            <a href="https://buymeacoffee.com/Kanalizer" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+            <a class="discord-link" href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+            <a class="coffee-link" href="https://buymeacoffee.com/Kanalizer" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+            <a class="privacy-link" target="_blank" rel="noopener">Privacy policy</a>
           </div>
         </div>
         <div class="menu-footer"><button type="button" data-action="back">Back</button></div>
@@ -120,69 +123,118 @@
           <div id="hud">
             <div id="hud-header">
               <button type="button" id="garage-toggle" hidden>Garage</button>
-              <a id="hud-discord" href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
+              <a id="hud-discord" class="discord-link" href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">🎮 Join our Discord</a>
             </div>
             <div id="hud-body">
-              <div class="hud-line">W / &uarr; &mdash; throttle</div>
-              <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
-              <div class="hud-line">A D / &larr; &rarr; &mdash; steer</div>
-              <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
-              <div class="hud-line">E / Q &mdash; shift gear up / down</div>
-              <div class="hud-line">X / Z &mdash; range extender lever up / down</div>
-              <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick or E / Q</div>
-              <div class="hud-line">H &mdash; horn</div>
-              <div class="hud-line">L &mdash; headlights (automatic at night)</div>
-              <div class="hud-line">R &mdash; reset car</div>
-              <div class="hud-line">C &mdash; switch camera view</div>
-              <div class="hud-line">Click on dials &mdash; toggle systems</div>
-              <div class="hud-line">Gearbox modes: click SPORT/COMFORT/ECO/CRUISE on the rev counter</div>
-              <div class="hud-line">SPORT &mdash; full throttle</div>
-              <div class="hud-line">COMFORT &mdash; 75% throttle, faster gear changes</div>
-              <div class="hud-line">ECO &mdash; 50% throttle, faster gear changes</div>
-              <div class="hud-line">CRUISE &mdash; 90% throttle to the speed limit, then keep low RPM</div>
-              <div class="hud-line"></div>
-              <div class="hud-line"></div>
-              <div class="hud-line"></div>
-              <div class="hud-section" id="hud-audio">
-                <div>Audio</div>
-                <label>
-                  Volume
-                  <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
-                </label>
-                <label>
-                  Music
-                  <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
-                </label>
+              <div class="hud-keys">
+                <div class="hud-line">W / &uarr; &mdash; throttle</div>
+                <div class="hud-line">S / &darr; &mdash; brake / reverse</div>
+                <div class="hud-line">A D / &larr; &rarr; &mdash; steer</div>
+                <div class="hud-line">Space &mdash; handbrake (hold 5 s to lock, press again to release)</div>
+                <div class="hud-line">E / Q &mdash; shift gear up / down</div>
+                <div class="hud-line">X / Z &mdash; range extender lever up / down</div>
+                <div class="hud-line">AUTO/MAN on the rev counter &mdash; manual gearbox: drag the gearstick or E / Q</div>
+                <div class="hud-line">H &mdash; horn</div>
+                <div class="hud-line">L &mdash; headlights (automatic at night)</div>
+                <div class="hud-line">R &mdash; reset car</div>
+                <div class="hud-line">C &mdash; switch camera view</div>
+                <div class="hud-line">Click on dials &mdash; toggle systems</div>
+                <div class="hud-line">Gearbox modes: click SPORT/COMFORT/ECO/CRUISE on the rev counter</div>
+                <div class="hud-line">SPORT &mdash; full throttle</div>
+                <div class="hud-line">COMFORT &mdash; 75% throttle, faster gear changes</div>
+                <div class="hud-line">ECO &mdash; 50% throttle, faster gear changes</div>
+                <div class="hud-line">CRUISE &mdash; 90% throttle to the speed limit, then keep low RPM</div>
               </div>
-              <div class="hud-section" id="hud-graphics">
-                <div>Graphics</div>
-                <label>
-                  Detail level
-                  <select id="graphics-detail-select" aria-label="Graphics detail level"></select>
-                </label>
-                <label class="hud-check">
-                  <input id="road-surface-input" type="checkbox" />
-                  Road surface (tarmac / unpaved)
-                </label>
-                <label class="hud-check">
-                  <input id="car-dirt-input" type="checkbox" />
-                  Car dirt
-                </label>
-              </div>
-              <div class="hud-section" id="hud-gameplay">
-                <div>Gameplay</div>
-                <label>
-                  Units
-                  <select id="units-select" aria-label="Units">
-                    <option value="metric">Metric (km/h, °C, L)</option>
-                    <option value="imperial">Imperial (mph, °F, gal)</option>
-                  </select>
-                </label>
-                <div class="hud-subsection-title">Rally</div>
-                <label>
-                  <input id="rally-handbrake-hold-input" type="checkbox" />
-                  Hold handbrake to lock it
-                </label>
+              <div class="hud-settings-cols">
+                <div class="hud-settings-col">
+                  <div class="hud-section" id="hud-audio">
+                    <div>Audio</div>
+                    <label>
+                      Volume
+                      <input id="volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+                    </label>
+                    <label>
+                      Music
+                      <input id="music-volume-input" type="range" min="0" max="1" step="0.01" value="1" aria-label="Music volume" />
+                    </label>
+                  </div>
+                  <div class="hud-section" id="hud-graphics">
+                    <div>Graphics</div>
+                    <label>
+                      Detail level
+                      <select id="graphics-detail-select" aria-label="Graphics detail level"></select>
+                    </label>
+                    <label class="hud-check">
+                      <input id="road-surface-input" type="checkbox" />
+                      Road surface (tarmac / unpaved)
+                    </label>
+                    <label class="hud-check">
+                      <input id="car-dirt-input" type="checkbox" />
+                      Car dirt
+                    </label>
+                    <label class="hud-check">
+                      <input id="road-signs-input" type="checkbox" />
+                      Road signs, posts and barriers
+                    </label>
+                  </div>
+                </div>
+                <div class="hud-settings-col">
+                  <div class="hud-section" id="hud-gameplay">
+                    <div>Gameplay</div>
+                    <label>
+                      Units
+                      <select id="units-select" aria-label="Units">
+                        <option value="metric">Metric (km/h, °C, L)</option>
+                        <option value="imperial">Imperial (mph, °F, gal)</option>
+                      </select>
+                    </label>
+                    <div class="hud-subsection-title">Gearbox modes</div>
+                    <div id="gear-modes-enabled" class="gameplay-row" title="Modes the gearbox mode button cycles through"></div>
+                    <div class="hud-subsection-title">Cruise speed limits (<span id="cruise-limits-unit">km/h</span>)</div>
+                    <label>
+                      Motorway / trunk
+                      <input id="cruise-limit-highway" class="cruise-limit-input" type="number" min="5" max="300" step="5" />
+                    </label>
+                    <label>
+                      Open road
+                      <input id="cruise-limit-open" class="cruise-limit-input" type="number" min="5" max="300" step="5" />
+                    </label>
+                    <label>
+                      Built-up area
+                      <input id="cruise-limit-builtUp" class="cruise-limit-input" type="number" min="5" max="300" step="5" />
+                    </label>
+                    <div class="hud-subsection-title">HUD</div>
+                    <table id="hud-elements-table"></table>
+                    <div class="hud-subsection-title">Rally</div>
+                    <label>
+                      <input id="rally-handbrake-hold-input" type="checkbox" />
+                      Hold handbrake to lock it
+                    </label>
+                    <div class="hud-subsection-title">Free roam</div>
+                    <label>
+                      <input id="free-roam-handbrake-hold-input" type="checkbox" />
+                      Hold handbrake to lock it
+                    </label>
+                    <label title="Scratched paint gets a Respray fix button">
+                      <input id="free-roam-paint-damage-input" type="checkbox" />
+                      Paint damage counts as damage
+                    </label>
+                    <label title="A dirty body or rims get a Wash fix button">
+                      <input id="free-roam-dirt-damage-input" type="checkbox" />
+                      Dirt counts as damage
+                    </label>
+                    <div class="hud-subsection-title">Privacy</div>
+                    <label title="Google Analytics: cookies, IP address and device details sent to Google">
+                      <input id="analytics-consent-input" type="checkbox" />
+                      Usage statistics (Google Analytics)
+                    </label>
+                    <label title="Your name, car and times are shown publicly">
+                      <input id="leaderboard-consent-input" type="checkbox" />
+                      Send stage times to online leaderboards
+                    </label>
+                    <a class="privacy-link" target="_blank" rel="noopener">Privacy policy</a>
+                  </div>
+                </div>
               </div>
               <div id="hud-reset">
                 <button type="button" id="hud-change-choices">Change name/vehicle</button>
@@ -309,7 +361,9 @@
               <div id="debug-layers-hud">
                 <div class="susp-title debug-fold-title">LAYERS</div>
                 <div class="debug-layers-list"></div>
-                <div class="susp-title debug-time-title">TIME</div>
+              </div>
+              <div id="debug-weather-hud">
+                <div class="susp-title debug-fold-title">TIME &amp; WEATHER</div>
                 <div class="debug-time-list"></div>
                 <div class="susp-title debug-time-title">WEATHER</div>
                 <div class="debug-weather-readout"></div>
@@ -446,6 +500,7 @@
         <button type="button" id="transmission-mode" title="Gearbox: automatic / manual (click to switch)">AUTO</button>
       </div>
       <div id="speedo-column">
+        <div id="gear-lcd" class="dash-lcd" hidden title="Gear"></div>
         <div id="gearstick" hidden>
           <canvas id="gearstick-canvas" aria-label="Gearstick - drag to shift"></canvas>
         </div>

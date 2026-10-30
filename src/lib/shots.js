@@ -13,6 +13,7 @@ import { BULLET_COLLISION_GROUP, REMOTE_CAR_GROUP } from './remoteCollisions.js'
 const SPEED = 90;
 const SPAWN_AHEAD = 3.2;
 const LIFE_S = 1.1;
+const MAX_LIVE_SHOTS = 64; // remote shots come from anyone on the public broker
 const COOLDOWN_MS = 400;
 const RADIUS = 0.18;
 
@@ -75,6 +76,7 @@ export function createShots({ scene, world, onCarHit }) {
   }
 
   function spawnRemote(msg) {
+    if (live.length >= MAX_LIVE_SHOTS) return;
     if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y) || !Number.isFinite(msg.z)) return;
     if (!Number.isFinite(msg.vx) || !Number.isFinite(msg.vy) || !Number.isFinite(msg.vz)) return;
     const mesh = makeMesh();

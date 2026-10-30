@@ -3,6 +3,7 @@
 // Each client simulates its own car; everyone else is an interpolated mesh.
 // The broker is best-effort: if it drops, driving still works solo.
 
+import { ROSTER_STORAGE_KEY } from '../config.js';
 import mqtt from 'mqtt';
 import { DEFAULT_VEHICLE_ID, getVehicle } from './vehicles/index.js';
 import { METALLIC_PAINT } from './vehicles/geometry/paint.js';
@@ -21,7 +22,12 @@ const SPAWN_RADIUS = 6;
 // Roster TTL: "seen in the last 24h", persisted in localStorage; longer
 // than PEER_TIMEOUT_MS, which only despawns the peer's car.
 const ROSTER_TTL_MS = 24 * 60 * 60 * 1000;
-const ROSTER_STORAGE_KEY = 'driver.roster.v1';
+// Anyone can publish on the public broker: caps keep a flood of fake ids from piling up cars and storage.
+const MAX_PEERS = 32;
+const MAX_ROSTER = 200;
+const ROSTER_SAVE_MS = 5000;
+const ID_RE = /^[\w-]{1,64}$/;
+const validId = (id) => typeof id === 'string' && ID_RE.test(id);
 
 function loadRoster() {
   const roster = new Map();
@@ -30,7 +36,7 @@ function loadRoster() {
     if (!raw) return roster;
     const entries = JSON.parse(raw);
     const now = Date.now();
-    for (const [id, entry] of entries) {
+    for (const [id, entry] of entries.slice(-MAX_ROSTER)) {
       if (!entry || now - entry.lastSeen > ROSTER_TTL_MS) continue;
       roster.set(id, entry);
     }
@@ -53,6 +59,7 @@ export function createNet({ clientId } = {}) {
   const peers = new Map();
   // id -> { name, score, lastSeen (Date.now(), survives reloads) }.
   const roster = loadRoster();
+  let rosterSaveTimer = null;
   const statusListeners = new Set();
   const propListeners = new Set();
 
@@ -122,8 +129,23 @@ export function createNet({ clientId } = {}) {
     publish(POSE_TOPIC, { id: clientId, leave: true }, false);
   }
 
+  function saveRosterSoon() {
+    rosterSaveTimer ??= setTimeout(() => {
+      rosterSaveTimer = null;
+      saveRoster(roster);
+    }, ROSTER_SAVE_MS);
+  }
+
+  /** Room for one more roster id: drops the longest unseen one when full. */
+  function makeRosterRoom(id) {
+    if (roster.has(id) || roster.size < MAX_ROSTER) return;
+    let oldest = null;
+    for (const [key, entry] of roster) if (!oldest || entry.lastSeen < roster.get(oldest).lastSeen) oldest = key;
+    roster.delete(oldest);
+  }
+
   function handlePose(msg) {
-    if (!msg || msg.id === clientId) return;
+    if (!msg || !validId(msg.id) || msg.id === clientId) return;
     if (msg.leave) {
       // Despawn the car now; the roster entry stays until its TTL.
       peers.delete(msg.id);
@@ -134,6 +156,7 @@ export function createNet({ clientId } = {}) {
 
     let peer = peers.get(msg.id);
     if (!peer) {
+      if (peers.size >= MAX_PEERS) return;
       peer = { name: '', color: 0xffffff, vehicleId: DEFAULT_VEHICLE_ID, score: 0, lastSeen: 0, samples: [] };
       peers.set(msg.id, peer);
     }
@@ -142,8 +165,9 @@ export function createNet({ clientId } = {}) {
     peer.vehicleId = sanitizeVehicleId(msg.vehicleId);
     peer.score = sanitizeScore(msg.score);
     peer.lastSeen = performance.now();
+    makeRosterRoom(msg.id);
     roster.set(msg.id, { name: peer.name, score: peer.score, x: msg.x, z: msg.z, lastSeen: Date.now() });
-    saveRoster(roster);
+    saveRosterSoon();
 
     const sample = {
       recv: peer.lastSeen,
@@ -186,7 +210,7 @@ export function createNet({ clientId } = {}) {
   }
 
   function handleProps(msg) {
-    if (!msg || msg.id === clientId) return;
+    if (!msg || !validId(msg.id) || msg.id === clientId) return;
     for (const fn of propListeners) fn(msg);
   }
 

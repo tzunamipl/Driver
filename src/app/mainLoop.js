@@ -484,6 +484,7 @@ export function createMainLoop({
         at.z = currentChassisMesh.position.z;
         streaming.run();
         places.update(carLat, carLon);
+        profiler.mark('places');
         const headingLen = Math.hypot(terrainHeading.x, terrainHeading.z) || 1;
         directionSignHud.update(
           frameDelta,
@@ -493,14 +494,17 @@ export function createMainLoop({
           terrainHeading.x / headingLen,
           terrainHeading.z / headingLen
         );
+        profiler.mark('directionSigns');
       }
       // Lift a car found inside a building onto its roof.
       preventBuildingEmbedding(currentVehicle);
 
       minimapHud.update(currentChassisMesh, viewFrame, remotePoses);
+      profiler.mark('minimap');
     }
     scenarioEditor?.update(frameDelta);
     rallySession?.update(frameDelta);
+    profiler.mark('scenario');
     roadsideRepair?.update();
     profiler.mark('misc');
 

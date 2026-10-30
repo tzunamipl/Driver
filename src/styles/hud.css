@@ -47,12 +47,25 @@
 #garage-toggle[hidden] { display: none; }
 #hud > #hud-body { display: none; }
 #hud-body {
-  --hud-body-w: min(46ch, calc(100vw - 44px));
+  --hud-body-w: min(94ch, calc(100vw - 44px));
   width: var(--hud-body-w);
 }
 #hud-body > * {
   box-sizing: border-box;
   width: var(--hud-body-w);
+}
+/* Key help flows in two columns across the top; the group boxes sit in two columns under it. */
+#hud-body .hud-keys {
+  columns: 2 40ch;
+  column-gap: 2ch;
+}
+#hud-body .hud-line { break-inside: avoid; }
+#hud-body .hud-settings-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(40ch, 100%), 1fr));
+  gap: 0 12px;
+  align-items: start;
+  margin-top: 4px;
 }
 /* Hanging indent: wrapped lines sit under the description, not the key. */
 :is(#hud, #main-menu) .hud-line {
@@ -109,6 +122,21 @@
   cursor: pointer;
 }
 #hud-gameplay input { margin: 0; cursor: pointer; }
+#hud-gameplay .gameplay-row { display: flex; flex-wrap: wrap; gap: 0 10px; }
+#hud-gameplay .cruise-limit-input { width: 52px; margin-left: auto; cursor: text; }
+#hud-elements-table { border-collapse: collapse; margin-top: 2px; }
+#hud-elements-table td { padding: 1px 6px 1px 0; }
+#hud-elements-table thead td { font-weight: bold; text-align: center; }
+#hud-elements-table tbody td + td { text-align: center; }
+
+/* Settings > Gameplay > HUD (ui/hudElementsSettings.js), per game mode. */
+body.hud-off-tach #tach,
+body.hud-off-aux #aux-gauge,
+body.hud-off-lamps #warning-lamps,
+body.hud-off-minimap #minimap,
+body.hud-off-all :is(#top-left-stack, #top-centre-stack, #top-right-stack, #minimap, #gauges, #airtime-hud, #score-toasts) {
+  display: none !important;
+}
 #hud-discord {
   flex: none;
   display: inline-block;

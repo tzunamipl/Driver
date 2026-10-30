@@ -191,6 +191,7 @@ export function createEngineState(descriptor, wheelRadius) {
     mass: descriptor.mass,
     neutralTimer: 0, // s since the manual box went into neutral
     keyTarget: null, // gear a manual-box Q/E shift engages once synchronised
+    autoShiftPresses: 0, // Q/E presses on the automatic; the gear HUDs pop up on a change
     onGearEvent: null, // (type: 'detach' | 'attach' | 'grind', engine) => void
     // Driveline coupling for the wheels, refreshed by update(); totals across
     // all driven wheels. 0 / Infinity while the clutch is open mid-shift.
@@ -207,10 +208,14 @@ export function createEngineState(descriptor, wheelRadius) {
       return turbo ? Math.max(0, engine.boostBar) / turbo.maxBoostBar : 0;
     },
     get gearLabel() {
-      if (engine.gear === 0) return 'R';
-      if (engine.gear === NEUTRAL) return 'N';
-      if (engine.gearRanges === 1) return String(engine.gear);
-      return `${mainGearOf(engine.gear)}${RANGE_LETTERS[engine.gearRanges]?.[rangeOf(engine.gear)] ?? rangeOf(engine.gear) + 1}`;
+      return engine.labelForGear(engine.gear);
+    },
+    labelForGear(gear) {
+      if (gear === 0) return 'R';
+      if (gear === NEUTRAL) return 'N';
+      // Only a real range box (descriptor gearRanges) shows ranges while shifting itself.
+      if (engine.gearRanges === 1 || (!engine.manual && descriptor.gearRanges == null)) return String(gear);
+      return `${mainGearOf(gear)}${RANGE_LETTERS[engine.gearRanges]?.[rangeOf(gear)] ?? rangeOf(gear) + 1}`;
     },
   };
   // Range-change box: forward gear g = range * gearSlots + main gear.
@@ -277,8 +282,12 @@ export function createEngineState(descriptor, wheelRadius) {
 
   /** Requests a manual up (+1) or down (-1) shift; presses accumulate. */
   function requestShift(step) {
-    if (engine.manual) manualStep(Math.sign(step));
-    else pendingShift += Math.sign(step);
+    if (engine.manual) {
+      manualStep(Math.sign(step));
+      return;
+    }
+    pendingShift += Math.sign(step);
+    engine.autoShiftPresses++;
   }
 
   function emit(type) {

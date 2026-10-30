@@ -1,12 +1,13 @@
 // Free roam: with the car nearly stopped, a floating button points at each damaged part
 // (flat or worn tyre, broken rim, worn shock, worn brake disc / drum, leaking brake pipe / low brake fluid, leaking radiator / low coolant,
-// worn skid plate, cracked sump / low oil, worn engine, broken lamp, worn gearbox, loose or lost exhaust, scratched paint, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
+// worn skid plate, cracked sump / low oil, worn engine, broken lamp, worn gearbox, loose or lost exhaust, scratched paint, dirt, fuel on reserve) and fixes that part on a click (app/partCallouts.js).
+// Paint and dirt only count when their Settings > Gameplay > Free roam boxes are on.
 // With two or more, a big Fix all button fixes everything at once. Resets and teleports don't fix the car.
 
 import { createPartCallouts } from './partCallouts.js';
 import { RESERVE_FRACTION } from '../lib/fuel.js';
 import { formatVolume } from '../lib/units.js';
-import { paintNote } from '../lib/serviceRepairs.js';
+import { paintNote, washCar } from '../lib/serviceRepairs.js';
 
 // Tread below this offers a fresh tyre (the tyre service dialog's "Worn").
 const WORN_TREAD = 0.35;
@@ -20,12 +21,13 @@ const LOW_OIL = 0.95;
 const WORN_SKID_PLATE = 0.95;
 const WORN_BRAKE = 0.95;
 const LOW_BRAKE_FLUID = 0.95;
+const DIRTY = 0.1; // body / rim dirt from this offers a wash
 const SIDE_NAMES = ['left', 'right']; // lampDamage.js sides: 0 = +x (left)
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
 /** Every damaged part: { label, note, anchor, fix }. */
-function damagedParts(vehicle) {
+function damagedParts(vehicle, { paint, dirt }) {
   const parts = [];
   const labels = vehicle.wheelLabels ?? [];
   vehicle.wheelInfos.forEach((w, i) => {
@@ -89,9 +91,14 @@ function damagedParts(vehicle) {
     parts.push({ label: 'Replace exhaust', note: exhaust.detached ? 'Fell off · power -20%' : `Health ${pct(exhaust.health)}`, anchor: 'exhaust', fix: () => exhaust.repair() });
   }
   const scratches = vehicle.bodyScratches;
-  if (scratches?.patches.length) {
+  if (paint && scratches?.patches.length) {
     const at = scratches.anchor();
     parts.push({ label: 'Respray body', note: paintNote(scratches), anchor: at ? { local: at } : 'front', fix: () => scratches.repair() });
+  }
+  const bodyDirt = vehicle.bodyDirt;
+  const rimDirt = Math.max(0, ...vehicle.wheelInfos.map((w) => w.rimDirt ?? 0));
+  if (dirt && bodyDirt?.enabled && Math.max(bodyDirt.level, rimDirt) >= DIRTY) {
+    parts.push({ label: 'Wash car', note: `Dirt ${pct(bodyDirt.level)} · rims ${pct(rimDirt)}`, anchor: 'front', fix: () => washCar(vehicle) });
   }
   return parts;
 }
@@ -102,8 +109,10 @@ function damagedParts(vehicle) {
  * @param {THREE.Camera} deps.camera
  * @param {() => object | null} deps.getVehicle
  * @param {() => void} [deps.onRepair] - sound when a part is fixed.
+ * @param {() => boolean} [deps.paintDamage] - scratched paint counts as damage.
+ * @param {() => boolean} [deps.dirtDamage] - dirt counts as damage.
  */
-export function createRoadsideRepair({ canvas, camera, getVehicle, onRepair }) {
+export function createRoadsideRepair({ canvas, camera, getVehicle, onRepair, paintDamage = () => true, dirtDamage = () => false }) {
   const callouts = createPartCallouts({ canvas, camera });
   const fixAll = document.getElementById('repair-fix-all');
   let parts = []; // the callouts' parts this frame (none while driving)
@@ -119,7 +128,7 @@ export function createRoadsideRepair({ canvas, camera, getVehicle, onRepair }) {
     const vehicle = getVehicle();
     parts = [];
     callouts.update(vehicle?.lamps ? vehicle : null, (v) => {
-      parts = damagedParts(v);
+      parts = damagedParts(v, { paint: paintDamage(), dirt: dirtDamage() });
       return parts.map((part) => ({ ...part, onClick: () => { part.fix(); onRepair?.(); } }));
     });
     fixAll.hidden = parts.length < 2;

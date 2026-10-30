@@ -24,6 +24,7 @@ import {
 import { readSaveField, writeSaveField } from '../lib/saves.js';
 import { parseSource, formatSource, openSource } from '../lib/scenarios/source.js';
 import { publishScenario, publishEnabled, branchNameFor } from '../lib/scenarios/publish.js';
+import { askEditorPublishConsent } from '../lib/privacy.js';
 import { bodyHash, stampMeta } from '../lib/scenarios/fileMeta.js';
 import { snapToRoad, controlFrame, dirToHeading } from '../lib/scenarios/roadSnap.js';
 import { createGateMarkers } from '../lib/scenarios/gateMarkers.js';
@@ -975,6 +976,7 @@ export function createScenarioEditor({ format, scene, world, terrain, streets, v
       if (!publishEnabled()) throw new Error('Publishing is off in this build: use Export');
       await refreshRoutes();
       const branch = branchNameFor(getPlayerName());
+      if (!askEditorPublishConsent(branch)) return setStatus('Not published');
       setStatus(`Publishing to branch ${branch}…`);
       const file = toFile();
       const key = fileKey(state.doc);

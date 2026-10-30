@@ -51,7 +51,7 @@ export const TC_GRIP_SHARE = 0.9;
 // Holding the handbrake this long leaves it pulled until the next press.
 export const HANDBRAKE_LATCH_S = 1.7;
 export const TURBO_MULT = 4;
-// Cruise gearbox mode targets (km/h): motorway / trunk, else by zone (off road too).
+// Cruise gearbox mode targets (km/h): motorway / trunk, else by zone (off road too). Defaults; Settings > Gameplay overrides them.
 export const CRUISE_LIMITS_KMH = { highway: 140, open: 90, builtUp: 50 };
 // Hold to charge, release to jump; full charge = max speed.
 export const JUMP_CHARGE_S = 1.2;
@@ -252,33 +252,58 @@ export const STREAMING_BUDGET_MS = 6;
 // ---------- Graphics detail (Settings) ----------
 // Foliage: drawDistance in m, areaPerItem = m² of landcover per tree / bush / rock (density).
 // lampGlints: per-lamp wet road reflections (lib/lampGlints.js); off = plain pool spotlight glints.
+// shadows: sun + street lamp shadow maps (contact shadows stay); particles: share of every effect's particles spawned.
+// antialias: 4x MSAA; colorGrade: overcast / temperature grade; lights: street lamp spotlights + exhaust flash light;
+// farBuildingsM: reach of the plain far building boxes.
+// terrainCells: cells across a detail terrain tile; terrainNearCells: across the 3x3 tiles around the car.
 export const GRAPHICS_DETAIL_LEVELS = {
   low: {
     label: 'Low',
-    terrainCells: 15,
+    terrainCells: 13,
+    terrainNearCells: 15,
     streamingBudgetMs: 3,
     roadsideDrawDistance: 100,
     lampGlints: false,
+    shadows: false,
+    particles: 0,
+    antialias: false,
+    colorGrade: false,
+    lights: false,
+    farBuildingsM: 500,
     trees: { drawDistance: 350, areaPerItem: 800 },
     bushes: { drawDistance: 150, areaPerItem: 3000 },
     rocks: { drawDistance: 150, areaPerItem: 3000 },
   },
   medium: {
     label: 'Medium',
-    terrainCells: 40,
+    terrainCells: 20,
+    terrainNearCells: 160,
     streamingBudgetMs: 4.5,
     roadsideDrawDistance: 150,
     lampGlints: false,
+    shadows: true,
+    particles: 0.5,
+    antialias: true,
+    colorGrade: false,
+    lights: true,
+    farBuildingsM: 1000,
     trees: { drawDistance: 550, areaPerItem: 450 },
     bushes: { drawDistance: 250, areaPerItem: 1800 },
     rocks: { drawDistance: 250, areaPerItem: 1800 },
   },
   high: {
     label: 'High',
-    terrainCells: 80,
+    terrainCells: 30,
+    terrainNearCells: 320,
     streamingBudgetMs: STREAMING_BUDGET_MS,
     roadsideDrawDistance: ROADSIDE_DRAW_DISTANCE_M,
     lampGlints: true,
+    shadows: true,
+    particles: 1,
+    antialias: true,
+    colorGrade: true,
+    lights: true,
+    farBuildingsM: 1500,
     trees: { drawDistance: TREE_DRAW_DISTANCE_M, areaPerItem: TREE_AREA_PER_TREE_M2 },
     bushes: { drawDistance: BUSH_DRAW_DISTANCE_M, areaPerItem: BUSH_AREA_PER_BUSH_M2 },
     rocks: { drawDistance: ROCK_DRAW_DISTANCE_M, areaPerItem: ROCK_AREA_PER_ROCK_M2 },
@@ -306,19 +331,27 @@ export const DEFAULT_PAINT_STORAGE_KEY = 'driver.defaultPaint.v1'; // JSON array
 export const VEHICLE_ODOMETERS_STORAGE_KEY = 'driver.vehicleOdometers.v1'; // per-vehicle km, shared by all modes
 export const DEV_CAR_STORAGE_KEY = 'driver.devCar.v1'; // dev-mode debug picker
 export const PLAYER_ID_STORAGE_KEY = 'driver.playerId.v1'; // stable network identity
+export const ROSTER_STORAGE_KEY = 'driver.roster.v1'; // other players seen in the last 24 h (lib/net.js); never exported
 export const GRAPHICS_DETAIL_STORAGE_KEY = 'driver.graphicsDetail';
 export const ROAD_SURFACE_STORAGE_KEY = 'driver.roadSurface.v1'; // Settings > Graphics: tarmac / unpaved stripes
 export const CAR_DIRT_STORAGE_KEY = 'driver.carDirt.v1'; // Settings > Graphics: '0' = cars stay clean
+export const ROAD_SIGNS_STORAGE_KEY = 'driver.roadSigns.v1'; // Settings > Graphics: curve / direction signs, edge posts, guard rails
 export const CAMERA_VIEW_STORAGE_KEY = 'driver.cameraView.v1'; // legacy
 export const DEBUG_LAYERS_STORAGE_KEY = 'driver.debugLayers.v1';
 export const DEBUG_VISUALS_STORAGE_KEY = 'driver.debugVisuals.v1'; // K-key debug view on/off
 export const TIME_PRESET_STORAGE_KEY = 'driver.timePreset.v1';
 export const WEATHER_DEBUG_STORAGE_KEY = 'driver.weatherDebug.v1'; // debug weather overrides: { wetness, clouds, rainMmH, tempC, visibilityM }
 export const GEAR_MODE_STORAGE_KEY = 'driver.gearMode.v1'; // sport/comfort/eco/cruise gearbox
+export const GEAR_MODES_ENABLED_STORAGE_KEY = 'driver.gearModesEnabled.v1'; // Settings > Gameplay: modes the gear mode button cycles
+export const CRUISE_LIMITS_STORAGE_KEY = 'driver.cruiseLimits.v1'; // Settings > Gameplay: { highway, open, builtUp } km/h
 export const TRANSMISSION_STORAGE_KEY = 'driver.transmission.v1'; // auto/manual gearbox
 export const NAV_DESTINATION_STORAGE_KEY = 'driver.navDestination.v1'; // legacy Navigation tab pin
 export const LEGACY_GITHUB_TOKEN_STORAGE_KEY = 'driver.githubToken.v1'; // old editor saves; wiped on start
 export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; // Settings > Gameplay > Rally
+export const FREE_ROAM_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.freeRoamHandbrakeHold.v1'; // Settings > Gameplay > Free roam
+export const FREE_ROAM_PAINT_DAMAGE_STORAGE_KEY = 'driver.freeRoamPaintDamage.v1'; // Settings > Gameplay > Free roam: Respray fix button
+export const FREE_ROAM_DIRT_DAMAGE_STORAGE_KEY = 'driver.freeRoamDirtDamage.v1'; // Settings > Gameplay > Free roam: Wash fix button
+export const HUD_ELEMENTS_STORAGE_KEY = 'driver.hudElements.v1'; // Settings > Gameplay > HUD: { [modeId]: { tach, aux, lamps, minimap, all } }, missing = shown
 export const UNITS_STORAGE_KEY = 'driver.units.v1'; // Settings > Gameplay: 'metric' | 'imperial' (lib/units.js)
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
 export const EDITOR_PACENOTES_BOTH_STORAGE_KEY = 'driver.editorPacenotesBoth.v1'; // '1' = Generate does both stage versions
@@ -335,9 +368,14 @@ export const LEADERBOARD_URL = import.meta.env.VITE_LEADERBOARD_URL ?? ''; // wo
 export const RALLY_BEST_STORAGE_KEY = 'driver.rallyBest.v1'; // best stage times: { 'source|stageId': { totalMs, splits } }
 export const RALLY_RUNS_STORAGE_KEY = 'driver.rallyRuns.v1'; // stage / rally run history: { key: [{ totalMs, vehicle, at }] }
 
-// ---------- Cloud save ----------
-// Backup of save slots, profile and odometers through the worker (lib/cloudSave.js), keyed by the player id.
-export const CLOUD_SAVE_STORAGE_KEY = 'driver.cloudSave.v1'; // { hash, updatedAt, pushedAt } of the backed-up data
-export const CLOUD_SAVE_INTERVAL_MS = 2 * 60_000; // each push is a data-repo commit
-export const CLOUD_SAVE_MIN_GAP_MS = 30_000; // menu opens push sooner, but not more often than this
-export const CLOUD_SAVE_RESTORE_TIMEOUT_MS = 3000; // launch waits this long for the backup, then plays on local data
+// ---------- Save file ----------
+export const SAVE_IMPORT_STORAGE_KEY = 'driver.saveImport'; // sessionStorage: imported save, applied on the next load (lib/saveFile.js)
+export const LEGACY_CLOUD_SAVE_STORAGE_KEY = 'driver.cloudSave.v1'; // old worker backup meta; wiped on start
+
+// ---------- Privacy ----------
+export const GA_MEASUREMENT_ID = 'G-M4VWHN7709'; // loaded only after consent (lib/analytics.js)
+export const PRIVACY_POLICY_URL = `${import.meta.env.BASE_URL}privacy.html`; // public/privacy.html
+// 'true' | 'false'; missing = not asked yet (lib/privacy.js).
+export const ANALYTICS_CONSENT_STORAGE_KEY = 'driver.analyticsConsent.v1';
+export const LEADERBOARD_CONSENT_STORAGE_KEY = 'driver.leaderboardConsent.v1';
+export const EDITOR_PUBLISH_CONSENT_STORAGE_KEY = 'driver.editorPublishConsent.v1'; // 'true' once the public-save notice was accepted

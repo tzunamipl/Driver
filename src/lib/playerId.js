@@ -6,7 +6,8 @@ import { PLAYER_ID_STORAGE_KEY } from '../config.js';
 // like a new peer joining, leaving stale duplicate entries in the remote
 // cars list and the "who's online" roster. It's never shown in the UI
 // (name/color are what other players see - see ui/lobby.js); it only
-// identifies this browser's single persistent slot.
+// identifies this browser's single persistent slot. Keep it secret: the leaderboard
+// trusts it as proof of identity, so the network only ever sees playerHash() of it.
 //
 // Deliberately kept in its own tiny module (mirrors carState.js) rather
 // than folded into the lobby's name/color storage, since it has its own

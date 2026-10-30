@@ -1,7 +1,7 @@
 // Street lamp lighting at night (streetLamps.js). Every lamp gets a glowing
 // bulb; a fixed pool of real spotlights follows the lamps nearest the car,
 // the nearest one casting shadows; the next ones only glint on the wet road (lampGlints.js). Lights stay in the scene permanently so the light count (and so
-// every shader) never changes; by day they sit at zero.
+// every shader) never changes; by day they sit at zero. Graphics detail Low hides them (one recompile).
 
 import * as THREE from 'three';
 import { LAMP_HEAD } from './streetLamps.js';
@@ -111,5 +111,10 @@ export function createStreetLights({ scene, terrain, roadside, lampKind }) {
     }
   }
 
-  return { update, shiftOrigin };
+  /** Graphics detail: hidden lights drop out of every shader; bulbs keep glowing. */
+  function setEnabled(on) {
+    for (const light of lights) light.visible = on;
+  }
+
+  return { update, shiftOrigin, setEnabled, shadowLight: lights[0] };
 }

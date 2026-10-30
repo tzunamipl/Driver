@@ -2,6 +2,7 @@
 // coloured sparks that fall and fade. One Points cloud, preallocated; visual only.
 
 import { AdditiveBlending, BufferAttribute, BufferGeometry, Points, PointsMaterial } from 'three';
+import { keepParticle } from '../particles/particleDetail.js';
 
 const MAX_PARTICLES = 1500;
 const ROCKETS = 4;
@@ -60,6 +61,7 @@ export function createFireworks(scene) {
   function burst(p) {
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
     for (let i = 0; i < SPARKS_PER_BURST && particles.length < MAX_PARTICLES; i++) {
+      if (!keepParticle()) continue;
       // Uniform direction on a sphere.
       const u = Math.random() * 2 - 1;
       const a = Math.random() * Math.PI * 2;

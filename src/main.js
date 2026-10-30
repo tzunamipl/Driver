@@ -1,3 +1,4 @@
+import './lib/saveImportBoot.js';
 import * as CANNON from 'cannon-es';
 import { createNet } from './lib/net.js';
 import { createRemoteCollisions } from './lib/remoteCollisions.js';
@@ -28,6 +29,8 @@ import { createMusic } from './lib/audio/music.js';
 import { createVolumeSliders } from './lib/audio/volumeSliders.js';
 import { createGraphicsDetailPicker } from './ui/graphicsDetailPicker.js';
 import { createGameplaySettings } from './ui/gameplaySettings.js';
+import { createPrivacySettings } from './ui/privacySettings.js';
+import { createHudElementsSettings } from './ui/hudElementsSettings.js';
 import { createGraphicsToggles } from './ui/graphicsToggles.js';
 import { createEngineSound } from './lib/audio/engine.js';
 import { createTireSqueal } from './lib/audio/tireSqueal.js';
@@ -71,10 +74,10 @@ import { LandcoverAreasManager } from './lib/landcoverAreas.js';
 import { createTrees, createBushes, createRocks } from './lib/trees.js';
 import { loadCarState, setCarStateSaving } from './lib/carState.js';
 import { loadOrCreatePlayerId } from './lib/playerId.js';
-import { restoreCloudSave, createCloudSave } from './lib/cloudSave.js';
+import { playerHash } from './lib/leaderboard.js';
 import { migrateStoredVehicleIds } from './lib/vehicleIdMigration.js';
 
-import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, TIME_SCALE, SCORE_PER_CAR_HIT, SCORING_ENABLED, LEGACY_GITHUB_TOKEN_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
+import { ORIGIN_LAT, ORIGIN_LON, IS_DEV_MODE, TIME_SCALE, SCORE_PER_CAR_HIT, SCORING_ENABLED, LEGACY_GITHUB_TOKEN_STORAGE_KEY, LEGACY_CLOUD_SAVE_STORAGE_KEY, MINIMAP_RALLY_DEFAULT_ZOOM, MINIMAP_STORAGE_KEY } from './config.js';
 import { createSceneEnvironment, createLighting } from './app/sceneSetup.js';
 import { createPhysicsWorld } from './app/physicsSetup.js';
 import { createGroundTunnelGuard, createBuildingTunnelGuard, createBuildingEmbedGuard } from './app/collisions.js';
@@ -150,16 +153,15 @@ import { getVehicle as getVehicleDescriptor } from './lib/vehicles/index.js';
 // ---------- Composition root ----------
 // Wires modules together in order; the logic lives in ./app, ./hud, ./ui, ./lib.
 
+// ---------- Stored data ----------
+// Before anything reads the profile or the save slots (an imported save may be old).
+migrateStoredVehicleIds();
+
 // ---------- Networking ----------
 // Stable clientId across reloads, so a refresh isn't a new peer.
+// The raw id stays secret (it proves leaderboard entries); the room only ever sees its public hash.
 const playerId = loadOrCreatePlayerId();
-const net = createNet({ clientId: playerId });
-
-// ---------- Cloud save ----------
-// Before anything reads the profile or the save slots: a newer backup replaces them.
-await restoreCloudSave(playerId);
-migrateStoredVehicleIds();
-const cloudSave = createCloudSave(playerId);
+const net = createNet({ clientId: await playerHash(playerId) });
 
 // ---------- Lobby (name/color + join flow) ----------
 // Before the menu: first-time players set their name there. Its callbacks run after the world is up.
@@ -183,9 +185,10 @@ const lobby = createLobby({
   },
 });
 
-// Editor saves go through the worker now: don't keep a personal token around.
+// Editor saves go through the worker now: don't keep a personal token around. Saves aren't backed up there any more.
 try {
   localStorage.removeItem(LEGACY_GITHUB_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_CLOUD_SAVE_STORAGE_KEY);
 } catch {
   // Storage unavailable: nothing stored either.
 }
@@ -195,11 +198,14 @@ try {
 createVolumeSliders();
 const graphicsDetailPicker = createGraphicsDetailPicker();
 const gameplaySettings = createGameplaySettings();
+createPrivacySettings();
+const hudElementsSettings = createHudElementsSettings();
 const graphicsToggles = createGraphicsToggles();
 // Picks the game mode, and so the save slot everything below resumes from.
 createVersionBadge();
 const mainMenu = createMainMenu({ ensureProfile: lobby.ensureProfile, settingsBodyEl: document.getElementById('hud-body') });
 await mainMenu.waitForLaunch();
+hudElementsSettings.apply();
 
 // ---------- Rally: first pick before the world ----------
 // Car + stage are chosen first, so terrain streams in at the stage, not where the last session ended.
@@ -232,8 +238,9 @@ if (isRallyGame && !(keepsProgress && readSaveField('rallyProgress'))) {
 const rallyStart = planStart(rallyInitialPick?.plan);
 
 // ---------- Rendering environment ----------
-const { renderer, scene, camera, renderView, compileView, colorGrade } = createSceneEnvironment();
-const daylight = createDaylight({ scene, ...createLighting(scene), onFog: (share) => colorGrade?.setFog(share) });
+const { renderer, scene, camera, renderView, compileView, setAntialias, colorGrade } = createSceneEnvironment();
+const lighting = createLighting(scene);
+const daylight = createDaylight({ scene, ...lighting, onFog: (share) => colorGrade?.setFog(share) });
 // Free roam runs on the real time of day; other modes keep the fast cycle (or their own clock, rally).
 if (isFreeRoam && TIME_SCALE === 1) daylight.setClock(Date.now);
 const weatherFeed = createWeatherFeed();
@@ -392,24 +399,26 @@ const debugVisuals = createDebugVisualsToggle(
     brakeHudEl: document.getElementById('brake-hud'),
     vehicleDebugHudEl: document.getElementById('vehicle-debug-hud'),
     layersHudEl: document.getElementById('debug-layers-hud'),
+    weatherHudEl: document.getElementById('debug-weather-hud'),
     roadside,
     curbs,
     directionSignHud,
     settingToggles: [
       { label: 'Road surface (Settings)', toggle: graphicsToggles.roadSurface },
       { label: 'Car dirt (Settings)', toggle: graphicsToggles.carDirt },
+      { label: 'Road signs, posts and barriers (Settings)', toggle: graphicsToggles.roadSigns },
     ],
   },
   IS_DEV_MODE
 );
-createTimeOfDayPicker(document.querySelector('#debug-layers-hud .debug-time-list'), daylight);
-createWeatherDebug(document.getElementById('debug-layers-hud'), weatherFeed);
+createTimeOfDayPicker(document.querySelector('#debug-weather-hud .debug-time-list'), daylight);
+createWeatherDebug(document.getElementById('debug-weather-hud'), weatherFeed);
 setupDebugFolds(
-  ['suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
+  ['suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'debug-weather-hud', 'fps-graph-panel', 'terrain-stats'].map((id) => document.getElementById(id))
 );
 setupDebugHudWrap(
   document.getElementById('debug-hud-row'),
-  ['pacenote-panel', 'surface-panel', 'course-objects-panel', 'suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud'].map(
+  ['pacenote-panel', 'surface-panel', 'course-objects-panel', 'suspension-hud', 'tyre-hud', 'body-hud', 'brake-hud', 'engine-hud', 'vehicle-debug-hud', 'debug-layers-hud', 'debug-weather-hud'].map(
     (id) => document.getElementById(id)
   ),
   document.getElementById('minimap')
@@ -473,7 +482,9 @@ const input = createInputController({
   onHandbrakeLatch: () => handbrakeSound.play(3),
   onGearEvent: (type, engine) => gearShiftSound.play(type, engine.mass),
   initialHandbrakeLatched: savedCarState?.handbrakeLatched === true,
-  holdLatchesHandbrake: () => !isRallyGame || gameplaySettings.rallyHandbrakeHold(),
+  holdLatchesHandbrake: () =>
+    isRallyGame ? gameplaySettings.rallyHandbrakeHold() : isFreeRoam ? gameplaySettings.freeRoamHandbrakeHold() : true,
+  enabledGearModes: gameplaySettings.gearModes,
 });
 const lightSwitchSound = createLightSwitchSound();
 const headlightSwitch = createHeadlightSwitch({ onToggle: lightSwitchSound.play });
@@ -654,7 +665,6 @@ function carBesideMenus() {
 menuPark = {
   onOpen() {
     if (menusOpen++ > 0) return;
-    cloudSave.push();
     input.latchHandbrake();
     input.setLocked(true);
     document.documentElement.classList.add('menu-aside');
@@ -906,10 +916,22 @@ const mainLoop = createMainLoop({
   isJoined: () => lobby.isJoined(),
   scenarioEditor,
   rallySession,
-  roadsideRepair: isFreeRoam ? createRoadsideRepair({ canvas: renderer.domElement, camera, getVehicle: () => carManager.getVehicle(), onRepair: repairTool.play }) : null,
+  roadsideRepair: isFreeRoam
+    ? createRoadsideRepair({
+        canvas: renderer.domElement,
+        camera,
+        getVehicle: () => carManager.getVehicle(),
+        onRepair: repairTool.play,
+        paintDamage: gameplaySettings.paintDamage,
+        dirtDamage: gameplaySettings.dirtDamage,
+      })
+    : null,
 });
-graphicsDetailPicker.bind({ terrain, mainLoop, roadside, curbs, trees, bushes, rocks });
-graphicsToggles.bind({ streets });
+graphicsDetailPicker.bind({
+  terrain, mainLoop, roadside, curbs, trees, bushes, rocks, buildings, streetLights, exhaustFlames, setAntialias, colorGrade,
+  shadowLights: [lighting.sun, streetLights.shadowLight],
+});
+graphicsToggles.bind({ streets, roadside });
 
 function startLoopOnce() {
   if (loopStarted) return;
@@ -929,10 +951,7 @@ terrain.init().then(async () => {
     loadingScreen.setGameplayProgress
   );
   loadingScreen.hide();
-  mainMenu.setInGame(menuPark, () => {
-    mainLoop.flushSaves();
-    return cloudSave.pushNow();
-  });
+  mainMenu.setInGame(menuPark, mainLoop.flushSaves);
   if (IS_DEV_MODE) {
     // Dev: no profile; join with the rally's car (just picked or resumed), else the saved debug pick.
     const rallyVehicle = isRallyGame ? readSaveField('vehicle') : null;

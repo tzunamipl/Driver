@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { isWheelGrounded, wheelSide } from './wheelContact.js';
+import { keepParticle } from './particles/particleDetail.js';
 
 // Sized so a burst never cuts a visible particle short.
 const POOL_SIZE = 160;
@@ -42,6 +43,7 @@ export function createSplash(scene, { onWade } = {}) {
 
   function spawnBurst(x, y, z, speed, count) {
     for (let n = 0; n < count; n++) {
+      if (!keepParticle()) continue;
       const p = pool[nextSlot];
       nextSlot = (nextSlot + 1) % POOL_SIZE;
       p.life = PARTICLE_LIFETIME_S;

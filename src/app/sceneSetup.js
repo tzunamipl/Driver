@@ -53,6 +53,13 @@ function createReversedDepthView(renderer) {
       renderer.getDrawingBufferSize(size);
       target.setSize(size.x, size.y);
     },
+    /** Graphics detail: MSAA on / off; the target is reallocated on its next use. */
+    setAntialias(on) {
+      const samples = on ? MSAA_SAMPLES : 0;
+      if (target.samples === samples) return;
+      target.samples = samples;
+      target.dispose();
+    },
     render(scene, camera) {
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);
@@ -73,6 +80,7 @@ function createReversedDepthView(renderer) {
 /**
  * Builds renderer/scene/camera, mounts the canvas in #app; returns them plus renderView() for the frame
  * and compileView() for shader warm-ups, and the colour grade (null without the reversed depth target: the canvas is drawn directly then).
+ * setAntialias() only works with that target: the canvas's own antialiasing is fixed at creation.
  */
 export function createSceneEnvironment() {
   const app = document.getElementById('app');
@@ -120,7 +128,8 @@ export function createSceneEnvironment() {
   // Shader warm-up: compiles `object`'s programs as renderView will draw them, so their first frame doesn't stall.
   const compileView = (object) =>
     (view ? view.compileAsync(object, scene, camera) : renderer.compileAsync(object, camera, scene)).catch((err) => console.warn('Shader warm-up failed', err));
-  return { renderer, scene, camera, renderView, compileView, colorGrade: view?.grade ?? null };
+  const setAntialias = (on) => view?.setAntialias(on);
+  return { renderer, scene, camera, renderView, compileView, setAntialias, colorGrade: view?.grade ?? null };
 }
 
 /** Ambient + one directional light (sun by day, moon by night); daylight.js drives them each frame. */

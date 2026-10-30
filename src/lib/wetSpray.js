@@ -3,6 +3,7 @@
 // and how much water the surface holds (SURFACE_SPRAY). One InstancedMesh; visual only.
 
 import { Color, IcosahedronGeometry, InstancedMesh, MeshStandardMaterial, Object3D } from 'three';
+import { keepParticle } from './particles/particleDetail.js';
 import { isWheelGrounded } from './wheelContact.js';
 import { getWetness } from './weather.js';
 
@@ -80,6 +81,7 @@ export function createWetSpray(scene) {
       const dirZ = f.z * sign;
       const upScale = Math.sqrt(Math.min(speed, 30) / 10);
       for (let i = 0; i < count && drops.length < MAX_DROPS; i++) {
+        if (!keepParticle()) continue;
         const back = Math.min(speed * rand(BACK_FRACTION), MAX_BACK_SPEED);
         // Off the trailing half of the tyre, low on the tread.
         const behind = wheel.radius * rand([0.4, 0.9]);

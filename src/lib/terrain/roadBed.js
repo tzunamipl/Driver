@@ -19,6 +19,7 @@ const SNAP_CELL_METERS = 32; // spatial hash cell for snapping line ends onto ot
 const GRADE_WINDOW_METERS = 200; // how far along the road a max grade looks for terrain to cut / fill
 const BANK_FADE_METERS = 6; // a bank still off the ground at its widest blends into it over this
 const NEAREST_BLEND_METERS = 4; // a node's height blends roads whose edges are within this of its nearest one
+const BLEND_SHARPNESS = 30; // shape of that blend: 1 = linear, higher = flatter ends, steeper middle
 const OVERSHOOT_METERS = 0.5; // past a vertex the road continues through, the segment hands over to the next one
 // The terrain grid only has heights at its nodes, so the bed is shaped in grid cells too:
 const ROAD_PAD_CELLS = 1; // road top widened by this each side, so triangles across the road don't dip to off-road nodes
@@ -495,6 +496,14 @@ function falloff(u) {
   return 1 - u * u * (3 - 2 * u);
 }
 
+/** Like falloff, but shaped by BLEND_SHARPNESS. */
+function blendFalloff(u) {
+  if (u >= 1) return 0;
+  if (u <= 0) return 1;
+  const a = u ** BLEND_SHARPNESS;
+  return 1 - a / (a + (1 - u) ** BLEND_SHARPNESS);
+}
+
 /**
  * Per vertex at arc lengths `arc`: the correction that hits every pin
  * ({ s, d }: arc length, offset) exactly. Pins closer than two ramps are
@@ -750,7 +759,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
             continue;
           }
           const s = (bankMeters - e) / bankMeters;
-          let w = s * s * (3 - 2 * s) * falloff((eSigned - edgeDist[i]) / nearBlend);
+          let w = s * s * (3 - 2 * s) * blendFalloff((eSigned - edgeDist[i]) / nearBlend);
           // Caps only stand in at road ends and bends' outer wedges, else they'd terrace the profile at every vertex.
           const overshoot = tRaw < 0 ? (joinA ? -tRaw * len : 0) : tRaw > 1 ? (joinB ? (tRaw - 1) * len : 0) : 0;
           if (overshoot > 0) w /= 1 + (overshoot / OVERSHOOT_METERS) ** 2;

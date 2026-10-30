@@ -12,6 +12,9 @@ import { BUILDING_MATERIAL } from './buildings.js';
 
 const BALL_RADIUS = 0.6;
 const LOCAL_CHASSIS_GROUP = 1;
+// Remote balls come from anyone on the public broker: capped, and dropped once their owner stops sending.
+const MAX_REMOTE_BALLS = 16;
+const REMOTE_BALL_TIMEOUT_MS = 10_000;
 
 const BALL_MATERIAL = new CANNON.Material('ball');
 const BALL_GEO = new THREE.SphereGeometry(BALL_RADIUS, 20, 14);
@@ -61,10 +64,12 @@ export function createBalls(scene, world) {
   }
 
   function ensureRemote(ballId, pose) {
-    if (!ballId || !Number.isFinite(pose.x) || !Number.isFinite(pose.y) || !Number.isFinite(pose.z)) return;
+    if (typeof ballId !== 'string' || ballId.length > 100) return;
+    if (!Number.isFinite(pose.x) || !Number.isFinite(pose.y) || !Number.isFinite(pose.z)) return;
     let ball = balls.get(ballId);
     if (ball?.owned) return;
     if (!ball) {
+      if (remoteCount() >= MAX_REMOTE_BALLS) return;
       const body = new CANNON.Body({
         mass: 4,
         type: CANNON.Body.KINEMATIC,
@@ -78,6 +83,7 @@ export function createBalls(scene, world) {
       ball = { body, mesh: makeMesh(), owned: false };
       balls.set(ballId, ball);
     }
+    ball.lastSeen = performance.now();
     ball.body.position.set(pose.x, pose.y, pose.z);
     if (Number.isFinite(pose.qx)) ball.body.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
     if (Number.isFinite(pose.vx)) ball.body.velocity.set(pose.vx, pose.vy, pose.vz);
@@ -106,8 +112,21 @@ export function createBalls(scene, world) {
     return poses;
   }
 
+  const remoteCount = () => {
+    let n = 0;
+    for (const ball of balls.values()) if (!ball.owned) n++;
+    return n;
+  };
+
   function syncMeshes() {
-    for (const ball of balls.values()) {
+    const now = performance.now();
+    for (const [ballId, ball] of balls) {
+      if (!ball.owned && now - ball.lastSeen > REMOTE_BALL_TIMEOUT_MS) {
+        world.removeBody(ball.body);
+        scene.remove(ball.mesh);
+        balls.delete(ballId);
+        continue;
+      }
       ball.mesh.position.copy(ball.body.position);
       ball.mesh.quaternion.copy(ball.body.quaternion);
     }

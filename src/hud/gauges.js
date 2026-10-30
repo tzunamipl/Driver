@@ -5,6 +5,7 @@ import { createAuxGauge } from './auxGauge.js';
 import { createBoostGauge } from './boostGauge.js';
 import { createOutsideTempLcd } from './outsideTempLcd.js';
 import { createFuelAverageLcd } from './fuelAverageLcd.js';
+import { createGearLcd } from './gearLcd.js';
 import { buildDialScale, valueToDeg } from './dialScale.js';
 import { speedValue, speedUnit, longDistanceValue, longDistanceUnit, onUnitsChange, isImperial } from '../lib/units.js';
 
@@ -64,6 +65,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
   const boostGauge = createBoostGauge(document.getElementById('boost-gauge'));
   const outsideTemp = createOutsideTempLcd(document.getElementById('outside-temp'));
   const fuelAverage = createFuelAverageLcd(document.getElementById('fuel-average'));
+  const gearLcd = createGearLcd(document.getElementById('gear-lcd'));
   const lamps = createWarningLamps(document.getElementById('warning-lamps'), { onLightsClick, onHandbrakeClick });
   let lightsShown = null;
   const gaugesEl = document.getElementById('gauges');
@@ -99,6 +101,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
       auxGauge.update(null);
       outsideTemp.update(false);
       fuelAverage.update(null);
+      gearLcd.update(null);
       return;
     }
     odometer.addTravel(chassisMesh);
@@ -131,6 +134,7 @@ export function createGaugesHud({ initialTripKm = 0, onLightsClick, onHandbrakeC
     boostGauge.update(engine ?? null);
     outsideTemp.update(!!vehicle.outsideTempGauge);
     fuelAverage.update(vehicle.outsideTempGauge ? vehicle.fuel : null);
+    gearLcd.update(engine ?? null);
     if (!engine) {
       tachEl?.classList.remove('visible');
       return;

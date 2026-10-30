@@ -107,6 +107,7 @@ function saveEnabled(enabled) {
  * @param {HTMLElement} [deps.brakeHudEl]
  * @param {HTMLElement} [deps.vehicleDebugHudEl]
  * @param {HTMLElement} [deps.layersHudEl] - panel the layer checkboxes go into
+ * @param {HTMLElement} [deps.weatherHudEl] - time + weather overrides panel
  * @param {ReturnType<import('../lib/roadside.js').createRoadside>} [deps.roadside]
  * @param {ReturnType<import('../lib/curbs.js').createCurbs>} [deps.curbs]
  * @param {ReturnType<import('./directionSignHud.js').createDirectionSignHud>} [deps.directionSignHud]
@@ -139,6 +140,7 @@ export function createDebugVisualsToggle(
     brakeHudEl,
     vehicleDebugHudEl,
     layersHudEl,
+    weatherHudEl,
     roadside,
     curbs,
     directionSignHud,
@@ -169,6 +171,7 @@ export function createDebugVisualsToggle(
     if (brakeHudEl) brakeHudEl.style.display = display;
     if (vehicleDebugHudEl) vehicleDebugHudEl.style.display = display;
     if (layersHudEl) layersHudEl.style.display = display;
+    if (weatherHudEl) weatherHudEl.style.display = display;
     terrain.setBordersVisible(shown('tileBorders'));
     terrain.setWireframeVisible(shown('terrainGrid'));
     terrain.setRoadProfileVisible(shown('roadProfile'));

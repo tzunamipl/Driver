@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Driver Privacy Policy</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <style>
+      :root {
+        --bg: #f6f6f3;
+        --text: #1c1c1c;
+        --muted: #5a5a5a;
+        --line: #d8d8d2;
+        --link: #0b4fa8;
+        --card: #ffffff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          --bg: #161616;
+          --text: #e8e8e4;
+          --muted: #a4a4a0;
+          --line: #34342f;
+          --link: #7fb2ff;
+          --card: #1f1f1f;
+        }
+      }
+      :root[data-theme='dark'] {
+        --bg: #161616;
+        --text: #e8e8e4;
+        --muted: #a4a4a0;
+        --line: #34342f;
+        --link: #7fb2ff;
+        --card: #1f1f1f;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 32px 16px 64px;
+      }
+      h1 { font-size: 28px; margin: 0 0 4px; }
+      h2 { font-size: 20px; margin: 36px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+      h3 { font-size: 16px; margin: 20px 0 4px; }
+      p, li { margin: 6px 0; }
+      .updated { color: var(--muted); margin-bottom: 24px; }
+      a { color: var(--link); }
+      .box { background: var(--card); border: 1px solid var(--line); padding: 4px 16px; border-radius: 6px; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      th, td { text-align: left; vertical-align: top; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); }
+      th { font-weight: 600; }
+      .table-wrap { overflow-x: auto; }
+      code { font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy policy</h1>
+      <p class="updated">Driver, a browser driving game · last updated 30 October 2026</p>
+
+      <div class="box">
+        <p><strong>In short:</strong> Driver has no accounts and asks for no email. Your saves stay in your browser. The game sends data only for multiplayer, the online leaderboards (if you agree), stage editor saves (if you publish one), Google Analytics (only if you allow it), and the map, terrain and weather services it needs to draw the world. Your player name is public, so don't use your real name.</p>
+      </div>
+
+      <h2>1. Who is responsible</h2>
+      <p>The controller of your personal data is Krzysztof Poznański, the author of Driver, a private non-commercial project (EU General Data Protection Regulation, "GDPR" / RODO).</p>
+      <p>For any question or request about your data, email <a href="mailto:poznanski.krzysztof@gmail.com">poznanski.krzysztof@gmail.com</a>. You can also reach the author on the game's Discord server, <a href="https://discord.gg/eRAnzpmPm" target="_blank" rel="noopener noreferrer">discord.gg/eRAnzpmPm</a>, but send requests that include your player ID by email only.</p>
+
+      <h2>2. What data the game handles and why</h2>
+
+      <h3>Game data in your browser</h3>
+      <p>Save slots, settings, best times, odometers, your player name and a random player ID are kept in your browser's local storage. They are not sent anywhere except as described below. You can export and import them in the main menu (Export save / Import save) and delete them by clearing the site data in your browser. This storage is strictly necessary for the game to work, so it needs no consent.</p>
+
+      <h3>Multiplayer</h3>
+      <p>While you play, the game sends your player name, car, paint colour, random player ID and your car's position and state in the game world (speed, steering, lights, horn) about ten times a second through a public MQTT message broker, <code>broker.emqx.io</code>, run by EMQ Technologies. Anyone connected to that broker can see these messages. Other players' browsers remember names they saw for 24 hours. The position is in the game world. Driver never reads your device's location.</p>
+      <p>Legal basis: legitimate interest in providing the shared world you joined (GDPR art. 6(1)(f)).</p>
+
+      <h3>Online leaderboards (only if you agree)</h3>
+      <p>When you first start an official stage or rally, the game asks whether to send your times. If you agree, each finished official stage sends your player name, car, stage time, split times, penalties, game version and random player ID to the game's server (a Cloudflare Worker). The server stores your name, car, times, date and a shortened one-way hash of your player ID in its database (Cloudflare D1), and shows them publicly on the in-game leaderboards. Only your best time per stage and car is kept, and a board is emptied when its stage is changed.</p>
+      <p>Legal basis: your consent (GDPR art. 6(1)(a)). You can switch this off at any time in Settings &gt; Gameplay &gt; Privacy. Switching it off stops new submissions. Ask the author (section 1) to remove times already published.</p>
+
+      <h3>Stage editor saves (only when you publish)</h3>
+      <p>Publishing a stage or rally from the editor sends the file to the game's server, which commits it to the <strong>public</strong> GitHub repository <code>tzunamipl/Driver-scenarios</code> on a branch named after your player name, and opens a pull request. Your player name appears in the branch name, the file's creator / editor field and the commit message. Git keeps a history and public repositories can be copied, so published files cannot be fully erased later.</p>
+      <p>Legal basis: your consent, given when you confirm publishing (GDPR art. 6(1)(a)).</p>
+
+      <h3>Usage statistics: Google Analytics (only if you allow it)</h3>
+      <p>If you click Allow, the game loads Google Analytics 4, which sets cookies (<code>_ga</code>, <code>_ga_*</code>) and sends Google your IP address, browser and device details, pages viewed and how long you play. We use it only to count visits and see which parts of the game get played. If you decline, Google Analytics is never loaded.</p>
+      <p>Legal basis: your consent (GDPR art. 6(1)(a) and art. 399 of the Polish Electronic Communications Law). You can withdraw it at any time in Settings &gt; Gameplay &gt; Privacy. Google's own policy: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">policies.google.com/privacy</a>.</p>
+
+      <h3>Maps, terrain, weather and routing</h3>
+      <p>To draw the world, your browser downloads data directly from the services below. Like any website, each of them receives your IP address and browser details with the request. The places they are asked about are places in the game world, plus any address you type in the Navigation search.</p>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Service</th><th>What for</th></tr>
+          <tr><td>Esri ArcGIS World Imagery</td><td>Aerial imagery</td></tr>
+          <tr><td>AWS Terrain Tiles (Amazon S3)</td><td>Elevation</td></tr>
+          <tr><td>OpenFreeMap</td><td>Roads, buildings, water, land use</td></tr>
+          <tr><td>OpenStreetMap tile servers, Nominatim</td><td>Navigation map, address search, place names</td></tr>
+          <tr><td>OSRM demo server (project-osrm.org)</td><td>Navigation routes</td></tr>
+          <tr><td>Open-Meteo</td><td>Weather at the car</td></tr>
+          <tr><td>GitHub (api.github.com, raw.githubusercontent.com)</td><td>Stage and rally files</td></tr>
+        </table>
+      </div>
+      <p>These services act as independent controllers under their own privacy policies. Legal basis: legitimate interest in showing the game world (GDPR art. 6(1)(f)).</p>
+
+      <h3>Hosting and the game server</h3>
+      <p>The game is hosted on GitHub Pages (GitHub, Inc.), which logs visitors' IP addresses for security. The game's server runs on Cloudflare Workers (Cloudflare, Inc.). It uses your IP address briefly to limit how often requests can be sent and does not store it. Leaderboard entries are kept in Cloudflare's D1 database.</p>
+
+      <h2>3. Recipients and transfers outside the EU</h2>
+      <p>Data reaches the providers named above: Google, GitHub, Cloudflare, EMQ Technologies and the map, terrain and weather services. Google, GitHub, Cloudflare and Amazon are based in the USA and are certified under the EU-US Data Privacy Framework. EMQ Technologies operates the public broker outside the EU without a data processing agreement with the author. Treat everything sent over multiplayer as public.</p>
+
+      <h2>4. How long data is kept</h2>
+      <ul>
+        <li>Browser storage: until you clear it.</li>
+        <li>Multiplayer messages: not stored by the game. Other players' browsers keep names they saw for 24 hours.</li>
+        <li>Leaderboards: until you ask for removal, or the stage is changed. Removal deletes the entry; no older copies are kept.</li>
+        <li>Editor saves: as long as the scenarios repository exists (see the note on git history above).</li>
+        <li>Google Analytics: Google's retention setting for the property, at most 14 months.</li>
+      </ul>
+
+      <h2>5. Your rights</h2>
+      <p>You have the right to access your data, have it corrected or erased, restrict or object to its processing, receive it in a portable form (Export save gives you everything kept in your browser), and withdraw consent at any time without affecting what was done before.</p>
+      <p>Driver has no accounts, so to find your leaderboard entries the author needs your player ID. It is in an exported save file under <code>driver.playerId.v1</code>. Treat it like a password and send it only to the author, by email.</p>
+      <p>You may also complain to the Polish supervisory authority: Prezes Urzędu Ochrony Danych Osobowych, ul. Stawki 2, 00-193 Warszawa, <a href="https://uodo.gov.pl" target="_blank" rel="noopener noreferrer">uodo.gov.pl</a>, or to the authority in your own EU country.</p>
+
+      <h2>6. Children</h2>
+      <p>If you are under 16, ask a parent or guardian before allowing Google Analytics or sending times to the leaderboards, and don't use your real name as your player name.</p>
+
+      <h2>7. Changes</h2>
+      <p>This policy may change as the game develops. The date at the top shows the latest version.</p>
+    </main>
+  </body>
+</html>

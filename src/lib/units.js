@@ -45,6 +45,8 @@ export function onUnitsChange(fn) {
 
 // Value conversions (metric in, shown unit out) and unit labels.
 export const speedValue = (kmh) => (isImperial() ? kmh / KMH_PER_MPH : kmh);
+/** Shown speed (km/h or mph) back to km/h. */
+export const speedFromValue = (value) => (isImperial() ? value * KMH_PER_MPH : value);
 export const speedUnit = () => (isImperial() ? 'mph' : 'km/h');
 /** Long distances (odometers, trip): km or miles. */
 export const longDistanceValue = (km) => (isImperial() ? (km * 1000) / M_PER_MILE : km);

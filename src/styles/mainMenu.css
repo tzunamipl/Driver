@@ -190,3 +190,29 @@
   padding: 0 10px;
 }
 .menu-about-links a:active { box-shadow: var(--w95-pressed); }
+.menu-about-links a.discord-link,
+#hud-discord.discord-link { color: #fff; background: #5865f2; }
+.menu-about-links a.coffee-link { background: #ffdd00; }
+
+/* Analytics consent: over the menu and the lobby until answered. */
+#consent-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: min(480px, calc(100vw - 32px));
+  margin: 0 auto;
+  color: #000;
+  font-size: 11px;
+}
+#consent-banner[hidden] { display: none; }
+#consent-banner p { margin-top: 0; line-height: 15px; }
+.consent-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.consent-actions .privacy-link { margin-right: auto; color: #000080; }
+.consent-actions button { min-width: 75px; }

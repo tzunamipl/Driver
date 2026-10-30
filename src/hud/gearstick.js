@@ -9,8 +9,11 @@ import { createGearGate } from '../lib/gearGate.js';
 // asks the engine for that gear, leaving it goes to neutral. Range-change
 // boxes get a second, fore/aft range lever beside it (engine.setRange: the
 // main gear stays in, the range stage shifts). Shown while the manual box is
-// active; G hides/shows it, X / Z move the range lever up / down.
+// active; G hides/shows it, X / Z move the range lever up / down. On an automatic
+// (not automatic-only) box a Q/E shift pops it up for a moment, read-only.
 
+// How long a Q/E shift on the automatic shows the stick (s).
+const AUTO_SHIFT_SHOW_S = 1.5;
 // Plate-plane spacing of the gate (scene units) and lever geometry.
 const COLUMN_SPACING = 0.5;
 const ROW_SPACING = 0.55;
@@ -174,6 +177,10 @@ export function createGearstickHud() {
   let splitNdcX = Infinity; // pointer NDC x right of this grabs the range lever
   let rangeUpWasPressed = false;
   let rangeDownWasPressed = false;
+  let pressEngine = null; // engine the press count / last gear below belong to
+  let pressesSeen = 0;
+  let lastGear = null; // engine gear at the previous frame, for the pop-up's starting lever spot
+  let popupS = 0;
 
   function ranged() {
     return gate.ranges > 1;
@@ -409,8 +416,30 @@ export function createGearstickHud() {
   function update(dt, { vehicle, keys, typing }) {
     const engine = vehicle?.engine;
     const manual = !!engine?.manual;
+    const presses = engine?.autoShiftPresses ?? 0;
+    if (engine !== pressEngine) {
+      pressEngine = engine;
+      pressesSeen = presses;
+      lastGear = null;
+      popupS = 0;
+    }
+    popupS = Math.max(0, popupS - dt);
+    const popup = presses !== pressesSeen && !manual && !engine.automatic;
+    pressesSeen = presses;
+    if (popup) {
+      const opening = popupS === 0;
+      popupS = AUTO_SHIFT_SHOW_S;
+      if (engine !== gateEngine) buildGate(engine);
+      // Start from the gear before this shift, so the lever is seen moving.
+      const from = opening && lastGear !== null ? gate.posForGear(lastGear) : null;
+      if (from) {
+        Object.assign(pos, { x: from.x, y: from.y });
+        Object.assign(knob, pos);
+      }
+    }
+    lastGear = engine?.gear ?? null;
     if (manual && engine !== gateEngine) buildGate(engine);
-    if (manual) range = engine.range;
+    if (manual || popupS > 0) range = engine.range;
     const rangeUp = !typing && keys.has('KeyX');
     const rangeDown = !typing && keys.has('KeyZ');
     if (manual && ranged()) {
@@ -420,12 +449,13 @@ export function createGearstickHud() {
     rangeUpWasPressed = rangeUp;
     rangeDownWasPressed = rangeDown;
 
-    const show = manual;
+    const show = manual || popupS > 0;
     if (show !== shown) {
       shown = show;
       root.hidden = !show;
       if (!show) dragging = null;
     }
+    root.classList.toggle('preview', !manual);
     if (!show) return;
     if (!renderer) {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });

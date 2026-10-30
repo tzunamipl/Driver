@@ -27,6 +27,10 @@ const ICONS = {
   editor: `<path d="M3 13 L4 9.5 L11 2.5 L13.5 5 L6.5 12 Z" fill="#ffd000" ${OUTLINE} stroke-linejoin="round"/>
     <path d="M11 2.5 L13.5 5 L14.5 4 C15 3.5 15 3 14.5 2.5 L13.5 1.5 C13 1 12.5 1 12 1.5 Z" fill="#e080a0" ${OUTLINE}/>
     <path d="M3 13 L4 9.5 L6.5 12 Z" fill="#e8c898" ${OUTLINE}/><path d="M2.5 13.5 L3.3 12.7" stroke="#000" stroke-width="1.5"/>`,
+  export: `<path d="M3.5 1.5 H10 L12.5 4 V14.5 H3.5 Z" fill="#fff" ${OUTLINE}/><path d="M10 1.5 V4 H12.5" fill="#c0c0c0" ${OUTLINE}/>
+    <path d="M8 12.5 V6.5 M5.5 9 L8 6.5 L10.5 9" fill="none" stroke="#000080" stroke-width="1.8"/>`,
+  import: `<path d="M3.5 1.5 H10 L12.5 4 V14.5 H3.5 Z" fill="#fff" ${OUTLINE}/><path d="M10 1.5 V4 H12.5" fill="#c0c0c0" ${OUTLINE}/>
+    <path d="M8 6.5 V12.5 M5.5 10 L8 12.5 L10.5 10" fill="none" stroke="#00a000" stroke-width="1.8"/>`,
   about: `<circle cx="8" cy="8" r="6.5" fill="#0000c0" ${OUTLINE}/>
     <rect x="7" y="7" width="2" height="5" fill="#fff"/><rect x="7" y="4" width="2" height="2" fill="#fff"/>`,
 
