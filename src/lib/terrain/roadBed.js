@@ -18,8 +18,9 @@ const JOIN_MIN_STRAIGHTNESS = 0.5; // cos of the sharpest turn a road continues 
 const SNAP_CELL_METERS = 32; // spatial hash cell for snapping line ends onto other lines
 const GRADE_WINDOW_METERS = 200; // how far along the road a max grade looks for terrain to cut / fill
 const BANK_FADE_METERS = 6; // a bank still off the ground at its widest blends into it over this
-const NEAREST_BLEND_METERS = 4; // a node's height blends roads whose edges are within this of its nearest one
-const BLEND_SHARPNESS = 30; // shape of that blend: 1 = linear, higher = flatter ends, steeper middle
+const NEAREST_BLEND_METERS = 4; // a road top node blends the roads covering it within this of the deepest one
+const BLEND_SHARPNESS = 0.09; // shape of that blend: 1 = linear, higher = flatter ends, steeper middle
+const BANK_BLEND_EPSILON_METERS = 0.01; // keeps the 1 / edge distance bank weight finite at the edge
 const OVERSHOOT_METERS = 0.5; // past a vertex the road continues through, the segment hands over to the next one
 // The terrain grid only has heights at its nodes, so the bed is shaped in grid cells too:
 const ROAD_PAD_CELLS = 1; // road top widened by this each side, so triangles across the road don't dip to off-road nodes
@@ -635,20 +636,29 @@ function buildProfiles(lines, terrainAt) {
   });
 }
 
+function tileTerrainAt(elev, heightOffset, widthMeters, heightMeters) {
+  return elev ? (x, z) => sampleHeight(elev, x / widthMeters, z / heightMeters) - heightOffset : () => 0;
+}
+
+/** Road lines (loadRoadLines) with their height profiles over the tile's terrain, for createTileHeights `lines`. */
+export function profileRoadLines({ elev, heightOffset, widthMeters, heightMeters, lines }) {
+  return elev ? buildProfiles(lines, tileTerrainAt(elev, heightOffset, widthMeters, heightMeters)) : lines;
+}
+
 /**
- * Height sampler for one detail tile in its own frame (see loadRoadLines):
+ * Height sampler for one detail tile in its own frame (see loadRoadLines), limited to `region`
+ * { x0, z0, width, height } of it (default: all of it):
  * `evaluateGrid` fills a regular grid of `cellMeters` cells with terrain + road bed;
- * `profileLines` gives the centreline profiles for debug drawing.
- * `elev` null = flat ground; `floorAt(x, z)` = extra ground offset under the bed (forestFloor.js).
+ * `profileLines` gives the centreline profiles within the region for debug drawing.
+ * `lines` come from profileRoadLines. `elev` null = flat ground; `floorAt(x, z)` = extra ground offset under the bed (forestFloor.js).
  */
-export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters, lines, floorAt = null }) {
-  const terrainAt = elev
-    ? (x, z) => sampleHeight(elev, x / widthMeters, z / heightMeters) - heightOffset
-    : () => 0;
+export function createTileHeights({ elev, heightOffset, widthMeters, heightMeters, cellMeters, lines, floorAt = null, region = null }) {
+  const terrainAt = tileTerrainAt(elev, heightOffset, widthMeters, heightMeters);
+  const { x0: rx0, z0: rz0, width: rw, height: rh } = region ?? { x0: 0, z0: 0, width: widthMeters, height: heightMeters };
   // Centreline height per vertex: absolute (ha, hb), terrain + offset (da, db), or the terrain exactly;
   // (fa, fb) = how much of the bed applies (below 1 on a free end's tail).
   const segments = [];
-  for (const line of elev ? buildProfiles(lines, terrainAt) : lines) {
+  for (const line of lines) {
     const { points: p, priority, roadClass, fillSlope, cutSlope, heights, deltas, fades } = line;
     // Shaped to the grid (see ROAD_PAD_CELLS); `line` keeps the real width for the profile maths.
     const halfWidth = line.halfWidth + ROAD_PAD_CELLS * cellMeters;
@@ -656,8 +666,8 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
     const reach = halfWidth + bankMeters;
     for (let i = 0; i + 3 < p.length; i += 2) {
       const [ax, az, bx, bz] = [p[i], p[i + 1], p[i + 2], p[i + 3]];
-      if (Math.max(ax, bx) < -reach || Math.min(ax, bx) > widthMeters + reach) continue;
-      if (Math.max(az, bz) < -reach || Math.min(az, bz) > heightMeters + reach) continue;
+      if (Math.max(ax, bx) < rx0 - reach || Math.min(ax, bx) > rx0 + rw + reach) continue;
+      if (Math.max(az, bz) < rz0 - reach || Math.min(az, bz) > rz0 + rh + reach) continue;
       segments.push({
         ax, az, bx, bz, halfWidth, priority, roadClass, bankMeters, fillSlope, cutSlope, joinA: i > 0, joinB: i + 4 < p.length,
         ha: heights?.[i / 2], hb: heights?.[i / 2 + 1], da: deltas?.[i / 2], db: deltas?.[i / 2 + 1],
@@ -685,50 +695,93 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
     }
     if (!segments.length) return out;
 
-    // Per node, within one priority: weighted mean of road heights, and the signed distance to the nearest road edge.
+    // Per node, within one priority. On a road top: weighted mean of the heights of the roads covering it
+    // (overlaps at junctions), weighted toward the deepest, so a bend's other leg can't drag it; a road
+    // beside another keeps its own height to its edge. On the banks: every segment's own bank, weighted by
+    // 1 / distance to its edge, so the ground between two close roads slopes from one edge to the other.
     const weightSum = new Float32Array(out.length);
     const targetSum = new Float32Array(out.length);
     const edgeDist = new Float32Array(out.length).fill(Infinity);
     const fadeSum = new Float32Array(out.length);
+    const bankWeight = new Float32Array(out.length);
+    const bankSum = new Float32Array(out.length);
+    const bankBest = new Float32Array(out.length); // biggest single bank weight, for its cause / record
+    const bankCause = new Uint8Array(out.length);
     const layerSources = records && new Array(out.length);
-    // Road top inside the edges; outside, a bank at the class's slope down/up to the ground below (incl. lower roads).
-    const applyLayer = ({ bankMeters, fillSlope, cutSlope, roadClass }) => {
-      // At least a cell, or the fade falls between nodes.
-      const fade = Math.min(Math.max(BANK_FADE_METERS, step), bankMeters);
+    const bankRecords = records && new Array(out.length); // { target, edge, sources } of that bank
+    const applyLayer = (roadClass) => {
       for (let i = 0; i < out.length; i++) {
-        if (!(weightSum[i] > 0)) continue;
         const g = out[i];
-        const target = targetSum[i] / weightSum[i];
-        const e = Math.max(0, edgeDist[i]);
-        let h = target > g ? Math.max(g, target - e * fillSlope) : Math.min(g, target + e * cutSlope);
-        let cause = edgeDist[i] <= 0 ? ROAD_BED_CAUSE.top : target > g ? ROAD_BED_CAUSE.fill : ROAD_BED_CAUSE.cut;
-        const s = Math.min(1, (bankMeters - e) / fade);
-        if (s < 1) {
-          h = g + (h - g) * s * s * (3 - 2 * s);
-          cause = ROAD_BED_CAUSE.bankFade;
-        }
-        const k = fadeSum[i] / weightSum[i];
-        if (k < 1) {
-          h = g + (h - g) * (1 - falloff(k));
-          cause = ROAD_BED_CAUSE.tailFade;
+        let h;
+        let cause;
+        let record = null;
+        if (edgeDist[i] <= 0) {
+          if (!(weightSum[i] > 0)) continue;
+          const target = targetSum[i] / weightSum[i];
+          h = target;
+          cause = ROAD_BED_CAUSE.top;
+          const k = fadeSum[i] / weightSum[i];
+          if (k < 1) {
+            h = g + (h - g) * (1 - falloff(k));
+            cause = ROAD_BED_CAUSE.tailFade;
+          }
+          if (records) {
+            const sources = layerSources[i];
+            for (let k = 3; k < sources.length; k += 5) sources[k] /= weightSum[i];
+            record = { roadClass, g, h, target, edge: edgeDist[i], sources };
+          }
+        } else {
+          if (!(bankWeight[i] > 0)) continue;
+          h = bankSum[i] / bankWeight[i];
+          cause = bankCause[i];
+          if (records) record = { roadClass, g, h, ...bankRecords[i] };
         }
         out[i] = h;
-        if (causes && Math.abs(h - g) > CAUSE_MIN_METERS) causes[i] = cause | (causes[i] ? ROAD_BED_OVERRIDE : 0);
-        if (records && Math.abs(h - g) > CAUSE_MIN_METERS) {
-          const sources = layerSources[i];
-          for (let k = 3; k < sources.length; k += 5) sources[k] /= weightSum[i];
-          records[i] = { roadClass, g, h, target, edge: edgeDist[i], sources };
+        if (Math.abs(h - g) > CAUSE_MIN_METERS) {
+          if (causes) causes[i] = cause | (causes[i] ? ROAD_BED_OVERRIDE : 0);
+          if (records) records[i] = record;
         }
       }
       weightSum.fill(0);
       fadeSum.fill(0);
       targetSum.fill(0);
       edgeDist.fill(Infinity);
+      bankWeight.fill(0);
+      bankSum.fill(0);
+      bankBest.fill(0);
+      bankCause.fill(0);
       layerSources?.fill(undefined);
+      bankRecords?.fill(undefined);
     };
-    // Signed distance past the edge (negative on the road) per node to the nearest road of the layer; heights
-    // are weighted toward it, so a bend's other leg or a later stretch of the curve can't drag the road top.
     const nearBlend = Math.max(NEAREST_BLEND_METERS, 2 * step);
+    // One segment's bank at node i, `e` metres past its edge, from centreline height `target` at (cx, cz), weighted by `cap`.
+    const addBank = (seg, i, e, target, f, cx, cz, cap) => {
+      const { bankMeters, fillSlope, cutSlope } = seg;
+      const g = out[i];
+      let h = target > g ? Math.max(g, target - e * fillSlope) : Math.min(g, target + e * cutSlope);
+      let cause = target > g ? ROAD_BED_CAUSE.fill : ROAD_BED_CAUSE.cut;
+      // At least a cell, or the fade falls between nodes.
+      const s = Math.min(1, (bankMeters - e) / Math.min(Math.max(BANK_FADE_METERS, step), bankMeters));
+      if (s < 1) {
+        h = g + (h - g) * s * s * (3 - 2 * s);
+        cause = ROAD_BED_CAUSE.bankFade;
+      }
+      if (f < 1) {
+        h = g + (h - g) * (1 - falloff(f));
+        cause = ROAD_BED_CAUSE.tailFade;
+      }
+      // Fades out toward the bank's reach, so a road's bank never pops in at it.
+      const reach = (bankMeters - e) / bankMeters;
+      const w = (cap * reach * reach * (3 - 2 * reach)) / (e + BANK_BLEND_EPSILON_METERS);
+      if (!(w > 0)) return;
+      bankWeight[i] += w;
+      bankSum[i] += w * h;
+      if (w <= bankBest[i]) return;
+      bankBest[i] = w;
+      bankCause[i] = cause;
+      if (bankRecords) bankRecords[i] = { target, edge: e, sources: [cx, target, cz, 1, terrainAt(cx, cz)] };
+    };
+    // Signed distance past the edge (negative on the road) per node to the nearest road of the layer.
     const visit = (seg, accumulate) => {
       const { ax, az, bx, bz, halfWidth, bankMeters, joinA, joinB, ha, hb, da, db, fa, fb } = seg;
       const reach = halfWidth + bankMeters;
@@ -758,17 +811,22 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
             if (eSigned < edgeDist[i]) edgeDist[i] = eSigned;
             continue;
           }
-          const s = (bankMeters - e) / bankMeters;
-          let w = s * s * (3 - 2 * s) * blendFalloff((eSigned - edgeDist[i]) / nearBlend);
-          // Caps only stand in at road ends and bends' outer wedges, else they'd terrace the profile at every vertex.
-          const overshoot = tRaw < 0 ? (joinA ? -tRaw * len : 0) : tRaw > 1 ? (joinB ? (tRaw - 1) * len : 0) : 0;
-          if (overshoot > 0) w /= 1 + (overshoot / OVERSHOOT_METERS) ** 2;
-          if (!(w > 0)) continue;
-          weightSum[i] += w;
-          fadeSum[i] += w * (fa + (fb - fa) * t);
           let base;
           if (ha !== undefined) base = ha + (hb - ha) * t;
           else base = terrainAt(cx, cz) + (da === undefined ? 0 : da + (db - da) * t);
+          const f = fa + (fb - fa) * t;
+          // Caps only stand in at road ends and bends' outer wedges, else they'd terrace the profile at every vertex.
+          const overshoot = tRaw < 0 ? (joinA ? -tRaw * len : 0) : tRaw > 1 ? (joinB ? (tRaw - 1) * len : 0) : 0;
+          const cap = overshoot > 0 ? 1 / (1 + (overshoot / OVERSHOOT_METERS) ** 2) : 1;
+          if (edgeDist[i] > 0) {
+            addBank(seg, i, e, base + ROAD_LIFT, f, cx, cz, cap);
+            continue;
+          }
+          if (eSigned > 0) continue; // a road top only takes the roads covering it
+          const w = cap * blendFalloff((eSigned - edgeDist[i]) / nearBlend);
+          if (!(w > 0)) continue;
+          weightSum[i] += w;
+          fadeSum[i] += w * f;
           targetSum[i] += w * (base + ROAD_LIFT);
           if (layerSources) (layerSources[i] ??= []).push(cx, base + ROAD_LIFT, cz, w, terrainAt(cx, cz));
         }
@@ -779,7 +837,7 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
       while (k1 < segments.length && segments[k1].priority === segments[k0].priority) k1++;
       for (let k = k0; k < k1; k++) visit(segments[k], false);
       for (let k = k0; k < k1; k++) visit(segments[k], true);
-      applyLayer(segments[k0]);
+      applyLayer(segments[k0].roadClass);
       k0 = k1;
     }
     return out;
@@ -805,8 +863,8 @@ export function createTileHeights({ elev, heightOffset, widthMeters, heightMeter
         const road = g + (bed - g) * (1 - falloff(fa + (fb - fa) * t));
         const mx = prev && (prev[0] + x) / 2;
         const mz = prev && (prev[1] + z) / 2;
-        // Only the tile's own stretch, so neighbouring tiles don't draw it twice.
-        if (prev && mx >= 0 && mx < widthMeters && mz >= 0 && mz < heightMeters) {
+        // Only the region's own stretch, so neighbouring regions don't draw it twice.
+        if (prev && mx >= rx0 && mx < rx0 + rw && mz >= rz0 && mz < rz0 + rh) {
           original.push(prev[0], prev[2], prev[1], x, g, z);
           adjusted.push(prev[0], prev[3], prev[1], x, road, z);
         }

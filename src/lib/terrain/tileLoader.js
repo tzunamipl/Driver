@@ -32,8 +32,8 @@ function getWorkers() {
  * (aerial mip chain, full size down to 1x1).
  * `elevation` false skips the elevation fetch; `elevationBorder` adds that
  * many pixels from the neighbouring tiles around it (see sampleHeight);
- * `aerialBoost` null skips imagery. `detail` {widthMeters, heightMeters, cells,
- * heightOffset, skirtDepth, roadBed} also resolves `surface` (detailSurface.js), with
+ * `aerialBoost` null skips imagery. `detail` {widthMeters, heightMeters, parts: [{ index, cells }],
+ * marginCells, heightOffset, skirtDepth, roadBed} also resolves `surface` (detailSurface.js: those parts), with
  * `elev` reduced to {ok} | {error}. Aborting `signal` resolves {aborted: true}.
  */
 export function loadTileData({ z, x, y, elevation = true, elevationBorder = 0, aerialBoost = null, detail = null, signal = null }) {

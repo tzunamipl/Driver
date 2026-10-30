@@ -1,6 +1,5 @@
-// Warning-lamp panel left of the round gauges: 4 rows, one column per 4 lamps the
-// current vehicle has (first column sits next to the gauges). Placeholder lamps
-// (no `on`) stay dark until their feature exists.
+// Warning-lamp strip under the round gauges: one row of the lamps the current
+// vehicle has. Placeholder lamps (no `on`) stay dark until their feature exists.
 
 // Momentary lamps (ABS, traction control) stay lit this long so they don't flicker.
 const HOLD_MS = 300;
@@ -10,7 +9,7 @@ const LOW_FUEL_FRACTION = 0.125;
 const wheeled = (v) => v.vehicleType !== 'hover';
 const hasEngine = (v) => !!v.engine;
 
-// Panel order: column by column, top to bottom.
+// Strip order, left to right.
 const LAMPS = [
   {
     // Click only latches; Space releases it.

@@ -17,6 +17,7 @@ import {
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
 import { createTextureUploads } from './terrain/textureUploads.js';
+import { DETAIL_SPLIT, partRegion } from './terrain/detailSurface.js';
 import './terrain/heightfieldRayFix.js';
 import { skyUniforms, SKY_GRADIENT_GLSL } from './skyDome.js';
 
@@ -29,10 +30,14 @@ import { skyUniforms, SKY_GRADIENT_GLSL } from './skyDome.js';
 // imagery; HIGH is the 3x3 block within it. A tile is only hidden once
 // whatever replaces it has loaded, so splits/merges never leave holes.
 // DETAIL_ZOOM tiles are built in the worker on a fine grid with OSM roads
-// carved in as a raised bed (terrain/detailSurface.js, terrain/roadBed.js).
+// carved in as a raised bed (terrain/detailSurface.js, terrain/roadBed.js),
+// as DETAIL_SPLIT x DETAIL_SPLIT parts (own mesh, Heightfield and cell count)
+// sharing the tile's texture. Part cells go by partDetailLevel around the
+// player's part: SUPER (3x3 parts), HIGH (the HIGH block's area), else MEDIUM.
 
 export const DETAIL_ZOOM = 17; // how big tiles are
-const DEFAULT_DETAIL_CELLS = 80; // cells across a DETAIL_ZOOM tile (mesh and physics Heightfield); road beds widen to suit
+export { DETAIL_SPLIT };
+const DEFAULT_DETAIL_CELLS = 27; // cells across a detail tile part (mesh and physics Heightfield); road beds widen to suit
 const DETAIL_SKIRT_DEPTH = 16; // metres; coarse neighbours still leave big cracks
 // Coarser tiles by zoom, finest first: [minZoom, grid]. Far tiles are hazed, so they get fewer vertices.
 const COARSE_GRIDS = [
@@ -43,13 +48,24 @@ const COARSE_GRIDS = [
 export const DETAIL_RADIUS = 4; // tiles
 export const UNLOAD_MARGIN = 1; // tiles of slack before unloading (other streamers)
 export const HIGH_DETAIL_RADIUS = 1; // square, i.e. the 3x3 block
-export const DetailLevel = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
+const SUPER_PART_RADIUS = 1; // square, in parts: 3x3 parts, one tile's area
+const HIGH_PART_RADIUS = HIGH_DETAIL_RADIUS * DETAIL_SPLIT + (DETAIL_SPLIT - 1) / 2; // the HIGH block's area, in parts
+export const DetailLevel = { SUPER: 'super', HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
+// A whole tile's dissolve burst, split over its parts.
+const PART_DISSOLVE_PARTICLES = 25;
 
 /** DetailLevel of a DETAIL_ZOOM tile at (dx, dy) from the player's tile. */
 export function detailLevelForOffset(dx, dy) {
   if (Math.abs(dx) <= HIGH_DETAIL_RADIUS && Math.abs(dy) <= HIGH_DETAIL_RADIUS) return DetailLevel.HIGH;
   if (inCircle(dx, dy, DETAIL_RADIUS)) return DetailLevel.MEDIUM;
   return DetailLevel.LOW;
+}
+
+/** DetailLevel (SUPER / HIGH / MEDIUM) of a physics tile part at (dx, dy) parts from the player's part. */
+export function partDetailLevel(dx, dy) {
+  const d = Math.max(Math.abs(dx), Math.abs(dy));
+  if (d <= SUPER_PART_RADIUS) return DetailLevel.SUPER;
+  return d <= HIGH_PART_RADIUS ? DetailLevel.HIGH : DetailLevel.MEDIUM;
 }
 
 // Rounds circle selection out a bit so small radii don't look spiky.
@@ -95,7 +111,7 @@ const PLAYER_TILE_KEEP_RADIUS = 1; // square
 const AHEAD_TILE_REACH = 1.5; // DETAIL_ZOOM tiles along the heading from the car that also get the mosaic
 const AHEAD_TILE_MAX = 2; // each mosaic is 4^PLAYER_TILE_BOOST aerial requests
 const MAX_CONCURRENT_LOADS = 8; // jobs in flight; aerial requests are budgeted separately (AERIAL_MAX_REQUESTS)
-const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) that re-runs selection
+const RESELECT_DISTANCE_TILES = 0.25; // player movement (DETAIL_ZOOM tiles) that re-runs selection (so does a new part)
 const HIDDEN_TILE_LINGER_MS = 8000; // keeps tiles around for back-and-forth driving
 const UNLOAD_CHECK_INTERVAL_MS = 500;
 const FAILED_RETRY_MS = 10_000;
@@ -215,6 +231,16 @@ function tileKey(z, x, y) {
   return `${z}/${x}/${y}`;
 }
 
+function terrainMaterial() {
+  const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
+  material.onBeforeCompile = applyTerrainShading;
+  return material;
+}
+
+function geometryBytes(geometry) {
+  return Object.values(geometry.attributes).reduce((n, attr) => n + attr.array.byteLength, geometry.index.array.byteLength);
+}
+
 /** Levels are ImageBitmaps, pieced levels (tileWorker.js) or, on a pieced texture, size placeholders. */
 function closeMips(mips) {
   mips?.forEach((mip) => (mip.pieces ? mip.pieces.forEach((piece) => piece.bitmap.close()) : mip.close?.()));
@@ -257,9 +283,13 @@ export class TerrainManager {
     this.roadBedInspection = null; // debug: { tile, vertex, record, cause, group }, see inspectRoadBedAt
     this.roadBed = true; // debug: false builds detail tiles without carved roads
     this.detailCells = DEFAULT_DETAIL_CELLS; // graphics detail setting, see setDetailCells
-    this.nearDetailCells = DEFAULT_DETAIL_CELLS; // same, for the HIGH_DETAIL_RADIUS block around the player
+    this.nearDetailCells = DEFAULT_DETAIL_CELLS; // same, for HIGH parts
+    this.superDetailCells = DEFAULT_DETAIL_CELLS; // same, for SUPER parts
 
-    this.tiles = new Map(); // key -> { key, z, x, y, mesh, surface, body, border, wireframe, roadProfile, roadProfileLines, aerialBoost, texBytes, meshBytes, hiddenSince }
+    // key -> { key, z, x, y, mesh (root object), material, parts, aerialBoost, texBytes, meshBytes, hiddenSince };
+    // parts: [{ tile, mesh, surface, heightfield, body, border, wireframe, roadProfile, roadProfileLines, ... }],
+    // one (the root mesh) on coarse tiles, DETAIL_SPLIT^2 (row-major, NW first) on DETAIL_ZOOM ones.
+    this.tiles = new Map();
     this._loadedBelow = new Map(); // key -> number of loaded tiles strictly inside it
     this.loading = new Map(); // key -> job in flight
     this._aerialInFlight = 0; // aerial requests of the jobs in flight
@@ -281,6 +311,8 @@ export class TerrainManager {
     this._lastSelect = null; // DETAIL_ZOOM fractional tile coords of the last selection
     this._centerX = 0;
     this._centerY = 0;
+    this._partX = 0; // player's part, in DETAIL_ZOOM tile coords * DETAIL_SPLIT
+    this._partY = 0;
     this._aheadTiles = []; // DETAIL_ZOOM keys the heading ray crosses next, nearest first
     // Player heading (local XZ) for load priority; 0 = no bias.
     this._headingX = 0;
@@ -318,16 +350,14 @@ export class TerrainManager {
     return this.tiles.has(tileKey(DETAIL_ZOOM, tx, ty));
   }
 
-  /** Grid cell size (m) of the detail tile at (x, z), or null if not loaded. */
+  /** Grid cell size (m) of the detail tile part at (x, z), or null if not loaded. */
   detailCellAt(x, z) {
-    const { lat, lon } = localToLatLon(x, z, this.originLat, this.originLon, this.scaleLat);
-    const tile = this.tiles.get(tileKey(DETAIL_ZOOM, Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM))));
-    return tile?.heightfield?.elementSize ?? null;
+    return this._detailPartAt(x, z)?.heightfield.elementSize ?? null;
   }
 
-  /** Heightfield of the detail tile at (x, z) (a new object whenever the tile rebuilds), or null if not loaded. */
+  /** Heightfield of the detail tile part at (x, z) (a new object whenever the part rebuilds), or null if not loaded. */
   detailHeightfieldAt(x, z) {
-    return this._detailTileAt(x, z)?.heightfield ?? null;
+    return this._detailPartAt(x, z)?.heightfield ?? null;
   }
 
   _detailTileAt(x, z) {
@@ -335,13 +365,21 @@ export class TerrainManager {
     return this.tiles.get(tileKey(DETAIL_ZOOM, Math.floor(lon2tileX(lon, DETAIL_ZOOM)), Math.floor(lat2tileY(lat, DETAIL_ZOOM))));
   }
 
-  /** Detail-tile surface y at (x, z) from its heightfield (no physics body needed), or null if not loaded. */
-  detailHeightAt(x, z) {
+  _detailPartAt(x, z) {
     const tile = this._detailTileAt(x, z);
-    if (!tile?.heightfield) return null;
-    const { heights, cols, rows, elementSize } = tile.heightfield;
-    const fx = Math.min(Math.max((x - tile.mesh.position.x) / elementSize, 0), cols - 1);
-    const fz = Math.min(Math.max((z - tile.mesh.position.z) / elementSize, 0), rows - 1);
+    if (!tile) return null;
+    const i = Math.min(Math.max(Math.floor((x - tile.mesh.position.x) / tile.partWidth), 0), DETAIL_SPLIT - 1);
+    const j = Math.min(Math.max(Math.floor((z - tile.mesh.position.z) / tile.partHeight), 0), DETAIL_SPLIT - 1);
+    return tile.parts[j * DETAIL_SPLIT + i];
+  }
+
+  /** Detail-tile surface y at (x, z) from its part's heightfield (no physics body needed), or null if not loaded. */
+  detailHeightAt(x, z) {
+    const part = this._detailPartAt(x, z);
+    if (!part) return null;
+    const { heights, cols, rows, elementSize } = part.heightfield;
+    const fx = Math.min(Math.max((x - part.tile.mesh.position.x - part.x0) / elementSize, 0), cols - 1);
+    const fz = Math.min(Math.max((z - part.tile.mesh.position.z - part.z0) / elementSize, 0), rows - 1);
     const c = Math.min(Math.floor(fx), cols - 2);
     const r = Math.min(Math.floor(fz), rows - 2);
     const u = fx - c;
@@ -369,7 +407,7 @@ export class TerrainManager {
   /** Nearest point where `raycaster` hits a shown terrain tile, or null. */
   raycast(raycaster) {
     const meshes = [];
-    for (const tile of this.tiles.values()) if (tile.mesh.visible) meshes.push(tile.mesh);
+    for (const tile of this.tiles.values()) if (tile.mesh.visible) for (const part of tile.parts) meshes.push(part.mesh);
     return raycaster.intersectObjects(meshes, false)[0]?.point ?? null;
   }
 
@@ -423,7 +461,7 @@ export class TerrainManager {
   /** Height on one tile's triangles; (tx, ty) are fractional tile coords at its zoom. */
   _tileHeightAt(tile, x, z, tx, ty) {
     if (tile.z === DETAIL_ZOOM) return this.detailHeightAt(x, z) ?? 0;
-    const { cols, rows, positions } = tile.surface;
+    const { cols, rows, positions } = tile.parts[0].surface;
     const gu = Math.min(Math.max((tx - tile.x) * cols, 0), cols - 1e-6);
     const gv = Math.min(Math.max((ty - tile.y) * rows, 0), rows - 1e-6);
     const ix = Math.floor(gu);
@@ -632,7 +670,7 @@ export class TerrainManager {
     const now = performance.now();
     for (const tile of this.tiles.values()) {
       const show = visible.has(tile.key);
-      if (tile.mesh.visible && !show) this.dissolve?.dissolveMesh(tile.mesh);
+      if (tile.mesh.visible && !show) this._dissolveTile(tile);
       tile.mesh.visible = show;
       if (show) tile.hiddenSince = null;
       else if (tile.hiddenSince == null) tile.hiddenSince = now;
@@ -642,62 +680,76 @@ export class TerrainManager {
     this._visible = visible;
   }
 
+  _dissolveTile(tile) {
+    if (tile.z !== DETAIL_ZOOM) this.dissolve?.dissolveMesh(tile.mesh);
+    else for (const part of tile.parts) this.dissolve?.dissolveMesh(part.mesh, PART_DISSOLVE_PARTICLES);
+  }
+
   _syncDebugLines(tile) {
     const liftScale = 2 ** (DETAIL_ZOOM - tile.z);
     const wantBorder = this.bordersVisible && tile.mesh.visible;
-    if (wantBorder && !tile.border) {
-      tile.border = buildTileBorder(tile.surface, liftScale);
-      tile.border.position.copy(tile.mesh.position);
-      this.scene.add(tile.border);
+    for (const part of tile.parts) {
+      if (wantBorder && !part.border) {
+        part.border = buildTileBorder(part.surface, liftScale);
+        part.border.position.copy(tile.mesh.position);
+        this.scene.add(part.border);
+      }
+      if (part.border) part.border.visible = wantBorder;
+      // Child of the part mesh, so it follows the tile's visibility.
+      if (this.wireframeVisible && !part.wireframe) {
+        part.wireframe = buildTileWireframe(part.mesh.geometry, liftScale);
+        part.mesh.add(part.wireframe);
+      }
+      if (part.wireframe) part.wireframe.visible = this.wireframeVisible;
+      if (this.roadProfileVisible && part.roadProfile && !part.roadProfileLines) {
+        part.roadProfileLines = buildRoadProfileLines(part.roadProfile, part.surface);
+        part.mesh.add(part.roadProfileLines);
+      }
+      if (part.roadProfileLines) part.roadProfileLines.visible = this.roadProfileVisible;
     }
-    if (tile.border) tile.border.visible = wantBorder;
-    // Child of the tile mesh, so it follows the mesh's visibility.
-    if (this.wireframeVisible && !tile.wireframe) {
-      tile.wireframe = buildTileWireframe(tile.mesh.geometry, liftScale);
-      tile.mesh.add(tile.wireframe);
-    }
-    if (tile.wireframe) tile.wireframe.visible = this.wireframeVisible;
-    if (this.roadProfileVisible && tile.roadProfile && !tile.roadProfileLines) {
-      tile.roadProfileLines = buildRoadProfileLines(tile.roadProfile, tile.surface);
-      tile.mesh.add(tile.roadProfileLines);
-    }
-    if (tile.roadProfileLines) tile.roadProfileLines.visible = this.roadProfileVisible;
   }
 
-  _removeRoadProfileLines(tile) {
-    if (!tile.roadProfileLines) return;
-    if (this.roadBedInspection?.tile === tile) this.clearRoadBedInspection();
-    tile.mesh.remove(tile.roadProfileLines);
-    for (const line of tile.roadProfileLines.children) line.geometry.dispose();
-    tile.roadProfileLines = null;
+  _removeRoadProfileLines(part) {
+    if (!part.roadProfileLines) return;
+    if (this.roadBedInspection?.part === part) this.clearRoadBedInspection();
+    part.mesh.remove(part.roadProfileLines);
+    for (const line of part.roadProfileLines.children) line.geometry.dispose();
+    part.roadProfileLines = null;
   }
 
   /** Physics only on the DETAIL_RADIUS circle (kept even while an ancestor is drawn in its place). */
   _syncBody(tile) {
-    const want = this._isPhysicsTile(tile.z, tile.x, tile.y) && !!tile.heightfield;
-    if (want && !tile.body) {
-      // Heightfield is data[x][y] with local y pointing north once rotated
-      // upright, so it's anchored at the south-west node.
-      const { heights, cols, rows, elementSize } = tile.heightfield;
-      const data = [];
-      for (let c = 0; c < cols; c++) {
-        const column = new Array(rows);
-        for (let k = 0; k < rows; k++) column[k] = heights[(rows - 1 - k) * cols + c];
-        data.push(column);
+    const want = this._isPhysicsTile(tile.z, tile.x, tile.y);
+    for (const part of tile.parts) {
+      if (want && part.heightfield && !part.body) {
+        // Heightfield is data[x][y] with local y pointing north once rotated
+        // upright, so it's anchored at the south-west node.
+        const { heights, cols, rows, elementSize } = part.heightfield;
+        const data = [];
+        for (let c = 0; c < cols; c++) {
+          const column = new Array(rows);
+          for (let k = 0; k < rows; k++) column[k] = heights[(rows - 1 - k) * cols + c];
+          data.push(column);
+        }
+        const shape = new CANNON.Heightfield(data, { elementSize });
+        shape.collisionFilterGroup = GROUND_COLLISION_GROUP;
+        const body = new CANNON.Body({ mass: 0, material: GROUND_MATERIAL });
+        body.position.set(tile.mesh.position.x + part.x0, 0, tile.mesh.position.z + part.z0 + (rows - 1) * elementSize);
+        body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        body.collisionFilterGroup = GROUND_COLLISION_GROUP;
+        body.addShape(shape);
+        this.world.addBody(body);
+        part.body = body;
+      } else if (!want && part.body) {
+        this.world.removeBody(part.body);
+        part.body = null;
       }
-      const shape = new CANNON.Heightfield(data, { elementSize });
-      shape.collisionFilterGroup = GROUND_COLLISION_GROUP;
-      const body = new CANNON.Body({ mass: 0, material: GROUND_MATERIAL });
-      body.position.set(tile.mesh.position.x, 0, tile.mesh.position.z + (rows - 1) * elementSize);
-      body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-      body.collisionFilterGroup = GROUND_COLLISION_GROUP;
-      body.addShape(shape);
-      this.world.addBody(body);
-      tile.body = body;
-    } else if (!want && tile.body) {
-      this.world.removeBody(tile.body);
-      tile.body = null;
     }
+  }
+
+  /** True once every part of DETAIL_ZOOM tile `tile` has its physics body. */
+  _hasPhysics(tile) {
+    return !!tile && tile.parts.every((part) => part.body);
   }
 
   /**
@@ -742,11 +794,12 @@ export class TerrainManager {
       if (this.loading.has(leaf.key)) continue;
       const tile = this.tiles.get(leaf.key);
       let kind;
+      let parts = null;
       if (!tile) {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'tile';
-      } else if (leaf.detail && (tile.roadBed !== this.roadBed || tile.detailCells !== this._detailCellsAt(leaf.x, leaf.y))) {
+      } else if (leaf.detail && (parts = this._staleParts(tile)).length) {
         const failedAt = this._failedAt.get(leaf.key);
         if (failedAt != null && now - failedAt < FAILED_RETRY_MS) continue;
         kind = 'surface';
@@ -761,7 +814,7 @@ export class TerrainManager {
       const aerialCost = this._aerialCost(kind, aerialBoost);
       if (aerialCost && aerialCost > aerialBudget) continue; // imagery-free jobs (physics tiles) never wait on imagery
       const playerTile = kind === 'texture' && aerialBoost > AERIAL_BOOST[DetailLevel.HIGH];
-      const job = { ...leaf, kind, aerialBoost, aerialCost, tileBoost: tile?.aerialBoost, playerTile };
+      const job = { ...leaf, kind, parts, aerialBoost, aerialCost, tileBoost: tile?.aerialBoost, playerTile };
       const score = this._jobScore(job, kind);
       if (score < bestScore) {
         bestScore = score;
@@ -839,24 +892,22 @@ export class TerrainManager {
         return;
       }
       if (job.kind === 'surface') {
-        // Rebuilt in place (texture kept) so the car never loses its ground.
-        const detail = this._detailParams(x, y);
-        const elevationBorder = roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256, detail.widthMeters / detail.cells);
+        // Stale parts rebuilt in place (texture kept) so the car never loses its ground.
+        const detail = this._detailParams(x, y, job.parts);
+        const elevationBorder = this._detailElevationBorder(z, y, detail);
         const { elev, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, detail, signal });
         const tile = this.tiles.get(key);
         if (aborted || epoch !== this._loadEpoch || !tile) return;
         if (surface && elev?.ok) {
-          this._replaceDetailSurface(tile, surface, detail);
+          this._setDetailParts(tile, surface, detail);
           this._noteElevationFallback(tile, elev);
         } else this._failedAt.set(key, performance.now());
         return;
       }
 
       const { aerialBoost } = job;
-      const detail = z === DETAIL_ZOOM ? this._detailParams(x, y) : null;
-      const elevationBorder = detail
-        ? roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256, detail.widthMeters / detail.cells)
-        : 0;
+      const detail = z === DETAIL_ZOOM ? this._detailParams(x, y, this._partCells(x, y)) : null;
+      const elevationBorder = detail ? this._detailElevationBorder(z, y, detail) : 0;
       const imagery = aerialBoost === NO_IMAGERY ? null : aerialBoost;
       const { elev, mips, swatch, surface, aborted } = await loadTileData({ z, x, y, elevationBorder, aerialBoost: imagery, detail, signal });
       if (aborted || epoch !== this._loadEpoch || this.tiles.has(key)) {
@@ -904,25 +955,47 @@ export class TerrainManager {
     }
   }
 
-  /** Worker parameters for a DETAIL_ZOOM tile's surface: its size in the local frame. */
-  _detailParams(x, y) {
+  /** Worker parameters for `parts` ([{ index, cells }]) of a DETAIL_ZOOM tile's surface: its size in the local frame. */
+  _detailParams(x, y, parts) {
     const z = DETAIL_ZOOM;
     const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
     const se = latLonToLocal(tileY2lat(y + 1, z), tileX2lon(x + 1, z), this.originLat, this.originLon, this.scaleLat);
     return {
       widthMeters: se.x - nw.x,
       heightMeters: se.z - nw.z,
-      cells: this._detailCellsAt(x, y),
+      parts,
+      marginCells: Math.min(this.detailCells, this.nearDetailCells, this.superDetailCells),
       heightOffset: this.heightOffset,
       skirtDepth: DETAIL_SKIRT_DEPTH,
       roadBed: this.roadBed,
     };
   }
 
-  /** Cells across the DETAIL_ZOOM tile (x, y): finer in the block around the player. */
-  _detailCellsAt(x, y) {
-    const level = detailLevelForOffset(x - this._centerX, y - this._centerY);
-    return level === DetailLevel.HIGH ? this.nearDetailCells : this.detailCells;
+  /** Elevation border (px) a detail tile's road bed reads around it, for its coarsest possible part cells. */
+  _detailElevationBorder(z, y, detail) {
+    return roadBedBorderPx(tileSizeMeters(z, tileY2lat(y + 0.5, z)) / 256, detail.widthMeters / DETAIL_SPLIT / detail.marginCells);
+  }
+
+  /** [{ index, cells }] for every part of DETAIL_ZOOM tile (x, y): finer near the player's part. */
+  _partCells(x, y) {
+    const parts = [];
+    for (let index = 0; index < DETAIL_SPLIT * DETAIL_SPLIT; index++) {
+      const dx = x * DETAIL_SPLIT + (index % DETAIL_SPLIT) - this._partX;
+      const dy = y * DETAIL_SPLIT + Math.floor(index / DETAIL_SPLIT) - this._partY;
+      const level = partDetailLevel(dx, dy);
+      const cells =
+        level === DetailLevel.SUPER ? this.superDetailCells : level === DetailLevel.HIGH ? this.nearDetailCells : this.detailCells;
+      parts.push({ index, cells });
+    }
+    return parts;
+  }
+
+  /** Parts of a loaded detail tile built with other cells or road bed setting than wanted now. */
+  _staleParts(tile) {
+    return this._partCells(tile.x, tile.y).filter(({ index, cells }) => {
+      const part = tile.parts[index];
+      return part.cells !== cells || part.roadBed !== this.roadBed;
+    });
   }
 
   /** Records (and logs once) a tile whose elevation source had no data, so it stood in a coarser zoom's. */
@@ -933,48 +1006,63 @@ export class TerrainManager {
     console.warn(`Terrain elevation has no data for ${tile.key}, using zoom ${tile.elevationFallbackZoom} instead`);
   }
 
-  /** Detail tile from the worker's surface: positions are relative to the NW corner. */
-  _addDetailTile({ z, x, y, key }, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, mips, aerialBoost, { roadBed, cells }) {
-    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
+  /** Detail tile from the worker's surface parts: a group at the NW corner, part positions relative to it. */
+  _addDetailTile({ z, x, y, key }, parts, mips, aerialBoost, detail) {
     const nw = latLonToLocal(tileY2lat(y, z), tileX2lon(x, z), this.originLat, this.originLon, this.scaleLat);
-    const tile = this._createTileMesh({ z, x, y, key }, geometry, surface, { x: nw.x, y: 0, z: nw.z }, mips, aerialBoost);
-    tile.heightfield = heightfield;
-    tile.roadBed = roadBed;
-    tile.detailCells = cells;
-    tile.roadProfile = roadProfile;
-    this._syncDebugLines(tile);
+    const tile = this._createTile({ z, x, y, key }, new THREE.Group(), { x: nw.x, y: 0, z: nw.z }, mips, aerialBoost);
+    tile.partWidth = detail.widthMeters / DETAIL_SPLIT;
+    tile.partHeight = detail.heightMeters / DETAIL_SPLIT;
+    tile.parts = new Array(DETAIL_SPLIT * DETAIL_SPLIT).fill(null);
+    this._setDetailParts(tile, parts, detail);
     return tile;
   }
 
-  /** Swaps a detail tile's mesh geometry, heightfield and physics body for a rebuilt surface. */
-  _replaceDetailSurface(tile, { mesh: gridMesh, cols, rows, heightfield, roadProfile }, { roadBed, cells }) {
-    const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
-    tile.mesh.geometry.dispose();
-    tile.mesh.geometry = geometry;
-    tile.surface = surface;
-    tile.heightfield = heightfield;
-    tile.roadBed = roadBed;
-    tile.detailCells = cells;
-    tile.roadProfile = roadProfile;
-    this._removeRoadProfileLines(tile);
-    tile.surfaceRevision++;
+  /** Installs worker-built parts in a detail tile, replacing (mesh, heightfield, physics body) any it had. */
+  _setDetailParts(tile, parts, { roadBed, parts: requested }) {
+    let replaced = false;
+    for (const { index, x0, z0, mesh: gridMesh, cols, rows, heightfield, roadProfile } of parts) {
+      const old = tile.parts[index];
+      if (old) {
+        this._disposePart(old);
+        replaced = true;
+      }
+      const { geometry, surface } = geometryFromGridMesh(gridMesh, cols, rows);
+      const mesh = this._terrainMesh(geometry, tile.material, true);
+      tile.mesh.add(mesh);
+      tile.parts[index] = {
+        tile,
+        mesh,
+        surface,
+        heightfield,
+        roadProfile,
+        x0,
+        z0,
+        cells: requested.find((part) => part.index === index).cells,
+        roadBed,
+        meshBytes: geometryBytes(geometry),
+        body: null,
+        border: null,
+        wireframe: null,
+        roadProfileLines: null,
+      };
+    }
+    if (replaced) tile.surfaceRevision++;
+    tile.meshBytes = tile.parts.reduce((n, part) => n + (part?.meshBytes ?? 0), 0);
     this._failedAt.delete(tile.key);
-    tile.meshBytes = Object.values(geometry.attributes).reduce((n, attr) => n + attr.array.byteLength, geometry.index.array.byteLength);
-    if (tile.border) {
-      this.scene.remove(tile.border);
-      tile.border.geometry.dispose();
-      tile.border = null;
-    }
-    if (tile.wireframe) {
-      tile.mesh.remove(tile.wireframe); // shares the (already disposed) tile geometry
-      tile.wireframe = null;
-    }
-    if (tile.body) {
-      this.world.removeBody(tile.body);
-      tile.body = null;
-    }
     this._syncDebugLines(tile);
     this._syncBody(tile);
+  }
+
+  /** Frees a part's geometry, debug lines and physics body (the material is the tile's). */
+  _disposePart(part) {
+    part.mesh.removeFromParent();
+    part.mesh.geometry.dispose();
+    if (part.border) {
+      this.scene.remove(part.border);
+      part.border.geometry.dispose();
+    }
+    this._removeRoadProfileLines(part);
+    if (part.body) this.world.removeBody(part.body);
   }
 
   _addTile({ z, x, y, key }, elev, mips, aerialBoost) {
@@ -992,40 +1080,45 @@ export class TerrainManager {
       scaleLat: this.scaleLat,
       skirtDepth: cellMeters * SKIRT_DEPTH_CELLS + 2,
     });
-    return this._createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost);
+    const material = terrainMaterial();
+    const mesh = this._terrainMesh(geometry, material, false);
+    const tile = this._createTile({ z, x, y, key }, mesh, anchor, mips, aerialBoost, material);
+    tile.parts = [{ tile, mesh, surface, meshBytes: geometryBytes(geometry), border: null, wireframe: null }];
+    tile.meshBytes = tile.parts[0].meshBytes;
+    this._syncDebugLines(tile);
+    return tile;
   }
 
-  _createTileMesh({ z, x, y, key }, geometry, surface, anchor, mips, aerialBoost) {
-    const material = new THREE.MeshStandardMaterial({ roughness: 1, fog: false });
-    material.onBeforeCompile = applyTerrainShading;
+  /** A terrain mesh; the shadow frustum only spans metres around the car, so only detail tiles receive. */
+  _terrainMesh(geometry, material, receiveShadow) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.renderOrder = GROUND_RENDER_ORDER.terrain;
-    mesh.receiveShadow = z === DETAIL_ZOOM; // the shadow frustum only spans metres around the car
-    mesh.position.set(anchor.x, anchor.y, anchor.z);
+    mesh.receiveShadow = receiveShadow;
     mesh.matrixAutoUpdate = false; // never moves
-    mesh.updateMatrix();
-    mesh.visible = false; // _updateDisplay decides
-    this.scene.add(mesh);
+    return mesh;
+  }
 
-    let meshBytes = 0;
-    for (const attr of Object.values(geometry.attributes)) meshBytes += attr.array.byteLength;
-    meshBytes += geometry.index.array.byteLength;
+  /** Tile record around `root` (a coarse tile's mesh, or a detail tile's group of part meshes) placed at `anchor`. */
+  _createTile({ z, x, y, key }, root, anchor, mips, aerialBoost, material = terrainMaterial()) {
+    root.position.set(anchor.x, anchor.y, anchor.z);
+    root.matrixAutoUpdate = false; // never moves
+    root.updateMatrix();
+    root.visible = false; // _updateDisplay decides
+    this.scene.add(root);
 
     const tile = {
       key,
       z,
       x,
       y,
-      mesh,
-      surface,
-      heightfield: null, // DETAIL_ZOOM only
+      mesh: root,
+      material,
+      parts: [],
       swatch: null, // { size, rgb }: low-res imagery colours (tileWorker.js)
       surfaceRevision: 0, // bumped when the surface is rebuilt in place
-      body: null,
-      lines: null,
       aerialBoost: 0,
       texBytes: 0,
-      meshBytes,
+      meshBytes: 0,
       hiddenSince: performance.now(),
     };
     tile.ancestorKeys = this._ancestorKeys(tile);
@@ -1055,7 +1148,7 @@ export class TerrainManager {
   }
 
   _applyTileTexture(tile, tex) {
-    const material = tile.mesh.material;
+    const material = tile.material;
     const old = material.map;
     material.map = tex;
     if (!old) {
@@ -1068,21 +1161,15 @@ export class TerrainManager {
 
   _disposeTile(tile) {
     this._uploads.cancel(tile);
-    if (tile.mesh.visible) this.dissolve?.dissolveMesh(tile.mesh);
+    if (tile.mesh.visible) this._dissolveTile(tile);
     this.scene.remove(tile.mesh);
-    tile.mesh.geometry.dispose();
-    const map = tile.mesh.material.map;
+    for (const part of tile.parts) this._disposePart(part);
+    const map = tile.material.map;
     if (map) {
       closeMips(map.mipmaps); // if never uploaded
       map.dispose();
     }
-    tile.mesh.material.dispose();
-    if (tile.border) {
-      this.scene.remove(tile.border);
-      tile.border.geometry.dispose();
-    }
-    this._removeRoadProfileLines(tile);
-    if (tile.body) this.world.removeBody(tile.body);
+    tile.material.dispose();
     this.tiles.delete(tile.key);
     for (const k of tile.ancestorKeys) {
       const count = (this._loadedBelow.get(k) || 0) - 1;
@@ -1102,7 +1189,7 @@ export class TerrainManager {
 
   _allPhysicsLoaded() {
     for (const { dx, dy } of DETAIL_OFFSETS) {
-      if (!this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy))?.body) return false;
+      if (!this._hasPhysics(this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy)))) return false;
     }
     return true;
   }
@@ -1127,7 +1214,7 @@ export class TerrainManager {
     let physicsLoaded = 0;
     if (this._lastSelect) {
       for (const { dx, dy } of DETAIL_OFFSETS) {
-        if (this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy))?.body) physicsLoaded++;
+        if (this._hasPhysics(this.tiles.get(tileKey(DETAIL_ZOOM, this._centerX + dx, this._centerY + dy)))) physicsLoaded++;
       }
     }
     let farLoaded = 0;
@@ -1171,11 +1258,12 @@ export class TerrainManager {
     this._pump();
   }
 
-  /** Cells across a detail tile, and across the ones around the player (graphics detail setting); loaded tiles rebuild in place. */
-  setDetailCells(cells, nearCells = cells) {
-    if (cells === this.detailCells && nearCells === this.nearDetailCells) return;
+  /** Cells across a MEDIUM, HIGH and SUPER detail tile part (graphics detail setting); loaded parts rebuild in place. */
+  setDetailCells(cells, nearCells = cells, superCells = nearCells) {
+    if (cells === this.detailCells && nearCells === this.nearDetailCells && superCells === this.superDetailCells) return;
     this.detailCells = cells;
     this.nearDetailCells = nearCells;
+    this.superDetailCells = superCells;
     this._pump();
   }
 
@@ -1193,21 +1281,24 @@ export class TerrainManager {
     this.clearRoadBedInspection();
     if (!this.roadProfileVisible) return null;
     let best = { dist: maxPx };
-    let bestTile = null;
+    let bestPart = null;
     for (const tile of this.tiles.values()) {
-      const causes = tile.roadProfile?.causes;
-      if (!causes || !tile.roadProfileLines || !tile.mesh.visible) continue;
-      const pick = pickCauseDot(tile.mesh, tile.surface, causes, camera, sx, sy, width, height, best);
-      if (pick === best) continue;
-      best = pick;
-      bestTile = tile;
+      if (!tile.mesh.visible) continue;
+      for (const part of tile.parts) {
+        const causes = part.roadProfile?.causes;
+        if (!causes || !part.roadProfileLines) continue;
+        const pick = pickCauseDot(part.mesh, part.surface, causes, camera, sx, sy, width, height, best);
+        if (pick === best) continue;
+        best = pick;
+        bestPart = part;
+      }
     }
-    if (!bestTile) return null;
+    if (!bestPart) return null;
     const { vertex } = best;
-    const { causes, records } = bestTile.roadProfile;
-    const group = buildRoadBedSources(bestTile.surface, vertex, records[vertex], causes[vertex]);
-    bestTile.roadProfileLines.add(group);
-    this.roadBedInspection = { tile: bestTile, vertex, record: records[vertex], cause: causes[vertex], group };
+    const { causes, records } = bestPart.roadProfile;
+    const group = buildRoadBedSources(bestPart.surface, vertex, records[vertex], causes[vertex]);
+    bestPart.roadProfileLines.add(group);
+    this.roadBedInspection = { part: bestPart, vertex, record: records[vertex], cause: causes[vertex], group };
     return this.roadBedInspection;
   }
 
@@ -1215,9 +1306,9 @@ export class TerrainManager {
   getRoadBedInspection() {
     const inspection = this.roadBedInspection;
     if (!inspection) return null;
-    const { tile, vertex, record, cause } = inspection;
-    const position = causeDotWorldPosition(tile.mesh, tile.surface, vertex, new THREE.Vector3());
-    return { record, cause, position, shown: tile.mesh.visible && tile.roadProfileLines.visible };
+    const { part, vertex, record, cause } = inspection;
+    const position = causeDotWorldPosition(part.mesh, part.surface, vertex, new THREE.Vector3());
+    return { record, cause, position, shown: part.tile.mesh.visible && part.roadProfileLines.visible };
   }
 
   clearRoadBedInspection() {
@@ -1249,14 +1340,20 @@ export class TerrainManager {
     const fy = lat2tileY(lat, DETAIL_ZOOM);
     const cx = Math.floor(fx);
     const cy = Math.floor(fy);
+    const partX = Math.floor(fx * DETAIL_SPLIT);
+    const partY = Math.floor(fy * DETAIL_SPLIT);
     const moved =
       !this._lastSelect ||
       cx !== this._centerX ||
       cy !== this._centerY ||
+      partX !== this._partX ||
+      partY !== this._partY ||
       Math.hypot(fx - this._lastSelect.fx, fy - this._lastSelect.fy) > RESELECT_DISTANCE_TILES;
     if (moved || awaitAll) {
       this._centerX = cx;
       this._centerY = cy;
+      this._partX = partX;
+      this._partY = partY;
       this._lastSelect = { fx, fy };
       this._select();
       this._updateDisplay();
@@ -1294,11 +1391,13 @@ export class TerrainManager {
     for (const tile of this.tiles.values()) {
       const b = tile.z === DETAIL_ZOOM ? buckets.detail : buckets.far;
       b.loaded++;
-      if (tile.mesh.visible) triangles += tile.mesh.geometry.index.count / 3;
+      for (const part of tile.parts) {
+        if (tile.mesh.visible) triangles += part.mesh.geometry.index.count / 3;
+        if (part.body) b.memoryBytes += part.heightfield.heights.length * 8; // JS number arrays
+      }
       if (tile.elevationFallbackZoom != null) elevationFallbacks++;
       if (!this._visible.has(tile.key)) b.pendingRemoval++;
       b.memoryBytes += tile.texBytes + tile.meshBytes;
-      if (tile.body) b.memoryBytes += tile.heightfield.heights.length * 8; // JS number arrays
     }
     for (const leaf of this._leaves) {
       if (!this.tiles.has(leaf.key)) (leaf.z === DETAIL_ZOOM ? buckets.detail : buckets.far).pending++;
