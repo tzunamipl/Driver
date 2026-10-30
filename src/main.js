@@ -792,6 +792,7 @@ const rallySession =
           navigationPanel.setScenarioPoints(points);
         },
         onFinishHold: (held) => (held ? menuPark.onOpen() : menuPark.onClose()),
+        onStageLive: hudElementsSettings.setRallyStage,
         openMainMenu: mainMenu.open,
         screenFade: createScreenFade(),
         snapCamera: cameraFollow.snap,

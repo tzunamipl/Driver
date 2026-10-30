@@ -4,8 +4,9 @@
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* safe: a window taller / wider than the screen stays reachable from its top-left. */
+  align-items: safe center;
+  justify-content: safe center;
   padding: 16px;
   box-sizing: border-box;
   background: var(--w95-desktop);
@@ -154,9 +155,12 @@
 #menu-settings {
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   line-height: 1.5;
 }
+/* Fills the window minus its padding and margins, so nothing is pushed off-screen. */
 #main-menu #hud-body {
+  --hud-body-w: min(130ch, calc(100vw - 72px));
   max-height: none;
 }
 /* Already in the menu. */

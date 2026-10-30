@@ -309,7 +309,9 @@ export const GRAPHICS_DETAIL_LEVELS = {
     rocks: { drawDistance: ROCK_DRAW_DISTANCE_M, areaPerItem: ROCK_AREA_PER_ROCK_M2 },
   },
 };
-export const DEFAULT_GRAPHICS_DETAIL = 'high';
+// Phones / tablets: same test as styles/mobile.css; picks lighter defaults until the player changes them.
+export const IS_MOBILE = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 800px)').matches;
+export const DEFAULT_GRAPHICS_DETAIL = IS_MOBILE ? 'low' : 'high';
 
 // ---------- Minimap HUD ----------
 export const MINIMAP_MIN_ZOOM = 3; // continent
@@ -351,7 +353,7 @@ export const RALLY_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.rallyHandbrakeHold.v1'; 
 export const FREE_ROAM_HANDBRAKE_HOLD_STORAGE_KEY = 'driver.freeRoamHandbrakeHold.v1'; // Settings > Gameplay > Free roam
 export const FREE_ROAM_PAINT_DAMAGE_STORAGE_KEY = 'driver.freeRoamPaintDamage.v1'; // Settings > Gameplay > Free roam: Respray fix button
 export const FREE_ROAM_DIRT_DAMAGE_STORAGE_KEY = 'driver.freeRoamDirtDamage.v1'; // Settings > Gameplay > Free roam: Wash fix button
-export const HUD_ELEMENTS_STORAGE_KEY = 'driver.hudElements.v1'; // Settings > Gameplay > HUD: { [modeId]: { tach, aux, lamps, minimap, all } }, missing = shown
+export const HUD_ELEMENTS_STORAGE_KEY = 'driver.hudElements.v1'; // Settings > Gameplay > HUD: { [modeId | 'rallyStage']: { tach, aux, lamps, minimap, garage, players, navigation, itinerary, all } }, missing = shown (on stage: minimap, players, navigation, itinerary hidden)
 export const UNITS_STORAGE_KEY = 'driver.units.v1'; // Settings > Gameplay: 'metric' | 'imperial' (lib/units.js)
 export const EDITOR_PACENOTE_BOARDS_STORAGE_KEY = 'driver.editorPacenoteBoards.v1'; // '0' = editor hides pacenote boards
 export const EDITOR_PACENOTES_BOTH_STORAGE_KEY = 'driver.editorPacenotesBoth.v1'; // '1' = Generate does both stage versions

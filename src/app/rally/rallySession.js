@@ -239,7 +239,7 @@ export const planStart = (plan) => itemPoints(plan?.items[0])[0] ?? null;
  * @param {ReturnType<import('../../ui/screenFade.js').createScreenFade>} [deps.screenFade] - liaison skips need it.
  * @param {() => void} [deps.snapCamera] - the camera jumps to the car (after a skip).
  */
-export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, onStartLine, onFinishLine, getTimeOfDayMs, setClock, setLiveWeather, onMapPoints, onFinishHold, openMainMenu, screenFade, snapCamera }) {
+export function createRallySession({ scene, world, streets, terrain, viewFrame, carManager, addressSearch, routeGuidance, picker, initialPick, getVehicleId, switchVehicle, parkCar, onTyreService, onRefuel, onService, onInspect, onRallyInfo, canvas, camera, keepsProgress, playerId, getPlayerName, onSparkle, onRepair, onPropHit, onStartBeep, onStartLine, onFinishLine, getTimeOfDayMs, setClock, setLiveWeather, onMapPoints, onFinishHold, onStageLive, openMainMenu, screenFade, snapCamera }) {
   const conditions = createRallyConditions({ setClock, setLiveWeather });
   const clockMs = () => conditions.displayMs(getTimeOfDayMs?.() ?? Date.now());
   const scenery = createControlScenery({ scene, world, streets, terrain, viewFrame, onSparkle, onHit: onPropHit, getTimeOfDayMs: clockMs });
@@ -255,6 +255,7 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
   let pacenoteRun = null; // the current stage's, when it has pacenotes
   let finished = false;
   let finishHeld = false;
+  let stageLive = false; // stage clock running
   let busy = false; // picking / loading / spawning
   let prev = null; // car world position after the last step
   let refuelWaitM = null; // metres driven since passing a refuel point whose menu waits for a stop
@@ -1174,6 +1175,11 @@ export function createRallySession({ scene, world, streets, terrain, viewFrame, 
         // A beep as each countdown light comes on.
         if (red > shownRed) onStartBeep?.(false);
         shownRed = red;
+      }
+      const live = run?.state.phase === 'running';
+      if (live !== stageLive) {
+        stageLive = live;
+        onStageLive?.(live);
       }
       // Results up: parked under the drone, as with a menu open, until a new run starts.
       const hold = finished && !!plan;
