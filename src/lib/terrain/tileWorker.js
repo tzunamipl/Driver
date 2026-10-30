@@ -204,6 +204,8 @@ async function cropMosaic(z, ax, ay, own, x0, y0, w, border) {
 }
 
 const SWATCH_SIZE = 16; // px per side
+// Bigger levels go out in pieces of this size, uploaded a few per frame (terrain/mosaicUpload.js).
+const MOSAIC_PIECE = 1024; // px per side
 
 /**
  * { mips, swatch }: mip chain (full size down to 1x1) for tile (z, x, y), stitched from its 2^boost x 2^boost child tiles.
@@ -282,7 +284,25 @@ function buildMips(canvas) {
     }
     levels.push(level);
   }
-  return { mips: levels.map((level) => level.transferToImageBitmap()), swatch };
+  return { mips: levels.map((level) => (level.width > MOSAIC_PIECE ? splitLevel(level) : level.transferToImageBitmap())), swatch };
+}
+
+/** { width, height, pieces: [{ x, y, bitmap }] } of MOSAIC_PIECE squares. */
+function splitLevel(level) {
+  const pieces = [];
+  for (let y = 0; y < level.height; y += MOSAIC_PIECE) {
+    for (let x = 0; x < level.width; x += MOSAIC_PIECE) {
+      const piece = new OffscreenCanvas(MOSAIC_PIECE, MOSAIC_PIECE);
+      piece.getContext('2d').drawImage(level, x, y, MOSAIC_PIECE, MOSAIC_PIECE, 0, 0, MOSAIC_PIECE, MOSAIC_PIECE);
+      pieces.push({ x, y, bitmap: piece.transferToImageBitmap() });
+    }
+  }
+  return { width: level.width, height: level.height, pieces };
+}
+
+/** Every ImageBitmap of a mip chain (pieced levels included). */
+function mipBitmaps(mips) {
+  return mips.flatMap((mip) => (mip.pieces ? mip.pieces.map((piece) => piece.bitmap) : [mip]));
 }
 
 self.onmessage = async ({ data: job }) => {
@@ -305,12 +325,12 @@ self.onmessage = async ({ data: job }) => {
   const mips = aerial?.mips ?? null;
   const swatch = aerial?.swatch ?? null;
   if (controller.signal.aborted) {
-    mips?.forEach((mip) => mip.close());
+    if (mips) mipBitmaps(mips).forEach((bitmap) => bitmap.close());
     self.postMessage({ id, aborted: true });
     return;
   }
   const transfer = [];
-  if (mips) transfer.push(...mips);
+  if (mips) transfer.push(...mipBitmaps(mips));
   if (swatch) transfer.push(swatch.rgb.buffer);
   if (detail) {
     // Failed elevation builds flat (main thread decides what to do with it).

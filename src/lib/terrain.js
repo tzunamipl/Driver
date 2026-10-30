@@ -16,6 +16,7 @@ import {
 } from './terrain/tileMesh.js';
 import { sampleHeight } from './terrain/surfaceGrid.js';
 import { roadBedBorderPx } from './terrain/roadBed.js';
+import { createMosaicUploads } from './terrain/mosaicUpload.js';
 import './terrain/heightfieldRayFix.js';
 import { skyUniforms, SKY_GRADIENT_GLSL } from './skyDome.js';
 
@@ -214,8 +215,23 @@ function tileKey(z, x, y) {
   return `${z}/${x}/${y}`;
 }
 
+/** Levels are ImageBitmaps, pieced levels (tileWorker.js) or, on a pieced texture, size placeholders. */
 function closeMips(mips) {
-  mips?.forEach((mip) => mip.close());
+  mips?.forEach((mip) => (mip.pieces ? mip.pieces.forEach((piece) => piece.bitmap.close()) : mip.close?.()));
+}
+
+/** Aerial texture over a mip chain (ImageBitmaps, or { width, height } placeholders for a pieced upload). */
+function aerialTexture(mips) {
+  const tex = new THREE.Texture(mips[0]);
+  tex.mipmaps = mips;
+  tex.generateMipmaps = false;
+  tex.flipY = false; // ignored for ImageBitmap anyway; UVs account for it
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /**
@@ -252,6 +268,8 @@ export class TerrainManager {
     this._leafKeys = new Set();
     this._visible = new Set();
     this.dissolve = null; // optional createDissolve(): shown tiles burst into particles as they go
+    this.renderer = null; // set by main.js: pieced mosaics upload through it
+    this._mosaics = createMosaicUploads();
     this._displayDirty = false; // a load finished; _updateDisplay() runs on the next update()
     this._detailWaiters = [];
     // Bumped by recenter() so in-flight loads for the old origin bail out.
@@ -1014,31 +1032,35 @@ export class TerrainManager {
 
   /** Swaps in a texture from the worker's mip chain (none: untextured); the bitmaps are freed once on the GPU. */
   _setTileTexture(tile, mips, aerialBoost) {
+    this._mosaics.cancel(tile);
+    tile.aerialBoost = aerialBoost;
+    if (!mips) return;
+    tile.texBytes = Math.round(mips[0].width * mips[0].height * 4 * (4 / 3)); // + mipmaps
+    if (mips[0].pieces) {
+      // Too big for one frame's upload: the old texture stays until every piece is on the GPU.
+      const tex = aerialTexture(mips.map(({ width, height }) => ({ width, height })));
+      this._mosaics.start(tile, tex, mips, () => this._applyTileTexture(tile, tex));
+      return;
+    }
+    const tex = aerialTexture(mips);
+    tex.onUpdate = () => closeMips(mips);
+    this._applyTileTexture(tile, tex);
+  }
+
+  _applyTileTexture(tile, tex) {
     const material = tile.mesh.material;
     const old = material.map;
-    if (mips) {
-      const tex = new THREE.Texture(mips[0]);
-      tex.mipmaps = mips;
-      tex.generateMipmaps = false;
-      tex.flipY = false; // ignored for ImageBitmap anyway; UVs account for it
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.onUpdate = () => closeMips(mips);
-      tex.needsUpdate = true;
-      material.map = tex;
-      tile.texBytes = Math.round(mips[0].width * mips[0].height * 4 * (4 / 3)); // + mipmaps
-      if (!old) material.needsUpdate = true;
+    material.map = tex;
+    if (!old) {
+      material.needsUpdate = true;
+      return;
     }
-    if (old && old !== material.map) {
-      closeMips(old.mipmaps);
-      old.dispose();
-    }
-    tile.aerialBoost = aerialBoost;
+    closeMips(old.mipmaps);
+    old.dispose();
   }
 
   _disposeTile(tile) {
+    this._mosaics.cancel(tile);
     if (tile.mesh.visible) this.dissolve?.dissolveMesh(tile.mesh);
     this.scene.remove(tile.mesh);
     tile.mesh.geometry.dispose();
@@ -1234,6 +1256,8 @@ export class TerrainManager {
     } else if (this._displayDirty) {
       this._updateDisplay();
     }
+
+    if (this.renderer) this._mosaics.update(this.renderer);
 
     const now = performance.now();
     if (now - this._lastUnloadCheck > UNLOAD_CHECK_INTERVAL_MS) {

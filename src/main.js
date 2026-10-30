@@ -283,6 +283,7 @@ const terrain = new TerrainManager(scene, world, initialViewOrigin.lat, initialV
 const buildings = new BuildingsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const dissolve = createDissolve(scene); // debug layer: what streams out on a teleport bursts into particles
 terrain.dissolve = dissolve;
+terrain.renderer = renderer;
 buildings.dissolve = dissolve;
 const streets = new StreetsManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);
 const rivers = new RiversManager(scene, world, initialViewOrigin.lat, initialViewOrigin.lon, terrain);

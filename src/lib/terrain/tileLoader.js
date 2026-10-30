@@ -28,7 +28,7 @@ function getWorkers() {
 }
 
 /**
- * Resolves to { elev: {heights, width, height, border?} | {error} | null, mips: ImageBitmap[] | null }
+ * Resolves to { elev: {heights, width, height, border?} | {error} | null, mips: (ImageBitmap | { width, height, pieces })[] | null }
  * (aerial mip chain, full size down to 1x1).
  * `elevation` false skips the elevation fetch; `elevationBorder` adds that
  * many pixels from the neighbouring tiles around it (see sampleHeight);
