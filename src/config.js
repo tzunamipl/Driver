@@ -255,12 +255,14 @@ export const STREAMING_BUDGET_MS = 6;
 // shadows: sun + street lamp shadow maps (contact shadows stay); particles: share of every effect's particles spawned.
 // antialias: 4x MSAA; colorGrade: overcast / temperature grade; lights: street lamp spotlights + exhaust flash light;
 // farBuildingsM: reach of the plain far building boxes.
-// terrainCells: cells across a detail terrain tile; terrainNearCells: across the 3x3 tiles around the car.
+// terrainCells: cells across a detail terrain tile part (a tile is 3x3 parts); terrainNearCells: across the parts
+// in the 3x3 tiles' area around the car; terrainSuperCells: across the 3x3 parts around the car.
 export const GRAPHICS_DETAIL_LEVELS = {
   low: {
     label: 'Low',
-    terrainCells: 13,
-    terrainNearCells: 15,
+    terrainCells: 3,
+    terrainNearCells: 4,
+    terrainSuperCells: 5,
     streamingBudgetMs: 3,
     roadsideDrawDistance: 100,
     lampGlints: false,
@@ -276,8 +278,9 @@ export const GRAPHICS_DETAIL_LEVELS = {
   },
   medium: {
     label: 'Medium',
-    terrainCells: 20,
-    terrainNearCells: 160,
+    terrainCells: 7,
+    terrainNearCells: 30,
+    terrainSuperCells: 50,
     streamingBudgetMs: 4.5,
     roadsideDrawDistance: 150,
     lampGlints: false,
@@ -293,8 +296,9 @@ export const GRAPHICS_DETAIL_LEVELS = {
   },
   high: {
     label: 'High',
-    terrainCells: 30,
-    terrainNearCells: 320,
+    terrainCells: 10,
+    terrainNearCells: 60,
+    terrainSuperCells: 100,
     streamingBudgetMs: STREAMING_BUDGET_MS,
     roadsideDrawDistance: ROADSIDE_DRAW_DISTANCE_M,
     lampGlints: true,

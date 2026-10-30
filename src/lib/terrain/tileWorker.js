@@ -1,6 +1,6 @@
 // Fetches + decodes terrain tiles off the main thread: Terrarium PNG ->
 // Float32 elevations, and an aerial mosaic -> ImageBitmap mip chain. Detail tiles
-// come back as a finished surface with the road bed and forest floor (detailSurface.js). Never throws:
+// come back as finished surface parts with the road bed and forest floor (detailSurface.js). Never throws:
 // a failed elevation comes back as {error}, no-data pixels are filled from the nearest ancestor that has
 // them (`fallbackZoom` says the coarsest used), missing aerial quadrants use coarser imagery.
 // Imagery also comes with a `swatch`: the mosaic's SWATCH_SIZE mip as RGB bytes (trees.js crown colours).
@@ -8,7 +8,7 @@
 // (shared elevation / road fetches are cached for other jobs, so they run on).
 import { AERIAL_URL, AERIAL_TILEMAP_URL, ELEVATION_URL, AERIAL_TILE_SIZE } from './tileUrls.js';
 import { loadRoadLines } from './roadBed.js';
-import { buildDetailSurface } from './detailSurface.js';
+import { buildDetailSurface, DETAIL_SPLIT } from './detailSurface.js';
 import { loadForestFloor } from './forestFloor.js';
 
 // Decoded elevations, shared by a tile, its neighbours' borders and overzoomed tiles cropping it.
@@ -313,7 +313,8 @@ self.onmessage = async ({ data: job }) => {
   const { id, z, x, y, elevation, elevationBorder = 0, aerialBoost, detail } = job;
   const controller = new AbortController();
   controllers.set(id, controller);
-  const cellMeters = detail && detail.widthMeters / detail.cells;
+  // Road / forest data reach for the coarsest part cells, so a part builds the same whatever else is in the job.
+  const cellMeters = detail && detail.widthMeters / DETAIL_SPLIT / detail.marginCells;
   const [elev, aerial, roadLines, floorAt] = await Promise.all([
     elevation ? loadElevation(z, x, y, elevationBorder) : null,
     aerialBoost != null ? loadAerial(z, x, y, aerialBoost, controller.signal).catch(() => null) : null,
@@ -341,9 +342,10 @@ self.onmessage = async ({ data: job }) => {
       self.postMessage({ id, elev: { error: String(err) }, mips, surface: null }, transfer);
       return;
     }
-    const { mesh, heightfield, roadProfile } = surface;
-    transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
-    transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer, roadProfile.causes.buffer);
+    for (const { mesh, heightfield, roadProfile } of surface) {
+      transfer.push(mesh.positions.buffer, mesh.normals.buffer, mesh.uvs.buffer, mesh.indices.buffer, heightfield.heights.buffer);
+      transfer.push(roadProfile.original.buffer, roadProfile.adjusted.buffer, roadProfile.causes.buffer);
+    }
     const elevResult = elev?.heights ? { ok: true, fallbackZoom: elev.fallbackZoom } : elev;
     self.postMessage({ id, elev: elevResult, mips, swatch, surface }, transfer);
     return;

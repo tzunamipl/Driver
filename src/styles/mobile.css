@@ -45,6 +45,7 @@
     right: 10px;
     gap: 6px;
   }
+  #gauges-row { gap: 6px; }
   #speedo {
     width: 152px;
     height: 152px;

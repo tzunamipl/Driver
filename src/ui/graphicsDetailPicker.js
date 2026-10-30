@@ -15,7 +15,7 @@ export function createGraphicsDetailPicker() {
     if (!targets) return;
     const { terrain, mainLoop, roadside, curbs, trees, bushes, rocks, buildings, shadowLights, streetLights, exhaustFlames, setAntialias, colorGrade } = targets;
     const level = GRAPHICS_DETAIL_LEVELS[id];
-    terrain.setDetailCells(level.terrainCells, level.terrainNearCells);
+    terrain.setDetailCells(level.terrainCells, level.terrainNearCells, level.terrainSuperCells);
     mainLoop.setStreamingBudgetMs(level.streamingBudgetMs);
     roadside.setDrawDistance(level.roadsideDrawDistance);
     curbs.setDrawDistance(level.roadsideDrawDistance);
